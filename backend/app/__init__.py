@@ -66,6 +66,11 @@ def _set_sqlite_pragmas(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
+        # Wait up to 5s for a competing writer instead of failing the request
+        # with "database is locked" the instant two writes collide — some
+        # dashboard GET paths commit, so brief writer overlap happens under
+        # load (audit finding CONC-1).
+        cursor.execute("PRAGMA busy_timeout=5000")
         # Enforce foreign keys (off by default in SQLite) so a delete of a
         # still-referenced master row fails loudly instead of silently
         # orphaning its dependents (audit finding H-2). Must be set per
