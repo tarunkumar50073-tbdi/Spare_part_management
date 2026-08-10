@@ -49,6 +49,23 @@ class SRVService:
             raise NotFoundError(f"SRV {srv_id} not found")
         return srv
 
+    def _claim_status(self, srv_id, expected_status, next_status, **fields):
+        """Compare-and-set gate for a status transition: atomically advance
+        expected_status -> next_status (with any transition fields) and return
+        the SRV, or raise if the row is no longer in expected_status — missing,
+        or already advanced by a concurrent request. Replaces the old
+        read-then-write _require_status check, which let two simultaneous
+        callers both pass and both move stock (audit finding DATA-2)."""
+        srv = self.repo.claim_status(srv_id, expected_status, next_status, **fields)
+        if srv is not None:
+            return srv
+        existing = self.repo.get_by_id(srv_id)
+        if existing is None:
+            raise NotFoundError(f"SRV {srv_id} not found")
+        raise BadRequestError(
+            f"SRV {srv_id} must be in {expected_status} status (currently {existing.status})"
+        )
+
     def ingest_gate_entry(self, data):
         """Inbound gate-entry API — Steps 1-2: Supplier Vehicle Arrives /
         ERP Gate Entry. Creates one PENDING_UNLOAD SRV line per invoice
@@ -132,37 +149,31 @@ class SRVService:
     def unload(self, srv_id):
         """Step 3: Material Unloading. Inbound API — ERP reports the truck
         has been unloaded; not a manual action in this app."""
-        srv = self._require_status(srv_id, "PENDING_UNLOAD")
-        return self.repo.update(srv, status="UNLOADED", unloaded_at=utcnow())
+        return self._claim_status(srv_id, "PENDING_UNLOAD", "UNLOADED", unloaded_at=utcnow())
 
     def verify(self, srv_id, qty_received, remarks=None):
         """Step 4: Material Verification. Inbound API — ERP owns barcode/
         invoice verification and pushes the final verified quantity; this
         app performs no verification of its own."""
-        srv = self._require_status(srv_id, "UNLOADED")
-        fields = {"status": "VERIFIED", "verified_at": utcnow(), "qty_received": qty_received}
+        fields = {"verified_at": utcnow(), "qty_received": qty_received}
         if remarks:
             fields["remarks"] = remarks
-        return self.repo.update(srv, **fields)
+        return self._claim_status(srv_id, "UNLOADED", "VERIFIED", **fields)
 
     def create_srv(self, srv_id, srv_no, short_note_no=None):
         """Steps 5-6: SRV Creation. Inbound API — ERP has already decided
         the SRV (short-material branch included) and pushes the finished
         record, srv_no included; this app does not mint srv_no itself."""
         with atomic():
-            srv = self._require_status(srv_id, "VERIFIED")
-            short_qty = max(float(srv.qty_invoiced or 0) - float(srv.qty_received or 0), 0)
-            is_short = short_qty > 0
-            srv = self.repo.update(
-                srv,
-                status="SRV_CREATED",
+            srv = self._claim_status(
+                srv_id, "VERIFIED", "SRV_CREATED",
                 srv_created_at=utcnow(),
                 srv_no=srv_no,
-                short_qty=short_qty,
-                is_short=is_short,
                 short_note_sent=bool(short_note_no),
                 short_note_no=short_note_no,
             )
+            short_qty = max(float(srv.qty_invoiced or 0) - float(srv.qty_received or 0), 0)
+            srv = self.repo.update(srv, short_qty=short_qty, is_short=short_qty > 0)
             self.audit_log_service.log("SRV_GENERATED", "SRV", srv.id, user="SYSTEM", quantity=srv.qty_received, remarks=srv.srv_no)
             return self._auto_route(srv)
 
@@ -181,8 +192,7 @@ class SRVService:
     def forward_to_rqc(self, srv_id):
         """Step 7: SRV forwarded to RQC for quality clearance. Called
         automatically from create_srv() — not a standalone user action."""
-        srv = self._require_status(srv_id, "SRV_CREATED")
-        return self.repo.update(srv, status="RQC_FORWARDED", rqc_forwarded_at=utcnow())
+        return self._claim_status(srv_id, "SRV_CREATED", "RQC_FORWARDED", rqc_forwarded_at=utcnow())
 
     def route(self, srv_id, routing=None):
         """Step 8: Material Routing. DOL -> Store Location directly (skips
@@ -193,44 +203,48 @@ class SRVService:
         qc_required flag — routing param is a manual-override escape hatch,
         not the normal path."""
         with atomic():
-            srv = self._require_status(srv_id, "RQC_FORWARDED")
-            routing = routing or ("OTHER" if srv.qc_required else "DOL")
+            routing = routing or ("OTHER" if self.get(srv_id).qc_required else "DOL")
             if routing not in ROUTING_TYPES:
                 raise BadRequestError(f"routing must be one of {ROUTING_TYPES}")
 
             if routing == "DOL":
-                srv = self.repo.update(srv, routing=routing, routed_at=utcnow(), status="STORED", stored_at=utcnow())
+                srv = self._claim_status(
+                    srv_id, "RQC_FORWARDED", "STORED",
+                    routing=routing, routed_at=utcnow(), stored_at=utcnow(),
+                )
                 self._receive_into_store(srv)
                 return srv
             if routing == "TOOL_ROOM":
-                return self.repo.update(
-                    srv, routing=routing, routed_at=utcnow(),
-                    status="FORWARDED_TOOL_ROOM", forwarded_tool_room_at=utcnow(),
+                return self._claim_status(
+                    srv_id, "RQC_FORWARDED", "FORWARDED_TOOL_ROOM",
+                    routing=routing, routed_at=utcnow(), forwarded_tool_room_at=utcnow(),
                 )
-            return self.repo.update(srv, routing=routing, routed_at=utcnow(), status="INSPECTION_PENDING")
+            return self._claim_status(
+                srv_id, "RQC_FORWARDED", "INSPECTION_PENDING",
+                routing=routing, routed_at=utcnow(),
+            )
 
     def inspect(self, srv_id, result, rejection_reason=None):
         """Steps 9-11: Quality Inspection -> Inspection Result -> Store
         Action (Approved -> stored, Rejected -> returned to supplier).
         Inbound API — called by RQC's own ERP once they clear (or reject)
         the part, not a manual action in this app."""
-        srv = self._require_status(srv_id, "INSPECTION_PENDING")
         if result not in ("Approved", "Rejected"):
             raise BadRequestError("result must be Approved or Rejected")
 
         if result == "Approved":
             with atomic():
-                srv = self.repo.update(
-                    srv, inspection_result=result, inspected_at=utcnow(),
-                    status="STORED", stored_at=utcnow(),
+                srv = self._claim_status(
+                    srv_id, "INSPECTION_PENDING", "STORED",
+                    inspection_result=result, inspected_at=utcnow(), stored_at=utcnow(),
                 )
                 self._receive_into_store(srv)
                 self.audit_log_service.log("QC_APPROVAL", "SRV", srv.id, user="SYSTEM", quantity=srv.qty_received)
                 return srv
-        return self.repo.update(
-            srv, inspection_result=result, inspected_at=utcnow(),
-            rejection_reason=rejection_reason,
-            status="RETURNED_TO_SUPPLIER", returned_at=utcnow(),
+        return self._claim_status(
+            srv_id, "INSPECTION_PENDING", "RETURNED_TO_SUPPLIER",
+            inspection_result=result, inspected_at=utcnow(),
+            rejection_reason=rejection_reason, returned_at=utcnow(),
         )
 
     def clear_tool_room(self, srv_id):
@@ -238,8 +252,10 @@ class SRVService:
         Maintenance's own ERP once they clear the part; stock then arrives
         into main store the same way DOL or RQC-approved material does."""
         with atomic():
-            srv = self._require_status(srv_id, "FORWARDED_TOOL_ROOM")
-            srv = self.repo.update(srv, status="STORED", stored_at=utcnow(), tool_room_cleared_at=utcnow())
+            srv = self._claim_status(
+                srv_id, "FORWARDED_TOOL_ROOM", "STORED",
+                stored_at=utcnow(), tool_room_cleared_at=utcnow(),
+            )
             self._receive_into_store(srv)
             return srv
 
@@ -250,13 +266,13 @@ class SRVService:
         pure ledger bookkeeping, not a physical action, so there's nothing
         for an operator to confirm."""
         with atomic():
-            srv = self._require_status(srv_id, "STORED")
+            srv = self._claim_status(srv_id, "STORED", "TRANSFERRED", transferred_at=utcnow())
             qty = self._effective_qty(srv)
             self.stock_repo.adjust(srv.part_id, "RECEIVING_STORE", -qty)
             self.stock_repo.adjust(srv.part_id, "PART_STORE", qty)
             self.ledger_repo.record(srv.part_id, "RECEIVING_STORE", -qty, "TRANSFER_OUT", srv_id=srv.id)
             self.ledger_repo.record(srv.part_id, "PART_STORE", qty, "TRANSFER_IN", srv_id=srv.id)
-            return self.repo.update(srv, status="TRANSFERRED", transferred_at=utcnow())
+            return srv
 
     def confirm_consumption(self, srv_id):
         """Step 13-14: ERP Production Punch. There is no manual Production
@@ -269,13 +285,12 @@ class SRVService:
         there's no longer a separate "handed to production" moment to
         record on our side."""
         with atomic():
-            srv = self._require_status(srv_id, "TRANSFERRED")
+            now = utcnow()
+            srv = self._claim_status(srv_id, "TRANSFERRED", "CONSUMED", supplied_at=now, consumed_at=now)
             qty = self._effective_qty(srv)
             self.stock_repo.adjust(srv.part_id, "PART_STORE", -qty)
             self.ledger_repo.record(srv.part_id, "PART_STORE", -qty, "PRODUCTION_CONSUMPTION", srv_id=srv.id)
             self._release_rack_occupancy(srv.part_id, float(qty))
-            now = utcnow()
-            srv = self.repo.update(srv, status="CONSUMED", supplied_at=now, consumed_at=now)
             self.rack_alert_service.check_and_notify(part_id=srv.part_id)
             return srv
 
@@ -355,9 +370,3 @@ class SRVService:
     @staticmethod
     def _effective_qty(srv):
         return srv.qty_received if srv.qty_received is not None else srv.qty_invoiced
-
-    def _require_status(self, srv_id, expected_status):
-        srv = self.get(srv_id)
-        if srv.status != expected_status:
-            raise BadRequestError(f"SRV {srv_id} must be in {expected_status} status (currently {srv.status})")
-        return srv

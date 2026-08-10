@@ -3,10 +3,29 @@ from sqlalchemy import func
 from app.extensions import db
 from app.models.srv import SRV
 from app.repositories.base_repository import BaseRepository
+from app.utils.db_tx import maybe_commit
 
 
 class SRVRepository(BaseRepository):
     model = SRV
+
+    def claim_status(self, srv_id, from_status, to_status, **fields):
+        """Atomic compare-and-set on status: flip from_status -> to_status
+        (applying any transition fields) in one conditional UPDATE, but only
+        while the row is still in from_status. Returns the SRV if this caller
+        won the transition, or None if it was already advanced by a concurrent
+        caller — so a racing duplicate request can be rejected before it moves
+        any stock (audit finding DATA-2). synchronize_session="fetch" keeps an
+        already-loaded SRV in step with what was just written."""
+        rows = (
+            self.model.query
+            .filter(self.model.id == srv_id, self.model.status == from_status)
+            .update({"status": to_status, **fields}, synchronize_session="fetch")
+        )
+        maybe_commit()
+        if rows != 1:
+            return None
+        return self.model.query.get(srv_id)
 
     def search(self, status=None, vendor_code=None, part_id=None, is_short=None, keyword=None):
         query = self.model.query
