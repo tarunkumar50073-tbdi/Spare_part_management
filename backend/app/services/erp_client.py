@@ -1,0 +1,46 @@
+"""Outbound call to the plant ERP for SRV submission (Steps 5-6: SRV
+Creation / short-material branch). Same swap pattern as ForecastService's
+Excel-now/API-later ingestion: one method, one caller (SRVService), so
+pointing ERP_API_BASE_URL at the real endpoint later is a drop-in change —
+no caller-side rework.
+
+Until the ERP endpoint exists, submit_srv() mocks the response locally in
+the same srv_no/short-note-no format the real ERP is expected to return.
+"""
+import requests
+from flask import current_app
+
+
+class ERPClient:
+    def submit_srv(self, srv, is_short):
+        """Submit a verified SRV line to ERP. Returns {"srv_no": str,
+        "short_note_no": str | None}. ERP is the source of truth for both
+        numbers once live — we no longer mint srv_no ourselves in that mode."""
+        base_url = current_app.config.get("ERP_API_BASE_URL")
+        if base_url:
+            return self._submit_via_api(base_url, srv, is_short)
+        return self._submit_mock(srv, is_short)
+
+    def _submit_via_api(self, base_url, srv, is_short):
+        payload = {
+            "vendor_code": srv.vendor_code,
+            "invoice_no": srv.invoice_no,
+            "part_no": srv.part_no,
+            "qty_invoiced": float(srv.qty_invoiced or 0),
+            "qty_received": float(srv.qty_received or 0),
+            "is_short": is_short,
+        }
+        resp = requests.post(
+            f"{base_url.rstrip('/')}/srv/submit",
+            json=payload,
+            timeout=current_app.config.get("ERP_API_TIMEOUT", 10),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return {"srv_no": data["srv_no"], "short_note_no": data.get("short_note_no")}
+
+    @staticmethod
+    def _submit_mock(srv, is_short):
+        srv_no = f"SRV{srv.created_at.strftime('%y%m%d')}-{srv.id:04d}"
+        short_note_no = f"SN{srv.created_at.strftime('%y%m%d')}-{srv.id:04d}" if is_short else None
+        return {"srv_no": srv_no, "short_note_no": short_note_no}

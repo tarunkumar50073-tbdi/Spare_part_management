@@ -1,0 +1,15 @@
+export const REPORT_TYPES = [
+  { key: "srv", label: "SRV Report" },
+  { key: "verification", label: "Verification Report" },
+  { key: "pending_rqc", label: "Pending RQC Report" },
+  { key: "put_away", label: "Put Away Report" },
+  { key: "rack_stock", label: "Rack Stock Report" },
+  { key: "live_stock", label: "Live Stock Report" },
+  { key: "supplier", label: "Supplier Report" },
+  { key: "inventory_summary", label: "Inventory Summary" },
+  { key: "inventory_variance", label: "Inventory Variance Report" },
+  { key: "inventory_accuracy", label: "Inventory Accuracy Report" },
+  { key: "fy_comparison", label: "FY Comparison Report" },
+  { key: "quarter_comparison", label: "Quarter Comparison Report" },
+  { key: "top_oldest_excess", label: "Top 10 Oldest Excess Parts" },
+];

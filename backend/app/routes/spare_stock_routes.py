@@ -1,0 +1,172 @@
+"""Spare on-hand stock REST API (/api/v1/spare-stock).
+
+Every route is store-scoped on purpose: this is the Spare Parts Store's own
+stock, and nothing here should be able to read or write a child part's.
+"""
+from flask import Blueprint, request, send_file, session
+
+from app.services.auth_service import AuthService
+from app.services.spare_flow_service import SpareFlowService
+from app.services.spare_stock_service import SpareStockService
+from app.schemas.spare_stock_schema import SpareStockSetSchema
+from app.utils.exceptions import BadRequestError
+from app.utils.response import success_response
+from app.utils.validators import validate_payload
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+bp = Blueprint("spare_stock", __name__, url_prefix="/api/v1/spare-stock")
+service = SpareStockService()
+flow = SpareFlowService()
+auth = AuthService()
+
+
+def _store_code():
+    code = request.args.get("store_code") or request.form.get("store_code")
+    if not code:
+        raise BadRequestError("store_code is required")
+    return code
+
+
+def _username():
+    """Stamped on the ledger row so a correction can be traced to a person.
+    None for a machine caller authenticated by API key."""
+    user = auth.get_user(session.get("user_id"))
+    return user.username if user else None
+
+
+@bp.route("", methods=["GET"])
+def list_stock():
+    return success_response(service.list_stock(
+        _store_code(), section_id=request.args.get("section_id", type=int),
+    ))
+
+
+@bp.route("/summary", methods=["GET"])
+def summary():
+    return success_response(service.get_summary(
+        _store_code(), section_id=request.args.get("section_id", type=int),
+    ))
+
+
+@bp.route("/analytics", methods=["GET"])
+def analytics():
+    store = _store_code()
+    data = service.analytics(store)
+    # The ERP feed is measured separately: it says how much of the list ERP
+    # has reported on, not how the store itself is doing.
+    data["erp"] = service.erp_completeness(store)
+    data["srv_clearance"] = flow.clearance_rate(store)
+    return success_response(data)
+
+
+@bp.route("/by-status", methods=["GET"])
+def by_status():
+    status = request.args.get("status")
+    if not status:
+        raise BadRequestError("status is required")
+    return success_response(service.list_by_status(
+        _store_code(), status, limit=request.args.get("limit", type=int),
+        section_id=request.args.get("section_id", type=int),
+    ))
+
+
+@bp.route("/excess", methods=["GET"])
+def excess():
+    return success_response(service.list_excess(
+        _store_code(), limit=request.args.get("limit", type=int),
+        section_id=request.args.get("section_id", type=int),
+    ))
+
+
+@bp.route("/today", methods=["GET"])
+def today():
+    return success_response(service.today_movements(_store_code()))
+
+
+@bp.route("/activity", methods=["GET"])
+def activity():
+    return success_response(service.recent_activity(
+        _store_code(), limit=request.args.get("limit", default=20, type=int),
+    ))
+
+
+@bp.route("/flow", methods=["GET"])
+def material_flow():
+    return success_response(flow.material_flow(_store_code()))
+
+
+@bp.route("/pending", methods=["GET"])
+def pending():
+    return success_response(flow.pending_summary(_store_code()))
+
+
+@bp.route("/pending/list", methods=["GET"])
+def pending_list():
+    return success_response(flow.list_pending(
+        _store_code(), kind=request.args.get("kind", "all"),
+        limit=request.args.get("limit", type=int),
+    ))
+
+
+@bp.route("/traceability/<int:part_id>", methods=["GET"])
+def traceability(part_id):
+    return success_response(flow.traceability(part_id))
+
+
+@bp.route("/below-minimum", methods=["GET"])
+def below_minimum():
+    return success_response(service.list_below_minimum(
+        _store_code(), limit=request.args.get("limit", type=int),
+        section_id=request.args.get("section_id", type=int),
+    ))
+
+
+@bp.route("/parts/<int:part_id>", methods=["GET"])
+def part_stock(part_id):
+    return success_response(service.get_for_part(part_id))
+
+
+@bp.route("/parts/<int:part_id>", methods=["PUT"])
+def set_quantity(part_id):
+    data = validate_payload(SpareStockSetSchema(), request.get_json(force=True) or {})
+    row = service.set_quantity(
+        part_id, float(data["qty_on_hand"]),
+        txn_type=data.get("txn_type", "ADJUSTMENT"),
+        reference=data.get("reference"), remarks=data.get("remarks"),
+        user=_username(),
+    )
+    return success_response(row, "Stock updated")
+
+
+@bp.route("/parts/<int:part_id>/history", methods=["GET"])
+def part_history(part_id):
+    return success_response(service.history_for_part(
+        part_id, limit=request.args.get("limit", default=25, type=int),
+    ))
+
+
+@bp.route("/template", methods=["GET"])
+def download_template():
+    buf = service.build_template(request.args.get("store_code"))
+    return send_file(buf, as_attachment=True,
+                     download_name="spare_opening_stock_template.xlsx", mimetype=XLSX_MIME)
+
+
+@bp.route("/export", methods=["GET"])
+def export_stock():
+    buf = service.export_excel(_store_code(), section_id=request.args.get("section_id", type=int))
+    return send_file(buf, as_attachment=True,
+                     download_name="spare_stock.xlsx", mimetype=XLSX_MIME)
+
+
+@bp.route("/import", methods=["POST"])
+def import_stock():
+    file = request.files.get("file")
+    if not file or file.filename == "":
+        raise BadRequestError("No file uploaded")
+    report = service.bulk_import(
+        file.stream, store_code=request.form.get("store_code") or None,
+        user=_username(), sheet_name=request.form.get("sheet_name") or None,
+    )
+    return success_response(report, f"{report.get('updated', 0)} part(s) updated", 201)

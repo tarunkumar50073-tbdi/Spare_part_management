@@ -1,0 +1,451 @@
+"""Spare on-hand stock: setting it, moving it, and the figures it unlocks.
+
+Min/Max on a spare meant nothing until this existed — the store could record
+that a part should never fall below 2, with nothing anywhere to say how many
+were actually on the shelf. Everything here is scoped to a store, so the
+Child Parts screens are untouched.
+"""
+from datetime import datetime, timedelta
+
+from app.models.base import utcnow
+from app.models.part import Part
+from app.repositories.supplier_window_schedule_repository import SHIFT_START
+from app.repositories.part_repository import PartRepository
+from app.repositories.spare_stock_repository import (
+    SpareStockLedgerRepository, SpareStockRepository,
+)
+from app.utils.db_tx import atomic
+from app.utils.excel_io import bulk_import, build_export, build_template, to_number, to_text
+from app.utils.exceptions import BadRequestError, NotFoundError
+
+FIELD_ALIASES = {
+    "part_no": {"partno", "partnumber", "itemcode", "itemno"},
+    "qty_on_hand": {"qtyonhand", "qty", "quantity", "openingqty", "openingstock",
+                    "physicalstock", "physicalqty", "stock", "closingstock", "totalqty"},
+}
+REQUIRED_FIELDS = ["part_no", "qty_on_hand"]
+
+TEMPLATE_COLUMNS = ["Part No", "Part Name", "Qty On Hand"]
+
+EXPORT_COLUMNS = [
+    ("Part No", "part_no"), ("Part Name", "part_name"), ("Location", "location"),
+    ("Qty On Hand", "qty_on_hand"), ("Min", "min_stock_level"), ("Max", "max_stock_level"),
+    ("Shortfall", "shortfall"), ("Rate", "unit_price"), ("Stock Value", "stock_value"),
+    ("Status", "status"), ("Last Counted", "last_counted_at"),
+]
+
+
+class SpareStockService:
+    def __init__(self):
+        self.repo = SpareStockRepository()
+        self.ledger_repo = SpareStockLedgerRepository()
+        self.part_repo = PartRepository()
+
+    # ---- movement ----
+
+    def _write(self, part_id, new_qty, txn_type, reference=None, remarks=None,
+               user=None, counted=False):
+        """Set a part's quantity and record why, in one go. The ledger row and
+        the maintained qty are written together — a balance that moved with no
+        row to explain it is worse than no history at all."""
+        row = self.repo.get_or_create(part_id)
+        before = float(row.qty_on_hand or 0)
+        delta = round(new_qty - before, 2)
+
+        row.qty_on_hand = new_qty
+        if counted:
+            row.last_counted_at = utcnow()
+
+        # An import that re-states the same figure is not a movement. Writing a
+        # zero-delta row for all 481 parts on every upload would bury the real
+        # ones within a week.
+        if delta != 0:
+            self.ledger_repo.create(
+                part_id=part_id, qty_delta=delta, balance_after=new_qty,
+                txn_type=txn_type, reference=reference, remarks=remarks,
+                created_by=user,
+            )
+        return row, delta
+
+    def set_quantity(self, part_id, qty, txn_type="ADJUSTMENT", reference=None,
+                     remarks=None, user=None):
+        part = self.part_repo.get_by_id(part_id)
+        if not part:
+            raise NotFoundError(f"Part {part_id} not found")
+        if qty is None or float(qty) < 0:
+            raise BadRequestError("Quantity must be zero or more")
+        with atomic():
+            row, _ = self._write(
+                part.id, round(float(qty), 2), txn_type,
+                reference=reference, remarks=remarks, user=user,
+                counted=txn_type in ("OPENING", "ADJUSTMENT"),
+            )
+        return self._row_dict(part, row)
+
+    # ---- reading ----
+
+    @staticmethod
+    def _row_dict(part, stock):
+        qty = float(stock.qty_on_hand) if stock and stock.qty_on_hand is not None else None
+        minimum = float(part.min_stock_level or 0)
+        maximum = float(part.max_stock_level) if part.max_stock_level is not None else None
+        rate = float(part.unit_price) if part.unit_price is not None else None
+
+        if qty is None:
+            status = "Not Counted"
+        elif qty <= 0:
+            status = "Out of Stock"
+        elif minimum > 0 and qty < minimum:
+            status = "Below Minimum"
+        elif maximum and qty > maximum:
+            status = "Above Maximum"
+        else:
+            status = "Healthy"
+
+        return {
+            "part_id": part.id, "part_no": part.part_no, "part_name": part.part_name,
+            "location": part.location, "rework_location": part.rework_location,
+            "uom": part.uom, "section_id": part.section_id,
+            "qty_on_hand": qty,
+            "min_stock_level": minimum,
+            "max_stock_level": maximum,
+            # What it would take to get back to the maximum — the reorder
+            # quantity, once anyone wants to raise one.
+            "shortfall": round(maximum - qty, 2) if (maximum and qty is not None and qty < maximum) else None,
+            "unit_price": rate,
+            "stock_value": round(qty * rate, 2) if (qty is not None and rate is not None) else None,
+            "status": status,
+            "last_counted_at": stock.last_counted_at.isoformat() if stock and stock.last_counted_at else None,
+        }
+
+    def get_for_part(self, part_id):
+        """One part's stock, read-only — no row is created, so asking about a
+        part does not silently record it as counted at zero."""
+        part = self.part_repo.get_by_id(part_id)
+        if not part:
+            raise NotFoundError(f"Part {part_id} not found")
+        return self._row_dict(part, self.repo.get_by_part(part_id))
+
+    def list_stock(self, store_code, section_id=None):
+        return [self._row_dict(part, stock)
+                for part, stock in self.repo.list_for_store(store_code, section_id)]
+
+    def get_summary(self, store_code, section_id=None):
+        """The figures the store dashboard asks for. Counted separately from
+        "not counted": a part nobody has counted is not a part with none, and
+        reporting it as zero would invent a shortage.
+
+        section_id narrows it to one section, because the section screen shows
+        the same dashboard and must not quote the whole store's stock."""
+        rows = self.list_stock(store_code, section_id)
+        counted = [r for r in rows if r["qty_on_hand"] is not None]
+        valued = [r for r in counted if r["stock_value"] is not None]
+        return {
+            "total_parts": len(rows),
+            "counted_parts": len(counted),
+            "uncounted_parts": len(rows) - len(counted),
+            "total_qty": round(sum(r["qty_on_hand"] for r in counted), 2),
+            "stock_value": round(sum(r["stock_value"] for r in valued), 2),
+            "valued_parts": len(valued),
+            "out_of_stock": sum(1 for r in counted if r["status"] == "Out of Stock"),
+            "below_minimum": sum(1 for r in counted if r["status"] == "Below Minimum"),
+            "above_maximum": sum(1 for r in counted if r["status"] == "Above Maximum"),
+            "healthy": sum(1 for r in counted if r["status"] == "Healthy"),
+        }
+
+    def list_below_minimum(self, store_code, limit=None, section_id=None):
+        rows = [r for r in self.list_stock(store_code, section_id)
+                if r["status"] in ("Out of Stock", "Below Minimum")]
+        # Worst first: out of stock before merely low, then by how far short.
+        rows.sort(key=lambda r: (r["status"] != "Out of Stock", -(r["min_stock_level"] - r["qty_on_hand"])))
+        return rows[:limit] if limit else rows
+
+    def list_by_status(self, store_code, status, limit=None, section_id=None):
+        """One status at a time, for the dashboard's Action Required entries.
+        Sorted so the worst case in each list is the first row read."""
+        rows = [r for r in self.list_stock(store_code, section_id) if r["status"] == status]
+        if status == "Above Maximum":
+            # Furthest over first — that is where the money is tied up.
+            rows.sort(key=lambda r: -(r["qty_on_hand"] - (r["max_stock_level"] or 0)))
+        elif status == "Below Minimum":
+            rows.sort(key=lambda r: -(r["min_stock_level"] - r["qty_on_hand"]))
+        else:
+            # Out of Stock and Not Counted have no depth to rank by, so the
+            # dearest part is the one worth seeing first.
+            rows.sort(key=lambda r: -(r["unit_price"] or 0))
+        return rows[:limit] if limit else rows
+
+    def list_excess(self, store_code, limit=None, section_id=None):
+        """Above maximum, with how far over. `excess_since` is carried straight
+        off the part rather than derived — nothing back-dates it yet, so it
+        stays None instead of being guessed from the ledger."""
+        rows = self.list_by_status(store_code, "Above Maximum", limit, section_id)
+        for r in rows:
+            r["excess_qty"] = round(r["qty_on_hand"] - (r["max_stock_level"] or 0), 2)
+        return rows
+
+    def movements_between(self, store_code, since, until=None):
+        """What moved in a window, split by direction. RECEIPT and ISSUE are
+        the two the floor is asked about; OPENING and ADJUSTMENT are counted
+        separately so a stock-take is never reported as a day's receipts."""
+        entries = self.ledger_repo.list_for_store_between(store_code, since, until)
+        out = {
+            "received_qty": 0.0, "received_lines": 0,
+            "issued_qty": 0.0, "issued_lines": 0,
+            "adjusted_lines": 0, "opening_lines": 0,
+        }
+        for e in entries:
+            delta = float(e.qty_delta)
+            if e.txn_type == "RECEIPT":
+                out["received_qty"] += delta
+                out["received_lines"] += 1
+            elif e.txn_type == "ISSUE":
+                out["issued_qty"] += abs(delta)
+                out["issued_lines"] += 1
+            elif e.txn_type == "ADJUSTMENT":
+                out["adjusted_lines"] += 1
+            elif e.txn_type == "OPENING":
+                out["opening_lines"] += 1
+        out["received_qty"] = round(out["received_qty"], 2)
+        out["issued_qty"] = round(out["issued_qty"], 2)
+        return out
+
+    def today_movements(self, store_code):
+        """Since the shift started, not since midnight — the plant's day runs
+        08:30 to about 03:20 the next morning, so a midnight cut would split
+        one night shift's receipts across two days.
+
+        The shift boundary is a plant wall-clock time but created_at is stored
+        in UTC, so the boundary is converted before it is compared. Reading one
+        against the other is what once put every vehicle window 5.5 hours out.
+        The offset is measured rather than hardcoded, so this holds wherever
+        the server is set.
+        """
+        now_local = datetime.now()
+        offset = now_local - datetime.utcnow()
+
+        start_local = now_local.replace(hour=SHIFT_START.hour, minute=SHIFT_START.minute,
+                                        second=0, microsecond=0)
+        if now_local < start_local:
+            start_local -= timedelta(days=1)
+
+        summary = self.movements_between(store_code, start_local - offset)
+        # Reported as the plant clock, which is the shift anyone is thinking of.
+        summary["since"] = start_local.isoformat()
+        return summary
+
+    @staticmethod
+    def _pct(part, whole):
+        """None, not zero, when there is nothing to divide by. A gauge reading
+        0% claims it measured something and found none; a gauge with no
+        denominator has measured nothing at all, and the two must not look
+        alike on a screen."""
+        if not whole:
+            return None
+        return round(part / whole * 100, 1)
+
+    def analytics(self, store_code):
+        """Every percentage the dashboard's gauges show, worked out here rather
+        than in the browser — one definition per metric, and the same figure
+        whoever asks."""
+        rows = self.list_stock(store_code)
+        counted = [r for r in rows if r["qty_on_hand"] is not None]
+        by = lambda s: sum(1 for r in counted if r["status"] == s)  # noqa: E731
+
+        healthy, below, above = by("Healthy"), by("Below Minimum"), by("Above Maximum")
+        zero = by("Out of Stock")
+        critical = below + zero
+
+        # Utilisation is on-hand against the planned maximum — how full the
+        # store is against what it decided to hold, which is the only capacity
+        # figure a spares store has. Only parts that are both counted and
+        # planned can take part, or the ratio compares against a missing limit.
+        planned_counted = [r for r in counted if r["max_stock_level"]]
+        on_hand = sum(r["qty_on_hand"] for r in planned_counted)
+        capacity = sum(r["max_stock_level"] for r in planned_counted)
+
+        with_min = sum(1 for r in rows if r["min_stock_level"])
+        with_max = sum(1 for r in rows if r["max_stock_level"])
+        with_both = sum(1 for r in rows if r["min_stock_level"] and r["max_stock_level"])
+
+        valued = [r for r in counted if r["stock_value"] is not None]
+        value_bands = {"Normal Stock": 0.0, "Critical Stock": 0.0, "Excess Stock": 0.0}
+        for r in valued:
+            if r["status"] in ("Out of Stock", "Below Minimum"):
+                value_bands["Critical Stock"] += r["stock_value"]
+            elif r["status"] == "Above Maximum":
+                value_bands["Excess Stock"] += r["stock_value"]
+            else:
+                value_bands["Normal Stock"] += r["stock_value"]
+
+        return {
+            "counted_parts": len(counted),
+            "total_parts": len(rows),
+            "gauges": {
+                "stock_utilisation": {
+                    "pct": self._pct(on_hand, capacity),
+                    "caption": f"{round(on_hand)} of {round(capacity)} planned max",
+                    "basis": len(planned_counted),
+                },
+                "inventory_health": {
+                    "pct": self._pct(healthy, len(counted)),
+                    "caption": f"{healthy} of {len(counted)} counted parts healthy",
+                    "basis": len(counted),
+                },
+                "min_max_coverage": {
+                    "pct": self._pct(with_both, len(rows)),
+                    "caption": f"{with_both} of {len(rows)} have both limits",
+                    "basis": len(rows),
+                },
+                "planning_coverage": {
+                    "pct": self._pct(with_max, len(rows)),
+                    "caption": f"{with_max} of {len(rows)} have a maximum",
+                    "basis": len(rows),
+                },
+                "critical_parts": {
+                    "pct": self._pct(critical, len(counted)),
+                    "caption": f"{critical} critical of {len(counted)} counted",
+                    "basis": len(counted),
+                },
+                "excess_stock": {
+                    "pct": self._pct(above, len(counted)),
+                    "caption": f"{above} above maximum of {len(counted)} counted",
+                    "basis": len(counted),
+                },
+                "stock_counted": {
+                    "pct": self._pct(len(counted), len(rows)),
+                    "caption": f"{len(counted)} of {len(rows)} parts ever counted",
+                    "basis": len(rows),
+                },
+            },
+            "status_distribution": [
+                {"name": "Healthy", "value": healthy},
+                {"name": "Below Minimum", "value": below},
+                {"name": "Above Maximum", "value": above},
+                {"name": "Zero Stock", "value": zero},
+            ],
+            "value_distribution": [
+                {"name": k, "value": round(v, 2)} for k, v in value_bands.items()
+            ],
+            "total_value": round(sum(value_bands.values()), 2),
+            "short_vs_excess": [
+                {"name": "Below Minimum", "value": below},
+                {"name": "Healthy", "value": healthy},
+                {"name": "Above Maximum", "value": above},
+            ],
+            "top_value": [{
+                "part_id": r["part_id"], "part_no": r["part_no"], "part_name": r["part_name"],
+                "qty_on_hand": r["qty_on_hand"], "unit_price": r["unit_price"],
+                "stock_value": r["stock_value"], "status": r["status"],
+            } for r in sorted(valued, key=lambda r: -r["stock_value"])[:10]],
+            "monthly_consumption": self.monthly_consumption(store_code),
+        }
+
+    def monthly_consumption(self, store_code, months=12):
+        """Issued quantity per month, off the ledger. Real usage — an empty
+        list means nothing has been issued, not that the query failed."""
+        entries = [e for e in self.ledger_repo.recent_for_store(store_code, 5000)
+                   if e.txn_type == "ISSUE" and e.created_at]
+        by_month = {}
+        for e in entries:
+            key = e.created_at.strftime("%Y-%m")
+            by_month[key] = by_month.get(key, 0) + abs(float(e.qty_delta))
+        return [{"name": k, "value": round(v, 2)} for k, v in sorted(by_month.items())][-months:]
+
+    def erp_completeness(self, store_code):
+        """How much of this store's list ERP has ever reported a stock figure
+        for. Reported separately because it measures the feed, not the store."""
+        from app.models.erp_stock import ERPStock
+        from app.extensions import db
+        from sqlalchemy import func
+        total = len(self.part_repo.get_active(store_code))
+        synced = (
+            db.session.query(func.count(func.distinct(ERPStock.part_id)))
+            .join(Part, Part.id == ERPStock.part_id)
+            .filter(Part.store_code == store_code)
+            .scalar() or 0
+        )
+        return {"pct": self._pct(synced, total), "synced": synced, "total": total}
+
+    def recent_activity(self, store_code, limit=20):
+        """The store's own event feed, off the ledger. Every row is something
+        that actually happened to stock — no synthesised "system" events."""
+        return [{
+            "id": e.id,
+            "at": e.created_at.isoformat() if e.created_at else None,
+            "part_id": e.part_id,
+            "part_no": e.part.part_no if e.part else None,
+            "part_name": e.part.part_name if e.part else None,
+            "uom": e.part.uom if e.part else None,
+            "section_id": e.part.section_id if e.part else None,
+            "txn_type": e.txn_type,
+            "qty_delta": float(e.qty_delta),
+            "balance_after": float(e.balance_after),
+            "reference": e.reference,
+            "remarks": e.remarks,
+            "created_by": e.created_by,
+        } for e in self.ledger_repo.recent_for_store(store_code, limit)]
+
+    def history_for_part(self, part_id, limit=25):
+        return [{
+            "id": e.id,
+            "at": e.created_at.isoformat() if e.created_at else None,
+            "qty_delta": float(e.qty_delta),
+            "balance_after": float(e.balance_after),
+            "txn_type": e.txn_type,
+            "reference": e.reference,
+            "remarks": e.remarks,
+            "created_by": e.created_by,
+        } for e in self.ledger_repo.list_for_part(part_id, limit)]
+
+    # ---- Excel ----
+
+    def build_template(self, store_code=None):
+        """Pre-filled with the store's own parts, so opening stock is a matter
+        of typing one column rather than retyping 481 part numbers."""
+        parts = self.part_repo.get_active(store_code) if store_code else []
+        qty_map = self.repo.map_by_part(store_code) if store_code else {}
+        rows = [{
+            "part_no": p.part_no, "part_name": p.part_name,
+            "qty_on_hand": qty_map.get(p.id, ""),
+        } for p in parts]
+        if not rows:
+            return build_template(TEMPLATE_COLUMNS)
+        return build_export([(c, k) for c, k in
+                             zip(TEMPLATE_COLUMNS, ("part_no", "part_name", "qty_on_hand"))], rows)
+
+    def bulk_import(self, file_stream, store_code=None, user=None, sheet_name=None):
+        """Upload opening stock. Blank quantity cells are skipped rather than
+        read as zero — a half-filled sheet must not wipe the shelves it does
+        not mention."""
+        applied = {"updated": 0, "unchanged": 0}
+
+        def row_processor(raw_row):
+            part_no = to_text(raw_row.get("part_no"))
+            if not part_no:
+                raise ValueError("Part No is required")
+            part = self.part_repo.get_by_part_no(part_no)
+            if not part:
+                raise ValueError(f"Unknown Part No: {part_no}")
+            if store_code and part.store_code != store_code:
+                raise ValueError(f"{part_no} does not belong to {store_code}")
+
+            qty = to_number(raw_row.get("qty_on_hand"), None)
+            if qty is None:
+                return  # nothing stated for this row
+            if qty < 0:
+                raise ValueError(f"{part_no}: quantity cannot be negative")
+
+            _, delta = self._write(
+                part.id, round(float(qty), 2), "OPENING",
+                remarks="Opening stock upload", user=user, counted=True,
+            )
+            applied["updated" if delta else "unchanged"] += 1
+
+        with atomic():
+            report = bulk_import(file_stream, FIELD_ALIASES, REQUIRED_FIELDS, row_processor, sheet_name)
+        report.update(applied)
+        return report
+
+    def export_excel(self, store_code, section_id=None):
+        return build_export(EXPORT_COLUMNS, self.list_stock(store_code, section_id))

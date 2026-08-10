@@ -1,0 +1,40 @@
+import api from "./api";
+
+// On-hand stock for the Spare Parts Store. Every call carries store_code —
+// this is one store's stock, and the API refuses to answer without it.
+export const spareStockService = {
+  list: (params) => api.get("/spare-stock", { params }),
+  // sectionId is optional — omitted for the whole store, passed by the section
+  // screen so it never quotes the store's figures as its own.
+  summary: (storeCode, sectionId) =>
+    api.get("/spare-stock/summary", { params: { store_code: storeCode, section_id: sectionId } }),
+  belowMinimum: (storeCode, limit, sectionId) =>
+    api.get("/spare-stock/below-minimum",
+      { params: { store_code: storeCode, limit, section_id: sectionId } }),
+  byStatus: (storeCode, status, limit) =>
+    api.get("/spare-stock/by-status", { params: { store_code: storeCode, status, limit } }),
+  excess: (storeCode, limit) =>
+    api.get("/spare-stock/excess", { params: { store_code: storeCode, limit } }),
+  // Since the shift started (08:30), not since midnight — the plant's day runs
+  // past midnight, so a calendar cut would split one night shift in two.
+  today: (storeCode) => api.get("/spare-stock/today", { params: { store_code: storeCode } }),
+  activity: (storeCode, limit) =>
+    api.get("/spare-stock/activity", { params: { store_code: storeCode, limit } }),
+  analytics: (storeCode) => api.get("/spare-stock/analytics", { params: { store_code: storeCode } }),
+  flow: (storeCode) => api.get("/spare-stock/flow", { params: { store_code: storeCode } }),
+  pending: (storeCode) => api.get("/spare-stock/pending", { params: { store_code: storeCode } }),
+  pendingList: (storeCode, kind, limit) =>
+    api.get("/spare-stock/pending/list", { params: { store_code: storeCode, kind, limit } }),
+  traceability: (partId) => api.get(`/spare-stock/traceability/${partId}`),
+  forPart: (partId) => api.get(`/spare-stock/parts/${partId}`),
+  setQuantity: (partId, payload) => api.put(`/spare-stock/parts/${partId}`, payload),
+  history: (partId, limit) => api.get(`/spare-stock/parts/${partId}/history`, { params: { limit } }),
+  import: (file, storeCode) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (storeCode) formData.append("store_code", storeCode);
+    return api.post("/spare-stock/import", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+};

@@ -1,0 +1,211 @@
+"""Part master business logic."""
+from app.extensions import db
+from app.models.part import Part, CATEGORIES
+from app.repositories.part_repository import PartRepository
+from app.repositories.supplier_repository import SupplierRepository
+from app.services.live_stock_service import LiveStockService
+from app.utils.exceptions import NotFoundError, ConflictError
+from app.utils.excel_io import bulk_import, build_template, build_export, to_number, to_text
+
+# Normalized (upper, no space/dash/slash) input -> canonical CATEGORIES value,
+# so an Excel cell like "Maintenance / Tool Room" or "in parts" still matches.
+CATEGORY_ALIASES = {c.upper().replace(" ", "").replace("-", "").replace("/", ""): c for c in CATEGORIES}
+
+FIELD_ALIASES = {
+    "part_no": {"partno", "partnumber"},
+    "part_name": {"partname", "description"},
+    "uom": {"uom", "unit", "unitofmeasure"},
+    "barcode": {"barcode", "qrcode", "scancode"},
+    "part_type": {"parttype", "routing", "materialrouting"},
+    "min_stock_level": {"minstocklevel", "minstock", "min"},
+    "max_stock_level": {"maxstocklevel", "maxstock", "max"},
+    "category": {"category"},
+    "sub_category": {"subcategory"},
+    "new_part_no": {"newpartno", "newpartnumber"},
+    "old_part_no": {"oldpartno", "oldpartnumber", "referencecode"},
+    "package_standard": {"packagestandard", "packgstnd", "packingstandard"},
+    "supplier_code": {"suppliercode", "vendorcode"},
+    "daily_consumption": {"dailyconsumption", "consumption", "dailyconsumptionqty"},
+    "unit_price": {"unitprice", "rate", "price"},
+    # The two fields the Spare Parts Store is organised around — its dashboard
+    # groups by the rack parsed out of location and flags rework parts by
+    # rework_location. Neither had a way in before, so the only way to set them
+    # was the one-off loader script.
+    "location": {"location", "storelocation", "binlocation", "shelf"},
+    "rework_location": {"reworklocation", "reworkloc", "reworkshelf"},
+}
+REQUIRED_FIELDS = ["part_no", "part_name"]
+
+TEMPLATE_COLUMNS = [
+    "Part No", "Part Name", "UOM", "Barcode", "Part Type (DOL/OTHER)", "Min Stock Level", "Max Stock Level",
+    "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "New Part No", "Old Part No", "Package Standard",
+    "Supplier Code", "Daily Consumption", "Unit Price", "Location", "Rework Location",
+]
+
+EXPORT_COLUMNS = [
+    ("Part No", "part_no"), ("Part Name", "part_name"), ("UOM", "uom"), ("Barcode", "barcode"),
+    ("Part Type", "part_type"), ("Min Stock Level", "min_stock_level"),
+    ("Max Stock Level", "max_stock_level"), ("Status", "status_label"),
+    ("Category", "category"), ("Sub Category", "sub_category"),
+    ("New Part No", "new_part_no"), ("Old Part No", "old_part_no"), ("Package Standard", "package_standard"),
+    ("Supplier Code", "supplier_code"), ("Daily Consumption", "daily_consumption"), ("Unit Price", "unit_price"),
+    ("Location", "location"), ("Rework Location", "rework_location"), ("Store", "store_code"),
+]
+
+
+class PartService:
+    def __init__(self):
+        self.repo = PartRepository()
+        self.supplier_repo = SupplierRepository()
+
+    def list_parts(self, keyword=None, is_active=None, store_code=None, section_id=None, missing=None):
+        return self.repo.search(
+            keyword=keyword, is_active=is_active,
+            store_code=store_code, section_id=section_id, missing=missing,
+        )
+
+    def count_missing(self, store_code=None, is_active=None):
+        return self.repo.count_missing(store_code=store_code, is_active=is_active)
+
+    def get(self, part_id):
+        part = self.repo.get_by_id(part_id)
+        if not part:
+            raise NotFoundError(f"Part {part_id} not found")
+        return part
+
+    def create(self, data):
+        if self.repo.get_by_part_no(data["part_no"]):
+            raise ConflictError(f"Part no {data['part_no']} already exists")
+        part = self.repo.create(**data)
+        LiveStockService.invalidate_rows_cache()
+        return part
+
+    def update(self, part_id, data):
+        part = self.get(part_id)
+        updated = self.repo.update(part, **data)
+        # cov_days / rack columns in the cached Live Stock rows depend on
+        # Part fields (daily_consumption, category, etc.) — drop the cache so
+        # they don't read stale for the TTL after an edit (audit finding M-3).
+        LiveStockService.invalidate_rows_cache()
+        return updated
+
+    def delete(self, part_id):
+        part = self.get(part_id)
+        self.repo.delete(part)
+        LiveStockService.invalidate_rows_cache()
+
+    def bulk_import_excel(self, file_stream, store_code=None, section_id=None):
+        """Upsert by Part No — creates new parts, updates fields on existing
+        ones (e.g. bulk-setting daily_consumption/category for an already-
+        loaded part master), rather than rejecting duplicates outright.
+
+        store_code/section_id stamp NEW rows with the store the file was
+        uploaded from, so a spares list imported from inside the Spare Parts
+        Store does not land with store_code = NULL and vanish from every
+        dashboard. An existing part keeps the store it already has — an import
+        is for filling fields in, not for moving parts between stores.
+        """
+        def row_processor(raw_row):
+            part_no = to_text(raw_row.get("part_no"))
+            if not part_no:
+                raise ValueError("Part No is required")
+
+            existing = self.repo.get_by_part_no(part_no)
+            category_raw = to_text(raw_row.get("category"), "").upper().replace(" ", "").replace("-", "").replace("/", "")
+            category = CATEGORY_ALIASES.get(category_raw)
+            supplier_code = to_text(raw_row.get("supplier_code"))
+            supplier = self.supplier_repo.get_by_vendor_code(supplier_code) if supplier_code else None
+
+            # min/max belong in here, not only on the Part(...) below. They
+            # were update-only-for-new-rows, so the intended way to fill the
+            # spares store's 298 missing maximums — export, type the Max
+            # column, re-import — reported "N rows imported" and changed
+            # nothing at all. Every other field on this dict was already
+            # updatable; these two were simply left out.
+            fields = {
+                "uom": to_text(raw_row.get("uom"), "PCS") or "PCS",
+                "barcode": to_text(raw_row.get("barcode"), "") or None,
+                "min_stock_level": to_number(raw_row.get("min_stock_level"), None),
+                "max_stock_level": to_number(raw_row.get("max_stock_level"), None),
+                "category": category,
+                "sub_category": to_text(raw_row.get("sub_category"), "") or None,
+                "new_part_no": to_text(raw_row.get("new_part_no"), "") or None,
+                "old_part_no": to_text(raw_row.get("old_part_no"), "") or None,
+                "package_standard": to_number(raw_row.get("package_standard"), None),
+                "supplier_id": supplier.id if supplier else None,
+                "daily_consumption": to_number(raw_row.get("daily_consumption"), None),
+                "unit_price": to_number(raw_row.get("unit_price"), None),
+                "location": to_text(raw_row.get("location"), "") or None,
+                "rework_location": to_text(raw_row.get("rework_location"), "") or None,
+            }
+
+            if existing:
+                # A blank cell leaves the field alone rather than clearing it.
+                # That is this importer's rule for every other field, and the
+                # safer half of the choice: someone exporting 485 rows to fix
+                # forty maximums must not silently wipe the other 445 by
+                # leaving their columns untouched. Clearing a value stays a
+                # deliberate act — do it on the screen, not by omission.
+                for key, value in fields.items():
+                    if value is not None:
+                        setattr(existing, key, value)
+                return
+
+            part_name = to_text(raw_row.get("part_name"))
+            if not part_name:
+                raise ValueError("Part Name is required")
+            part_type = to_text(raw_row.get("part_type"), "OTHER").upper()
+            if part_type not in ("DOL", "OTHER", "TOOL_ROOM"):
+                part_type = "OTHER"
+
+            new_fields = dict(fields)
+            # min_stock_level is NOT NULL on the model, so a new row with a
+            # blank Min column needs the column default rather than None.
+            if new_fields["min_stock_level"] is None:
+                new_fields["min_stock_level"] = 0
+
+            db.session.add(Part(
+                part_no=part_no,
+                part_name=part_name,
+                part_type=part_type,
+                store_code=store_code,
+                section_id=section_id,
+                **new_fields,
+            ))
+
+        report = bulk_import(file_stream, FIELD_ALIASES, REQUIRED_FIELDS, row_processor)
+        LiveStockService.invalidate_rows_cache()
+        return report
+
+    @staticmethod
+    def build_template():
+        return build_template(TEMPLATE_COLUMNS)
+
+    def export_all(self, store_code=None):
+        """The whole master, or one store's slice of it. Scoped because the
+        export is the input to the import: a Spare Parts keeper filling in
+        maximums should get 485 rows to work through, not 739 with the child
+        parts mixed in."""
+        query = self.repo.get_all()
+        if store_code:
+            query = query.filter(Part.store_code == store_code)
+        rows = []
+        for part in query.order_by(Part.part_no.asc()).all():
+            rows.append({
+                "part_no": part.part_no, "part_name": part.part_name, "uom": part.uom,
+                "barcode": part.barcode or "",
+                "part_type": part.part_type,
+                "min_stock_level": float(part.min_stock_level or 0),
+                "max_stock_level": float(part.max_stock_level) if part.max_stock_level is not None else "",
+                "status_label": "Active" if part.is_active else "Inactive",
+                "category": part.category or "", "sub_category": part.sub_category or "",
+                "new_part_no": part.new_part_no or "", "old_part_no": part.old_part_no or "",
+                "package_standard": float(part.package_standard) if part.package_standard is not None else "",
+                "supplier_code": part.supplier.vendor_code if part.supplier else "",
+                "daily_consumption": float(part.daily_consumption) if part.daily_consumption is not None else "",
+                "unit_price": float(part.unit_price) if part.unit_price is not None else "",
+                "location": part.location or "",
+                "rework_location": part.rework_location or "",
+                "store_code": part.store_code or "",
+            })
+        return build_export(EXPORT_COLUMNS, rows)

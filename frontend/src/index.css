@@ -1,0 +1,121 @@
+/* Inter, bundled into the build rather than pulled from a font CDN — this app
+   runs on a plant-internal server with no route to the internet, so a webfont
+   link would silently fall back to whatever Windows had lying around. The
+   variable file carries every weight in one request. */
+@import "@fontsource-variable/inter/index.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ticker-scroll-x {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.ticker-track-x {
+  animation: ticker-scroll-x linear infinite;
+  animation-duration: var(--ticker-duration, 30s);
+  will-change: transform;
+}
+.ticker-track-x:hover {
+  animation-play-state: paused;
+}
+
+/* Content settling into place on load. Short and small — enough to signal
+   "this just refreshed", not enough to make anyone wait for it. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-rise {
+  animation: rise 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* Anyone who has asked their OS to reduce motion gets none of it. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .ticker-track-x {
+    animation: none !important;
+  }
+}
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply bg-canvas dark:bg-navy-950 text-slate-800 dark:text-slate-100 antialiased m-0;
+    /* Slightly tightened tracking and grayscale smoothing — what makes Inter
+       read crisp on a plant monitor rather than soft and wide. */
+    letter-spacing: -0.011em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  /* Tabular figures so a counter ticking up doesn't jitter its own width,
+     and columns of numbers line up on the decimal. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* A hairline border under the shadow. On a light canvas the shadow alone
+     leaves card edges vague; the border defines them without looking boxy. */
+  .card {
+    @apply bg-white dark:bg-navy-900 rounded-xl2 border border-slate-200/70 dark:border-navy-800
+           shadow-card transition-all duration-200 ease-enterprise p-5;
+  }
+  /* Only cards you can actually click should lift. A static card that rises
+     under the cursor promises something it won't do. */
+  .card-interactive {
+    @apply hover:shadow-cardHover hover:-translate-y-0.5 cursor-pointer;
+  }
+
+  /* Typography scale — three sizes, used consistently, is what makes a
+     console readable at a glance from across a room. */
+  /* Steps down on narrow cards. A seven-figure stock quantity clipped
+     mid-number on a two-across phone layout, which reads as a wrong figure
+     rather than a small one. */
+  .kpi-value {
+    @apply text-[18px] sm:text-[24px] lg:text-[28px] leading-none font-bold text-slate-900 dark:text-white tabular;
+  }
+  .kpi-label {
+    @apply text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400;
+  }
+  .kpi-hint {
+    @apply text-[11px] text-slate-400 dark:text-slate-500;
+  }
+  .section-title {
+    @apply text-sm font-semibold text-slate-800 dark:text-white;
+  }
+  .section-hint {
+    @apply text-xs text-slate-500 dark:text-slate-400;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 bg-navy-900 hover:bg-navy-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-150;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-navy-800 dark:hover:bg-navy-700 text-slate-700 dark:text-slate-100 text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-150;
+  }
+  .input-field {
+    @apply w-full rounded-lg border border-slate-300 dark:border-navy-700 bg-white dark:bg-navy-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-toyotared/50 focus:border-toyotared transition;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
+  }
+  .badge-success { @apply bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300; }
+  .badge-danger { @apply bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300; }
+  .badge-warning { @apply bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300; }
+  .badge-neutral { @apply bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300; }
+
+  .skeleton {
+    @apply animate-pulse bg-slate-200 dark:bg-navy-800 rounded-md;
+  }
+}
