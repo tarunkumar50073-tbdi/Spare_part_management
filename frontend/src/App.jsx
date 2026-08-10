@@ -20,6 +20,7 @@ import ShortParts from "./pages/ShortParts.jsx";
 import ExcessParts from "./pages/ExcessParts.jsx";
 import QuarterlyInventory from "./pages/QuarterlyInventory.jsx";
 import ERPGap from "./pages/ERPGap.jsx";
+import SpareErpGap from "./pages/SpareErpGap.jsx";
 import ERPLedgerImport from "./pages/ERPLedgerImport.jsx";
 import InventoryOverview from "./pages/InventoryOverview.jsx";
 import SupplierVehicleManagement from "./pages/SupplierVehicleManagement.jsx";
@@ -67,6 +68,7 @@ function AuthenticatedApp() {
           {/* Distinct from Child Parts' /store-stock — this is the Spare
               Parts Store's own on-hand screen. */}
           <Route path="/store-stock-spare" element={<SpareStock />} />
+          <Route path="/spare-erp-gap" element={<SpareErpGap />} />
           <Route path="/suppliers" element={<SupplierMaster />} />
           <Route path="/stock-count" element={<StockCount />} />
           <Route path="/rack-bins" element={<RackBinMaster />} />

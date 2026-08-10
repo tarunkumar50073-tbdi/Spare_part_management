@@ -14,6 +14,8 @@ from app.repositories.part_repository import PartRepository
 from app.repositories.spare_stock_repository import (
     SpareStockLedgerRepository, SpareStockRepository,
 )
+from app.repositories.erp_stock_repository import ERPStockRepository
+from app.services.erp_gap_service import ERPGapService
 from app.utils.db_tx import atomic
 from app.utils.excel_io import bulk_import, build_export, build_template, to_number, to_text
 from app.utils.exceptions import BadRequestError, NotFoundError
@@ -40,6 +42,7 @@ class SpareStockService:
         self.repo = SpareStockRepository()
         self.ledger_repo = SpareStockLedgerRepository()
         self.part_repo = PartRepository()
+        self.erp_repo = ERPStockRepository()
 
     # ---- movement ----
 
@@ -366,6 +369,60 @@ class SpareStockService:
             .scalar() or 0
         )
         return {"pct": self._pct(synced, total), "synced": synced, "total": total}
+
+    # ---- ERP vs Physical gap (spare store) ----
+    #
+    # The same reconciliation the Child Parts store gets, but scoped to one
+    # store and — deliberately — reading physical straight from the in-app count
+    # (SpareStock.qty_on_hand), not the separate physical-snapshot upload the
+    # Child Parts gap uses. ERP is the feed (erp_stock); physical is whatever
+    # the store has counted, so there is nothing to key in twice. A part with an
+    # ERP figure but no count reads NO_PHYSICAL; one counted but never pushed by
+    # ERP reads NOT_SYNCED. Status rule is shared with ERPGapService so the two
+    # stores can never disagree on what SHORT/EXCESS means.
+
+    def erp_gap(self, store_code, keyword=None, category=None, status=None):
+        erp_map = {r.part_id: (float(r.qty_on_hand), r.synced_at)
+                   for r in self.erp_repo.list_all()}
+        rows = []
+        for part, spare in self.repo.list_for_store(store_code):
+            erp = erp_map.get(part.id)
+            erp_qty = erp[0] if erp else None
+            physical_qty = float(spare.qty_on_hand) if spare is not None else None
+            if erp_qty is None and physical_qty is None:
+                continue
+            gap_qty = (physical_qty - erp_qty) if (erp_qty is not None and physical_qty is not None) else None
+            rows.append({
+                "part_id": part.id, "part_no": part.part_no, "part_name": part.part_name,
+                "category": part.category, "location": part.location,
+                "erp_qty": erp_qty, "physical_qty": physical_qty, "gap_qty": gap_qty,
+                "status": ERPGapService._status(erp_qty, physical_qty),
+                "erp_synced_at": erp[1].isoformat() if erp else None,
+                "last_counted_at": spare.last_counted_at.isoformat() if (spare and spare.last_counted_at) else None,
+            })
+        if keyword:
+            kw = keyword.lower()
+            rows = [r for r in rows if kw in r["part_no"].lower() or kw in (r["part_name"] or "").lower()]
+        if category:
+            rows = [r for r in rows if r["category"] == category]
+        if status:
+            rows = [r for r in rows if r["status"] == status]
+        rows.sort(key=lambda r: abs(r["gap_qty"]) if r["gap_qty"] is not None else -1, reverse=True)
+        return rows
+
+    def erp_gap_summary(self, store_code):
+        rows = self.erp_gap(store_code)
+        reconciled = [r for r in rows if r["gap_qty"] is not None]
+        matched = sum(1 for r in reconciled if r["status"] == "MATCH")
+        return {
+            "total": len(rows),
+            "matched": matched,
+            "short": sum(1 for r in rows if r["status"] == "SHORT"),
+            "excess": sum(1 for r in rows if r["status"] == "EXCESS"),
+            "no_physical": sum(1 for r in rows if r["status"] == "NO_PHYSICAL"),
+            "not_synced": sum(1 for r in rows if r["status"] == "NOT_SYNCED"),
+            "accuracy_pct": round(matched / len(reconciled) * 100, 2) if reconciled else None,
+        }
 
     def recent_activity(self, store_code, limit=20):
         """The store's own event feed, off the ledger. Every row is something

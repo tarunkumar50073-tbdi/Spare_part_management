@@ -77,6 +77,21 @@ def analytics():
     return success_response(data)
 
 
+@bp.route("/erp-gap", methods=["GET"])
+def erp_gap():
+    return success_response(service.erp_gap(
+        _store_code(),
+        keyword=request.args.get("keyword"),
+        category=request.args.get("category"),
+        status=request.args.get("status"),
+    ))
+
+
+@bp.route("/erp-gap/summary", methods=["GET"])
+def erp_gap_summary():
+    return success_response(service.erp_gap_summary(_store_code()))
+
+
 @bp.route("/by-status", methods=["GET"])
 def by_status():
     status = request.args.get("status")

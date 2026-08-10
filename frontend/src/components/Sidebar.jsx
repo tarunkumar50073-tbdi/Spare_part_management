@@ -86,7 +86,10 @@ const NAV_BY_STORE = {
       // Without a counted quantity, every health figure on the dashboard has
       // nothing to compare against.
       label: "Inventory",
-      items: [{ to: "/store-stock-spare", label: "Store Stock", emoji: "📦" }],
+      items: [
+        { to: "/store-stock-spare", label: "Store Stock", emoji: "📦" },
+        { to: "/spare-erp-gap", label: "ERP vs Physical Gap", emoji: "⚖️" },
+      ],
     },
     {
       label: "Masters",
