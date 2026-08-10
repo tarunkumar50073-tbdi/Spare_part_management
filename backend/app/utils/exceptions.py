@@ -19,6 +19,11 @@ class ValidationError(AppException):
     message = "Validation failed"
 
 
+class ForbiddenError(AppException):
+    status_code = 403
+    message = "You do not have permission to perform this action"
+
+
 class NotFoundError(AppException):
     status_code = 404
     message = "Resource not found"

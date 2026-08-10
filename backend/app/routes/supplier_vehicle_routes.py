@@ -5,6 +5,7 @@ from app.services.supplier_vehicle_service import SupplierVehicleService
 from app.schemas.supplier_vehicle_window_schema import SupplierVehicleWindowCreateSchema, SupplierVehicleWindowUpdateSchema
 from app.utils.validators import validate_payload
 from app.utils.response import success_response
+from app.utils.authz import admin_required
 
 bp = Blueprint("supplier_vehicles", __name__, url_prefix="/api/v1/supplier-vehicles")
 service = SupplierVehicleService()
@@ -20,6 +21,7 @@ def list_windows():
 
 
 @bp.route("", methods=["POST"])
+@admin_required
 def create_window():
     data = validate_payload(SupplierVehicleWindowCreateSchema(), request.get_json(force=True) or {})
     row = service.create(data)
@@ -27,6 +29,7 @@ def create_window():
 
 
 @bp.route("/<int:window_id>", methods=["PUT"])
+@admin_required
 def update_window(window_id):
     data = validate_payload(SupplierVehicleWindowUpdateSchema(), request.get_json(force=True) or {})
     row = service.update(window_id, data)
@@ -34,6 +37,7 @@ def update_window(window_id):
 
 
 @bp.route("/<int:window_id>", methods=["DELETE"])
+@admin_required
 def delete_window(window_id):
     service.delete(window_id)
     return success_response(None, "Vehicle window deleted")

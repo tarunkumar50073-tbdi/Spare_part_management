@@ -34,7 +34,8 @@ def _register_auth_guard(app):
     ERP out; accepting only the key is what made the gate decorative, since
     the key ships inside the frontend bundle for anyone to read.
     """
-    from flask import session
+    import hmac
+    from flask import g, session
     from app.services.auth_service import AuthService
 
     api_key = app.config.get("API_KEY")
@@ -45,13 +46,22 @@ def _register_auth_guard(app):
             return None
         if not request.path.startswith("/api/"):
             return None
+        # Reset per-request identity; the route-level guards in app/utils/authz
+        # read the caller off g (audit finding AUTHZ-1).
+        g.current_user = None
+        g.is_machine = False
         if request.path in _AUTH_EXEMPT_PATHS:
             return None
         # A signed-in browser session.
-        if AuthService().get_user(session.get("user_id")):
+        user = AuthService().get_user(session.get("user_id"))
+        if user:
+            g.current_user = user
             return None
-        # Or a machine caller with the shared key.
-        if api_key and request.headers.get("X-API-Key") == api_key:
+        # Or a machine caller with the shared key. Constant-time compare so the
+        # key can't be recovered by timing the response (audit finding SEC-L1).
+        supplied = request.headers.get("X-API-Key")
+        if api_key and supplied and hmac.compare_digest(supplied, api_key):
+            g.is_machine = True
             return None
         return error_response("Sign in required", 401)
 

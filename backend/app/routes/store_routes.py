@@ -6,6 +6,7 @@ from app.schemas.store_schema import (
 )
 from app.services.auth_service import AuthService
 from app.services.store_service import StoreService
+from app.utils.authz import admin_required
 from app.utils.response import success_response
 from app.utils.validators import validate_payload
 
@@ -27,12 +28,14 @@ def list_stores():
 
 
 @bp.route("", methods=["POST"])
+@admin_required
 def create_store():
     data = validate_payload(StoreCreateSchema(), request.get_json(force=True) or {})
     return success_response(service.create_store(data), "Store created", 201)
 
 
 @bp.route("/<code>", methods=["PUT"])
+@admin_required
 def update_store(code):
     data = validate_payload(StoreUpdateSchema(), request.get_json(force=True) or {})
     return success_response(service.update_store(code, data), "Store updated")
@@ -44,12 +47,14 @@ def list_sections(code):
 
 
 @bp.route("/<code>/sections", methods=["POST"])
+@admin_required
 def create_section(code):
     data = validate_payload(SectionCreateSchema(), request.get_json(force=True) or {})
     return success_response(service.create_section(code, data), "Section created", 201)
 
 
 @bp.route("/sections/<int:section_id>", methods=["PUT"])
+@admin_required
 def update_section(section_id):
     data = validate_payload(SectionUpdateSchema(), request.get_json(force=True) or {})
     return success_response(service.update_section(section_id, data), "Section updated")

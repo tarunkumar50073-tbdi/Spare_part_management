@@ -5,6 +5,7 @@ from app.schemas.bom_schema import BOMCreateSchema, BOMUpdateSchema
 from app.utils.validators import validate_payload
 from app.utils.response import success_response
 from app.utils.exceptions import BadRequestError
+from app.utils.authz import admin_required
 
 bp = Blueprint("bom", __name__, url_prefix="/api/v1/bom")
 service = BOMService()
@@ -16,6 +17,7 @@ def list_bom():
 
 
 @bp.route("", methods=["POST"])
+@admin_required
 def create_bom():
     data = validate_payload(BOMCreateSchema(), request.get_json(force=True) or {})
     bom = service.create(data)
@@ -23,6 +25,7 @@ def create_bom():
 
 
 @bp.route("/<int:bom_id>", methods=["PUT"])
+@admin_required
 def update_bom(bom_id):
     data = validate_payload(BOMUpdateSchema(), request.get_json(force=True) or {})
     bom = service.update(bom_id, data)
@@ -30,6 +33,7 @@ def update_bom(bom_id):
 
 
 @bp.route("/<int:bom_id>", methods=["DELETE"])
+@admin_required
 def delete_bom(bom_id):
     service.delete(bom_id)
     return success_response(None, "BOM line deleted")
@@ -50,6 +54,7 @@ def export_bom():
 
 
 @bp.route("/import", methods=["POST"])
+@admin_required
 def import_bom():
     file = request.files.get("file")
     if not file or file.filename == "":

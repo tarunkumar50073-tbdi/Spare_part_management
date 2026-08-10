@@ -17,6 +17,9 @@ _DB_PATH = os.path.join(_TMPDIR, "test.db").replace("\\", "/")
 os.environ["DATABASE_URL"] = "sqlite:///" + _DB_PATH
 os.environ["ERP_LEDGER_POLL_SECONDS"] = "0"
 os.environ.setdefault("FLASK_ENV", "development")
+# Deterministic shared key so the authz tests can exercise the machine caller
+# without depending on whatever .env holds.
+os.environ.setdefault("API_KEY", "test-machine-key")
 
 from config import Config  # noqa: E402
 

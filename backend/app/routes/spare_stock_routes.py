@@ -5,11 +5,13 @@ stock, and nothing here should be able to read or write a child part's.
 """
 from flask import Blueprint, request, send_file, session
 
+from app.repositories.part_repository import PartRepository
 from app.services.auth_service import AuthService
 from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_stock_service import SpareStockService
 from app.schemas.spare_stock_schema import SpareStockSetSchema
-from app.utils.exceptions import BadRequestError
+from app.utils.authz import require_store_access
+from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
 from app.utils.validators import validate_payload
 
@@ -19,13 +21,28 @@ bp = Blueprint("spare_stock", __name__, url_prefix="/api/v1/spare-stock")
 service = SpareStockService()
 flow = SpareFlowService()
 auth = AuthService()
+part_repo = PartRepository()
 
 
 def _store_code():
     code = request.args.get("store_code") or request.form.get("store_code")
     if not code:
         raise BadRequestError("store_code is required")
+    # A store user may only touch stores they're assigned to; machine and admin
+    # callers pass (audit finding AUTHZ-1).
+    require_store_access(code)
     return code
+
+
+def _require_part_store(part_id):
+    """Resolve the part's own store and enforce access on it, so a raw part_id
+    can't be used to read or overwrite another store's stock (audit finding
+    AUTHZ-1 — the spare-stock IDOR)."""
+    part = part_repo.get_by_id(part_id)
+    if not part:
+        raise NotFoundError(f"Part {part_id} not found")
+    require_store_access(part.store_code)
+    return part
 
 
 def _username():
@@ -111,6 +128,7 @@ def pending_list():
 
 @bp.route("/traceability/<int:part_id>", methods=["GET"])
 def traceability(part_id):
+    _require_part_store(part_id)
     return success_response(flow.traceability(part_id))
 
 
@@ -124,11 +142,13 @@ def below_minimum():
 
 @bp.route("/parts/<int:part_id>", methods=["GET"])
 def part_stock(part_id):
+    _require_part_store(part_id)
     return success_response(service.get_for_part(part_id))
 
 
 @bp.route("/parts/<int:part_id>", methods=["PUT"])
 def set_quantity(part_id):
+    _require_part_store(part_id)
     data = validate_payload(SpareStockSetSchema(), request.get_json(force=True) or {})
     row = service.set_quantity(
         part_id, float(data["qty_on_hand"]),
@@ -141,6 +161,7 @@ def set_quantity(part_id):
 
 @bp.route("/parts/<int:part_id>/history", methods=["GET"])
 def part_history(part_id):
+    _require_part_store(part_id)
     return success_response(service.history_for_part(
         part_id, limit=request.args.get("limit", default=25, type=int),
     ))

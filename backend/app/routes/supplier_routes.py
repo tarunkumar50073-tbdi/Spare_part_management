@@ -6,6 +6,7 @@ from app.utils.validators import validate_payload
 from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import success_response, paginated_response
 from app.utils.exceptions import BadRequestError
+from app.utils.authz import admin_required
 
 bp = Blueprint("suppliers", __name__, url_prefix="/api/v1/suppliers")
 service = SupplierService()
@@ -31,6 +32,7 @@ def get_supplier(supplier_id):
 
 
 @bp.route("", methods=["POST"])
+@admin_required
 def create_supplier():
     data = validate_payload(SupplierCreateSchema(), request.get_json(force=True) or {})
     supplier = service.create(data)
@@ -38,6 +40,7 @@ def create_supplier():
 
 
 @bp.route("/<int:supplier_id>", methods=["PUT"])
+@admin_required
 def update_supplier(supplier_id):
     data = validate_payload(SupplierUpdateSchema(), request.get_json(force=True) or {})
     supplier = service.update(supplier_id, data)
@@ -45,6 +48,7 @@ def update_supplier(supplier_id):
 
 
 @bp.route("/<int:supplier_id>", methods=["DELETE"])
+@admin_required
 def delete_supplier(supplier_id):
     service.delete(supplier_id)
     return success_response(None, "Supplier deleted")
@@ -65,6 +69,7 @@ def export_suppliers():
 
 
 @bp.route("/import", methods=["POST"])
+@admin_required
 def import_suppliers():
     file = request.files.get("file")
     if not file or file.filename == "":

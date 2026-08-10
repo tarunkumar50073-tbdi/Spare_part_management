@@ -7,6 +7,7 @@ from marshmallow import Schema, fields
 from app.services.production_receipt_service import ProductionReceiptService
 from app.utils.validators import validate_payload
 from app.utils.response import success_response
+from app.utils.authz import machine_required
 
 bp = Blueprint("production_receipts", __name__, url_prefix="/api/v1/production-receipts")
 service = ProductionReceiptService()
@@ -24,6 +25,7 @@ def list_receipts():
 
 
 @bp.route("", methods=["POST"])
+@machine_required
 def create_receipt():
     data = validate_payload(ProductionReceiptSchema(), request.get_json(force=True) or {})
     receipt = service.create(

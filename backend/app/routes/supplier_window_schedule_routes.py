@@ -6,6 +6,7 @@ from app.schemas.supplier_window_schedule_schema import (
 )
 from app.utils.validators import validate_payload
 from app.utils.response import success_response
+from app.utils.authz import admin_required
 
 bp = Blueprint("supplier_window_schedules", __name__, url_prefix="/api/v1/supplier-window-schedules")
 service = SupplierWindowScheduleService()
@@ -28,6 +29,7 @@ def today_status():
 
 
 @bp.route("", methods=["POST"])
+@admin_required
 def create_schedule():
     data = validate_payload(SupplierWindowScheduleCreateSchema(), request.get_json(force=True) or {})
     row = service.create(data)
@@ -35,6 +37,7 @@ def create_schedule():
 
 
 @bp.route("/<int:schedule_id>", methods=["PUT"])
+@admin_required
 def update_schedule(schedule_id):
     data = validate_payload(SupplierWindowScheduleUpdateSchema(), request.get_json(force=True) or {})
     row = service.update(schedule_id, data)
@@ -42,6 +45,7 @@ def update_schedule(schedule_id):
 
 
 @bp.route("/<int:schedule_id>", methods=["DELETE"])
+@admin_required
 def delete_schedule(schedule_id):
     service.delete(schedule_id)
     return success_response(None, "Window schedule deleted")

@@ -14,12 +14,14 @@ from app.schemas.srv_schema import (
 from app.utils.validators import validate_payload
 from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import success_response, paginated_response
+from app.utils.authz import machine_required
 
 bp = Blueprint("store_srvs", __name__, url_prefix="/api/v1/store")
 service = SRVService()
 
 
 @bp.route("/gate-entry", methods=["POST"])
+@machine_required
 def gate_entry():
     """Inbound gate-entry API (Steps 1-2: Supplier Vehicle Arrives / ERP
     Gate Entry). Called directly by ERP/the gate system — no manual
@@ -30,6 +32,7 @@ def gate_entry():
 
 
 @bp.route("/gate-out", methods=["POST"])
+@machine_required
 def gate_out():
     """Inbound gate-out API — the vehicle has left. Counterpart to
     /gate-entry and called the same way, by ERP/the gate system: it stamps
@@ -71,6 +74,7 @@ def get_srv(srv_id):
 
 
 @bp.route("/srvs/<int:srv_id>/unload", methods=["POST"])
+@machine_required
 def unload(srv_id):
     """Inbound API — ERP reports the truck has been unloaded."""
     srv = service.unload(srv_id)
@@ -78,6 +82,7 @@ def unload(srv_id):
 
 
 @bp.route("/srvs/<int:srv_id>/verify", methods=["POST"])
+@machine_required
 def verify(srv_id):
     """Inbound API — ERP owns barcode/invoice verification and pushes the
     final verified quantity; no scanning happens in this app."""
@@ -87,6 +92,7 @@ def verify(srv_id):
 
 
 @bp.route("/srvs/<int:srv_id>/create-srv", methods=["POST"])
+@machine_required
 def create_srv(srv_id):
     """Inbound API — ERP has finished its own SRV decision (including the
     short-material branch) and pushes the finished record, srv_no included."""
@@ -97,12 +103,14 @@ def create_srv(srv_id):
 
 
 @bp.route("/srvs/<int:srv_id>/forward-rqc", methods=["POST"])
+@machine_required
 def forward_rqc(srv_id):
     srv = service.forward_to_rqc(srv_id)
     return success_response(srv.to_dict(), "Forwarded to RQC")
 
 
 @bp.route("/srvs/<int:srv_id>/route", methods=["POST"])
+@machine_required
 def route(srv_id):
     data = validate_payload(RouteSchema(), request.get_json(force=True) or {})
     srv = service.route(srv_id, routing=data.get("routing"))
@@ -110,6 +118,7 @@ def route(srv_id):
 
 
 @bp.route("/srvs/<int:srv_id>/inspect", methods=["POST"])
+@machine_required
 def inspect(srv_id):
     """Inbound API — RQC's own ERP calls this to record clearance/rejection
     once they've inspected the part. Not a manual action in this app."""
@@ -119,6 +128,7 @@ def inspect(srv_id):
 
 
 @bp.route("/srvs/<int:srv_id>/tool-room-clearance", methods=["POST"])
+@machine_required
 def tool_room_clearance(srv_id):
     """Inbound API — Maintenance/Tool Room's own ERP calls this once they
     clear the part; stock then arrives into main store."""
@@ -127,12 +137,14 @@ def tool_room_clearance(srv_id):
 
 
 @bp.route("/srvs/<int:srv_id>/transfer", methods=["POST"])
+@machine_required
 def transfer(srv_id):
     srv = service.transfer(srv_id)
     return success_response(srv.to_dict(), "Transferred to Part Store")
 
 
 @bp.route("/srvs/<int:srv_id>/consume", methods=["POST"])
+@machine_required
 def consume(srv_id):
     """Inbound API — Production's own ERP Production Punch calls this once
     the part is actually consumed. There is no manual Production Issue step

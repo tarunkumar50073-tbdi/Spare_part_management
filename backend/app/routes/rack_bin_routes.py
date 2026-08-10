@@ -5,6 +5,7 @@ from app.schemas.rack_bin_schema import RackBinCreateSchema, RackBinUpdateSchema
 from app.utils.validators import validate_payload
 from app.utils.response import success_response
 from app.utils.exceptions import BadRequestError
+from app.utils.authz import admin_required
 
 bp = Blueprint("rack_bins", __name__, url_prefix="/api/v1/rack-bins")
 service = RackBinService()
@@ -16,6 +17,7 @@ def list_rack_bins():
 
 
 @bp.route("", methods=["POST"])
+@admin_required
 def create_rack_bin():
     data = validate_payload(RackBinCreateSchema(), request.get_json(force=True) or {})
     row = service.create(data)
@@ -23,6 +25,7 @@ def create_rack_bin():
 
 
 @bp.route("/<int:rack_bin_id>", methods=["PUT"])
+@admin_required
 def update_rack_bin(rack_bin_id):
     data = validate_payload(RackBinUpdateSchema(), request.get_json(force=True) or {})
     row = service.update(rack_bin_id, data)
@@ -30,6 +33,7 @@ def update_rack_bin(rack_bin_id):
 
 
 @bp.route("/<int:rack_bin_id>", methods=["DELETE"])
+@admin_required
 def delete_rack_bin(rack_bin_id):
     service.delete(rack_bin_id)
     return success_response(None, "Rack/Bin entry deleted")
@@ -50,6 +54,7 @@ def export_rack_bins():
 
 
 @bp.route("/import", methods=["POST"])
+@admin_required
 def import_rack_bins():
     file = request.files.get("file")
     if not file or file.filename == "":

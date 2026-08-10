@@ -7,6 +7,7 @@ from marshmallow import Schema, fields, validate
 from app.services.erp_stock_sync_service import ERPStockSyncService
 from app.utils.validators import validate_payload
 from app.utils.response import success_response
+from app.utils.authz import machine_required
 
 bp = Blueprint("erp", __name__, url_prefix="/api/v1/erp")
 service = ERPStockSyncService()
@@ -22,6 +23,7 @@ class StockSyncSchema(Schema):
 
 
 @bp.route("/stock-sync", methods=["POST"])
+@machine_required
 def stock_sync():
     data = validate_payload(StockSyncSchema(), request.get_json(force=True) or {})
     result = service.sync(data["lines"])

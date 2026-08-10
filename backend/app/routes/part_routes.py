@@ -6,6 +6,7 @@ from app.utils.validators import validate_payload
 from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import success_response, paginated_response
 from app.utils.exceptions import BadRequestError
+from app.utils.authz import admin_required
 
 bp = Blueprint("parts", __name__, url_prefix="/api/v1/parts")
 service = PartService()
@@ -48,6 +49,7 @@ def get_part(part_id):
 
 
 @bp.route("", methods=["POST"])
+@admin_required
 def create_part():
     data = validate_payload(PartCreateSchema(), request.get_json(force=True) or {})
     part = service.create(data)
@@ -55,6 +57,7 @@ def create_part():
 
 
 @bp.route("/<int:part_id>", methods=["PUT"])
+@admin_required
 def update_part(part_id):
     data = validate_payload(PartUpdateSchema(), request.get_json(force=True) or {})
     part = service.update(part_id, data)
@@ -62,6 +65,7 @@ def update_part(part_id):
 
 
 @bp.route("/<int:part_id>", methods=["DELETE"])
+@admin_required
 def delete_part(part_id):
     service.delete(part_id)
     return success_response(None, "Part deleted")
@@ -82,6 +86,7 @@ def export_parts():
 
 
 @bp.route("/import", methods=["POST"])
+@admin_required
 def import_parts():
     file = request.files.get("file")
     if not file or file.filename == "":
