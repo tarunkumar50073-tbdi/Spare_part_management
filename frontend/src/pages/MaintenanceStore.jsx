@@ -418,8 +418,9 @@ function useSpareOps(enabled = true) {
       spareStockService.excess(STORE_CODE).then((r) => r.data.data).catch(() => []),
       spareStockService.byStatus(STORE_CODE, "Not Counted").then((r) => r.data.data).catch(() => []),
       spareStockService.analytics(STORE_CODE).then((r) => r.data.data).catch(() => null),
-    ]).then(([today, flow, pending, activity, excess, uncounted, analytics]) =>
-      setOps({ today, flow, pending, activity, excess, uncounted, analytics }));
+      spareStockService.consumption(STORE_CODE).then((r) => r.data.data).catch(() => []),
+    ]).then(([today, flow, pending, activity, excess, uncounted, analytics, consumption]) =>
+      setOps({ today, flow, pending, activity, excess, uncounted, analytics, consumption }));
   }, [enabled]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -1273,11 +1274,19 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
             <div className="card">
               <CardHead icon="🏭" tone="violet" title="Department-wise Consumption"
                 hint="Press Shop · Maintenance · Tool Room" />
-              <NotCaptured
-                what="No issue records which department took the part"
-                needs="An issue writes a ledger row with quantity and reference but no department, so Press Shop / Maintenance / Tool Room cannot be split apart. Recording the department on issue fills this chart and the trend beside it from the same rows."
-                endpoint="GET /spare-stock/consumption?group_by=department"
-              />
+              {ops.consumption && ops.consumption.length > 0 ? (
+                <HorizontalBars
+                  data={ops.consumption}
+                  color="#8b5cf6"
+                  emptyMessage="Nothing issued yet"
+                />
+              ) : (
+                <NotCaptured
+                  what="Nothing has been issued yet"
+                  needs="Issue a spare to a department from the Store Stock screen (the Issue button on each part). Each issue is tagged with its department, so this splits the total by Press Shop / Maintenance / Tool Room."
+                  endpoint="GET /spare-stock/consumption?group_by=department"
+                />
+              )}
             </div>
             <div className="card">
               <CardHead icon="📉" tone="blue" title="Consumption Trend"

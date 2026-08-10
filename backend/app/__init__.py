@@ -183,6 +183,12 @@ def _patch_schema():
         db.session.execute(text("ALTER TABLE srvs ADD COLUMN gate_out_time DATETIME"))
         db.session.commit()
 
+    ledger_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(spare_stock_ledger)")).fetchall()]
+    if ledger_cols and "department" not in ledger_cols:
+        db.session.execute(text("ALTER TABLE spare_stock_ledger ADD COLUMN department VARCHAR(40)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_department ON spare_stock_ledger (department)"))
+        db.session.commit()
+
 
 def _seed_stores():
     """Create the starting stores and put every untagged part in the child-part

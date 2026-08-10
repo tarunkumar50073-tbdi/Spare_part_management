@@ -9,7 +9,7 @@ from app.repositories.part_repository import PartRepository
 from app.services.auth_service import AuthService
 from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_stock_service import SpareStockService
-from app.schemas.spare_stock_schema import SpareStockSetSchema
+from app.schemas.spare_stock_schema import SpareStockSetSchema, SpareIssueSchema
 from app.utils.authz import require_store_access
 from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
@@ -92,6 +92,15 @@ def erp_gap_summary():
     return success_response(service.erp_gap_summary(_store_code()))
 
 
+@bp.route("/consumption", methods=["GET"])
+def consumption():
+    store = _store_code()
+    group_by = request.args.get("group_by", "department")
+    if group_by != "department":
+        raise BadRequestError(f"Unsupported group_by: {group_by}")
+    return success_response(service.consumption_by_department(store))
+
+
 @bp.route("/by-status", methods=["GET"])
 def by_status():
     status = request.args.get("status")
@@ -172,6 +181,17 @@ def set_quantity(part_id):
         user=_username(),
     )
     return success_response(row, "Stock updated")
+
+
+@bp.route("/parts/<int:part_id>/issue", methods=["POST"])
+def issue_part(part_id):
+    _require_part_store(part_id)
+    data = validate_payload(SpareIssueSchema(), request.get_json(force=True) or {})
+    row = service.issue(
+        part_id, float(data["qty"]), data["department"],
+        reference=data.get("reference"), remarks=data.get("remarks"), user=_username(),
+    )
+    return success_response(row, f"Issued to {data['department']}")
 
 
 @bp.route("/parts/<int:part_id>/history", methods=["GET"])

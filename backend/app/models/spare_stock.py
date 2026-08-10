@@ -58,6 +58,11 @@ class SpareStockLedger(BaseModel):
     remarks = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(60), nullable=True)
 
+    # Which shop-floor department drew the part — set on ISSUE so consumption
+    # can be split (Press Shop / Maintenance / Tool Room). NULL for opening,
+    # receipt and adjustment rows, which have no consuming department.
+    department = db.Column(db.String(40), nullable=True, index=True)
+
     part = db.relationship("Part")
 
     __table_args__ = (

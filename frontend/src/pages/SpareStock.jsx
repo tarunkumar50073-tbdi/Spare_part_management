@@ -5,6 +5,7 @@ import CardHead from "../components/CardHead.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
 import KpiCard from "../components/KpiCard.jsx";
 import Table from "../components/Table.jsx";
+import Modal from "../components/Modal.jsx";
 import UploadReportModal from "../components/UploadReportModal.jsx";
 import { spareStockService } from "../services/spareStockService.js";
 import { useStores } from "../context/StoreContext.jsx";
@@ -21,6 +22,10 @@ const STATUS_TONE = {
   "Healthy": "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
   "Not Counted": "bg-slate-100 text-slate-500 dark:bg-navy-800 dark:text-slate-400",
 };
+
+// Mirrors the backend SpareStockService.DEPARTMENTS — the shop-floor
+// departments a spare can be issued to.
+const DEPARTMENTS = ["Press Shop", "Maintenance", "Tool Room"];
 
 const FILTERS = [
   { key: "", label: "All" },
@@ -44,6 +49,12 @@ export default function SpareStock() {
   // {partId} of the row being typed into, and the value typed so far.
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState("");
+  // Issue-to-department modal state.
+  const [issuing, setIssuing] = useState(null);
+  const [issueQty, setIssueQty] = useState("");
+  const [issueDept, setIssueDept] = useState(DEPARTMENTS[0]);
+  const [issueRemarks, setIssueRemarks] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(() => {
     if (!activeCode) return;
@@ -90,6 +101,34 @@ export default function SpareStock() {
       load();
     } catch (err) {
       toast.error(err?.response?.data?.message || "Could not save");
+    }
+  };
+
+  const openIssue = (row) => {
+    setIssuing(row);
+    setIssueQty("");
+    setIssueDept(DEPARTMENTS[0]);
+    setIssueRemarks("");
+  };
+
+  const submitIssue = async () => {
+    const qty = Number(issueQty);
+    if (issueQty === "" || Number.isNaN(qty) || qty <= 0) {
+      toast.error("Enter a quantity greater than zero");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await spareStockService.issue(issuing.part_id, {
+        qty, department: issueDept, remarks: issueRemarks || undefined,
+      });
+      toast.success(`Issued ${qty} of ${issuing.part_no} to ${issueDept}`);
+      setIssuing(null);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Could not issue");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -165,6 +204,20 @@ export default function SpareStock() {
       render: (r) => (
         <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap
           ${STATUS_TONE[r.status] || STATUS_TONE["Not Counted"]}`}>{r.status}</span>
+      ),
+    },
+    {
+      key: "_issue", label: "", align: "right",
+      render: (r) => (
+        <button
+          onClick={(e) => { e.stopPropagation(); openIssue(r); }}
+          disabled={!r.qty_on_hand}
+          className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
+            text-rose-600 dark:text-rose-400 hover:border-toyotared disabled:opacity-40 disabled:cursor-not-allowed"
+          title={r.qty_on_hand ? "Issue this spare to a department" : "Nothing on hand to issue"}
+        >
+          Issue
+        </button>
       ),
     },
   ];
@@ -248,6 +301,57 @@ export default function SpareStock() {
           emptyMessage="No part matches this filter"
         />
       </div>
+
+      <Modal
+        open={!!issuing}
+        onClose={() => setIssuing(null)}
+        title={issuing ? `Issue ${issuing.part_no}` : "Issue"}
+        footer={
+          <>
+            <button className="btn-secondary" onClick={() => setIssuing(null)} disabled={submitting}>Cancel</button>
+            <button
+              className="px-3 py-1.5 rounded-lg bg-toyotared text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              onClick={submitIssue}
+              disabled={submitting}
+            >
+              {submitting ? "Issuing…" : "Issue"}
+            </button>
+          </>
+        }
+      >
+        {issuing && (
+          <div className="space-y-3 text-sm">
+            <p className="text-slate-500 dark:text-slate-400">
+              {issuing.part_name} · <b>{num(issuing.qty_on_hand)}</b> on hand
+            </p>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Quantity to issue</span>
+              <input
+                type="number" min="0" step="any" autoFocus
+                value={issueQty}
+                onChange={(e) => setIssueQty(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submitIssue(); }}
+                className="input-field w-full mt-1"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Department</span>
+              <select value={issueDept} onChange={(e) => setIssueDept(e.target.value)} className="input-field w-full mt-1">
+                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Remarks (optional)</span>
+              <input
+                type="text" value={issueRemarks}
+                onChange={(e) => setIssueRemarks(e.target.value)}
+                placeholder="Work order, machine, etc."
+                className="input-field w-full mt-1"
+              />
+            </label>
+          </div>
+        )}
+      </Modal>
 
       <UploadReportModal report={report} onClose={() => setReport(null)} />
     </div>

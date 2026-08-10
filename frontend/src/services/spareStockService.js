@@ -34,6 +34,9 @@ export const spareStockService = {
     api.get("/spare-stock/erp-gap", { params: { store_code: storeCode, ...params } }),
   erpGapSummary: (storeCode) =>
     api.get("/spare-stock/erp-gap/summary", { params: { store_code: storeCode } }),
+  issue: (partId, payload) => api.post(`/spare-stock/parts/${partId}/issue`, payload),
+  consumption: (storeCode, groupBy = "department") =>
+    api.get("/spare-stock/consumption", { params: { store_code: storeCode, group_by: groupBy } }),
   import: (file, storeCode) => {
     const formData = new FormData();
     formData.append("file", file);

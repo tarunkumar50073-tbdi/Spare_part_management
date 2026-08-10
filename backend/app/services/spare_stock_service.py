@@ -27,6 +27,10 @@ FIELD_ALIASES = {
 }
 REQUIRED_FIELDS = ["part_no", "qty_on_hand"]
 
+# Shop-floor departments that draw spares — the split behind Department-wise
+# Consumption. Recorded on every ISSUE.
+DEPARTMENTS = ("Press Shop", "Maintenance", "Tool Room")
+
 TEMPLATE_COLUMNS = ["Part No", "Part Name", "Qty On Hand"]
 
 EXPORT_COLUMNS = [
@@ -47,7 +51,7 @@ class SpareStockService:
     # ---- movement ----
 
     def _write(self, part_id, new_qty, txn_type, reference=None, remarks=None,
-               user=None, counted=False):
+               user=None, counted=False, department=None):
         """Set a part's quantity and record why, in one go. The ledger row and
         the maintained qty are written together — a balance that moved with no
         row to explain it is worse than no history at all."""
@@ -66,7 +70,7 @@ class SpareStockService:
             self.ledger_repo.create(
                 part_id=part_id, qty_delta=delta, balance_after=new_qty,
                 txn_type=txn_type, reference=reference, remarks=remarks,
-                created_by=user,
+                created_by=user, department=department,
             )
         return row, delta
 
@@ -82,6 +86,30 @@ class SpareStockService:
                 part.id, round(float(qty), 2), txn_type,
                 reference=reference, remarks=remarks, user=user,
                 counted=txn_type in ("OPENING", "ADJUSTMENT"),
+            )
+        return self._row_dict(part, row)
+
+    def issue(self, part_id, qty, department, reference=None, remarks=None, user=None):
+        """Issue a spare to a department — the movement that fills Department-wise
+        Consumption. Deducts on-hand and writes an ISSUE ledger row tagged with
+        the department; refuses to issue more than is on the shelf, so the count
+        can never go negative."""
+        part = self.part_repo.get_by_id(part_id)
+        if not part:
+            raise NotFoundError(f"Part {part_id} not found")
+        qty = float(qty) if qty is not None else 0.0
+        if qty <= 0:
+            raise BadRequestError("Issue quantity must be greater than zero")
+        if department not in DEPARTMENTS:
+            raise BadRequestError(f"department must be one of {list(DEPARTMENTS)}")
+        with atomic():
+            row = self.repo.get_or_create(part.id)
+            on_hand = float(row.qty_on_hand or 0)
+            if qty > on_hand:
+                raise BadRequestError(f"Cannot issue {qty:g}: only {on_hand:g} on hand")
+            row, _ = self._write(
+                part.id, round(on_hand - qty, 2), "ISSUE",
+                reference=reference, remarks=remarks, user=user, department=department,
             )
         return self._row_dict(part, row)
 
@@ -354,6 +382,26 @@ class SpareStockService:
             key = e.created_at.strftime("%Y-%m")
             by_month[key] = by_month.get(key, 0) + abs(float(e.qty_delta))
         return [{"name": k, "value": round(v, 2)} for k, v in sorted(by_month.items())][-months:]
+
+    def consumption_by_department(self, store_code):
+        """Total issued quantity per department — the split behind Department-wise
+        Consumption. Only ISSUE rows carry a department, so opening/receipt/
+        adjustment rows never appear here."""
+        from app.extensions import db
+        from sqlalchemy import func
+        from app.models.spare_stock import SpareStockLedger
+        rows = (
+            db.session.query(
+                SpareStockLedger.department,
+                func.sum(func.abs(SpareStockLedger.qty_delta)),
+            )
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE")
+            .group_by(SpareStockLedger.department)
+            .all()
+        )
+        return [{"name": dept or "Unspecified", "value": round(float(total or 0), 2)}
+                for dept, total in rows if total]
 
     def erp_completeness(self, store_code):
         """How much of this store's list ERP has ever reported a stock figure
