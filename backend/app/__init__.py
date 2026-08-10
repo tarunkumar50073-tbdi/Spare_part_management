@@ -118,6 +118,11 @@ def create_app(env_name=None):
     with app.app_context():
         db.create_all()
         _patch_schema()
+        # Portable (ORM + a plain UPDATE), so it runs on every dialect — not
+        # from inside _patch_schema, which returns early on non-SQLite and so
+        # would leave a fresh Postgres DB with no stores at all (audit
+        # finding PORT-1).
+        _seed_stores()
 
     _start_erp_ledger_poller(app)
 
@@ -167,8 +172,6 @@ def _patch_schema():
     if srv_cols and "gate_out_time" not in srv_cols:
         db.session.execute(text("ALTER TABLE srvs ADD COLUMN gate_out_time DATETIME"))
         db.session.commit()
-
-    _seed_stores()
 
 
 def _seed_stores():
