@@ -136,3 +136,12 @@ def test_non_returnable_issue_is_not_outstanding():
     p = _part(); _set_physical(p.id, 5)
     svc.issue(p.id, 1, "Maintenance", returnable=False)
     assert not any(r["part_no"] == p.part_no for r in svc.outstanding_returnables("MAINTENANCE"))
+
+
+def test_receive_adds_stock():
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 5)
+    svc.receive(p.id, 8, reference="GRN-77")
+    assert _on_hand(p.id) == 13.0
+    row = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").first()
+    assert row is not None and float(row.qty_delta) == 8.0

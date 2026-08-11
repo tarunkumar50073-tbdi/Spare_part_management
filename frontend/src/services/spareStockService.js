@@ -35,6 +35,7 @@ export const spareStockService = {
   erpGapSummary: (storeCode) =>
     api.get("/spare-stock/erp-gap/summary", { params: { store_code: storeCode } }),
   issue: (partId, payload) => api.post(`/spare-stock/parts/${partId}/issue`, payload),
+  receive: (partId, payload) => api.post(`/spare-stock/parts/${partId}/receive`, payload),
   consumption: (storeCode, groupBy = "department") =>
     api.get("/spare-stock/consumption", { params: { store_code: storeCode, group_by: groupBy } }),
   machines: (storeCode) => api.get("/spare-stock/machines", { params: { store_code: storeCode } }),

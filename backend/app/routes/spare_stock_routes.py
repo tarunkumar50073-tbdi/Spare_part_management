@@ -9,7 +9,7 @@ from app.repositories.part_repository import PartRepository
 from app.services.auth_service import AuthService
 from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_stock_service import SpareStockService
-from app.schemas.spare_stock_schema import SpareStockSetSchema, SpareIssueSchema
+from app.schemas.spare_stock_schema import SpareStockSetSchema, SpareIssueSchema, SpareReceiveSchema
 from app.utils.authz import require_store_access
 from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
@@ -218,6 +218,17 @@ def issue_part(part_id):
     )
     where = f"{data['department']}" + (f" · {data['machine']}" if data.get("machine") else "")
     return success_response(row, f"Issued to {where}")
+
+
+@bp.route("/parts/<int:part_id>/receive", methods=["POST"])
+def receive_part(part_id):
+    _require_part_store(part_id)
+    data = validate_payload(SpareReceiveSchema(), request.get_json(force=True) or {})
+    row = service.receive(
+        part_id, float(data["qty"]),
+        reference=data.get("reference"), remarks=data.get("remarks"), user=_username(),
+    )
+    return success_response(row, "Stock received")
 
 
 @bp.route("/parts/<int:part_id>/history", methods=["GET"])

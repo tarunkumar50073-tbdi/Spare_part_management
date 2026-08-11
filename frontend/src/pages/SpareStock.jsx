@@ -59,6 +59,11 @@ export default function SpareStock() {
   const [issueMachine, setIssueMachine] = useState("");
   const [issueReturnable, setIssueReturnable] = useState(false);
   const [returnables, setReturnables] = useState([]);    // outstanding returnable issues
+  const [receivingRow, setReceivingRow] = useState(null);
+  const [receiveQty, setReceiveQty] = useState("");
+  const [receiveRef, setReceiveRef] = useState("");
+  const [receiveRemarks, setReceiveRemarks] = useState("");
+  const [receiveSubmitting, setReceiveSubmitting] = useState(false);
 
   const load = useCallback(() => {
     if (!activeCode) return;
@@ -119,6 +124,34 @@ export default function SpareStock() {
     setIssueMachine("");
     setIssueReturnable(false);
     setIssueRemarks("");
+  };
+
+  const openReceive = (row) => {
+    setReceivingRow(row);
+    setReceiveQty("");
+    setReceiveRef("");
+    setReceiveRemarks("");
+  };
+
+  const submitReceive = async () => {
+    const qty = Number(receiveQty);
+    if (receiveQty === "" || Number.isNaN(qty) || qty <= 0) {
+      toast.error("Enter a quantity greater than zero");
+      return;
+    }
+    setReceiveSubmitting(true);
+    try {
+      await spareStockService.receive(receivingRow.part_id, {
+        qty, reference: receiveRef.trim() || undefined, remarks: receiveRemarks || undefined,
+      });
+      toast.success(`Received ${qty} of ${receivingRow.part_no}`);
+      setReceivingRow(null);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Could not receive");
+    } finally {
+      setReceiveSubmitting(false);
+    }
   };
 
   const handleReturn = async (ledgerId, partNo) => {
@@ -231,17 +264,27 @@ export default function SpareStock() {
       ),
     },
     {
-      key: "_issue", label: "", align: "right",
+      key: "_actions", label: "", align: "right",
       render: (r) => (
-        <button
-          onClick={(e) => { e.stopPropagation(); openIssue(r); }}
-          disabled={!r.qty_on_hand}
-          className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
-            text-rose-600 dark:text-rose-400 hover:border-toyotared disabled:opacity-40 disabled:cursor-not-allowed"
-          title={r.qty_on_hand ? "Issue this spare to a department" : "Nothing on hand to issue"}
-        >
-          Issue
-        </button>
+        <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => openReceive(r)}
+            className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
+              text-emerald-600 dark:text-emerald-400 hover:border-emerald-500"
+            title="Receive new stock for this part"
+          >
+            Receive
+          </button>
+          <button
+            onClick={() => openIssue(r)}
+            disabled={!r.qty_on_hand}
+            className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
+              text-rose-600 dark:text-rose-400 hover:border-toyotared disabled:opacity-40 disabled:cursor-not-allowed"
+            title={r.qty_on_hand ? "Issue this spare to a department" : "Nothing on hand to issue"}
+          >
+            Issue
+          </button>
+        </div>
       ),
     },
   ];
@@ -437,6 +480,61 @@ export default function SpareStock() {
                 type="text" value={issueRemarks}
                 onChange={(e) => setIssueRemarks(e.target.value)}
                 placeholder="Work order, machine, etc."
+                className="input-field w-full mt-1"
+              />
+            </label>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!receivingRow}
+        onClose={() => setReceivingRow(null)}
+        title={receivingRow ? `Receive ${receivingRow.part_no}` : "Receive"}
+        footer={
+          <>
+            <button className="btn-secondary" onClick={() => setReceivingRow(null)} disabled={receiveSubmitting}>Cancel</button>
+            <button
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              onClick={submitReceive}
+              disabled={receiveSubmitting}
+            >
+              {receiveSubmitting ? "Receiving…" : "Receive"}
+            </button>
+          </>
+        }
+      >
+        {receivingRow && (
+          <div className="space-y-3 text-sm">
+            <p className="text-slate-500 dark:text-slate-400">
+              {receivingRow.part_name} · <b>{num(receivingRow.qty_on_hand)}</b> on hand now
+            </p>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Quantity received</span>
+              <input
+                type="number" min="0" step="any" autoFocus
+                value={receiveQty}
+                onChange={(e) => setReceiveQty(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submitReceive(); }}
+                className="input-field w-full mt-1"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                Reference <span className="font-normal text-slate-400">— GRN / PO / invoice</span>
+              </span>
+              <input
+                type="text" value={receiveRef}
+                onChange={(e) => setReceiveRef(e.target.value)}
+                placeholder="e.g. GRN-1234"
+                className="input-field w-full mt-1"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Remarks (optional)</span>
+              <input
+                type="text" value={receiveRemarks}
+                onChange={(e) => setReceiveRemarks(e.target.value)}
                 className="input-field w-full mt-1"
               />
             </label>

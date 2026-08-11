@@ -118,6 +118,24 @@ class SpareStockService:
             )
         return self._row_dict(part, row)
 
+    def receive(self, part_id, qty, reference=None, remarks=None, user=None):
+        """Receive new stock into the store (a purchase / GRN) — a RECEIPT that
+        adds to on-hand. The inbound counterpart to issue()."""
+        part = self.part_repo.get_by_id(part_id)
+        if not part:
+            raise NotFoundError(f"Part {part_id} not found")
+        qty = float(qty) if qty is not None else 0.0
+        if qty <= 0:
+            raise BadRequestError("Receive quantity must be greater than zero")
+        with atomic():
+            row = self.repo.get_or_create(part.id)
+            new_qty = round(float(row.qty_on_hand or 0) + qty, 2)
+            row, _ = self._write(
+                part.id, new_qty, "RECEIPT",
+                reference=reference, remarks=remarks, user=user,
+            )
+        return self._row_dict(part, row)
+
     def return_item(self, ledger_id, user=None):
         """Bring a returnable tool/die back to the shelf — a RETURN that adds the
         quantity back and closes out the ISSUE it came from. Rejects anything

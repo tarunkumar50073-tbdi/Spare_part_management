@@ -22,6 +22,14 @@ class SpareStockSetSchema(Schema):
     remarks = fields.String(allow_none=True, validate=validate.Length(max=255))
 
 
+class SpareReceiveSchema(Schema):
+    """Receiving new stock into the store: a positive quantity added to on-hand,
+    with an optional GRN / PO / invoice reference."""
+    qty = fields.Decimal(required=True, places=2, validate=validate.Range(min=0, min_inclusive=False))
+    reference = fields.String(allow_none=True, validate=validate.Length(max=80))
+    remarks = fields.String(allow_none=True, validate=validate.Length(max=255))
+
+
 class SpareIssueSchema(Schema):
     """Issuing a spare to a department: a positive quantity deducted from
     on-hand, tagged with which department drew it and (optionally) the machine
