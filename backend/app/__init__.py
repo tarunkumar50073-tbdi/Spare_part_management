@@ -192,6 +192,13 @@ def _patch_schema():
         db.session.execute(text("ALTER TABLE spare_stock_ledger ADD COLUMN machine VARCHAR(60)"))
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_machine ON spare_stock_ledger (machine)"))
         db.session.commit()
+    if ledger_cols and "returnable" not in ledger_cols:
+        db.session.execute(text("ALTER TABLE spare_stock_ledger ADD COLUMN returnable BOOLEAN NOT NULL DEFAULT 0"))
+        db.session.commit()
+    if ledger_cols and "return_of_id" not in ledger_cols:
+        db.session.execute(text("ALTER TABLE spare_stock_ledger ADD COLUMN return_of_id INTEGER"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_return_of_id ON spare_stock_ledger (return_of_id)"))
+        db.session.commit()
 
 
 def _seed_stores():

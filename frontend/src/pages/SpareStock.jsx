@@ -57,6 +57,8 @@ export default function SpareStock() {
   const [submitting, setSubmitting] = useState(false);
   const [machines, setMachines] = useState([]);          // type-ahead source
   const [issueMachine, setIssueMachine] = useState("");
+  const [issueReturnable, setIssueReturnable] = useState(false);
+  const [returnables, setReturnables] = useState([]);    // outstanding returnable issues
 
   const load = useCallback(() => {
     if (!activeCode) return;
@@ -65,8 +67,11 @@ export default function SpareStock() {
       spareStockService.list({ store_code: activeCode }).then((r) => r.data.data).catch(() => []),
       spareStockService.summary(activeCode).then((r) => r.data.data).catch(() => null),
       spareStockService.machines(activeCode).then((r) => r.data.data).catch(() => []),
+      spareStockService.returnables(activeCode).then((r) => r.data.data).catch(() => []),
     ])
-      .then(([list, sum, mc]) => { setRows(list); setSummary(sum); setMachines(mc); })
+      .then(([list, sum, mc, ret]) => {
+        setRows(list); setSummary(sum); setMachines(mc); setReturnables(ret);
+      })
       .finally(() => setLoading(false));
   }, [activeCode]);
 
@@ -112,7 +117,19 @@ export default function SpareStock() {
     setIssueQty("");
     setIssueDept(DEPARTMENTS[0]);
     setIssueMachine("");
+    setIssueReturnable(false);
     setIssueRemarks("");
+  };
+
+  const handleReturn = async (ledgerId, partNo) => {
+    if (!window.confirm(`Return ${partNo} to store?`)) return;
+    try {
+      await spareStockService.returnItem(ledgerId);
+      toast.success(`${partNo} returned to store`);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Could not return");
+    }
   };
 
   const submitIssue = async () => {
@@ -126,6 +143,7 @@ export default function SpareStock() {
       await spareStockService.issue(issuing.part_id, {
         qty, department: issueDept,
         machine: issueMachine.trim() || undefined,
+        returnable: issueReturnable,
         remarks: issueRemarks || undefined,
       });
       toast.success(`Issued ${qty} of ${issuing.part_no} to ${issueDept}${issueMachine.trim() ? ` · ${issueMachine.trim()}` : ""}`);
@@ -308,6 +326,47 @@ export default function SpareStock() {
         />
       </div>
 
+      {returnables.length > 0 && (
+        <div className="card">
+          <CardHead icon="↩️" tone="amber" title="Out on the floor — returnable tools"
+            hint="Returnable issues still to come back" />
+          <div className="rounded-xl border border-slate-200 dark:border-navy-800 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 dark:bg-navy-800 text-slate-600 dark:text-slate-300">
+                <tr>
+                  <th className="text-left font-semibold px-3 py-2.5">Part</th>
+                  <th className="text-right font-semibold px-3 py-2.5">Qty</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Department</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Machine</th>
+                  <th className="px-3 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+                {returnables.map((r) => (
+                  <tr key={r.id}>
+                    <td className="px-3 py-2.5">
+                      <span className="font-medium">{r.part_no}</span>{" "}
+                      <span className="text-slate-400">{r.part_name}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{num(r.qty)}</td>
+                    <td className="px-3 py-2.5">{r.department || "—"}</td>
+                    <td className="px-3 py-2.5">{r.machine || "—"}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      <button
+                        onClick={() => handleReturn(r.id, r.part_no)}
+                        className="text-xs px-2.5 py-1 rounded bg-emerald-600 text-white hover:opacity-90"
+                      >
+                        Return
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <Modal
         open={!!issuing}
         onClose={() => setIssuing(null)}
@@ -360,6 +419,17 @@ export default function SpareStock() {
               <datalist id="spare-machine-list">
                 {machines.map((m) => <option key={m} value={m} />)}
               </datalist>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={issueReturnable}
+                onChange={(e) => setIssueReturnable(e.target.checked)}
+                className="accent-toyotared"
+              />
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                Returnable <span className="font-normal text-slate-400">— a tool/die expected back</span>
+              </span>
             </label>
             <label className="block">
               <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Remarks (optional)</span>

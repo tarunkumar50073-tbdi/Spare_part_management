@@ -16,9 +16,9 @@ from app.extensions import db
 from app.models.base import BaseModel
 
 # Why a quantity changed. OPENING is the first load from a physical count;
-# ADJUSTMENT is a correction to that; RECEIPT and ISSUE are written by the
-# issue/receipt flow that comes next.
-TXN_TYPES = ("OPENING", "RECEIPT", "ISSUE", "ADJUSTMENT")
+# ADJUSTMENT is a correction to that; RECEIPT adds new stock; ISSUE draws it to
+# a department/machine; RETURN brings a returnable tool/die back to the shelf.
+TXN_TYPES = ("OPENING", "RECEIPT", "ISSUE", "RETURN", "ADJUSTMENT")
 
 
 class SpareStock(BaseModel):
@@ -67,6 +67,13 @@ class SpareStockLedger(BaseModel):
     # drawing it (a sensor/cylinder can go on any machine, so it can't be
     # derived from the part). Feeds machine-wise consumption. NULL otherwise.
     machine = db.Column(db.String(60), nullable=True, index=True)
+
+    # Returnable tooling (a die/tool expected back), set on ISSUE. The issue
+    # stays "outstanding" until a RETURN row points back to it.
+    returnable = db.Column(db.Boolean, nullable=False, default=False)
+
+    # On a RETURN row: the ISSUE ledger row it closes out.
+    return_of_id = db.Column(db.Integer, db.ForeignKey("spare_stock_ledger.id"), nullable=True, index=True)
 
     part = db.relationship("Part")
 

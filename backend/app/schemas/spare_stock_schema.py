@@ -29,5 +29,6 @@ class SpareIssueSchema(Schema):
     qty = fields.Decimal(required=True, places=2, validate=validate.Range(min=0, min_inclusive=False))
     department = fields.String(required=True, validate=validate.OneOf(list(DEPARTMENTS)))
     machine = fields.String(allow_none=True, validate=validate.Length(max=60))
+    returnable = fields.Boolean(load_default=False)  # a die/tool expected back
     reference = fields.String(allow_none=True, validate=validate.Length(max=80))
     remarks = fields.String(allow_none=True, validate=validate.Length(max=255))

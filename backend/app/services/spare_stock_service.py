@@ -51,7 +51,8 @@ class SpareStockService:
     # ---- movement ----
 
     def _write(self, part_id, new_qty, txn_type, reference=None, remarks=None,
-               user=None, counted=False, department=None, machine=None):
+               user=None, counted=False, department=None, machine=None,
+               returnable=False, return_of_id=None):
         """Set a part's quantity and record why, in one go. The ledger row and
         the maintained qty are written together — a balance that moved with no
         row to explain it is worse than no history at all."""
@@ -71,6 +72,7 @@ class SpareStockService:
                 part_id=part_id, qty_delta=delta, balance_after=new_qty,
                 txn_type=txn_type, reference=reference, remarks=remarks,
                 created_by=user, department=department, machine=machine,
+                returnable=returnable, return_of_id=return_of_id,
             )
         return row, delta
 
@@ -89,7 +91,8 @@ class SpareStockService:
             )
         return self._row_dict(part, row)
 
-    def issue(self, part_id, qty, department, machine=None, reference=None, remarks=None, user=None):
+    def issue(self, part_id, qty, department, machine=None, returnable=False,
+              reference=None, remarks=None, user=None):
         """Issue a spare to a department, fitted on a machine — the movement that
         fills Department-wise and Machine-wise Consumption. Deducts on-hand and
         writes an ISSUE ledger row tagged with department + machine; refuses to
@@ -111,9 +114,64 @@ class SpareStockService:
             row, _ = self._write(
                 part.id, round(on_hand - qty, 2), "ISSUE",
                 reference=reference, remarks=remarks, user=user,
-                department=department, machine=machine,
+                department=department, machine=machine, returnable=bool(returnable),
             )
         return self._row_dict(part, row)
+
+    def return_item(self, ledger_id, user=None):
+        """Bring a returnable tool/die back to the shelf — a RETURN that adds the
+        quantity back and closes out the ISSUE it came from. Rejects anything
+        that isn't a still-outstanding returnable issue."""
+        from app.models.spare_stock import SpareStockLedger
+        issue_row = self.ledger_repo.get_by_id(ledger_id)
+        if not issue_row or issue_row.txn_type != "ISSUE" or not issue_row.returnable:
+            raise BadRequestError("That is not a returnable issue")
+        if SpareStockLedger.query.filter_by(return_of_id=ledger_id).first():
+            raise BadRequestError("This issue has already been returned")
+        part = issue_row.part
+        qty_back = abs(float(issue_row.qty_delta))
+        with atomic():
+            row = self.repo.get_or_create(issue_row.part_id)
+            new_qty = round(float(row.qty_on_hand or 0) + qty_back, 2)
+            row, _ = self._write(
+                issue_row.part_id, new_qty, "RETURN",
+                reference=issue_row.reference, remarks="Returned to store", user=user,
+                department=issue_row.department, machine=issue_row.machine,
+                return_of_id=ledger_id,
+            )
+        return self._row_dict(part, row)
+
+    def outstanding_returnables(self, store_code):
+        """Returnable tools/dies still out on the floor — every returnable ISSUE
+        that no RETURN has closed out yet, newest first."""
+        from app.extensions import db
+        from app.models.spare_stock import SpareStockLedger
+        returned = (
+            db.session.query(SpareStockLedger.return_of_id)
+            .filter(SpareStockLedger.return_of_id.isnot(None))
+        )
+        rows = (
+            db.session.query(SpareStockLedger)
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(
+                Part.store_code == store_code,
+                SpareStockLedger.txn_type == "ISSUE",
+                SpareStockLedger.returnable.is_(True),
+                SpareStockLedger.id.notin_(returned),
+            )
+            .order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc())
+            .all()
+        )
+        return [{
+            "id": r.id,
+            "part_no": r.part.part_no if r.part else None,
+            "part_name": r.part.part_name if r.part else None,
+            "qty": abs(float(r.qty_delta)),
+            "department": r.department,
+            "machine": r.machine,
+            "reference": r.reference,
+            "issued_at": r.created_at.isoformat() if r.created_at else None,
+        } for r in rows]
 
     # ---- reading ----
 

@@ -109,3 +109,30 @@ def test_issue_records_machine_and_machine_consumption():
     assert after - before == 4.0
 
     assert "PRESS-05" in svc.machines_used("MAINTENANCE")
+
+
+def test_returnable_issue_is_outstanding_then_returns():
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 10)
+
+    svc.issue(p.id, 2, "Tool Room", machine="DIE-3", returnable=True)
+    assert _on_hand(p.id) == 8.0
+
+    mine = [r for r in svc.outstanding_returnables("MAINTENANCE") if r["part_no"] == p.part_no]
+    assert len(mine) == 1
+    assert mine[0]["machine"] == "DIE-3" and mine[0]["qty"] == 2.0
+    ledger_id = mine[0]["id"]
+
+    svc.return_item(ledger_id)                          # bring it back
+    assert _on_hand(p.id) == 10.0                        # stock restored
+    assert not any(r["id"] == ledger_id for r in svc.outstanding_returnables("MAINTENANCE"))
+
+    with pytest.raises(BadRequestError):                # can't return twice
+        svc.return_item(ledger_id)
+
+
+def test_non_returnable_issue_is_not_outstanding():
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 5)
+    svc.issue(p.id, 1, "Maintenance", returnable=False)
+    assert not any(r["part_no"] == p.part_no for r in svc.outstanding_returnables("MAINTENANCE"))

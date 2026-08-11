@@ -110,6 +110,21 @@ def machines():
     return success_response(service.machines_used(_store_code()))
 
 
+@bp.route("/returnables", methods=["GET"])
+def returnables():
+    return success_response(service.outstanding_returnables(_store_code()))
+
+
+@bp.route("/issues/<int:ledger_id>/return", methods=["POST"])
+def return_issue(ledger_id):
+    row = service.ledger_repo.get_by_id(ledger_id)
+    if not row or not row.part:
+        raise NotFoundError(f"Issue {ledger_id} not found")
+    require_store_access(row.part.store_code)
+    result = service.return_item(ledger_id, user=_username())
+    return success_response(result, "Returned to store")
+
+
 @bp.route("/by-status", methods=["GET"])
 def by_status():
     status = request.args.get("status")
@@ -198,7 +213,7 @@ def issue_part(part_id):
     data = validate_payload(SpareIssueSchema(), request.get_json(force=True) or {})
     row = service.issue(
         part_id, float(data["qty"]), data["department"],
-        machine=data.get("machine"),
+        machine=data.get("machine"), returnable=data.get("returnable", False),
         reference=data.get("reference"), remarks=data.get("remarks"), user=_username(),
     )
     where = f"{data['department']}" + (f" · {data['machine']}" if data.get("machine") else "")
