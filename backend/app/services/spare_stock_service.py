@@ -460,11 +460,6 @@ class SpareStockService:
                     "caption": f"{above} above maximum of {len(counted)} counted",
                     "basis": len(counted),
                 },
-                "stock_counted": {
-                    "pct": self._pct(len(counted), len(rows)),
-                    "caption": f"{len(counted)} of {len(rows)} parts ever counted",
-                    "basis": len(rows),
-                },
             },
             "status_distribution": [
                 {"name": "Healthy", "value": healthy},

@@ -1057,17 +1057,16 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
               Percentages worked out server-side — a ring with no denominator stays blank rather than reading 0%
             </p>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {/* Master-data coverage (ever-counted, Min-Max, Planning) isn't a
+                gauge here — a spares store counts physically only at the
+                quarterly stocktake, so those figures sit at a flat ~100% and
+                say nothing day to day. The Master Data Completeness section
+                below carries the gaps and opens the missing parts. */}
             <GaugeCard title="Capacity Used" emoji="📦" g={ops.analytics.gauges.stock_utilisation}
               polarity="higher-worse" note="How full the store is against its max limit — over 100% means more on hand than the max says to hold" />
             <GaugeCard title="Inventory Health" emoji="🩺" g={ops.analytics.gauges.inventory_health}
               polarity="higher-better" note="Counted parts sitting inside Min/Max" />
-            {/* Min-Max and Planning coverage live in Master Data Completeness
-                below, which shows all three master-data gaps together and
-                opens the missing parts. Repeating them as gauges said the same
-                thing twice in two shapes. */}
-            <GaugeCard title="Stock Counted" emoji="🔢" g={ops.analytics.gauges.stock_counted}
-              polarity="higher-better" note="Share of the list ever counted" />
             <GaugeCard title="Critical Parts" emoji="🚨" g={ops.analytics.gauges.critical_parts}
               polarity="higher-worse" note="Below minimum or empty" />
             <GaugeCard title="Excess Stock" emoji="📈" g={ops.analytics.gauges.excess_stock}
