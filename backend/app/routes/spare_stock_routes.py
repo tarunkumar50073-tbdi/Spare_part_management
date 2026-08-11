@@ -209,6 +209,11 @@ def part_stock(part_id):
     return success_response(service.get_for_part(part_id))
 
 
+@bp.route("/scan", methods=["GET"])
+def scan_lookup():
+    return success_response(service.resolve_scan(_store_code(), request.args.get("code")))
+
+
 @bp.route("/parts/<int:part_id>", methods=["PUT"])
 def set_quantity(part_id):
     _require_part_store(part_id)

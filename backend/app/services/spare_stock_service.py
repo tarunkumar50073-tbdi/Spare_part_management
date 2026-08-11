@@ -227,6 +227,20 @@ class SpareStockService:
             "last_counted_at": stock.last_counted_at.isoformat() if stock and stock.last_counted_at else None,
         }
 
+    def resolve_scan(self, store_code, code):
+        """Resolve a scanned barcode / part number to this store's spare part —
+        the part's dedicated barcode first, then its part number
+        (PartRepository.get_by_scan_code). Rejects a code that isn't in this
+        store so a scan can't pull another store's part. Works with part numbers
+        today and real barcode labels once they exist."""
+        code = (code or "").strip()
+        if not code:
+            raise BadRequestError("No code scanned")
+        part = self.part_repo.get_by_scan_code(code)
+        if not part or part.store_code != store_code:
+            raise NotFoundError(f"No part in this store for code '{code}'")
+        return self._row_dict(part, self.repo.get_by_part(part.id))
+
     def get_for_part(self, part_id):
         """One part's stock, read-only — no row is created, so asking about a
         part does not silently record it as counted at zero."""

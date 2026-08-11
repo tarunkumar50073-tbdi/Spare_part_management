@@ -9,7 +9,7 @@ from app.models.part import Part
 from app.models.spare_stock import SpareStock, SpareStockLedger
 from app.models.user import User, UserStoreAccess
 from app.services.spare_stock_service import SpareStockService
-from app.utils.exceptions import BadRequestError
+from app.utils.exceptions import BadRequestError, NotFoundError
 
 _seq = {"n": 0}
 
@@ -145,6 +145,18 @@ def test_receive_adds_stock():
     assert _on_hand(p.id) == 13.0
     row = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").first()
     assert row is not None and float(row.qty_delta) == 8.0
+
+
+def test_scan_resolves_by_part_no_and_is_store_scoped():
+    svc = SpareStockService()
+    p = _part()  # in MAINTENANCE
+    row = svc.resolve_scan("MAINTENANCE", p.part_no)
+    assert row["part_no"] == p.part_no
+
+    with pytest.raises(NotFoundError):        # same code, wrong store
+        svc.resolve_scan("CHILD_PART", p.part_no)
+    with pytest.raises(NotFoundError):        # unknown code
+        svc.resolve_scan("MAINTENANCE", "NO-SUCH-CODE")
 
 
 def test_movements_are_pending_erp_until_synced():

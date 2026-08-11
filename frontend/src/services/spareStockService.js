@@ -39,6 +39,7 @@ export const spareStockService = {
   consumption: (storeCode, groupBy = "department") =>
     api.get("/spare-stock/consumption", { params: { store_code: storeCode, group_by: groupBy } }),
   machines: (storeCode) => api.get("/spare-stock/machines", { params: { store_code: storeCode } }),
+  scan: (storeCode, code) => api.get("/spare-stock/scan", { params: { store_code: storeCode, code } }),
   returnables: (storeCode) => api.get("/spare-stock/returnables", { params: { store_code: storeCode } }),
   reorder: (storeCode) => api.get("/spare-stock/reorder", { params: { store_code: storeCode } }),
   erpPending: (storeCode) => api.get("/spare-stock/erp-sync/pending", { params: { store_code: storeCode } }),

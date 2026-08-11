@@ -6,6 +6,7 @@ import ExcelActions from "../components/ExcelActions.jsx";
 import KpiCard from "../components/KpiCard.jsx";
 import Table from "../components/Table.jsx";
 import Modal from "../components/Modal.jsx";
+import BarcodeScanInput from "../components/BarcodeScanInput.jsx";
 import UploadReportModal from "../components/UploadReportModal.jsx";
 import { spareStockService } from "../services/spareStockService.js";
 import { useStores } from "../context/StoreContext.jsx";
@@ -62,6 +63,8 @@ export default function SpareStock() {
   const [reorder, setReorder] = useState(null);          // reorder list {items,count,total}
   const [erpPending, setErpPending] = useState(0);       // movements awaiting ERP push
   const [erpSyncing, setErpSyncing] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanResolving, setScanResolving] = useState(false);
   const [receivingRow, setReceivingRow] = useState(null);
   const [receiveQty, setReceiveQty] = useState("");
   const [receiveRef, setReceiveRef] = useState("");
@@ -156,6 +159,20 @@ export default function SpareStock() {
       toast.error(err?.response?.data?.message || "Could not receive");
     } finally {
       setReceiveSubmitting(false);
+    }
+  };
+
+  const resolveScan = async (code) => {
+    if (!code) return;
+    setScanResolving(true);
+    try {
+      const res = await spareStockService.scan(activeCode, code);
+      setScanOpen(false);
+      openIssue(res.data.data);   // jump straight to issuing the scanned part
+    } catch (err) {
+      toast.error(err?.response?.data?.message || `No part found for "${code}"`);
+    } finally {
+      setScanResolving(false);
     }
   };
 
@@ -321,14 +338,23 @@ export default function SpareStock() {
             On-hand quantity for {activeStore?.name || "this store"} — the figure Min and Max are judged against
           </p>
         </div>
-        <ExcelActions
-          addLabel="Stock"
-          onUpload={handleUpload}
-          onDownloadTemplate={() => downloadFile(
-            "/spare-stock/template", "spare_opening_stock_template.xlsx", { store_code: activeCode })}
-          onExport={() => downloadFile(
-            "/spare-stock/export", "spare_stock.xlsx", { store_code: activeCode })}
-        />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setScanOpen(true)}
+            className="btn-secondary whitespace-nowrap"
+            title="Scan a part barcode / QR to issue it"
+          >
+            📷 Scan
+          </button>
+          <ExcelActions
+            addLabel="Stock"
+            onUpload={handleUpload}
+            onDownloadTemplate={() => downloadFile(
+              "/spare-stock/template", "spare_opening_stock_template.xlsx", { store_code: activeCode })}
+            onExport={() => downloadFile(
+              "/spare-stock/export", "spare_stock.xlsx", { store_code: activeCode })}
+          />
+        </div>
       </div>
 
       {erpPending > 0 && (
@@ -485,6 +511,16 @@ export default function SpareStock() {
           </div>
         </div>
       )}
+
+      <Modal open={scanOpen} onClose={() => setScanOpen(false)} title="Scan a part to issue">
+        <div className="space-y-3">
+          <p className="text-xs text-slate-400">
+            Scan the part&apos;s barcode / QR, or type its part number and press Enter.
+          </p>
+          <BarcodeScanInput onScan={resolveScan} placeholder="Scan or type part no…" autoFocus disabled={scanResolving} />
+          {scanResolving && <p className="text-xs text-slate-400">Looking up…</p>}
+        </div>
+      </Modal>
 
       <Modal
         open={!!issuing}
