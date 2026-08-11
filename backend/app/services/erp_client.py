@@ -11,7 +11,27 @@ import requests
 from flask import current_app
 
 
+class ERPNotConfigured(Exception):
+    """Raised when ERP_API_BASE_URL is unset, so an outbound push cannot go
+    through — the movement stays pending until the endpoint is live."""
+
+
 class ERPClient:
+    def push_stock_movement(self, part_no, qty_delta, reason, reference=None):
+        """Push a spare stock movement to ERP so ERP's on-hand tracks the store's.
+        Returns True on success; raises ERPNotConfigured when ERP_API_BASE_URL is
+        unset (the movement then stays pending until the endpoint is live)."""
+        base_url = current_app.config.get("ERP_API_BASE_URL")
+        if not base_url:
+            raise ERPNotConfigured()
+        resp = requests.post(
+            f"{base_url.rstrip('/')}/stock/movement",
+            json={"part_no": part_no, "qty_delta": qty_delta, "reason": reason, "reference": reference},
+            timeout=current_app.config.get("ERP_API_TIMEOUT", 10),
+        )
+        resp.raise_for_status()
+        return True
+
     def submit_srv(self, srv, is_short):
         """Submit a verified SRV line to ERP. Returns {"srv_no": str,
         "short_note_no": str | None}. ERP is the source of truth for both

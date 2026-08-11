@@ -75,6 +75,11 @@ class SpareStockLedger(BaseModel):
     # On a RETURN row: the ISSUE ledger row it closes out.
     return_of_id = db.Column(db.Integer, db.ForeignKey("spare_stock_ledger.id"), nullable=True, index=True)
 
+    # When this movement was pushed to ERP. NULL = pending — it waits here until
+    # the ERP endpoint is live and a sync runs. Once ERP_API_BASE_URL is set,
+    # syncing the backlog fills these in; nothing is lost while ERP is offline.
+    erp_pushed_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
+
     part = db.relationship("Part")
 
     __table_args__ = (

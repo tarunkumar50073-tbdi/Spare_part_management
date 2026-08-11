@@ -60,6 +60,8 @@ export default function SpareStock() {
   const [issueReturnable, setIssueReturnable] = useState(false);
   const [returnables, setReturnables] = useState([]);    // outstanding returnable issues
   const [reorder, setReorder] = useState(null);          // reorder list {items,count,total}
+  const [erpPending, setErpPending] = useState(0);       // movements awaiting ERP push
+  const [erpSyncing, setErpSyncing] = useState(false);
   const [receivingRow, setReceivingRow] = useState(null);
   const [receiveQty, setReceiveQty] = useState("");
   const [receiveRef, setReceiveRef] = useState("");
@@ -75,9 +77,10 @@ export default function SpareStock() {
       spareStockService.machines(activeCode).then((r) => r.data.data).catch(() => []),
       spareStockService.returnables(activeCode).then((r) => r.data.data).catch(() => []),
       spareStockService.reorder(activeCode).then((r) => r.data.data).catch(() => null),
+      spareStockService.erpPending(activeCode).then((r) => r.data.data?.pending ?? 0).catch(() => 0),
     ])
-      .then(([list, sum, mc, ret, ro]) => {
-        setRows(list); setSummary(sum); setMachines(mc); setReturnables(ret); setReorder(ro);
+      .then(([list, sum, mc, ret, ro, ep]) => {
+        setRows(list); setSummary(sum); setMachines(mc); setReturnables(ret); setReorder(ro); setErpPending(ep);
       })
       .finally(() => setLoading(false));
   }, [activeCode]);
@@ -153,6 +156,24 @@ export default function SpareStock() {
       toast.error(err?.response?.data?.message || "Could not receive");
     } finally {
       setReceiveSubmitting(false);
+    }
+  };
+
+  const handleErpSync = async () => {
+    setErpSyncing(true);
+    try {
+      const res = await spareStockService.erpSync(activeCode);
+      const d = res.data.data;
+      if (!d.configured) {
+        toast(`ERP endpoint not live yet — ${d.pending} movement${d.pending === 1 ? "" : "s"} will sync once it's set`, { icon: "⏳" });
+      } else {
+        toast.success(`Pushed ${d.pushed} movement${d.pushed === 1 ? "" : "s"} to ERP`);
+      }
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Sync failed");
+    } finally {
+      setErpSyncing(false);
     }
   };
 
@@ -309,6 +330,18 @@ export default function SpareStock() {
             "/spare-stock/export", "spare_stock.xlsx", { store_code: activeCode })}
         />
       </div>
+
+      {erpPending > 0 && (
+        <div className="card bg-amber-50/60 dark:bg-amber-500/[0.08] border-amber-200 dark:border-amber-500/30 flex flex-wrap items-center justify-between gap-3 py-3">
+          <p className="text-sm text-slate-700 dark:text-slate-200">
+            <b>{erpPending}</b> stock movement{erpPending === 1 ? "" : "s"} pending ERP sync
+            <span className="text-slate-400"> — pushes automatically once the ERP endpoint is live</span>
+          </p>
+          <button onClick={handleErpSync} disabled={erpSyncing} className="btn-secondary whitespace-nowrap">
+            {erpSyncing ? "Syncing…" : "Sync to ERP now"}
+          </button>
+        </div>
+      )}
 
       {/* The template arrives pre-filled with the store's own part numbers, so
           the count is one column to type rather than 481 rows to retype. */}

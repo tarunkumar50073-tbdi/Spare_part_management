@@ -631,6 +631,60 @@ class SpareStockService:
             "accuracy_pct": round(matched / len(reconciled) * 100, 2) if reconciled else None,
         }
 
+    # ---- ERP outbound sync (mock-now / real-later) ----
+
+    def pending_erp_count(self, store_code):
+        """How many stock movements are waiting to be pushed to ERP."""
+        from app.extensions import db
+        from sqlalchemy import func
+        from app.models.spare_stock import SpareStockLedger
+        return (
+            db.session.query(func.count(SpareStockLedger.id))
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code,
+                    SpareStockLedger.txn_type.in_(("ISSUE", "RECEIPT", "RETURN")),
+                    SpareStockLedger.erp_pushed_at.is_(None))
+            .scalar() or 0
+        )
+
+    def sync_pending_to_erp(self, store_code):
+        """Push every not-yet-pushed movement (ISSUE/RECEIPT/RETURN) to ERP,
+        oldest first, stamping erp_pushed_at on each success. When the ERP
+        endpoint isn't configured yet, nothing is pushed and the movements stay
+        pending — run this again once ERP_API_BASE_URL is set and it clears the
+        backlog."""
+        from app.extensions import db
+        from app.models.base import utcnow
+        from app.models.spare_stock import SpareStockLedger
+        from app.services.erp_client import ERPClient, ERPNotConfigured
+        client = ERPClient()
+        rows = (
+            db.session.query(SpareStockLedger)
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code,
+                    SpareStockLedger.txn_type.in_(("ISSUE", "RECEIPT", "RETURN")),
+                    SpareStockLedger.erp_pushed_at.is_(None))
+            .order_by(SpareStockLedger.id.asc())
+            .all()
+        )
+        pushed = 0
+        failed = 0
+        now = utcnow()
+        for r in rows:
+            try:
+                client.push_stock_movement(
+                    r.part.part_no if r.part else None, float(r.qty_delta), r.txn_type, r.reference)
+                r.erp_pushed_at = now
+                pushed += 1
+            except ERPNotConfigured:
+                db.session.rollback()
+                return {"configured": False, "pushed": 0, "pending": len(rows)}
+            except Exception:
+                failed += 1
+        db.session.commit()
+        return {"configured": True, "pushed": pushed, "failed": failed,
+                "pending": len(rows) - pushed}
+
     def recent_activity(self, store_code, limit=20):
         """The store's own event feed, off the ledger. Every row is something
         that actually happened to stock — no synthesised "system" events."""

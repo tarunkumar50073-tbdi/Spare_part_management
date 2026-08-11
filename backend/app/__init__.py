@@ -199,6 +199,10 @@ def _patch_schema():
         db.session.execute(text("ALTER TABLE spare_stock_ledger ADD COLUMN return_of_id INTEGER"))
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_return_of_id ON spare_stock_ledger (return_of_id)"))
         db.session.commit()
+    if ledger_cols and "erp_pushed_at" not in ledger_cols:
+        db.session.execute(text("ALTER TABLE spare_stock_ledger ADD COLUMN erp_pushed_at DATETIME"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_erp_pushed_at ON spare_stock_ledger (erp_pushed_at)"))
+        db.session.commit()
 
 
 def _seed_stores():

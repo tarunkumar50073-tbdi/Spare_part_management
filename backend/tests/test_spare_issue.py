@@ -147,6 +147,22 @@ def test_receive_adds_stock():
     assert row is not None and float(row.qty_delta) == 8.0
 
 
+def test_movements_are_pending_erp_until_synced():
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 10)
+    before = svc.pending_erp_count("MAINTENANCE")
+
+    svc.issue(p.id, 2, "Maintenance")
+    svc.receive(p.id, 5, reference="GRN-1")
+    after = svc.pending_erp_count("MAINTENANCE")
+    assert after - before == 2  # the ISSUE and the RECEIPT are both pending
+
+    # ERP endpoint not configured -> nothing pushed, everything stays pending
+    res = svc.sync_pending_to_erp("MAINTENANCE")
+    assert res["configured"] is False
+    assert svc.pending_erp_count("MAINTENANCE") == after
+
+
 def test_reorder_list_suggests_qty_up_to_max():
     svc = SpareStockService()
     _seq["n"] += 1

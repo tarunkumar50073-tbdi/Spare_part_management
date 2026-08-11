@@ -120,6 +120,16 @@ def reorder():
     return success_response(service.reorder_list(_store_code()))
 
 
+@bp.route("/erp-sync/pending", methods=["GET"])
+def erp_sync_pending():
+    return success_response({"pending": service.pending_erp_count(_store_code())})
+
+
+@bp.route("/erp-sync", methods=["POST"])
+def erp_sync():
+    return success_response(service.sync_pending_to_erp(_store_code()))
+
+
 @bp.route("/issues/<int:ledger_id>/return", methods=["POST"])
 def return_issue(ledger_id):
     row = service.ledger_repo.get_by_id(ledger_id)
