@@ -100,6 +100,8 @@ def consumption():
         return success_response(service.consumption_by_department(store))
     if group_by == "machine":
         return success_response(service.consumption_by_machine(store))
+    if group_by == "type":
+        return success_response(service.consumption_by_type(store))
     raise BadRequestError(f"Unsupported group_by: {group_by}")
 
 

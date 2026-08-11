@@ -99,3 +99,15 @@ def import_parts():
         section_id=request.form.get("section_id", type=int),
     )
     return success_response(report, f"{report['created']} of {report['total_rows']} parts imported", 201)
+
+
+@bp.route("/derive-categories", methods=["POST"])
+@admin_required
+def derive_categories():
+    """Auto-fill parts' component type (sub_category) from their description.
+    Pass {"dry_run": true} to preview counts without writing."""
+    data = request.get_json(silent=True) or {}
+    store_code = data.get("store_code") or request.args.get("store_code")
+    if not store_code:
+        raise BadRequestError("store_code is required")
+    return success_response(service.derive_component_types(store_code, dry_run=bool(data.get("dry_run"))))

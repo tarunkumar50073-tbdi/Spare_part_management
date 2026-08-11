@@ -420,8 +420,9 @@ function useSpareOps(enabled = true) {
       spareStockService.analytics(STORE_CODE).then((r) => r.data.data).catch(() => null),
       spareStockService.consumption(STORE_CODE).then((r) => r.data.data).catch(() => []),
       spareStockService.consumption(STORE_CODE, "machine").then((r) => r.data.data).catch(() => []),
-    ]).then(([today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption]) =>
-      setOps({ today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption }));
+      spareStockService.consumption(STORE_CODE, "type").then((r) => r.data.data).catch(() => []),
+    ]).then(([today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption]) =>
+      setOps({ today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption }));
   }, [enabled]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -1299,6 +1300,19 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
                   what="No machine recorded yet"
                   needs="Issue a spare from Store Stock and type the machine it was fitted on — this ranks machines by spares consumed, so the heaviest-consuming machine (often the one needing attention) stands out."
                   endpoint="GET /spare-stock/consumption?group_by=machine"
+                />
+              )}
+            </div>
+            <div className="card">
+              <CardHead icon="🔩" tone="amber" title="Part-type-wise Consumption"
+                hint="Sensor · Cylinder · Punch · Pin …" />
+              {ops.typeConsumption && ops.typeConsumption.length > 0 ? (
+                <HorizontalBars data={ops.typeConsumption} color="#d0902a" emptyMessage="Nothing issued yet" />
+              ) : (
+                <NotCaptured
+                  what="No part-type consumption yet"
+                  needs="Fill each part's type in Part Master (auto-derivable from the description), then issue parts — this splits consumption by Sensor / Cylinder / Punch / Pin, for procurement and reorder planning."
+                  endpoint="GET /spare-stock/consumption?group_by=type"
                 />
               )}
             </div>

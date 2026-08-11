@@ -427,6 +427,25 @@ class SpareStockService:
         out.sort(key=lambda r: r["value"], reverse=True)
         return out
 
+    def consumption_by_type(self, store_code):
+        """Total issued quantity per component type (Part.sub_category) — the
+        split behind Part-type-wise Consumption. Parts with no type group under
+        'Uncategorised'."""
+        from app.extensions import db
+        from sqlalchemy import func
+        from app.models.spare_stock import SpareStockLedger
+        rows = (
+            db.session.query(Part.sub_category, func.sum(func.abs(SpareStockLedger.qty_delta)))
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE")
+            .group_by(Part.sub_category)
+            .all()
+        )
+        out = [{"name": t or "Uncategorised", "value": round(float(total or 0), 2)}
+               for t, total in rows if total]
+        out.sort(key=lambda r: r["value"], reverse=True)
+        return out
+
     def machines_used(self, store_code):
         """Distinct machine names already recorded for this store — the source
         for the issue form's type-ahead, so the same machine is always spelled

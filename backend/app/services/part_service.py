@@ -67,6 +67,51 @@ class PartService:
     def count_missing(self, store_code=None, is_active=None):
         return self.repo.count_missing(store_code=store_code, is_active=is_active)
 
+    def derive_component_types(self, store_code, only_missing=True, dry_run=False):
+        """Auto-fill each spare's sub_category (component type: Sensor / Cylinder
+        / Pilot Pin / Punch …) from its description. `only_missing` leaves parts
+        that already carry a sub_category alone; `dry_run` previews the counts
+        without writing. Reports the distribution + a sample of the parts nothing
+        matched (pure catalog codes a human still has to look at)."""
+        from collections import Counter
+        from app.utils.db_tx import atomic
+        from app.utils.part_category import derive_component_type
+
+        parts = self.repo.get_active(store_code)
+        dist = Counter()
+        to_set = []
+        uncategorised = []
+        for p in parts:
+            if only_missing and (p.sub_category or "").strip():
+                dist["(already set)"] += 1
+                continue
+            component = derive_component_type(p.part_name)
+            if component is None:
+                dist["(uncategorised)"] += 1
+                if len(uncategorised) < 15:
+                    uncategorised.append(p.part_no)
+                continue
+            dist[component] += 1
+            if p.sub_category != component:
+                to_set.append((p, component))
+
+        if not dry_run and to_set:
+            with atomic():
+                for p, component in to_set:
+                    self.repo.update(p, sub_category=component)
+
+        matched = sum(v for k, v in dist.items() if not k.startswith("("))
+        return {
+            "store_code": store_code,
+            "dry_run": dry_run,
+            "total_parts": len(parts),
+            "matched": matched,
+            "updated": 0 if dry_run else len(to_set),
+            "would_update": len(to_set) if dry_run else None,
+            "distribution": dict(dist.most_common()),
+            "uncategorised_sample": uncategorised,
+        }
+
     def get(self, part_id):
         part = self.repo.get_by_id(part_id)
         if not part:
