@@ -93,3 +93,19 @@ def test_issue_route_enforces_store_access(client):
     resp = client.post(f"/api/v1/spare-stock/parts/{part.id}/issue",
                        json={"qty": 1, "department": "Press Shop"})
     assert resp.status_code == 403
+
+
+def test_issue_records_machine_and_machine_consumption():
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 30)
+
+    svc.issue(p.id, 6, "Maintenance", machine="PRESS-05")
+    row = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").first()
+    assert row.machine == "PRESS-05"
+
+    before = _dept_total(svc.consumption_by_machine("MAINTENANCE"), "PRESS-05")
+    svc.issue(p.id, 4, "Maintenance", machine="PRESS-05")
+    after = _dept_total(svc.consumption_by_machine("MAINTENANCE"), "PRESS-05")
+    assert after - before == 4.0
+
+    assert "PRESS-05" in svc.machines_used("MAINTENANCE")

@@ -419,8 +419,9 @@ function useSpareOps(enabled = true) {
       spareStockService.byStatus(STORE_CODE, "Not Counted").then((r) => r.data.data).catch(() => []),
       spareStockService.analytics(STORE_CODE).then((r) => r.data.data).catch(() => null),
       spareStockService.consumption(STORE_CODE).then((r) => r.data.data).catch(() => []),
-    ]).then(([today, flow, pending, activity, excess, uncounted, analytics, consumption]) =>
-      setOps({ today, flow, pending, activity, excess, uncounted, analytics, consumption }));
+      spareStockService.consumption(STORE_CODE, "machine").then((r) => r.data.data).catch(() => []),
+    ]).then(([today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption]) =>
+      setOps({ today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption }));
   }, [enabled]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -1285,6 +1286,19 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
                   what="Nothing has been issued yet"
                   needs="Issue a spare to a department from the Store Stock screen (the Issue button on each part). Each issue is tagged with its department, so this splits the total by Press Shop / Maintenance / Tool Room."
                   endpoint="GET /spare-stock/consumption?group_by=department"
+                />
+              )}
+            </div>
+            <div className="card">
+              <CardHead icon="⚙️" tone="green" title="Machine-wise Consumption"
+                hint="Which machine eats the most spares" />
+              {ops.machineConsumption && ops.machineConsumption.length > 0 ? (
+                <HorizontalBars data={ops.machineConsumption} color="#0f8d7e" emptyMessage="Nothing issued yet" />
+              ) : (
+                <NotCaptured
+                  what="No machine recorded yet"
+                  needs="Issue a spare from Store Stock and type the machine it was fitted on — this ranks machines by spares consumed, so the heaviest-consuming machine (often the one needing attention) stands out."
+                  endpoint="GET /spare-stock/consumption?group_by=machine"
                 />
               )}
             </div>

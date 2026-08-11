@@ -55,6 +55,8 @@ export default function SpareStock() {
   const [issueDept, setIssueDept] = useState(DEPARTMENTS[0]);
   const [issueRemarks, setIssueRemarks] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [machines, setMachines] = useState([]);          // type-ahead source
+  const [issueMachine, setIssueMachine] = useState("");
 
   const load = useCallback(() => {
     if (!activeCode) return;
@@ -62,8 +64,9 @@ export default function SpareStock() {
     Promise.all([
       spareStockService.list({ store_code: activeCode }).then((r) => r.data.data).catch(() => []),
       spareStockService.summary(activeCode).then((r) => r.data.data).catch(() => null),
+      spareStockService.machines(activeCode).then((r) => r.data.data).catch(() => []),
     ])
-      .then(([list, sum]) => { setRows(list); setSummary(sum); })
+      .then(([list, sum, mc]) => { setRows(list); setSummary(sum); setMachines(mc); })
       .finally(() => setLoading(false));
   }, [activeCode]);
 
@@ -108,6 +111,7 @@ export default function SpareStock() {
     setIssuing(row);
     setIssueQty("");
     setIssueDept(DEPARTMENTS[0]);
+    setIssueMachine("");
     setIssueRemarks("");
   };
 
@@ -120,9 +124,11 @@ export default function SpareStock() {
     setSubmitting(true);
     try {
       await spareStockService.issue(issuing.part_id, {
-        qty, department: issueDept, remarks: issueRemarks || undefined,
+        qty, department: issueDept,
+        machine: issueMachine.trim() || undefined,
+        remarks: issueRemarks || undefined,
       });
-      toast.success(`Issued ${qty} of ${issuing.part_no} to ${issueDept}`);
+      toast.success(`Issued ${qty} of ${issuing.part_no} to ${issueDept}${issueMachine.trim() ? ` · ${issueMachine.trim()}` : ""}`);
       setIssuing(null);
       load();
     } catch (err) {
@@ -339,6 +345,21 @@ export default function SpareStock() {
               <select value={issueDept} onChange={(e) => setIssueDept(e.target.value)} className="input-field w-full mt-1">
                 {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                Machine <span className="font-normal text-slate-400">— where it was fitted</span>
+              </span>
+              <input
+                type="text" list="spare-machine-list"
+                value={issueMachine}
+                onChange={(e) => setIssueMachine(e.target.value)}
+                placeholder="Type or pick — e.g. Press-05"
+                className="input-field w-full mt-1"
+              />
+              <datalist id="spare-machine-list">
+                {machines.map((m) => <option key={m} value={m} />)}
+              </datalist>
             </label>
             <label className="block">
               <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Remarks (optional)</span>

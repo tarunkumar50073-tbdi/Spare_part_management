@@ -188,6 +188,10 @@ def _patch_schema():
         db.session.execute(text("ALTER TABLE spare_stock_ledger ADD COLUMN department VARCHAR(40)"))
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_department ON spare_stock_ledger (department)"))
         db.session.commit()
+    if ledger_cols and "machine" not in ledger_cols:
+        db.session.execute(text("ALTER TABLE spare_stock_ledger ADD COLUMN machine VARCHAR(60)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_machine ON spare_stock_ledger (machine)"))
+        db.session.commit()
 
 
 def _seed_stores():

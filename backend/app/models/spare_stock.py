@@ -63,6 +63,11 @@ class SpareStockLedger(BaseModel):
     # receipt and adjustment rows, which have no consuming department.
     department = db.Column(db.String(40), nullable=True, index=True)
 
+    # Which machine the part was fitted on — set on ISSUE, typed by the person
+    # drawing it (a sensor/cylinder can go on any machine, so it can't be
+    # derived from the part). Feeds machine-wise consumption. NULL otherwise.
+    machine = db.Column(db.String(60), nullable=True, index=True)
+
     part = db.relationship("Part")
 
     __table_args__ = (

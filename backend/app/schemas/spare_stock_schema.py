@@ -23,9 +23,11 @@ class SpareStockSetSchema(Schema):
 
 
 class SpareIssueSchema(Schema):
-    """Issuing a spare to a department: a positive quantity that will be
-    deducted from on-hand, tagged with which department drew it."""
+    """Issuing a spare to a department: a positive quantity deducted from
+    on-hand, tagged with which department drew it and (optionally) the machine
+    it was fitted on."""
     qty = fields.Decimal(required=True, places=2, validate=validate.Range(min=0, min_inclusive=False))
     department = fields.String(required=True, validate=validate.OneOf(list(DEPARTMENTS)))
+    machine = fields.String(allow_none=True, validate=validate.Length(max=60))
     reference = fields.String(allow_none=True, validate=validate.Length(max=80))
     remarks = fields.String(allow_none=True, validate=validate.Length(max=255))

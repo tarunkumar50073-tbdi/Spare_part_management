@@ -51,7 +51,7 @@ class SpareStockService:
     # ---- movement ----
 
     def _write(self, part_id, new_qty, txn_type, reference=None, remarks=None,
-               user=None, counted=False, department=None):
+               user=None, counted=False, department=None, machine=None):
         """Set a part's quantity and record why, in one go. The ledger row and
         the maintained qty are written together — a balance that moved with no
         row to explain it is worse than no history at all."""
@@ -70,7 +70,7 @@ class SpareStockService:
             self.ledger_repo.create(
                 part_id=part_id, qty_delta=delta, balance_after=new_qty,
                 txn_type=txn_type, reference=reference, remarks=remarks,
-                created_by=user, department=department,
+                created_by=user, department=department, machine=machine,
             )
         return row, delta
 
@@ -89,11 +89,11 @@ class SpareStockService:
             )
         return self._row_dict(part, row)
 
-    def issue(self, part_id, qty, department, reference=None, remarks=None, user=None):
-        """Issue a spare to a department — the movement that fills Department-wise
-        Consumption. Deducts on-hand and writes an ISSUE ledger row tagged with
-        the department; refuses to issue more than is on the shelf, so the count
-        can never go negative."""
+    def issue(self, part_id, qty, department, machine=None, reference=None, remarks=None, user=None):
+        """Issue a spare to a department, fitted on a machine — the movement that
+        fills Department-wise and Machine-wise Consumption. Deducts on-hand and
+        writes an ISSUE ledger row tagged with department + machine; refuses to
+        issue more than is on the shelf, so the count can never go negative."""
         part = self.part_repo.get_by_id(part_id)
         if not part:
             raise NotFoundError(f"Part {part_id} not found")
@@ -102,6 +102,7 @@ class SpareStockService:
             raise BadRequestError("Issue quantity must be greater than zero")
         if department not in DEPARTMENTS:
             raise BadRequestError(f"department must be one of {list(DEPARTMENTS)}")
+        machine = (machine or "").strip() or None
         with atomic():
             row = self.repo.get_or_create(part.id)
             on_hand = float(row.qty_on_hand or 0)
@@ -109,7 +110,8 @@ class SpareStockService:
                 raise BadRequestError(f"Cannot issue {qty:g}: only {on_hand:g} on hand")
             row, _ = self._write(
                 part.id, round(on_hand - qty, 2), "ISSUE",
-                reference=reference, remarks=remarks, user=user, department=department,
+                reference=reference, remarks=remarks, user=user,
+                department=department, machine=machine,
             )
         return self._row_dict(part, row)
 
@@ -402,6 +404,43 @@ class SpareStockService:
         )
         return [{"name": dept or "Unspecified", "value": round(float(total or 0), 2)}
                 for dept, total in rows if total]
+
+    def consumption_by_machine(self, store_code):
+        """Total issued quantity per machine — the split behind Machine-wise
+        Consumption (which machine eats the most spares). Only ISSUE rows carry
+        a machine."""
+        from app.extensions import db
+        from sqlalchemy import func
+        from app.models.spare_stock import SpareStockLedger
+        rows = (
+            db.session.query(
+                SpareStockLedger.machine,
+                func.sum(func.abs(SpareStockLedger.qty_delta)),
+            )
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE")
+            .group_by(SpareStockLedger.machine)
+            .all()
+        )
+        out = [{"name": mc or "Unspecified", "value": round(float(total or 0), 2)}
+               for mc, total in rows if total]
+        out.sort(key=lambda r: r["value"], reverse=True)
+        return out
+
+    def machines_used(self, store_code):
+        """Distinct machine names already recorded for this store — the source
+        for the issue form's type-ahead, so the same machine is always spelled
+        the same way."""
+        from app.extensions import db
+        from app.models.spare_stock import SpareStockLedger
+        rows = (
+            db.session.query(SpareStockLedger.machine)
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code, SpareStockLedger.machine.isnot(None))
+            .distinct()
+            .all()
+        )
+        return sorted({m for (m,) in rows if m})
 
     def erp_completeness(self, store_code):
         """How much of this store's list ERP has ever reported a stock figure

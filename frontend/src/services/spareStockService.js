@@ -37,6 +37,7 @@ export const spareStockService = {
   issue: (partId, payload) => api.post(`/spare-stock/parts/${partId}/issue`, payload),
   consumption: (storeCode, groupBy = "department") =>
     api.get("/spare-stock/consumption", { params: { store_code: storeCode, group_by: groupBy } }),
+  machines: (storeCode) => api.get("/spare-stock/machines", { params: { store_code: storeCode } }),
   import: (file, storeCode) => {
     const formData = new FormData();
     formData.append("file", file);
