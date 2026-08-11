@@ -40,6 +40,7 @@ export const spareStockService = {
     api.get("/spare-stock/consumption", { params: { store_code: storeCode, group_by: groupBy } }),
   machines: (storeCode) => api.get("/spare-stock/machines", { params: { store_code: storeCode } }),
   returnables: (storeCode) => api.get("/spare-stock/returnables", { params: { store_code: storeCode } }),
+  reorder: (storeCode) => api.get("/spare-stock/reorder", { params: { store_code: storeCode } }),
   returnItem: (ledgerId) => api.post(`/spare-stock/issues/${ledgerId}/return`),
   import: (file, storeCode) => {
     const formData = new FormData();

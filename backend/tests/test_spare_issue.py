@@ -145,3 +145,18 @@ def test_receive_adds_stock():
     assert _on_hand(p.id) == 13.0
     row = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").first()
     assert row is not None and float(row.qty_delta) == 8.0
+
+
+def test_reorder_list_suggests_qty_up_to_max():
+    svc = SpareStockService()
+    _seq["n"] += 1
+    p = Part(part_no=f"RO-{_seq['n']}", part_name="Reorder Part", uom="NO",
+             part_type="OTHER", store_code="MAINTENANCE", min_stock_level=10, max_stock_level=30)
+    db.session.add(p); db.session.commit()
+    _set_physical(p.id, 4)  # below the minimum of 10
+
+    res = svc.reorder_list("MAINTENANCE")
+    mine = [r for r in res["items"] if r["part_no"] == p.part_no]
+    assert len(mine) == 1
+    assert mine[0]["reorder_qty"] == 26  # bring 4 back up to max 30
+    assert mine[0]["status"] == "Below Minimum"

@@ -115,6 +115,11 @@ def returnables():
     return success_response(service.outstanding_returnables(_store_code()))
 
 
+@bp.route("/reorder", methods=["GET"])
+def reorder():
+    return success_response(service.reorder_list(_store_code()))
+
+
 @bp.route("/issues/<int:ledger_id>/return", methods=["POST"])
 def return_issue(ledger_id):
     row = service.ledger_repo.get_by_id(ledger_id)

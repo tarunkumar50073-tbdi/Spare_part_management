@@ -59,6 +59,7 @@ export default function SpareStock() {
   const [issueMachine, setIssueMachine] = useState("");
   const [issueReturnable, setIssueReturnable] = useState(false);
   const [returnables, setReturnables] = useState([]);    // outstanding returnable issues
+  const [reorder, setReorder] = useState(null);          // reorder list {items,count,total}
   const [receivingRow, setReceivingRow] = useState(null);
   const [receiveQty, setReceiveQty] = useState("");
   const [receiveRef, setReceiveRef] = useState("");
@@ -73,9 +74,10 @@ export default function SpareStock() {
       spareStockService.summary(activeCode).then((r) => r.data.data).catch(() => null),
       spareStockService.machines(activeCode).then((r) => r.data.data).catch(() => []),
       spareStockService.returnables(activeCode).then((r) => r.data.data).catch(() => []),
+      spareStockService.reorder(activeCode).then((r) => r.data.data).catch(() => null),
     ])
-      .then(([list, sum, mc, ret]) => {
-        setRows(list); setSummary(sum); setMachines(mc); setReturnables(ret);
+      .then(([list, sum, mc, ret, ro]) => {
+        setRows(list); setSummary(sum); setMachines(mc); setReturnables(ret); setReorder(ro);
       })
       .finally(() => setLoading(false));
   }, [activeCode]);
@@ -368,6 +370,47 @@ export default function SpareStock() {
           emptyMessage="No part matches this filter"
         />
       </div>
+
+      {reorder && reorder.items && reorder.items.length > 0 && (
+        <div className="card">
+          <CardHead icon="🛒" tone="red" title={`Reorder list — ${reorder.count} part${reorder.count === 1 ? "" : "s"} at or below minimum`}
+            hint={reorder.total_reorder_value ? `Est. ${money(reorder.total_reorder_value)} to restock everything to maximum` : "Order these before they run out"} />
+          <div className="rounded-xl border border-slate-200 dark:border-navy-800 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 dark:bg-navy-800 text-slate-600 dark:text-slate-300">
+                <tr>
+                  <th className="text-left font-semibold px-3 py-2.5">Part</th>
+                  <th className="text-right font-semibold px-3 py-2.5">On Hand</th>
+                  <th className="text-right font-semibold px-3 py-2.5">Min</th>
+                  <th className="text-right font-semibold px-3 py-2.5">Reorder Qty</th>
+                  <th className="text-right font-semibold px-3 py-2.5">Est. Value</th>
+                  <th className="text-left font-semibold px-3 py-2.5">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+                {reorder.items.map((r) => (
+                  <tr key={r.part_id}>
+                    <td className="px-3 py-2.5">
+                      <span className="font-medium">{r.part_no}</span>{" "}
+                      <span className="text-slate-400">{r.part_name}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{num(r.qty_on_hand)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{num(r.min_stock_level)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-amber-600 dark:text-amber-400">
+                      {r.reorder_qty == null ? "—" : num(r.reorder_qty)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{r.reorder_value == null ? "—" : money(r.reorder_value)}</td>
+                    <td className="px-3 py-2.5">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap
+                        ${STATUS_TONE[r.status] || STATUS_TONE["Not Counted"]}`}>{r.status}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {returnables.length > 0 && (
         <div className="card">

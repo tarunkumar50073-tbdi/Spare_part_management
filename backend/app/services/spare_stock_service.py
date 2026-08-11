@@ -269,6 +269,31 @@ class SpareStockService:
         rows.sort(key=lambda r: (r["status"] != "Out of Stock", -(r["min_stock_level"] - r["qty_on_hand"])))
         return rows[:limit] if limit else rows
 
+    def reorder_list(self, store_code):
+        """What to reorder: every part at/below its minimum, with the quantity
+        that brings it back up to its maximum and the spend that takes. A
+        purchasing view — the shortfall already is the reorder quantity."""
+        rows = self.list_below_minimum(store_code)
+        items = []
+        total_value = 0.0
+        for r in rows:
+            reorder_qty = r["shortfall"]
+            if reorder_qty is None:
+                # No maximum set — fall back to the gap up to the minimum, so a
+                # zero-stock critical part still shows something to order.
+                gap = (r["min_stock_level"] or 0) - (r["qty_on_hand"] or 0)
+                reorder_qty = round(gap, 2) if gap > 0 else None
+            rate = r["unit_price"]
+            value = round(reorder_qty * rate, 2) if (reorder_qty and rate) else None
+            if value:
+                total_value += value
+            items.append({**r, "reorder_qty": reorder_qty, "reorder_value": value})
+        return {
+            "items": items,
+            "count": len(items),
+            "total_reorder_value": round(total_value, 2),
+        }
+
     def list_by_status(self, store_code, status, limit=None, section_id=None):
         """One status at a time, for the dashboard's Action Required entries.
         Sorted so the worst case in each list is the first row read."""
