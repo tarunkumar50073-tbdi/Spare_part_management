@@ -8,7 +8,6 @@ import HorizontalBars from "../components/HorizontalBars.jsx";
 import KpiCard from "../components/KpiCard.jsx";
 import Modal from "../components/Modal.jsx";
 import NotCaptured from "../components/NotCaptured.jsx";
-import ProcessFlow from "../components/ProcessFlow.jsx";
 import RadialGauge from "../components/RadialGauge.jsx";
 import Table from "../components/Table.jsx";
 import { storeService } from "../services/storeService.js";
@@ -463,7 +462,6 @@ const BELOW_MIN_COLUMNS = [
 ];
 
 // One glyph per flow stage, in the order the service returns them.
-const FLOW_EMOJI = ["🚚", "📥", "🔍", "📝", "🛠️", "🏬", "🏭"];
 
 const ACTION_TONE = {
   red: "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300",
@@ -936,12 +934,6 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
     );
   };
 
-  const flowStages = ops?.flow ? FLOW_EMOJI.map((e, i) => ({
-    ...ops.flow.stages[i], emoji: e,
-    tone: ["gate_entry", "received", "verified", "srv_created", "with_engineer"].includes(
-      ops.flow.stages[i]?.key) ? "waiting" : ops.flow.stages[i]?.key === "in_store" ? "active" : "done",
-  })).filter((s) => s.key) : [];
-
   return (
     <>
       {/* ---- Operational KPIs: what the store is doing right now ---- */}
@@ -1053,27 +1045,6 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
                 ops.uncounted, "spares_never_counted"))} />
           </div>
           )}
-        </section>
-      )}
-
-      {/* ---- Material flow: where inbound material is sitting ---- */}
-      {ops?.flow && (
-        <section>
-          <div className="mb-3">
-            <h3 className="section-title">Material Flow</h3>
-            <p className="section-hint">
-              Gate entry through to ERP consumption
-              {ops.flow.srv_total === 0 && " — no gate entry has been recorded for this store yet"}
-            </p>
-          </div>
-          <div className="card">
-            <ProcessFlow stages={flowStages}
-              onStageClick={(s) => s.source === "srv" && setPendingOpen(true)} />
-            <p className="text-[11px] text-slate-400 mt-3 pt-3 border-t border-slate-100 dark:border-navy-800">
-              Store Stock counts parts with a counted quantity; the rest read SRV lines.
-              Issue and ERP consumption fill in once material starts being issued.
-            </p>
-          </div>
         </section>
       )}
 
