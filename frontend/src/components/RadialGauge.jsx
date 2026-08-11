@@ -47,8 +47,12 @@ export default function RadialGauge({
   // the centre reads "—". Every card in a row then looks like the same kind of
   // card, without the blank one claiming it measured something and found 0%.
   const measured = value != null;
-  const pct = measured ? Math.max(0, Math.min(100, value)) : 0;
-  const stroke = color || toneFor(pct, polarity);
+  // The ring can only draw up to full, so the arc clamps at 100. The NUMBER
+  // must not — a store at 145% of its max limit has to read 145%, not a
+  // reassuring 100%; hiding the overflow hides the very thing worth seeing.
+  const arc = measured ? Math.max(0, Math.min(100, value)) : 0;
+  const shown = measured ? Math.max(0, Math.round(value)) : 0;
+  const stroke = color || toneFor(shown, polarity);
 
   return (
     <div className="flex flex-col items-center">
@@ -58,7 +62,7 @@ export default function RadialGauge({
         title={measured ? tooltip || undefined : emptyNote || "Not measurable yet"}
         role="img"
         aria-label={measured
-          ? `${label || "Value"}: ${Math.round(pct)}%`
+          ? `${label || "Value"}: ${shown}%`
           : `${label || "Value"}: not measurable yet`}
       >
         <svg viewBox="0 0 100 100" className="-rotate-90 w-full h-full" aria-hidden="true">
@@ -71,7 +75,7 @@ export default function RadialGauge({
             <circle
               cx="50" cy="50" r={RADIUS}
               fill="none" stroke={stroke} strokeWidth={thickness}
-              strokeDasharray={`${(pct / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`}
+              strokeDasharray={`${(arc / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`}
               strokeLinecap="round"
               className="transition-[stroke-dasharray] duration-700 ease-enterprise motion-reduce:transition-none"
             />
@@ -79,7 +83,7 @@ export default function RadialGauge({
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center px-2">
           {measured ? (
-            <span className="kpi-value text-2xl leading-none">{Math.round(pct)}%</span>
+            <span className="kpi-value text-2xl leading-none">{shown}%</span>
           ) : (
             <span className="text-2xl leading-none text-slate-300 dark:text-slate-600">—</span>
           )}

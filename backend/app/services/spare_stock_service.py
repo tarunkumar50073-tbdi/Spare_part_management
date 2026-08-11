@@ -432,7 +432,7 @@ class SpareStockService:
             "gauges": {
                 "stock_utilisation": {
                     "pct": self._pct(on_hand, capacity),
-                    "caption": f"{round(on_hand)} of {round(capacity)} planned max",
+                    "caption": f"{round(on_hand)} on hand · max limit {round(capacity)}",
                     "basis": len(planned_counted),
                 },
                 "inventory_health": {

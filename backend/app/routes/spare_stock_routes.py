@@ -73,7 +73,6 @@ def analytics():
     # The ERP feed is measured separately: it says how much of the list ERP
     # has reported on, not how the store itself is doing.
     data["erp"] = service.erp_completeness(store)
-    data["srv_clearance"] = flow.clearance_rate(store)
     return success_response(data)
 
 

@@ -1057,9 +1057,9 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
               Percentages worked out server-side — a ring with no denominator stays blank rather than reading 0%
             </p>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
-            <GaugeCard title="Stock Utilisation" emoji="📦" g={ops.analytics.gauges.stock_utilisation}
-              polarity="higher-worse" note="On hand against planned maximum" />
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+            <GaugeCard title="Capacity Used" emoji="📦" g={ops.analytics.gauges.stock_utilisation}
+              polarity="higher-worse" note="How full the store is against its max limit — over 100% means more on hand than the max says to hold" />
             <GaugeCard title="Inventory Health" emoji="🩺" g={ops.analytics.gauges.inventory_health}
               polarity="higher-better" note="Counted parts sitting inside Min/Max" />
             {/* Min-Max and Planning coverage live in Master Data Completeness
@@ -1072,16 +1072,6 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
               polarity="higher-worse" note="Below minimum or empty" />
             <GaugeCard title="Excess Stock" emoji="📈" g={ops.analytics.gauges.excess_stock}
               polarity="higher-worse" note="Counted parts above maximum" />
-            <GaugeCard title="SRV Clearance" emoji="🛠️"
-              g={{
-                pct: ops.analytics.srv_clearance?.pct,
-                caption: ops.analytics.srv_clearance
-                  ? `${ops.analytics.srv_clearance.pending} pending · ${ops.analytics.srv_clearance.cleared} cleared`
-                  : null,
-              }}
-              polarity="higher-better"
-              note="Maintenance / Tool Room engineer clearance"
-              empty="No SRV has reached clearance yet" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
