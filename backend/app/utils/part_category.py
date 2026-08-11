@@ -28,9 +28,20 @@ COMPONENT_RULES = [
     ("Plate",          ["PLATE"]),
     ("Spring",         ["SPRING"]),
     ("Fastener",       ["BOLT", "SCREW", " NUT ", "WASHER"]),
+    ("Grinding Wheel", ["GRIND STONE", "MOUNTED WHEEL", "GRINDER WHEEL", "GRINDER WHELL", "WHEEL", "GRIND", "STONE"]),
+    ("File",           ["DIAMOND FILE", "FILE"]),
+    ("Hammer",         ["HAMMER"]),
+    ("Ball Plunger",   ["PLUNGER"]),
+    ("Tap",            ["TAP SET"]),
+    ("Feed Unit",      ["FEED UNIT"]),
+    ("Gauge",          ["GAUGE"]),
     ("Rod",            ["ROD"]),
     ("Pin",            ["PIN"]),
     ("Die component",  ["DIE"]),
+    # Product-led rail-die parts ('UPPER/LOWER RAIL …') carry no component noun,
+    # so they land here as a coarse Die group rather than staying unlabelled —
+    # their natural split is the die-family axis (Upper/Lower Rail), not type.
+    ("Rail Die part",  ["UPPER RAIL", "LOWER RAIL", "UPPER", "LOWER"]),
 ]
 
 
