@@ -14,15 +14,19 @@ const GREEN = "#059669";
 const AMBER = "#f59e0b";
 const ROSE = "#e11d48";
 
-const toneFor = (pct, polarity) => {
+// The colour ramp, with the band edges overridable per gauge. Most gauges keep
+// the defaults; one that means "bad" sooner (Excess Stock — a large share of
+// parts over their maximum should not read calm green) passes tighter cut-offs
+// via the `thresholds` prop so its colour matches its severity.
+const toneFor = (pct, polarity, thresholds) => {
   if (polarity === "higher-better") {
-    if (pct >= 80) return GREEN;
-    if (pct >= 50) return AMBER;
+    if (pct >= (thresholds?.green ?? 80)) return GREEN;
+    if (pct >= (thresholds?.amber ?? 50)) return AMBER;
     return ROSE;
   }
   // higher-worse: the original reading — fill rate, critical share, excess.
-  if (pct >= 90) return ROSE;
-  if (pct >= 70) return AMBER;
+  if (pct >= (thresholds?.red ?? 90)) return ROSE;
+  if (pct >= (thresholds?.amber ?? 70)) return AMBER;
   return GREEN;
 };
 
@@ -42,6 +46,9 @@ export default function RadialGauge({
   caption,
   // Hover text. A percentage always hides its own arithmetic; this shows it.
   tooltip,
+  // Optional per-gauge colour band edges: {amber, red} for higher-worse,
+  // {amber, green} for higher-better. Omitted, the defaults in toneFor apply.
+  thresholds,
 }) {
   // A metric with no denominator still gets its ring — the track is drawn and
   // the centre reads "—". Every card in a row then looks like the same kind of
@@ -52,7 +59,7 @@ export default function RadialGauge({
   // reassuring 100%; hiding the overflow hides the very thing worth seeing.
   const arc = measured ? Math.max(0, Math.min(100, value)) : 0;
   const shown = measured ? Math.max(0, Math.round(value)) : 0;
-  const stroke = color || toneFor(shown, polarity);
+  const stroke = color || toneFor(shown, polarity, thresholds);
 
   return (
     <div className="flex flex-col items-center">

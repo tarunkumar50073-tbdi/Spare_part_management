@@ -547,7 +547,7 @@ function ClearanceStat({ label, value, tone, onClick }) {
 // One gauge in its own card. `g.pct` of null means the metric has no
 // denominator — the ring is left blank and says why, rather than drawing a
 // confident 0%.
-function GaugeCard({ title, emoji, g, polarity, note, empty }) {
+function GaugeCard({ title, emoji, g, polarity, note, empty, thresholds }) {
   return (
     <div className="card !p-4 flex flex-col items-center text-center">
       <div className="flex items-center gap-1.5 mb-2 min-w-0">
@@ -564,6 +564,7 @@ function GaugeCard({ title, emoji, g, polarity, note, empty }) {
         caption={g?.caption}
         tooltip={note}
         emptyNote={empty || "Nothing to measure against yet"}
+        thresholds={thresholds}
       />
     </div>
   );
@@ -1069,8 +1070,13 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
               polarity="higher-better" note="Counted parts sitting inside Min/Max" />
             <GaugeCard title="Critical Parts" emoji="🚨" g={ops.analytics.gauges.critical_parts}
               polarity="higher-worse" note="Below minimum or empty" />
+            {/* Tighter bands than the default 70/90: a store where a large
+                share of parts sit over their maximum is money tied up, so it
+                should read amber past 40% and red past 60%, not calm green —
+                and line up with Capacity Used rather than contradict it. */}
             <GaugeCard title="Excess Stock" emoji="📈" g={ops.analytics.gauges.excess_stock}
-              polarity="higher-worse" note="Counted parts above maximum" />
+              polarity="higher-worse" note="Counted parts above maximum"
+              thresholds={{ amber: 40, red: 60 }} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
