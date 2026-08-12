@@ -26,6 +26,7 @@ import InventoryOverview from "./pages/InventoryOverview.jsx";
 import SupplierVehicleManagement from "./pages/SupplierVehicleManagement.jsx";
 import Login from "./pages/Login.jsx";
 import MaintenanceStore from "./pages/MaintenanceStore.jsx";
+import DepartmentMaster from "./pages/DepartmentMaster.jsx";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { StoreProvider, storeHome, useStores } from "./context/StoreContext.jsx";
@@ -65,6 +66,7 @@ function AuthenticatedApp() {
           <Route path="/audit-trail" element={<AuditTrail />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/parts" element={<PartMaster />} />
+          <Route path="/departments" element={<DepartmentMaster />} />
           {/* Distinct from Child Parts' /store-stock — this is the Spare
               Parts Store's own on-hand screen. */}
           <Route path="/store-stock-spare" element={<SpareStock />} />
