@@ -133,6 +133,7 @@ def create_app(env_name=None):
         # would leave a fresh Postgres DB with no stores at all (audit
         # finding PORT-1).
         _seed_stores()
+        _seed_departments()
 
     _start_erp_ledger_poller(app)
 
@@ -223,4 +224,18 @@ def _seed_stores():
         text("UPDATE parts SET store_code = :code WHERE store_code IS NULL"),
         {"code": DEFAULT_STORE_CODE},
     )
+    db.session.commit()
+
+
+def _seed_departments():
+    """Create the starting departments so the master is never empty. Idempotent:
+    an existing department is left exactly as the admin has since edited it —
+    only a missing one is inserted, so this never overwrites an e-mail someone
+    has set."""
+    from app.models.department import SEED_DEPARTMENTS, Department
+
+    existing = {d.name for d in Department.query.all()}
+    for seed in SEED_DEPARTMENTS:
+        if seed["name"] not in existing:
+            db.session.add(Department(**seed))
     db.session.commit()
