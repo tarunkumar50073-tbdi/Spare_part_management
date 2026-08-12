@@ -547,25 +547,78 @@ function ClearanceStat({ label, value, tone, onClick }) {
 // One gauge in its own card. `g.pct` of null means the metric has no
 // denominator — the ring is left blank and says why, rather than drawing a
 // confident 0%.
-function GaugeCard({ title, emoji, g, polarity, note, empty, thresholds }) {
+// Store Analytics gauges: a half-dial with the reading in the mouth of the arc
+// and a status pill beneath it, so the colour, the number and a plain word all
+// say the same thing at a glance. The pill's word and colour come from the very
+// same good/warn/bad logic that colours the arc — never a green ring under a
+// "Critical" tag.
+const G_GREEN = "#059669";
+const G_AMBER = "#f59e0b";
+const G_ROSE = "#e11d48";
+const SEMI_LEN = Math.PI * 80; // length of a radius-80 semicircle arc
+
+// good / warn / bad from the value, its polarity and any per-gauge band edges —
+// the same ramp RadialGauge uses, kept here because these cards draw their own
+// half-arc rather than a full ring.
+function gaugeTone(pct, polarity, thresholds) {
+  if (pct == null) return { key: "none", color: "#cbd5e1" };
+  if (polarity === "higher-better") {
+    if (pct >= (thresholds?.green ?? 80)) return { key: "good", color: G_GREEN };
+    if (pct >= (thresholds?.amber ?? 50)) return { key: "warn", color: G_AMBER };
+    return { key: "bad", color: G_ROSE };
+  }
+  if (pct >= (thresholds?.red ?? 90)) return { key: "bad", color: G_ROSE };
+  if (pct >= (thresholds?.amber ?? 70)) return { key: "warn", color: G_AMBER };
+  return { key: "good", color: G_GREEN };
+}
+
+const DEFAULT_BADGE = { good: "OK", warn: "Watch", bad: "Alert" };
+
+function GaugeCard({ title, emoji, g, polarity, note, empty, thresholds, badges }) {
+  const pct = g?.pct ?? null;
+  const measured = pct != null;
+  const tone = gaugeTone(measured ? pct : null, polarity, thresholds);
+  // The arc can only draw up to a full half-dial, so it clamps at 100; the
+  // number does not — 145% has to read 145%, not a reassuring 100%.
+  const arc = measured ? Math.max(0, Math.min(100, pct)) : 0;
+  const shown = measured ? Math.max(0, Math.round(pct)) : null;
+  const badge = measured ? (badges?.[tone.key] ?? DEFAULT_BADGE[tone.key]) : null;
+
   return (
     <div className="card !p-4 flex flex-col items-center text-center">
-      <div className="flex items-center gap-1.5 mb-2 min-w-0">
+      <div className="flex items-center gap-1.5 mb-1 min-w-0">
         <span className="text-sm leading-none shrink-0" aria-hidden="true">{emoji}</span>
-        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 truncate">
+        <h4 className="text-[12px] font-bold tracking-wide text-slate-700 dark:text-slate-200 truncate">
           {title}
         </h4>
       </div>
-      <RadialGauge
-        value={g?.pct ?? null}
-        size={104}
-        thickness={11}
-        polarity={polarity}
-        caption={g?.caption}
-        tooltip={note}
-        emptyNote={empty || "Nothing to measure against yet"}
-        thresholds={thresholds}
-      />
+
+      <div className="relative w-full max-w-[190px]" title={note || undefined}>
+        <svg viewBox="0 0 200 118" className="w-full"
+          role="img" aria-label={measured ? `${title}: ${shown}%` : `${title}: not measurable yet`}>
+          <path d="M 20 104 A 80 80 0 0 1 180 104" fill="none" strokeWidth="16" strokeLinecap="round"
+            className="stroke-slate-100 dark:stroke-navy-800" />
+          {measured && (
+            <path d="M 20 104 A 80 80 0 0 1 180 104" fill="none" stroke={tone.color}
+              strokeWidth="16" strokeLinecap="round"
+              strokeDasharray={`${(arc / 100) * SEMI_LEN} ${SEMI_LEN * 2}`}
+              className="transition-[stroke-dasharray] duration-700 ease-enterprise motion-reduce:transition-none" />
+          )}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
+          <span className="kpi-value text-[28px] leading-none">{measured ? `${shown}%` : "—"}</span>
+          {badge && (
+            <span className="mt-1 inline-block rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+              style={{ backgroundColor: tone.color }}>
+              {badge}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <p className="text-[11px] mt-2 text-center leading-tight text-slate-500 dark:text-slate-400">
+        {measured ? g?.caption : (empty || "Nothing to measure against yet")}
+      </p>
     </div>
   );
 }
@@ -1055,7 +1108,7 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
           <div className="mb-3">
             <h3 className="section-title">Store Analytics</h3>
             <p className="section-hint">
-              Percentages worked out server-side — a ring with no denominator stays blank rather than reading 0%
+              Store capacity · inventory health · reorder focus — the colour, the number and the pill all say the same thing
             </p>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1065,18 +1118,22 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
                 say nothing day to day. The Master Data Completeness section
                 below carries the gaps and opens the missing parts. */}
             <GaugeCard title="Capacity Used" emoji="📦" g={ops.analytics.gauges.stock_utilisation}
-              polarity="higher-worse" note="How full the store is against its max limit — over 100% means more on hand than the max says to hold" />
+              polarity="higher-worse" note="How full the store is against its max limit — over 100% means more on hand than the max says to hold"
+              badges={{ good: "OK", warn: "High", bad: "Over Limit" }} />
             <GaugeCard title="Inventory Health" emoji="🩺" g={ops.analytics.gauges.inventory_health}
-              polarity="higher-better" note="Counted parts sitting inside Min/Max" />
+              polarity="higher-better" note="Counted parts sitting inside Min/Max"
+              badges={{ good: "Healthy", warn: "Fair", bad: "Low" }} />
             <GaugeCard title="Critical Parts" emoji="🚨" g={ops.analytics.gauges.critical_parts}
-              polarity="higher-worse" note="Below minimum or empty" />
+              polarity="higher-worse" note="Below minimum or empty"
+              badges={{ good: "OK", warn: "Elevated", bad: "Critical" }} />
             {/* Tighter bands than the default 70/90: a store where a large
                 share of parts sit over their maximum is money tied up, so it
                 should read amber past 40% and red past 60%, not calm green —
                 and line up with Capacity Used rather than contradict it. */}
             <GaugeCard title="Excess Stock" emoji="📈" g={ops.analytics.gauges.excess_stock}
               polarity="higher-worse" note="Counted parts above maximum"
-              thresholds={{ amber: 40, red: 60 }} />
+              thresholds={{ amber: 40, red: 60 }}
+              badges={{ good: "OK", warn: "Watch", bad: "High" }} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
