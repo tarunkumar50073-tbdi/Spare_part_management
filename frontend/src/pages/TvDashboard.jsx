@@ -114,7 +114,7 @@ function Panel({ title, action, children, onClick, p, className = "" }) {
     >
       {title && (
         <div className="flex items-center justify-between mb-[0.8vh] shrink-0">
-          <h3 className="text-[1.5vh] font-semibold" style={{ color: p.heading }}>{title}</h3>
+          <h3 className="text-[1.9vh] font-semibold" style={{ color: p.heading }}>{title}</h3>
           {action}
         </div>
       )}
@@ -132,15 +132,15 @@ function Kpi({ label, value, sub, icon: Icon, color, onClick, p }) {
     >
       <div className="flex items-start justify-between gap-[0.6vh]">
         <div className="min-w-0">
-          <p className="text-[1.3vh] leading-tight" style={{ color: p.muted }}>{label}</p>
-          <p className="text-[2.9vh] font-extrabold leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: p.heading }}>{value}</p>
+          <p className="text-[1.6vh] leading-tight" style={{ color: p.muted }}>{label}</p>
+          <p className="text-[3.5vh] font-extrabold leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: p.heading }}>{value}</p>
         </div>
         <span className="shrink-0 rounded-full p-[1vh] flex items-center justify-center"
           style={{ background: `${color}22`, color }}>
           <Icon style={{ width: "2.2vh", height: "2.2vh" }} />
         </span>
       </div>
-      <p className="text-[1.3vh] mt-[0.4vh]">{sub}</p>
+      <p className="text-[1.6vh] mt-[0.4vh]">{sub}</p>
     </button>
   );
 }
@@ -168,7 +168,7 @@ function IconBtn({ onClick, title, p, children, badge }) {
       style={{ background: p.panel, borderColor: p.border, color: p.text }}>
       {children}
       {badge != null && badge > 0 && (
-        <span className="absolute -top-[0.3vh] -right-[0.3vh] rounded-full bg-red-500 text-white text-[1vh] px-[0.6vh] font-bold">{badge}</span>
+        <span className="absolute -top-[0.3vh] -right-[0.3vh] rounded-full bg-red-500 text-white text-[1.3vh] px-[0.6vh] font-bold">{badge}</span>
       )}
     </button>
   );
@@ -325,19 +325,19 @@ export default function TvDashboard() {
             <ArrowLeft style={{ width: "2.4vh", height: "2.4vh" }} />
           </IconBtn>
           <div className="min-w-0">
-            <h1 className="text-[2.8vh] font-extrabold leading-tight" style={{ color: P.heading }}>Dashboard</h1>
-            <p className="text-[1.4vh]" style={{ color: P.muted }}>Real-time overview of Consumable Spare Part Store</p>
+            <h1 className="text-[3.4vh] font-extrabold leading-tight" style={{ color: P.heading }}>Dashboard</h1>
+            <p className="text-[1.75vh]" style={{ color: P.muted }}>Real-time overview of Consumable Spare Part Store</p>
           </div>
         </div>
         <div className="hidden md:flex items-center gap-[0.8vh] rounded-[0.8vh] border px-[1.2vh] py-[1vh] w-[32vw] max-w-[520px]"
           style={{ background: P.panel, borderColor: P.border, color: P.dim }}>
           <Search style={{ width: "2vh", height: "2vh" }} />
-          <span className="text-[1.5vh]">Search Part, Rack, Document…</span>
+          <span className="text-[1.9vh]">Search Part, Rack, Document…</span>
         </div>
         <div className="flex items-center gap-[1vh]">
           <div className="flex items-center gap-[0.8vh] rounded-[0.8vh] border px-[1.2vh] py-[1vh]"
             style={{ background: P.panel, borderColor: P.border }}>
-            <span className="text-[1.5vh] tabular-nums" style={{ color: P.text }}>{clock}</span>
+            <span className="text-[1.9vh] tabular-nums" style={{ color: P.text }}>{clock}</span>
           </div>
           <IconBtn onClick={openAlerts} title="Alerts" p={P} badge={vm.alerts.length}>
             <Bell style={{ width: "2.2vh", height: "2.2vh" }} />
@@ -396,15 +396,15 @@ export default function TvDashboard() {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-[2.4vh] font-extrabold" style={{ color: P.heading }}>{fmtInt(vm.category.reduce((s, c) => s + c.value, 0))}</span>
-                <span className="text-[1.2vh]" style={{ color: P.muted }}>Total Parts</span>
+                <span className="text-[3vh] font-extrabold" style={{ color: P.heading }}>{fmtInt(vm.category.reduce((s, c) => s + c.value, 0))}</span>
+                <span className="text-[1.5vh]" style={{ color: P.muted }}>Total Parts</span>
               </div>
             </div>
             <div className="flex-1 flex flex-col justify-center gap-[0.7vh]">
               {vm.category.map((c) => {
                 const total = vm.category.reduce((s, x) => s + x.value, 0);
                 return (
-                  <div key={c.name} className="flex items-center gap-[0.8vh] text-[1.35vh]">
+                  <div key={c.name} className="flex items-center gap-[0.8vh] text-[1.7vh]">
                     <span className="rounded-full" style={{ width: "1.2vh", height: "1.2vh", background: c.color }} />
                     <span className="flex-1 truncate" style={{ color: P.text }}>{c.name}</span>
                     <span className="font-semibold tabular-nums" style={{ color: P.heading }}>{fmtInt(c.value)}</span>
@@ -420,8 +420,8 @@ export default function TvDashboard() {
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={vm.status} margin={{ top: 8, right: 6, left: -18, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={P.border} vertical={false} />
-              <XAxis dataKey="name" tick={{ fill: P.muted, fontSize: 10 }} tickLine={false} axisLine={{ stroke: P.border }} />
-              <YAxis tick={{ fill: P.muted, fontSize: 10 }} tickLine={false} axisLine={false} />
+              <XAxis dataKey="name" tick={{ fill: P.muted, fontSize: 13 }} tickLine={false} axisLine={{ stroke: P.border }} />
+              <YAxis tick={{ fill: P.muted, fontSize: 13 }} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={{ background: P.panel2, border: `1px solid ${P.border}`, borderRadius: 8, fontSize: 12, color: P.text }} cursor={{ fill: "#8080801a" }} />
               <Bar dataKey="Available" fill={C.green} radius={[3, 3, 0, 0]} />
               <Bar dataKey="Short" fill={C.red} radius={[3, 3, 0, 0]} />
@@ -434,8 +434,8 @@ export default function TvDashboard() {
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={vm.trend} margin={{ top: 8, right: 10, left: -18, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={P.border} vertical={false} />
-              <XAxis dataKey="d" tick={{ fill: P.muted, fontSize: 10 }} tickLine={false} axisLine={{ stroke: P.border }} />
-              <YAxis tick={{ fill: P.muted, fontSize: 10 }} tickLine={false} axisLine={false} />
+              <XAxis dataKey="d" tick={{ fill: P.muted, fontSize: 13 }} tickLine={false} axisLine={{ stroke: P.border }} />
+              <YAxis tick={{ fill: P.muted, fontSize: 13 }} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={{ background: P.panel2, border: `1px solid ${P.border}`, borderRadius: 8, fontSize: 12, color: P.text }} />
               <Line type="monotone" dataKey="qty" stroke={C.blue} strokeWidth={2.5} dot={{ r: 3, fill: C.blue }} activeDot={{ r: 5 }} />
             </LineChart>
@@ -446,7 +446,7 @@ export default function TvDashboard() {
       {/* Mid row */}
       <section className="grid grid-cols-3 gap-[1.1vh] min-h-0" style={{ flex: "27 0 0" }}>
         <Panel p={P} title="Top 5 Consumed Parts (This Month)">
-          <table className="w-full text-[1.35vh]">
+          <table className="w-full text-[1.7vh]">
             <thead>
               <tr className="text-left" style={{ color: P.dim }}>
                 <th className="font-medium pb-[0.6vh]">Part No.</th>
@@ -470,9 +470,9 @@ export default function TvDashboard() {
           <div className="flex h-full items-center gap-[1vh]">
             <div className="h-full" style={{ width: "52%" }}><RackGauge pct={vm.rack.occupiedPct} p={P} /></div>
             <div className="flex-1 flex flex-col justify-center gap-[1.2vh]">
-              <div><p className="text-[1.3vh]" style={{ color: P.muted }}>Total Racks</p><p className="text-[2.4vh] font-bold" style={{ color: P.heading }}>{vm.rack.total}</p></div>
-              <div><p className="text-[1.3vh]" style={{ color: P.muted }}>Full Racks</p><p className="text-[2.4vh] font-bold" style={{ color: C.red }}>{vm.rack.full}</p></div>
-              <div><p className="text-[1.3vh]" style={{ color: P.muted }}>Available Racks</p><p className="text-[2.4vh] font-bold" style={{ color: C.green }}>{vm.rack.available}</p></div>
+              <div><p className="text-[1.6vh]" style={{ color: P.muted }}>Total Racks</p><p className="text-[3vh] font-bold" style={{ color: P.heading }}>{vm.rack.total}</p></div>
+              <div><p className="text-[1.6vh]" style={{ color: P.muted }}>Full Racks</p><p className="text-[3vh] font-bold" style={{ color: C.red }}>{vm.rack.full}</p></div>
+              <div><p className="text-[1.6vh]" style={{ color: P.muted }}>Available Racks</p><p className="text-[3vh] font-bold" style={{ color: C.green }}>{vm.rack.available}</p></div>
             </div>
           </div>
         </Panel>
@@ -487,9 +487,9 @@ export default function TvDashboard() {
                 <span className="rounded-full p-[1vh] mb-[0.5vh]" style={{ background: `${t.color}22`, color: t.color }}>
                   <t.icon style={{ width: "2.4vh", height: "2.4vh" }} />
                 </span>
-                <span className="text-[1.3vh] text-center px-[0.5vh] leading-tight" style={{ color: P.text }}>{t.label}</span>
-                <span className="text-[2.6vh] font-extrabold leading-tight" style={{ color: P.heading }}>{t.value}</span>
-                <span className="text-[1.1vh]" style={{ color: P.dim }}>{t.unit}</span>
+                <span className="text-[1.6vh] text-center px-[0.5vh] leading-tight" style={{ color: P.text }}>{t.label}</span>
+                <span className="text-[3.2vh] font-extrabold leading-tight" style={{ color: P.heading }}>{t.value}</span>
+                <span className="text-[1.4vh]" style={{ color: P.dim }}>{t.unit}</span>
               </button>
             ))}
           </div>
@@ -499,10 +499,10 @@ export default function TvDashboard() {
       {/* Bottom row */}
       <section className="grid gap-[1.1vh] min-h-0" style={{ flex: "23 0 0", gridTemplateColumns: "1fr 1.6fr 1fr" }}>
         <Panel p={P} title="Recent Alerts"
-          action={<span className="text-[1.2vh] cursor-pointer hover:underline" style={{ color: P.dim }} onClick={openAlerts}>View All</span>}>
+          action={<span className="text-[1.5vh] cursor-pointer hover:underline" style={{ color: P.dim }} onClick={openAlerts}>View All</span>}>
           <div className="flex flex-col gap-[0.8vh] h-full justify-center">
             {vm.alerts.map((a, i) => (
-              <div key={i} className="flex items-center gap-[0.8vh] text-[1.35vh]">
+              <div key={i} className="flex items-center gap-[0.8vh] text-[1.7vh]">
                 <span className="rounded-full shrink-0" style={{ width: "1vh", height: "1vh", background: ALERT_DOT[a.tone] }} />
                 <span className="flex-1 truncate" style={{ color: P.text }}>{a.text}</span>
                 <span className="tabular-nums" style={{ color: P.dim }}>{a.time}</span>
@@ -512,10 +512,10 @@ export default function TvDashboard() {
         </Panel>
 
         <Panel p={P} title="Pending Put Away List"
-          action={<span className="text-[1.2vh] cursor-pointer hover:underline" style={{ color: P.dim }}
+          action={<span className="text-[1.5vh] cursor-pointer hover:underline" style={{ color: P.dim }}
             onClick={() => openDrill("Pending Put Away List", ["SRV No", "GRN No", "Part No", "Description", "Qty", "Date"],
               vm.pending.map((p) => [p.srv, p.grn, p.no, p.desc, fmtInt(p.qty), p.date]))}>View All</span>}>
-          <table className="w-full text-[1.3vh]">
+          <table className="w-full text-[1.6vh]">
             <thead>
               <tr className="text-left" style={{ color: P.dim }}>
                 <th className="font-medium pb-[0.6vh]">SRV No.</th>
@@ -535,7 +535,7 @@ export default function TvDashboard() {
                   <td className="py-[0.7vh] truncate" style={{ color: P.text }}>{p.desc}</td>
                   <td className="py-[0.7vh] text-right tabular-nums" style={{ color: P.heading }}>{fmtInt(p.qty)}</td>
                   <td className="py-[0.7vh] text-center">
-                    <span className="rounded px-[0.8vh] py-[0.2vh] text-[1.1vh] font-semibold" style={{ background: `${C.amber}22`, color: C.amber }}>Pending</span>
+                    <span className="rounded px-[0.8vh] py-[0.2vh] text-[1.4vh] font-semibold" style={{ background: `${C.amber}22`, color: C.amber }}>Pending</span>
                   </td>
                 </tr>
               ))}
@@ -550,7 +550,7 @@ export default function TvDashboard() {
                 className="flex flex-col items-center justify-center rounded-[0.8vh] border transition-[filter] hover:brightness-110 p-[0.6vh]"
                 style={{ borderColor: P.border, background: P.panel2, color: P.text }}>
                 <q.icon style={{ width: "2.4vh", height: "2.4vh" }} className="mb-[0.5vh]" />
-                <span className="text-[1.15vh] text-center leading-tight">{q.label}</span>
+                <span className="text-[1.45vh] text-center leading-tight">{q.label}</span>
               </button>
             ))}
           </div>
