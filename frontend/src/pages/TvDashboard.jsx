@@ -81,10 +81,10 @@ const DEMO_CHILD = {
     { name: "Late", value: 3, color: C.red }, { name: "Not Arrived", value: 3, color: "#64748b" },
   ],
   windows: [
-    { slot: "08:30–10:00", supplier: "SAR Coating LLP", status: "On-Time" },
-    { slot: "09:20–11:30", supplier: "Talu Auto Tech", status: "Pending Arrival" },
-    { slot: "11:30–13:00", supplier: "Lucas TVS", status: "Late" },
-    { slot: "13:00–14:30", supplier: "Bosch (Milkrun)", status: "Not Arrived" },
+    { start: "08:30", end: "10:00", supplier: "SAR Coating LLP", status: "On-Time", arrival: "08:42" },
+    { start: "09:20", end: "11:30", supplier: "Talu Auto Tech", status: "Pending Arrival", arrival: null },
+    { start: "11:30", end: "13:00", supplier: "Lucas TVS", status: "Late", arrival: "13:18" },
+    { start: "13:00", end: "14:30", supplier: "Bosch (Milkrun)", status: "Not Arrived", arrival: null },
   ],
 };
 
@@ -143,14 +143,14 @@ function StatusBar({ healthy, short, excess, p }) {
   );
 }
 
-function Donut({ data, centerTop, centerSub, p }) {
+function Donut({ data, centerTop, centerSub, p, animate }) {
   const total = data.reduce((s, c) => s + c.value, 0);
   return (
     <div className="flex h-full items-center gap-[1vh]">
       <div className="relative h-full" style={{ width: "42%" }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={data} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="92%" paddingAngle={2} stroke="none" animationDuration={500}>
+            <Pie data={data} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="92%" paddingAngle={2} stroke="none" isAnimationActive={animate} animationDuration={500}>
               {data.map((c) => <Cell key={c.name} fill={c.color} />)}
             </Pie>
           </PieChart>
@@ -188,28 +188,53 @@ function RackGauge({ pct, p }) {
   );
 }
 
-const WIN_TONE = { "On-Time": C.green, "Pending Arrival": C.amber, "Late": C.red, "Not Arrived": C.red };
+const WIN_META = {
+  "On-Time": { color: C.green, label: (w) => `Arrived ${w.arrival || ""}`.trim() },
+  "Late": { color: "#f97316", label: (w) => `Arrived ${w.arrival || ""} · Late`.trim() },
+  "Pending Arrival": { color: C.amber, label: () => "Upcoming" },
+  "Not Arrived": { color: C.red, label: () => "Not Arrived" },
+};
+const toMin = (t) => { const [h, m] = (t || "0:0").split(":").map(Number); return h * 60 + m; };
 
-// Today's supplier delivery windows — a compact schedule with each slot's
-// arrival status. Child Parts only (Spare has no inbound windows).
-function WindowList({ windows, p }) {
+// Today's supplier delivery windows as a live timeline: each row is the window
+// span (start ━●━ end) with a coloured marker for how the vehicle did, then the
+// supplier and its arrival status. Child Parts only.
+function VehicleTimeline({ windows, p }) {
   if (!windows.length) return <div className="h-full flex items-center justify-center text-[1.7vh]" style={{ color: p.dim }}>No windows today</div>;
   return (
-    <div className="flex flex-col h-full justify-center gap-[0.6vh] overflow-hidden">
-      {windows.slice(0, 6).map((w, i) => (
-        <div key={i} className="flex items-center gap-[0.7vh] text-[1.6vh]">
-          <span className="tabular-nums shrink-0" style={{ color: p.muted }}>{w.slot}</span>
-          <span className="flex-1 truncate" style={{ color: p.text }}>{w.supplier}</span>
-          <span className="rounded px-[0.7vh] py-[0.1vh] text-[1.3vh] font-semibold shrink-0"
-            style={{ background: `${WIN_TONE[w.status] || p.dim}22`, color: WIN_TONE[w.status] || p.dim }}>{w.status}</span>
-        </div>
-      ))}
+    <div className="flex flex-col h-full justify-center gap-[1.4vh] overflow-hidden">
+      {windows.slice(0, 4).map((w, i) => {
+        const meta = WIN_META[w.status] || { color: p.dim, label: () => w.status };
+        const s = toMin(w.start), e = toMin(w.end);
+        const frac = w.arrival
+          ? Math.max(0.06, Math.min(0.94, (toMin(w.arrival) - s) / Math.max(1, e - s)))
+          : (w.status === "Not Arrived" ? 0.94 : 0.5);
+        return (
+          <div key={i}>
+            <div className="flex items-center gap-[0.7vh] text-[1.5vh]">
+              <span className="tabular-nums shrink-0" style={{ color: p.muted }}>{w.start}</span>
+              <div className="relative flex-1 rounded-full" style={{ height: "0.35vh", background: p.border }}>
+                <span className="absolute rounded-full" style={{
+                  left: `${frac * 100}%`, top: "50%", transform: "translate(-50%, -50%)",
+                  width: "1.8vh", height: "1.8vh", background: meta.color, boxShadow: `0 0 0 0.4vh ${meta.color}33`,
+                }} />
+              </div>
+              <span className="tabular-nums shrink-0" style={{ color: p.muted }}>{w.end}</span>
+            </div>
+            <div className="mt-[0.3vh] flex items-center gap-[0.6vh] text-[1.5vh]">
+              <span className="font-semibold truncate" style={{ color: p.text }}>{w.supplier}</span>
+              <span style={{ color: p.dim }}>→</span>
+              <span className="font-semibold truncate" style={{ color: meta.color }}>{meta.label(w)}</span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 // One store's compact strip: header + KPI row + a chart row.
-function StoreStrip({ vm, p }) {
+function StoreStrip({ vm, p, animate }) {
   const total = vm.category.reduce((s, c) => s + c.value, 0);
   const tone = (real) => ({ text: real ? "live" : "demo", color: real ? C.green : p.dim });
   return (
@@ -228,14 +253,14 @@ function StoreStrip({ vm, p }) {
 
       <div className={`grid ${vm.windows ? "grid-cols-4" : "grid-cols-3"} gap-[0.8vh] min-h-0`} style={{ flex: "62 0 0" }}>
         <Panel title="Stock by Category" p={p}>
-          <Donut data={vm.category} centerTop={fmtInt(total)} centerSub="Parts" p={p} />
+          <Donut data={vm.category} centerTop={fmtInt(total)} centerSub="Parts" p={p} animate={animate} />
         </Panel>
         <Panel title="Stock Health" p={p}>
           <StatusBar healthy={vm.status.healthy} short={vm.status.short} excess={vm.status.excess} p={p} />
         </Panel>
         {vm.supplierPerf ? (
           <Panel title="Supplier Performance (Windows)" p={p}>
-            <Donut data={vm.supplierPerf} centerTop={fmtInt(vm.supplierPerf.reduce((s, x) => s + x.value, 0))} centerSub="Windows" p={p} />
+            <Donut data={vm.supplierPerf} centerTop={fmtInt(vm.supplierPerf.reduce((s, x) => s + x.value, 0))} centerSub="Windows" p={p} animate={animate} />
           </Panel>
         ) : vm.third === "rack" ? (
           <Panel title="Rack Utilization" p={p}><RackGauge pct={vm.rackPct} p={p} /></Panel>
@@ -247,13 +272,13 @@ function StoreStrip({ vm, p }) {
                 <XAxis dataKey="d" tick={{ fill: p.muted, fontSize: 14 }} tickLine={false} axisLine={{ stroke: p.border }} />
                 <YAxis tick={{ fill: p.muted, fontSize: 14 }} tickLine={false} axisLine={false} width={30} />
                 <Tooltip contentStyle={{ background: p.panel2, border: `1px solid ${p.border}`, borderRadius: 8, fontSize: 12, color: p.text }} />
-                <Line type="monotone" dataKey="qty" stroke={vm.accent} strokeWidth={2.5} dot={{ r: 3, fill: vm.accent }} animationDuration={600} />
+                <Line type="monotone" dataKey="qty" stroke={vm.accent} strokeWidth={2.5} dot={{ r: 3, fill: vm.accent }} isAnimationActive={animate} animationDuration={600} />
               </LineChart>
             </ResponsiveContainer>
           </Panel>
         )}
         {vm.windows && (
-          <Panel title="Today's Vehicle Status" p={p}><WindowList windows={vm.windows} p={p} /></Panel>
+          <Panel title="Today's Vehicle Status" p={p}><VehicleTimeline windows={vm.windows} p={p} /></Panel>
         )}
       </div>
     </section>
@@ -269,7 +294,16 @@ export default function TvDashboard() {
   const [drill, setDrill] = useState(null);
   const [isFs, setIsFs] = useState(false);
   const [dark, setDark] = useState(true);
+  const [animate, setAnimate] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const P = dark ? THEMES.dark : THEMES.light;
+
+  // Charts animate once on open, then freeze — so the 30s auto-refresh doesn't
+  // replay the donut's "slow open" every time.
+  useEffect(() => {
+    const t = setTimeout(() => setAnimate(false), 1200);
+    return () => clearTimeout(t);
+  }, []);
 
   const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate("/store/MAINTENANCE"));
   const toggleFullscreen = () => {
@@ -325,6 +359,7 @@ export default function TvDashboard() {
         ];
         return next;
       });
+      setLastUpdated(new Date());
     };
     load();
     const id = setInterval(load, REFRESH_MS);
@@ -366,7 +401,11 @@ export default function TvDashboard() {
         // supplier-performance breakdown built from the same statuses.
         if (Array.isArray(win)) {
           next.windows = win.map((w) => ({
-            supplier: w.supplier_name, slot: `${(w.window_start || "").slice(0, 5)}–${(w.window_end || "").slice(0, 5)}`, status: w.status,
+            supplier: w.supplier_name,
+            start: (w.window_start || "").slice(0, 5),
+            end: (w.window_end || "").slice(0, 5),
+            arrival: w.actual_arrival ? w.actual_arrival.slice(11, 16) : null,
+            status: w.status,
           }));
           const cc = {};
           next.windows.forEach((w) => { cc[w.status] = (cc[w.status] || 0) + 1; });
@@ -375,6 +414,7 @@ export default function TvDashboard() {
         }
         return next;
       });
+      setLastUpdated(new Date());
     };
     load();
     const id = setInterval(load, REFRESH_MS);
@@ -403,6 +443,10 @@ export default function TvDashboard() {
           </div>
         </div>
         <div className="flex items-center gap-[0.9vh]">
+          <div className="hidden lg:flex flex-col items-end leading-tight">
+            <span className="text-[1.5vh]" style={{ color: P.muted }}>Last Updated: {lastUpdated ? lastUpdated.toLocaleTimeString("en-GB") : "—:—:—"}</span>
+            <span className="text-[1.35vh]" style={{ color: P.dim }}>Auto-refresh · 30 sec</span>
+          </div>
           <div className="hidden md:flex items-center rounded-[0.7vh] border px-[1.2vh] py-[0.9vh]" style={{ background: P.panel, borderColor: P.border }}>
             <span className="text-[1.9vh] tabular-nums" style={{ color: P.text }}>{clock}</span>
           </div>
@@ -421,9 +465,9 @@ export default function TvDashboard() {
         </div>
       </header>
 
-      <StoreStrip vm={spare} p={P} />
+      <StoreStrip vm={spare} p={P} animate={animate} />
       <div className="shrink-0 border-t" style={{ borderColor: P.border }} />
-      <StoreStrip vm={child} p={P} />
+      <StoreStrip vm={child} p={P} animate={animate} />
 
       <Modal open={!!drill} onClose={() => setDrill(null)} title={drill?.title} size="xl">
         {drill && (
