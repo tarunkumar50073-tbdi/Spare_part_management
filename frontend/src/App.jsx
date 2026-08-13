@@ -27,6 +27,7 @@ import SupplierVehicleManagement from "./pages/SupplierVehicleManagement.jsx";
 import Login from "./pages/Login.jsx";
 import MaintenanceStore from "./pages/MaintenanceStore.jsx";
 import DepartmentMaster from "./pages/DepartmentMaster.jsx";
+import TvDashboard from "./pages/TvDashboard.jsx";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { StoreProvider, storeHome, useStores } from "./context/StoreContext.jsx";
@@ -49,6 +50,9 @@ function AuthenticatedApp() {
   return (
     <StoreProvider>
       <Routes>
+        {/* The 53" LED wallboard: behind login, but deliberately OUTSIDE
+            MainLayout — no sidebar, no top bar, it owns the whole screen. */}
+        <Route path="/tv" element={<TvDashboard />} />
         <Route element={<MainLayout />}>
           {/* Stores are navigated from the sidebar, so / opens whichever one is
               in scope rather than putting a chooser in the way. */}
