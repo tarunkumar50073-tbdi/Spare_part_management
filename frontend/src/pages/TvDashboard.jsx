@@ -70,6 +70,7 @@ const DEMO_CHILD = {
     { label: "Excess Parts", value: "110", color: C.amber },
     { label: "Today's Consumption", value: "85", color: C.purple },
     { label: "Pending SRV", value: "0", color: C.cyan },
+    { label: "Pending RGP", value: "—", color: C.indigo, viaErp: true },
   ],
   category: [
     { name: "BOP", value: 620, color: C.blue }, { name: "Import", value: 240, color: C.green },
@@ -247,7 +248,7 @@ function StoreStrip({ vm, p, animate }) {
       <div className="flex gap-[0.8vh] min-h-0" style={{ flex: "38 0 0" }}>
         {vm.cards.map((c) => (
           <MiniKpi key={c.label} label={c.label} value={c.value} color={c.color} p={p}
-            note={c.real != null ? tone(c.real) : null} onClick={c.onClick} />
+            note={c.viaErp ? { text: "via ERP", color: p.dim } : c.real != null ? tone(c.real) : null} onClick={c.onClick} />
         ))}
       </div>
 
@@ -371,11 +372,14 @@ export default function TvDashboard() {
     let alive = true;
     const grab = (pr) => pr.then((r) => r.data.data).catch(() => null);
     const load = async () => {
-      const [sum, win, parts] = await Promise.all([
+      const [sum, win, parts, rgp] = await Promise.all([
         grab(storeDashboardService.summary()),
         grab(supplierWindowScheduleService.todayStatus()),
         grab(storeDashboardService.partSummary()),
+        grab(storeDashboardService.pendingRgp()),
       ]);
+      // Pending RGP comes only from ERP; null until the ERP API is live.
+      const rgpVal = rgp && rgp.pending_rgp != null ? rgp.pending_rgp : null;
       if (!alive) return;
       // Inventory value = sum of every part's stock value, the way the child
       // store's own dashboard computes it.
@@ -395,6 +399,9 @@ export default function TvDashboard() {
             { label: "Excess Parts", value: fmtInt(excess), color: C.amber, real: excess != null },
             { label: "Today's Consumption", value: fmtInt(sum.todays_issue), color: C.purple, real: sum.todays_issue != null },
             { label: "Pending SRV", value: fmtInt(sum.pending_srv), color: C.cyan, real: sum.pending_srv != null },
+            rgpVal != null
+              ? { label: "Pending RGP", value: fmtInt(rgpVal), color: C.indigo, real: true }
+              : { label: "Pending RGP", value: "—", color: C.indigo, viaErp: true },
           ];
         }
         // Today's supplier delivery windows (Child Parts only) + the window-wise

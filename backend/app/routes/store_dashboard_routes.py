@@ -17,6 +17,19 @@ def summary():
     return success_response(service.get_summary())
 
 
+@bp.route("/pending-rgp", methods=["GET"])
+def pending_rgp():
+    """Pending Returnable Gate Passes — sourced from ERP. Returns null until
+    ERP_API_BASE_URL is configured, so the dashboard shows "—" (no data) rather
+    than a fabricated count."""
+    from app.services.erp_client import ERPClient, ERPNotConfigured
+    try:
+        count = ERPClient().get_pending_rgp()
+    except ERPNotConfigured:
+        count = None
+    return success_response({"pending_rgp": count})
+
+
 @bp.route("/part-summary", methods=["GET"])
 def part_summary():
     return success_response(service.get_part_wise_summary())

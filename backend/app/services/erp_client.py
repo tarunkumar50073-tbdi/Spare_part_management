@@ -32,6 +32,22 @@ class ERPClient:
         resp.raise_for_status()
         return True
 
+    def get_pending_rgp(self):
+        """Pending Returnable Gate Passes, read from ERP — material sent out on a
+        returnable basis that has not yet come back. Returns the count when ERP
+        is live; raises ERPNotConfigured until ERP_API_BASE_URL is set, so the
+        dashboard shows "—" rather than a made-up number. RGP lives only in ERP,
+        so there is no local fallback."""
+        base_url = current_app.config.get("ERP_API_BASE_URL")
+        if not base_url:
+            raise ERPNotConfigured()
+        resp = requests.get(
+            f"{base_url.rstrip('/')}/rgp/pending",
+            timeout=current_app.config.get("ERP_API_TIMEOUT", 10),
+        )
+        resp.raise_for_status()
+        return int(resp.json().get("pending", 0))
+
     def submit_srv(self, srv, is_short):
         """Submit a verified SRV line to ERP. Returns {"srv_no": str,
         "short_note_no": str | None}. ERP is the source of truth for both

@@ -2,6 +2,7 @@ import api from "./api";
 
 export const storeDashboardService = {
   summary: () => api.get("/store/dashboard/summary"),
+  pendingRgp: () => api.get("/store/dashboard/pending-rgp"),
   partSummary: () => api.get("/store/dashboard/part-summary"),
   pipeline: () => api.get("/store/dashboard/pipeline"),
   criticalParts: () => api.get("/store/dashboard/critical-parts"),
