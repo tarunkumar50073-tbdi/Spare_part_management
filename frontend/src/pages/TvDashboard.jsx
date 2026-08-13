@@ -293,7 +293,7 @@ export default function TvDashboard() {
   const [now, setNow] = useState(() => new Date());
   const [drill, setDrill] = useState(null);
   const [isFs, setIsFs] = useState(false);
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useState(false); // default to Day (light) on the LED
   const [animate, setAnimate] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
   const P = dark ? THEMES.dark : THEMES.light;
