@@ -508,7 +508,7 @@ export default function TvDashboard() {
       <div className="shrink-0 border-t" style={{ borderColor: P.border }} />
       <StoreStrip vm={child} p={P} animate={animate} />
 
-      <Modal open={!!drill} onClose={() => setDrill(null)} title={drill?.title} size="xl">
+      <Modal open={!!drill} onClose={() => setDrill(null)} title={drill?.title} size="full">
         {drill && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
