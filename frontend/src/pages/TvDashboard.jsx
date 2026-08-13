@@ -61,24 +61,28 @@ const DEMO_SPARE = {
   lists: {},
 };
 const DEMO_CHILD = {
-  title: "Child Parts Store", accent: C.green, third: "rack",
+  title: "Child Parts Store", accent: C.green,
   kpis: { total: 1130 }, real: {},
   cards: [
     { label: "Total Parts", value: "1,130", color: C.blue },
+    { label: "Stock Value", value: "₹ 6.71 Cr", color: C.green },
     { label: "Short Parts", value: "40", color: C.red },
     { label: "Excess Parts", value: "110", color: C.amber },
     { label: "Today's Consumption", value: "85", color: C.purple },
-    { label: "Today's Put-Away", value: "32", color: C.cyan },
+    { label: "Pending SRV", value: "0", color: C.cyan },
   ],
   category: [
     { name: "BOP", value: 620, color: C.blue }, { name: "Import", value: 240, color: C.green },
     { name: "In-Parts", value: 180, color: C.amber }, { name: "Consumable", value: 90, color: C.purple },
   ],
   status: { healthy: 980, short: 40, excess: 110 },
-  rackPct: 72,
+  supplierPerf: [
+    { name: "On-Time", value: 12, color: C.green }, { name: "Pending Arrival", value: 4, color: C.amber },
+    { name: "Late", value: 3, color: C.red }, { name: "Not Arrived", value: 3, color: "#64748b" },
+  ],
   windows: [
-    { slot: "08:30–10:00", supplier: "Rane TRW", status: "On-Time" },
-    { slot: "10:00–11:30", supplier: "Sundram Fasteners", status: "Pending Arrival" },
+    { slot: "08:30–10:00", supplier: "SAR Coating LLP", status: "On-Time" },
+    { slot: "09:20–11:30", supplier: "Talu Auto Tech", status: "Pending Arrival" },
     { slot: "11:30–13:00", supplier: "Lucas TVS", status: "Late" },
     { slot: "13:00–14:30", supplier: "Bosch (Milkrun)", status: "Not Arrived" },
   ],
@@ -229,7 +233,11 @@ function StoreStrip({ vm, p }) {
         <Panel title="Stock Health" p={p}>
           <StatusBar healthy={vm.status.healthy} short={vm.status.short} excess={vm.status.excess} p={p} />
         </Panel>
-        {vm.third === "rack" ? (
+        {vm.supplierPerf ? (
+          <Panel title="Supplier Performance (Windows)" p={p}>
+            <Donut data={vm.supplierPerf} centerTop={fmtInt(vm.supplierPerf.reduce((s, x) => s + x.value, 0))} centerSub="Windows" p={p} />
+          </Panel>
+        ) : vm.third === "rack" ? (
           <Panel title="Rack Utilization" p={p}><RackGauge pct={vm.rackPct} p={p} /></Panel>
         ) : (
           <Panel title="Consumption Trend (7 Days)" p={p}>
@@ -245,7 +253,7 @@ function StoreStrip({ vm, p }) {
           </Panel>
         )}
         {vm.windows && (
-          <Panel title="Supplier Windows (Today)" p={p}><WindowList windows={vm.windows} p={p} /></Panel>
+          <Panel title="Today's Vehicle Status" p={p}><WindowList windows={vm.windows} p={p} /></Panel>
         )}
       </div>
     </section>
@@ -328,32 +336,43 @@ export default function TvDashboard() {
     let alive = true;
     const grab = (pr) => pr.then((r) => r.data.data).catch(() => null);
     const load = async () => {
-      const [sum, windows] = await Promise.all([
+      const [sum, win, parts] = await Promise.all([
         grab(storeDashboardService.summary()),
         grab(supplierWindowScheduleService.todayStatus()),
+        grab(storeDashboardService.partSummary()),
       ]);
       if (!alive) return;
+      // Inventory value = sum of every part's stock value, the way the child
+      // store's own dashboard computes it.
+      const value = Array.isArray(parts) ? parts.reduce((s, p) => s + (p.total_value || 0), 0) : null;
       setChild((prev) => {
-        const next = { ...prev, third: "rack" };
+        const next = { ...prev };
         if (sum) {
           const total = sum.total_parts;
           const short = sum.low_stock, excess = sum.excess_stock;
           next.kpis = { total: total ?? prev.kpis.total };
           next.status = { healthy: Math.max(0, (total || 0) - (short || 0) - (excess || 0)), short: short || 0, excess: excess || 0 };
           if (sum.category_counts) next.category = toCatArray(sum.category_counts);
-          if (sum.rack_utilization != null) next.rackPct = sum.rack_utilization;
           next.cards = [
             { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null, onClick: () => openDrill("Child Parts — by category", ["Category", "Parts"], next.category.map((c) => [c.name, fmtInt(c.value)])) },
+            { label: "Stock Value", value: fmtMoney(value), color: C.green, real: value != null },
             { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null },
             { label: "Excess Parts", value: fmtInt(excess), color: C.amber, real: excess != null },
             { label: "Today's Consumption", value: fmtInt(sum.todays_issue), color: C.purple, real: sum.todays_issue != null },
-            { label: "Today's Put-Away", value: fmtInt(sum.todays_put_away), color: C.cyan, real: sum.todays_put_away != null },
+            { label: "Pending SRV", value: fmtInt(sum.pending_srv), color: C.cyan, real: sum.pending_srv != null },
           ];
         }
-        // Today's supplier delivery windows (Child Parts only).
-        if (Array.isArray(windows)) next.windows = windows.map((w) => ({
-          supplier: w.supplier_name, slot: `${(w.window_start || "").slice(0, 5)}–${(w.window_end || "").slice(0, 5)}`, status: w.status,
-        }));
+        // Today's supplier delivery windows (Child Parts only) + the window-wise
+        // supplier-performance breakdown built from the same statuses.
+        if (Array.isArray(win)) {
+          next.windows = win.map((w) => ({
+            supplier: w.supplier_name, slot: `${(w.window_start || "").slice(0, 5)}–${(w.window_end || "").slice(0, 5)}`, status: w.status,
+          }));
+          const cc = {};
+          next.windows.forEach((w) => { cc[w.status] = (cc[w.status] || 0) + 1; });
+          const order = [["On-Time", C.green], ["Pending Arrival", C.amber], ["Late", C.red], ["Not Arrived", "#64748b"]];
+          next.supplierPerf = order.filter(([s]) => cc[s]).map(([name, color]) => ({ name, value: cc[name], color }));
+        }
         return next;
       });
     };
