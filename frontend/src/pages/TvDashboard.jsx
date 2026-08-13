@@ -70,7 +70,7 @@ const DEMO_CHILD = {
     { label: "Excess Parts", value: "110", color: C.amber },
     { label: "Today's Consumption", value: "85", color: C.purple },
     { label: "Pending SRV", value: "0", color: C.cyan },
-    { label: "Pending RGP", value: "—", color: C.indigo, viaErp: true },
+    { label: "Pending RGP", value: "—", color: C.indigo, real: true },
   ],
   category: [
     { name: "BOP", value: 620, color: C.blue }, { name: "Import", value: 240, color: C.green },
@@ -399,9 +399,7 @@ export default function TvDashboard() {
             { label: "Excess Parts", value: fmtInt(excess), color: C.amber, real: excess != null },
             { label: "Today's Consumption", value: fmtInt(sum.todays_issue), color: C.purple, real: sum.todays_issue != null },
             { label: "Pending SRV", value: fmtInt(sum.pending_srv), color: C.cyan, real: sum.pending_srv != null },
-            rgpVal != null
-              ? { label: "Pending RGP", value: fmtInt(rgpVal), color: C.indigo, real: true }
-              : { label: "Pending RGP", value: "—", color: C.indigo, viaErp: true },
+            { label: "Pending RGP", value: rgpVal != null ? fmtInt(rgpVal) : "—", color: C.indigo, real: true },
           ];
         }
         // Today's supplier delivery windows (Child Parts only) + the window-wise
