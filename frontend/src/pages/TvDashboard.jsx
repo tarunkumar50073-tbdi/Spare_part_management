@@ -40,7 +40,7 @@ const toCatArray = (obj) =>
 
 // ---- demo fallbacks (overridden by real values where the API answers) ----
 const DEMO_SPARE = {
-  title: "Spare Parts Store", accent: C.blue,
+  title: "Spare Parts Store", accent: C.blue, catTitle: "Stock by Part Type",
   kpis: { total: 481 }, real: {},
   cards: [
     { label: "Total Parts", value: "481", color: C.blue },
@@ -50,8 +50,8 @@ const DEMO_SPARE = {
     { label: "Excess Parts", value: "255", color: C.cyan },
   ],
   category: [
-    { name: "Maintenance", value: 300, color: C.blue }, { name: "BOP", value: 120, color: C.green },
-    { name: "Import", value: 61, color: C.amber },
+    { name: "Rail Die part", value: 131, color: C.blue }, { name: "Punch", value: 63, color: C.green },
+    { name: "Pin", value: 52, color: C.amber }, { name: "Spring", value: 42, color: C.purple },
   ],
   status: { healthy: 210, short: 16, excess: 255 },
   trend: [
@@ -253,7 +253,7 @@ function StoreStrip({ vm, p, animate }) {
       </div>
 
       <div className={`grid ${vm.windows ? "grid-cols-4" : "grid-cols-3"} gap-[0.8vh] min-h-0`} style={{ flex: "62 0 0" }}>
-        <Panel title="Stock by Category" p={p}>
+        <Panel title={vm.catTitle || "Stock by Category"} p={p}>
           <Donut data={vm.category} centerTop={fmtInt(total)} centerSub="Parts" p={p} animate={animate} />
         </Panel>
         <Panel title="Stock Health" p={p}>
@@ -348,11 +348,15 @@ export default function TvDashboard() {
           healthy = by["Healthy"] || 0;
           next.status = { healthy, short, excess };
         }
-        if (Array.isArray(list) && list.some((r) => r.category)) next.category = toCatArray(
-          list.reduce((m, r) => { const c = r.category || "Uncategorised"; m[c] = (m[c] || 0) + 1; return m; }, {}));
+        // Spare parts all carry one blanket category ("Maintenance/Tool Room"),
+        // so grouping on that gives a useless single slice. The Press-Shop
+        // stamping spares are far more telling split by part type (sub_category:
+        // Punch / Pin / Spring / Rail Die part …).
+        if (Array.isArray(list) && list.some((r) => r.sub_category)) next.category = toCatArray(
+          list.reduce((m, r) => { const c = r.sub_category || "Uncategorised"; m[c] = (m[c] || 0) + 1; return m; }, {}));
         if (Array.isArray(trend) && trend.some((t) => t.qty > 0)) next.trend = trend.map((t) => ({ d: t.d.slice(0, 2), qty: t.qty }));
         next.cards = [
-          { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null, onClick: () => openDrill("Spare — by category", ["Category", "Parts"], next.category.map((c) => [c.name, fmtInt(c.value)])) },
+          { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null, onClick: () => openDrill("Spare — by part type", ["Part Type", "Parts"], next.category.map((c) => [c.name, fmtInt(c.value)])) },
           { label: "Stock Value", value: fmtMoney(sum?.stock_value), color: C.green, real: sum?.stock_value != null },
           { label: "Today's Consumption", value: fmtInt(today?.issued_qty), color: C.purple, real: today?.issued_qty != null },
           { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null },
