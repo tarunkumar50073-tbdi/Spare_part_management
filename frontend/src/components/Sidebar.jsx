@@ -81,12 +81,6 @@ const NAV_BY_STORE = {
   // SHARED_GROUPS rather than repeated — one gate, both stores.
   MAINTENANCE: [
     {
-      // The full-screen wallboard for the 53" LED. Opened from here but renders
-      // outside the layout, so it takes the whole screen with no rail.
-      label: "Overview",
-      items: [{ to: "/live-dashboard", label: "Live Dashboard", emoji: "🖥️" }],
-    },
-    {
       // Store Stock sits above the masters on purpose: it is the screen that
       // turns this store's Min and Max into something that can be judged.
       // Without a counted quantity, every health figure on the dashboard has
@@ -250,6 +244,13 @@ export default function Sidebar({ open, onClose, collapsed = false, onToggleColl
           <NavLink to={storeHome(activeCode)} end className={navClass} onClick={onClose}>
             <span className="text-base leading-none w-[18px] text-center shrink-0">📊</span>
             Dashboard
+          </NavLink>
+
+          {/* The combined wallboard spans BOTH stores, so it sits above the
+              per-store menus rather than inside one of them. */}
+          <NavLink to="/live-dashboard" className={navClass} onClick={onClose}>
+            <span className="text-base leading-none w-[18px] text-center shrink-0">🖥️</span>
+            Live Dashboard
           </NavLink>
 
           {[sectionGroup(activeStore), ...navFor(activeCode)].filter(Boolean).map((group) => (
