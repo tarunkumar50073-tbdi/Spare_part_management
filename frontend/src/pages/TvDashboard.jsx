@@ -437,7 +437,7 @@ export default function TvDashboard() {
           <div className="flex items-center gap-[1vh] min-w-0">
             <Layers style={{ width: "2.8vh", height: "2.8vh", color: C.blue }} />
             <div className="min-w-0">
-              <h1 className="text-[3.1vh] font-extrabold leading-tight" style={{ color: P.heading }}>Plant Store — Live Dashboard</h1>
+              <h1 className="text-[3.1vh] font-extrabold leading-tight" style={{ color: P.heading }}>Part Store — Live Dashboard</h1>
               <p className="text-[1.7vh]" style={{ color: P.muted }}>Spare Parts &amp; Child Parts · real-time</p>
             </div>
           </div>
