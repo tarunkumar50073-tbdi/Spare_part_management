@@ -3,8 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
-import { Bell, Moon, Sun, ArrowLeft, Maximize, Minimize, Layers } from "lucide-react";
-import Modal from "../components/Modal.jsx";
+import { Bell, Moon, Sun, ArrowLeft, Maximize, Minimize, Layers, X } from "lucide-react";
 import { spareStockService } from "../services/spareStockService.js";
 import { storeDashboardService } from "../services/storeDashboardService.js";
 import { supplierWindowScheduleService } from "../services/supplierWindowScheduleService.js";
@@ -37,6 +36,33 @@ const fmtMoney = (v) => {
 const toCatArray = (obj) =>
   Object.entries(obj || {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
     .map(([name, value], i) => ({ name, value, color: PIE[i % PIE.length] }));
+
+// ---- nested drill frames ----
+// A frame is { title, columns, rows }; a row is { cells: [...], open?: () => Frame }.
+// A row with `open` is clickable and pushes the next (nested) level onto the stack.
+const detailFrame = (title, pairs) => ({
+  title, columns: ["Field", "Value"], rows: pairs.map(([k, v]) => ({ cells: [k, v] })),
+});
+const spareDetail = (r) => detailFrame(r.part_no, [
+  ["Description", r.part_name], ["Part Type", r.sub_category || "—"],
+  ["On hand", fmtInt(r.qty_on_hand)], ["Min", fmtInt(r.min_stock_level)], ["Max", fmtInt(r.max_stock_level)],
+  ["Rate", fmtMoney(r.unit_price)], ["Stock Value", fmtMoney(r.stock_value)],
+  ["Status", r.status], ["Location", r.location || "—"],
+]);
+const childDetail = (r) => detailFrame(r.part_no, [
+  ["Description", r.part_name], ["Category", r.category || "—"],
+  ["On hand", fmtInt(r.total_qty)], ["Min", fmtInt(r.min_stock_level)], ["Max", fmtInt(r.max_stock_level)],
+  ["Rate", fmtMoney(r.unit_price)], ["Stock Value", fmtMoney(r.total_value)],
+  ["Status", r.indicator || "—"], ["COV Days", r.cov_days ?? "—"],
+]);
+const spareList = (title, rows) => ({
+  title, columns: ["Part No", "Description", "On hand", "Status"],
+  rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.qty_on_hand), r.status], open: () => spareDetail(r) })),
+});
+const childList = (title, rows) => ({
+  title, columns: ["Part No", "Description", "On hand", "Status"],
+  rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.total_qty), r.indicator || "—"], open: () => childDetail(r) })),
+});
 
 // ---- demo fallbacks (overridden by real values where the API answers) ----
 const DEMO_SPARE = {
@@ -292,7 +318,7 @@ export default function TvDashboard() {
   const [spare, setSpare] = useState(DEMO_SPARE);
   const [child, setChild] = useState(DEMO_CHILD);
   const [now, setNow] = useState(() => new Date());
-  const [drill, setDrill] = useState(null);
+  const [stack, setStack] = useState([]); // nested drill: a breadcrumb stack of frames
   const [isFs, setIsFs] = useState(false);
   const [dark, setDark] = useState(false); // default to Day (light) on the LED
   const [animate, setAnimate] = useState(true);
@@ -311,7 +337,13 @@ export default function TvDashboard() {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
     else document.exitFullscreen?.();
   };
-  const openDrill = (title, columns, rows) => setDrill({ title, columns, rows });
+  // Nested drill: openStack starts a fresh window, pushFrame goes a level
+  // deeper, popTo jumps back to a breadcrumb level.
+  const openStack = (frame) => setStack([frame]);
+  const pushFrame = (frame) => setStack((s) => [...s, frame]);
+  const popTo = (i) => setStack((s) => s.slice(0, i + 1));
+  // A flat, single-level drill (no nesting) — rows are plain arrays of cells.
+  const openDrill = (title, columns, rows) => setStack([{ title, columns, rows: rows.map((r) => ({ cells: r })) }]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -357,25 +389,25 @@ export default function TvDashboard() {
         if (Array.isArray(trend) && trend.some((t) => t.qty > 0)) next.trend = trend.map((t) => ({ d: t.d.slice(0, 2), qty: t.qty }));
         next.rows = Array.isArray(list) ? list : (prev.rows || []);
         next.cards = [
+          // Total Parts -> part types -> that type's parts -> a part's detail.
           { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
-            onClick: () => openDrill("Spare Parts — all", ["Part No", "Description", "Part Type", "On hand", "Status"],
-              next.rows.map((r) => [r.part_no, r.part_name, r.sub_category || "—", fmtInt(r.qty_on_hand), r.status])) },
+            onClick: () => openStack({ title: "Total Parts", columns: ["Part Type", "Parts"],
+              rows: next.category.map((c) => ({ cells: [c.name, fmtInt(c.value)],
+                open: () => spareList(c.name, next.rows.filter((r) => (r.sub_category || "Uncategorised") === c.name)) })) }) },
           { label: "Stock Value", value: fmtMoney(sum?.stock_value), color: C.green, real: sum?.stock_value != null,
-            onClick: () => openDrill("Spare — by stock value (high → low)", ["Part No", "Description", "On hand", "Rate", "Stock Value"],
-              next.rows.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value)
-                .map((r) => [r.part_no, r.part_name, fmtInt(r.qty_on_hand), fmtMoney(r.unit_price), fmtMoney(r.stock_value)])) },
+            onClick: () => openStack({ title: "Stock Value (high → low)", columns: ["Part No", "Description", "Stock Value"],
+              rows: next.rows.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value)
+                .map((r) => ({ cells: [r.part_no, r.part_name, fmtMoney(r.stock_value)], open: () => spareDetail(r) })) }) },
           { label: "Today's Consumption", value: fmtInt(today?.issued_qty), color: C.purple, real: today?.issued_qty != null,
             onClick: () => openDrill("Spare — consumption (last 7 days)", ["Day", "Qty issued"], next.trend.map((t) => [t.d, fmtInt(t.qty)])) },
           { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null,
-            onClick: () => openDrill("Spare — short (below minimum)", ["Part No", "Description", "On hand", "Min", "Status"],
+            onClick: () => openStack(spareList("Short — below minimum",
               next.rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock")
-                .sort((a, b) => (b.min_stock_level - b.qty_on_hand) - (a.min_stock_level - a.qty_on_hand))
-                .map((r) => [r.part_no, r.part_name, fmtInt(r.qty_on_hand), fmtInt(r.min_stock_level), r.status])) },
+                .sort((a, b) => (b.min_stock_level - b.qty_on_hand) - (a.min_stock_level - a.qty_on_hand)))) },
           { label: "Excess Parts", value: fmtInt(excess), color: C.cyan, real: excess != null,
-            onClick: () => openDrill("Spare — excess (above maximum)", ["Part No", "Description", "On hand", "Max", "Over by"],
+            onClick: () => openStack(spareList("Excess — above maximum",
               next.rows.filter((r) => r.status === "Above Maximum")
-                .sort((a, b) => (b.qty_on_hand - (b.max_stock_level || 0)) - (a.qty_on_hand - (a.max_stock_level || 0)))
-                .map((r) => [r.part_no, r.part_name, fmtInt(r.qty_on_hand), fmtInt(r.max_stock_level), fmtInt(r.qty_on_hand - (r.max_stock_level || 0))])) },
+                .sort((a, b) => (b.qty_on_hand - (b.max_stock_level || 0)) - (a.qty_on_hand - (a.max_stock_level || 0))))) },
         ];
         return next;
       });
@@ -416,18 +448,17 @@ export default function TvDashboard() {
           const isExcess = (r) => String(r.indicator || "").toLowerCase().includes("excess");
           next.cards = [
             { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
-              onClick: () => openDrill("Child Parts — all", ["Part No", "Description", "Category", "On hand", "Status"],
-                next.crows.map((r) => [r.part_no, r.part_name, r.category || "—", fmtInt(r.total_qty), r.indicator || "—"])) },
+              onClick: () => openStack({ title: "Total Parts", columns: ["Category", "Parts"],
+                rows: next.category.map((c) => ({ cells: [c.name, fmtInt(c.value)],
+                  open: () => childList(c.name, next.crows.filter((r) => (r.category || "—") === c.name)) })) }) },
             { label: "Stock Value", value: fmtMoney(value), color: C.green, real: value != null,
-              onClick: () => openDrill("Child Parts — by stock value (high → low)", ["Part No", "Description", "On hand", "Rate", "Stock Value"],
-                next.crows.filter((r) => r.total_value != null).sort((a, b) => b.total_value - a.total_value)
-                  .map((r) => [r.part_no, r.part_name, fmtInt(r.total_qty), fmtMoney(r.unit_price), fmtMoney(r.total_value)])) },
+              onClick: () => openStack({ title: "Stock Value (high → low)", columns: ["Part No", "Description", "Stock Value"],
+                rows: next.crows.filter((r) => r.total_value != null).sort((a, b) => b.total_value - a.total_value)
+                  .map((r) => ({ cells: [r.part_no, r.part_name, fmtMoney(r.total_value)], open: () => childDetail(r) })) }) },
             { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null,
-              onClick: () => openDrill("Child Parts — short", ["Part No", "Description", "On hand", "Min", "COV Days"],
-                next.crows.filter(isShort).map((r) => [r.part_no, r.part_name, fmtInt(r.total_qty), fmtInt(r.min_stock_level), r.cov_days ?? "—"])) },
+              onClick: () => openStack(childList("Short parts", next.crows.filter(isShort))) },
             { label: "Excess Parts", value: fmtInt(excess), color: C.amber, real: excess != null,
-              onClick: () => openDrill("Child Parts — excess", ["Part No", "Description", "On hand", "Max", "COV Days"],
-                next.crows.filter(isExcess).map((r) => [r.part_no, r.part_name, fmtInt(r.total_qty), fmtInt(r.max_stock_level), r.cov_days ?? "—"])) },
+              onClick: () => openStack(childList("Excess parts", next.crows.filter(isExcess))) },
             { label: "Today's Consumption", value: fmtInt(sum.todays_issue), color: C.purple, real: sum.todays_issue != null,
               onClick: () => openDrill("Today's Movement", ["Metric", "Count"], [["Issued today", fmtInt(sum.todays_issue)], ["Put-away today", fmtInt(sum.todays_put_away)], ["Receipts (SRV) today", fmtInt(sum.todays_srv)]]) },
             { label: "Pending SRV", value: fmtInt(sum.pending_srv), color: C.cyan, real: sum.pending_srv != null,
@@ -508,28 +539,56 @@ export default function TvDashboard() {
       <div className="shrink-0 border-t" style={{ borderColor: P.border }} />
       <StoreStrip vm={child} p={P} animate={animate} />
 
-      <Modal open={!!drill} onClose={() => setDrill(null)} title={drill?.title} size="full">
-        {drill && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+      {/* Nested drill as a FULL-SCREEN view — same theme as the board, a
+          breadcrumb to walk back up, and clickable rows that go a level deeper. */}
+      {stack.length > 0 && (
+        <div className="fixed inset-0 z-50 flex flex-col p-[1.2vh] gap-[1.2vh]" style={{ background: P.bg, color: P.text }}>
+          <header className="shrink-0 flex items-center justify-between gap-[1.5vh]" style={{ height: "7vh" }}>
+            <div className="flex items-center gap-[1.2vh] min-w-0">
+              <IconBtn onClick={() => setStack((s) => (s.length > 1 ? s.slice(0, -1) : []))} title="Back" p={P}>
+                <ArrowLeft style={{ width: "2.2vh", height: "2.2vh" }} />
+              </IconBtn>
+              <div className="flex items-center gap-[0.8vh] flex-wrap text-[2.2vh] min-w-0">
+                {stack.map((f, i) => (
+                  <React.Fragment key={i}>
+                    {i > 0 && <span style={{ color: P.dim }}>›</span>}
+                    <button type="button" onClick={() => popTo(i)} className="truncate max-w-[40vw]"
+                      style={{ color: i === stack.length - 1 ? P.heading : P.muted, fontWeight: i === stack.length - 1 ? 800 : 500 }}>
+                      {f.title}
+                    </button>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+            <IconBtn onClick={() => setStack([])} title="Close" p={P}><X style={{ width: "2.2vh", height: "2.2vh" }} /></IconBtn>
+          </header>
+          <div className="flex-1 min-h-0 overflow-auto rounded-[0.8vh] border" style={{ background: P.panel, borderColor: P.border }}>
+            <table className="w-full text-[1.9vh]">
               <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-200 dark:border-navy-800">
-                  {drill.columns.map((c) => <th key={c} className="py-2 pr-4 font-semibold">{c}</th>)}
+                <tr className="text-left sticky top-0" style={{ background: P.panel }}>
+                  {stack[stack.length - 1].columns.map((c) => (
+                    <th key={c} className="py-[1.3vh] px-[1.6vh] font-semibold border-b" style={{ color: P.dim, borderColor: P.border }}>{c}</th>
+                  ))}
+                  <th className="border-b" style={{ borderColor: P.border }} />
                 </tr>
               </thead>
               <tbody>
-                {drill.rows.length === 0 ? (
-                  <tr><td colSpan={drill.columns.length} className="py-6 text-center text-slate-400">No rows</td></tr>
-                ) : drill.rows.map((r, i) => (
-                  <tr key={i} className="border-b border-slate-100 dark:border-navy-800">
-                    {r.map((cell, j) => <td key={j} className="py-2 pr-4 text-slate-700 dark:text-slate-200">{cell}</td>)}
+                {stack[stack.length - 1].rows.length === 0 ? (
+                  <tr><td colSpan={stack[stack.length - 1].columns.length + 1} className="py-[5vh] text-center" style={{ color: P.dim }}>No rows</td></tr>
+                ) : stack[stack.length - 1].rows.map((r, i) => (
+                  <tr key={i} onClick={r.open ? () => pushFrame(r.open()) : undefined}
+                    className={r.open ? "cursor-pointer hover:bg-[#80808022]" : ""}>
+                    {r.cells.map((cell, j) => (
+                      <td key={j} className="py-[1.2vh] px-[1.6vh] border-t" style={{ color: P.text, borderColor: P.border }}>{cell}</td>
+                    ))}
+                    <td className="text-right px-[1.4vh] border-t" style={{ color: P.dim, borderColor: P.border }}>{r.open ? "›" : ""}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )}
-      </Modal>
+        </div>
+      )}
     </div>
   );
 }
