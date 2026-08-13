@@ -123,8 +123,8 @@ function Kpi({ label, value, sub, subTone, icon: Icon, color, onClick }) {
     >
       <div className="flex items-start justify-between gap-[0.6vh]">
         <div className="min-w-0">
-          <p className="text-[1.35vh] text-slate-400 truncate">{label}</p>
-          <p className="text-[3.2vh] font-extrabold leading-tight text-white">{value}</p>
+          <p className="text-[1.3vh] text-slate-400 leading-tight">{label}</p>
+          <p className="text-[2.9vh] font-extrabold leading-tight text-white whitespace-nowrap overflow-hidden text-ellipsis">{value}</p>
         </div>
         <span className="shrink-0 rounded-full p-[1vh] flex items-center justify-center"
           style={{ background: `${color}22`, color }}>
