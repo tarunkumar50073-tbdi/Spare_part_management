@@ -45,22 +45,22 @@ const detailFrame = (title, pairs) => ({
 });
 const spareDetail = (r) => detailFrame(r.part_no, [
   ["Description", r.part_name], ["Part Type", r.sub_category || "—"],
-  ["On hand", fmtInt(r.qty_on_hand)], ["Min", fmtInt(r.min_stock_level)], ["Max", fmtInt(r.max_stock_level)],
+  ["In Stock", fmtInt(r.qty_on_hand)], ["Min", fmtInt(r.min_stock_level)], ["Max", fmtInt(r.max_stock_level)],
   ["Rate", fmtMoney(r.unit_price)], ["Stock Value", fmtMoney(r.stock_value)],
   ["Status", r.status], ["Location", r.location || "—"],
 ]);
 const childDetail = (r) => detailFrame(r.part_no, [
   ["Description", r.part_name], ["Category", r.category || "—"],
-  ["On hand", fmtInt(r.total_qty)], ["Min", fmtInt(r.min_stock_level)], ["Max", fmtInt(r.max_stock_level)],
+  ["In Stock", fmtInt(r.total_qty)], ["Min", fmtInt(r.min_stock_level)], ["Max", fmtInt(r.max_stock_level)],
   ["Rate", fmtMoney(r.unit_price)], ["Stock Value", fmtMoney(r.total_value)],
   ["Status", r.indicator || "—"], ["COV Days", r.cov_days ?? "—"],
 ]);
 const spareList = (title, rows) => ({
-  title, columns: ["Part No", "Description", "On hand", "Status"],
+  title, columns: ["Part No", "Description", "In Stock", "Status"],
   rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.qty_on_hand), r.status], open: () => spareDetail(r) })),
 });
 const childList = (title, rows) => ({
-  title, columns: ["Part No", "Description", "On hand", "Status"],
+  title, columns: ["Part No", "Description", "In Stock", "Status"],
   rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.total_qty), r.indicator || "—"], open: () => childDetail(r) })),
 });
 
