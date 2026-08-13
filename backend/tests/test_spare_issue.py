@@ -188,3 +188,26 @@ def test_reorder_list_suggests_qty_up_to_max():
     assert len(mine) == 1
     assert mine[0]["reorder_qty"] == 26  # bring 4 back up to max 30
     assert mine[0]["status"] == "Below Minimum"
+
+
+def test_consumption_trend_has_a_point_per_day_and_counts_issue():
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 50)
+    before = sum(d["qty"] for d in svc.consumption_trend("MAINTENANCE", days=7))
+    svc.issue(p.id, 9, "Maintenance")
+    trend = svc.consumption_trend("MAINTENANCE", days=7)
+    assert len(trend) == 7                       # one point for every day, gaps filled with 0
+    assert sum(d["qty"] for d in trend) - before == 9.0
+
+
+def test_top_consumed_ranks_by_issued_quantity():
+    svc = SpareStockService()
+    a = _part(); _set_physical(a.id, 100)
+    b = _part(); _set_physical(b.id, 100)
+    svc.issue(a.id, 30, "Tool Room")
+    svc.issue(b.id, 5, "Tool Room")
+    top = svc.top_consumed("MAINTENANCE", limit=100, days=30)
+    qa = next((r["qty"] for r in top if r["part_no"] == a.part_no), 0)
+    assert qa >= 30.0
+    order = {r["part_no"]: i for i, r in enumerate(top)}
+    assert order.get(a.part_no, 10 ** 9) < order.get(b.part_no, 10 ** 9 + 1)  # 30 ranks above 5

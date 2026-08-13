@@ -109,6 +109,22 @@ def machines():
     return success_response(service.machines_used(_store_code()))
 
 
+@bp.route("/consumption-trend", methods=["GET"])
+def consumption_trend():
+    return success_response(service.consumption_trend(
+        _store_code(), days=request.args.get("days", default=7, type=int),
+    ))
+
+
+@bp.route("/top-consumed", methods=["GET"])
+def top_consumed():
+    return success_response(service.top_consumed(
+        _store_code(),
+        limit=request.args.get("limit", default=5, type=int),
+        days=request.args.get("days", default=30, type=int),
+    ))
+
+
 @bp.route("/returnables", methods=["GET"])
 def returnables():
     return success_response(service.outstanding_returnables(_store_code()))

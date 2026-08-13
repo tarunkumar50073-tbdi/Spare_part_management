@@ -39,6 +39,10 @@ export const spareStockService = {
   consumption: (storeCode, groupBy = "department") =>
     api.get("/spare-stock/consumption", { params: { store_code: storeCode, group_by: groupBy } }),
   machines: (storeCode) => api.get("/spare-stock/machines", { params: { store_code: storeCode } }),
+  consumptionTrend: (storeCode, days = 7) =>
+    api.get("/spare-stock/consumption-trend", { params: { store_code: storeCode, days } }),
+  topConsumed: (storeCode, limit = 5, days = 30) =>
+    api.get("/spare-stock/top-consumed", { params: { store_code: storeCode, limit, days } }),
   scan: (storeCode, code) => api.get("/spare-stock/scan", { params: { store_code: storeCode, code } }),
   returnables: (storeCode) => api.get("/spare-stock/returnables", { params: { store_code: storeCode } }),
   reorder: (storeCode) => api.get("/spare-stock/reorder", { params: { store_code: storeCode } }),

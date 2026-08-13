@@ -559,6 +559,57 @@ class SpareStockService:
         out.sort(key=lambda r: r["value"], reverse=True)
         return out
 
+    def consumption_trend(self, store_code, days=7):
+        """Issued quantity per day for the last `days` days — the Live
+        Dashboard's consumption trend. Days with no issue come back as 0 so the
+        line has a point for every day rather than a gap."""
+        from datetime import date, timedelta
+        from app.extensions import db
+        from sqlalchemy import func
+        from app.models.spare_stock import SpareStockLedger
+        start = date.today() - timedelta(days=days - 1)
+        rows = (
+            db.session.query(
+                func.date(SpareStockLedger.created_at),
+                func.sum(func.abs(SpareStockLedger.qty_delta)),
+            )
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code,
+                    SpareStockLedger.txn_type == "ISSUE",
+                    func.date(SpareStockLedger.created_at) >= start.isoformat())
+            .group_by(func.date(SpareStockLedger.created_at))
+            .all()
+        )
+        by_day = {str(d): float(q or 0) for d, q in rows}
+        out = []
+        for i in range(days):
+            d = start + timedelta(days=i)
+            out.append({"d": d.strftime("%d %b"), "qty": round(by_day.get(d.isoformat(), 0.0), 2)})
+        return out
+
+    def top_consumed(self, store_code, limit=5, days=30):
+        """The most-issued parts over the last `days` days — the Top-5 Consumed
+        table. Ranked by total issued quantity."""
+        from datetime import date, timedelta
+        from app.extensions import db
+        from sqlalchemy import func
+        from app.models.spare_stock import SpareStockLedger
+        start = date.today() - timedelta(days=days - 1)
+        total = func.sum(func.abs(SpareStockLedger.qty_delta))
+        rows = (
+            db.session.query(Part.part_no, Part.part_name, total)
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code,
+                    SpareStockLedger.txn_type == "ISSUE",
+                    func.date(SpareStockLedger.created_at) >= start.isoformat())
+            .group_by(Part.id)
+            .order_by(total.desc())
+            .limit(limit)
+            .all()
+        )
+        return [{"part_no": pn, "part_name": name, "qty": round(float(q or 0), 2)}
+                for pn, name, q in rows]
+
     def machines_used(self, store_code):
         """Distinct machine names already recorded for this store — the source
         for the issue form's type-ahead, so the same machine is always spelled

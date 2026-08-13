@@ -212,13 +212,15 @@ export default function TvDashboard() {
     let alive = true;
     const load = async () => {
       const grab = (pr) => pr.then((r) => r.data.data).catch(() => null);
-      const [sum, today, ana, list, excess, reorder] = await Promise.all([
+      const [sum, today, ana, list, excess, reorder, trend, top] = await Promise.all([
         grab(spareStockService.summary(STORE)),
         grab(spareStockService.today(STORE)),
         grab(spareStockService.analytics(STORE)),
         grab(spareStockService.list({ store_code: STORE })),
         grab(spareStockService.excess(STORE, 100)),
         grab(spareStockService.reorder(STORE)),
+        grab(spareStockService.consumptionTrend(STORE, 7)),
+        grab(spareStockService.topConsumed(STORE, 5, 30)),
       ]);
       if (!alive) return;
       setVm((prev) => {
@@ -277,6 +279,14 @@ export default function TvDashboard() {
         if (sum && sum.uncounted_parts) alerts.push({ tone: "amber", text: `${sum.uncounted_parts} part(s) not yet counted`, time: "live" });
         if (today && today.issued_lines != null) alerts.push({ tone: "green", text: `${today.issued_lines} issue line(s) this shift`, time: "live" });
         if (alerts.length) { next.alerts = alerts; next.real.alerts = true; }
+
+        // Consumption trend + top-5 consumed — real once parts start being
+        // issued; demo stays until then so the board doesn't read empty on day one.
+        if (Array.isArray(trend) && trend.some((t) => t.qty > 0)) { next.trend = trend; next.real.trend = true; }
+        if (Array.isArray(top) && top.length) {
+          next.top5 = top.map((t) => ({ no: t.part_no, desc: t.part_name || "—", qty: t.qty }));
+          next.real.top5 = true;
+        }
 
         // Real lists behind the Short / Excess drill-downs.
         next.lists.excess = Array.isArray(excess) ? excess : [];
