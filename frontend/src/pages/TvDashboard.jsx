@@ -6,7 +6,7 @@ import {
   LineChart, Line,
 } from "recharts";
 import {
-  Search, Bell, Moon, Package, IndianRupee, TrendingUp, Download,
+  Search, Bell, Moon, Sun, Package, IndianRupee, TrendingUp, Download,
   AlertTriangle, Boxes, FileText, ArrowRightLeft, Factory,
   PackageCheck, ListChecks, FileBarChart, ArrowLeft, Maximize, Minimize,
 } from "lucide-react";
@@ -21,10 +21,17 @@ import { spareStockService } from "../services/spareStockService.js";
 const STORE = "MAINTENANCE";
 const REFRESH_MS = 30000;
 
+// Accent colours — the same in both themes.
 const C = {
-  bg: "#0a0f1e", panel: "#111a30", panel2: "#0e1526", border: "#1e2a44",
   blue: "#3b82f6", green: "#10b981", purple: "#a855f7", amber: "#f59e0b",
-  red: "#ef4444", cyan: "#06b6d4", indigo: "#6366f1", slate: "#64748b",
+  red: "#ef4444", cyan: "#06b6d4", indigo: "#6366f1",
+};
+
+// Surface + text palette per theme. The Day/Night button swaps between these,
+// so a bright shop-floor can flip the board to light without losing legibility.
+const THEMES = {
+  dark: { bg: "#0a0f1e", panel: "#111a30", panel2: "#0e1526", border: "#1e2a44", heading: "#ffffff", text: "#e2e8f0", muted: "#94a3b8", dim: "#64748b" },
+  light: { bg: "#eef2f7", panel: "#ffffff", panel2: "#f8fafc", border: "#e2e8f0", heading: "#0f172a", text: "#334155", muted: "#64748b", dim: "#94a3b8" },
 };
 
 const fmtInt = (n) => (n == null ? "—" : Number(n).toLocaleString("en-IN"));
@@ -95,17 +102,19 @@ const QUICK_ACTIONS = [
   { label: "Reports", icon: FileBarChart, to: "/spare-erp-gap" },
 ];
 
+const ALERT_DOT = { red: C.red, amber: C.amber, green: C.green };
+
 // ---------------------------------------------------------------- primitives
-function Panel({ title, action, children, onClick, className = "" }) {
+function Panel({ title, action, children, onClick, p, className = "" }) {
   return (
     <div
       onClick={onClick}
-      className={`flex flex-col min-h-0 rounded-[0.8vh] border p-[1.1vh] ${onClick ? "cursor-pointer hover:border-slate-500 transition-colors" : ""} ${className}`}
-      style={{ background: C.panel, borderColor: C.border }}
+      className={`flex flex-col min-h-0 rounded-[0.8vh] border p-[1.1vh] ${onClick ? "cursor-pointer hover:brightness-110 transition-[filter]" : ""} ${className}`}
+      style={{ background: p.panel, borderColor: p.border }}
     >
       {title && (
         <div className="flex items-center justify-between mb-[0.8vh] shrink-0">
-          <h3 className="text-[1.5vh] font-semibold text-slate-100">{title}</h3>
+          <h3 className="text-[1.5vh] font-semibold" style={{ color: p.heading }}>{title}</h3>
           {action}
         </div>
       )}
@@ -114,44 +123,56 @@ function Panel({ title, action, children, onClick, className = "" }) {
   );
 }
 
-function Kpi({ label, value, sub, subTone, icon: Icon, color, onClick }) {
+function Kpi({ label, value, sub, icon: Icon, color, onClick, p }) {
   return (
     <button
       type="button" onClick={onClick}
       className="text-left flex flex-col justify-between rounded-[0.8vh] border p-[1.2vh] min-h-0 transition-transform hover:-translate-y-[0.3vh]"
-      style={{ background: C.panel, borderColor: C.border, borderTop: `0.4vh solid ${color}` }}
+      style={{ background: p.panel, borderColor: p.border, borderTop: `0.4vh solid ${color}` }}
     >
       <div className="flex items-start justify-between gap-[0.6vh]">
         <div className="min-w-0">
-          <p className="text-[1.3vh] text-slate-400 leading-tight">{label}</p>
-          <p className="text-[2.9vh] font-extrabold leading-tight text-white whitespace-nowrap overflow-hidden text-ellipsis">{value}</p>
+          <p className="text-[1.3vh] leading-tight" style={{ color: p.muted }}>{label}</p>
+          <p className="text-[2.9vh] font-extrabold leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: p.heading }}>{value}</p>
         </div>
         <span className="shrink-0 rounded-full p-[1vh] flex items-center justify-center"
           style={{ background: `${color}22`, color }}>
           <Icon style={{ width: "2.2vh", height: "2.2vh" }} />
         </span>
       </div>
-      <p className={`text-[1.3vh] mt-[0.4vh] ${subTone || "text-slate-400"}`}>{sub}</p>
+      <p className="text-[1.3vh] mt-[0.4vh]">{sub}</p>
     </button>
   );
 }
 
 // A half-dial for rack utilisation (semicircle arc + centred reading).
-function RackGauge({ pct }) {
+function RackGauge({ pct, p }) {
   const SEMI = Math.PI * 80;
   const arc = Math.max(0, Math.min(100, pct));
   return (
     <svg viewBox="0 0 200 120" className="w-full h-full">
-      <path d="M 20 104 A 80 80 0 0 1 180 104" fill="none" stroke={C.border} strokeWidth="16" strokeLinecap="round" />
+      <path d="M 20 104 A 80 80 0 0 1 180 104" fill="none" stroke={p.border} strokeWidth="16" strokeLinecap="round" />
       <path d="M 20 104 A 80 80 0 0 1 180 104" fill="none" stroke={C.amber} strokeWidth="16" strokeLinecap="round"
         strokeDasharray={`${(arc / 100) * SEMI} ${SEMI * 2}`} />
-      <text x="100" y="92" textAnchor="middle" fontSize="30" fontWeight="800" fill="#fff">{Math.round(pct)}%</text>
-      <text x="100" y="112" textAnchor="middle" fontSize="12" fill="#94a3b8">Occupied</text>
+      <text x="100" y="92" textAnchor="middle" fontSize="30" fontWeight="800" fill={p.heading}>{Math.round(pct)}%</text>
+      <text x="100" y="112" textAnchor="middle" fontSize="12" fill={p.muted}>Occupied</text>
     </svg>
   );
 }
 
-const ALERT_DOT = { red: C.red, amber: C.amber, green: C.green };
+// A round icon button in the header — used for back / bell / theme / fullscreen.
+function IconBtn({ onClick, title, p, children, badge }) {
+  return (
+    <button type="button" onClick={onClick} title={title}
+      className="relative rounded-full border p-[1vh] hover:brightness-125 transition-[filter]"
+      style={{ background: p.panel, borderColor: p.border, color: p.text }}>
+      {children}
+      {badge != null && badge > 0 && (
+        <span className="absolute -top-[0.3vh] -right-[0.3vh] rounded-full bg-red-500 text-white text-[1vh] px-[0.6vh] font-bold">{badge}</span>
+      )}
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------- main
 export default function TvDashboard() {
@@ -160,6 +181,9 @@ export default function TvDashboard() {
   const [now, setNow] = useState(() => new Date());
   const [drill, setDrill] = useState(null); // { title, columns, rows }
   const [isFs, setIsFs] = useState(false);
+  const [dark, setDark] = useState(true);
+
+  const P = dark ? THEMES.dark : THEMES.light;
 
   const goBack = () => {
     if (window.history.length > 1) navigate(-1);
@@ -187,7 +211,7 @@ export default function TvDashboard() {
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      const grab = (p) => p.then((r) => r.data.data).catch(() => null);
+      const grab = (pr) => pr.then((r) => r.data.data).catch(() => null);
       const [sum, today, ana, list, excess, reorder] = await Promise.all([
         grab(spareStockService.summary(STORE)),
         grab(spareStockService.today(STORE)),
@@ -273,83 +297,74 @@ export default function TvDashboard() {
   }, [now]);
 
   const openDrill = (title, columns, rows) => setDrill({ title, columns, rows });
+  const openAlerts = () => openDrill("Alerts", ["Alert", "When"], vm.alerts.map((a) => [a.text, a.time]));
 
   const K = vm.kpis;
   const R = vm.real || {};
-  const tag = (isReal) => (isReal ? "text-emerald-400" : "text-slate-500");
+  // "live" (green) when the figure came from the API, else a dim fallback note.
+  const subEl = (isReal, fallback) => <span style={{ color: isReal ? C.green : P.dim }}>{isReal ? "live" : fallback}</span>;
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col p-[1.1vh] gap-[1.1vh]"
-      style={{ background: C.bg, color: "#e2e8f0" }}>
+      style={{ background: P.bg, color: P.text }}>
 
       {/* Header */}
       <header className="shrink-0 flex items-center justify-between gap-[1.5vh]" style={{ height: "8vh" }}>
         <div className="flex items-center gap-[1.2vh] min-w-0">
-          {/* Back to the app — the board has no rail, so this is the way out on
-              a desk monitor; ignored on the LED where nobody clicks. */}
-          <button type="button" onClick={goBack} title="Back to app"
-            className="shrink-0 rounded-full border p-[1vh] text-slate-300 hover:text-white transition-colors"
-            style={{ background: C.panel, borderColor: C.border }}>
+          <IconBtn onClick={goBack} title="Back to app" p={P}>
             <ArrowLeft style={{ width: "2.4vh", height: "2.4vh" }} />
-          </button>
+          </IconBtn>
           <div className="min-w-0">
-            <h1 className="text-[2.8vh] font-extrabold text-white leading-tight">Dashboard</h1>
-            <p className="text-[1.4vh] text-slate-400">Real-time overview of Consumable Spare Part Store</p>
+            <h1 className="text-[2.8vh] font-extrabold leading-tight" style={{ color: P.heading }}>Dashboard</h1>
+            <p className="text-[1.4vh]" style={{ color: P.muted }}>Real-time overview of Consumable Spare Part Store</p>
           </div>
         </div>
         <div className="hidden md:flex items-center gap-[0.8vh] rounded-[0.8vh] border px-[1.2vh] py-[1vh] w-[32vw] max-w-[520px]"
-          style={{ background: C.panel, borderColor: C.border }}>
-          <Search style={{ width: "2vh", height: "2vh" }} className="text-slate-500" />
-          <span className="text-[1.5vh] text-slate-500">Search Part, Rack, Document…</span>
+          style={{ background: P.panel, borderColor: P.border, color: P.dim }}>
+          <Search style={{ width: "2vh", height: "2vh" }} />
+          <span className="text-[1.5vh]">Search Part, Rack, Document…</span>
         </div>
         <div className="flex items-center gap-[1vh]">
           <div className="flex items-center gap-[0.8vh] rounded-[0.8vh] border px-[1.2vh] py-[1vh]"
-            style={{ background: C.panel, borderColor: C.border }}>
-            <span className="text-[1.5vh] text-slate-200 tabular-nums">{clock}</span>
+            style={{ background: P.panel, borderColor: P.border }}>
+            <span className="text-[1.5vh] tabular-nums" style={{ color: P.text }}>{clock}</span>
           </div>
-          <span className="relative rounded-full p-[1vh] border" style={{ background: C.panel, borderColor: C.border }}>
-            <Bell style={{ width: "2.2vh", height: "2.2vh" }} className="text-slate-300" />
-            <span className="absolute -top-[0.3vh] -right-[0.3vh] rounded-full bg-red-500 text-white text-[1vh] px-[0.6vh] font-bold">8</span>
-          </span>
-          <span className="rounded-full p-[1vh] border" style={{ background: C.panel, borderColor: C.border }}>
-            <Moon style={{ width: "2.2vh", height: "2.2vh" }} className="text-slate-300" />
-          </span>
-          {/* True fullscreen for the LED — hides the browser chrome too. */}
-          <button type="button" onClick={toggleFullscreen}
-            title={isFs ? "Exit fullscreen" : "Fullscreen"}
-            className="rounded-full border p-[1vh] text-slate-300 hover:text-white transition-colors"
-            style={{ background: C.panel, borderColor: C.border }}>
-            {isFs
-              ? <Minimize style={{ width: "2.2vh", height: "2.2vh" }} />
-              : <Maximize style={{ width: "2.2vh", height: "2.2vh" }} />}
-          </button>
+          <IconBtn onClick={openAlerts} title="Alerts" p={P} badge={vm.alerts.length}>
+            <Bell style={{ width: "2.2vh", height: "2.2vh" }} />
+          </IconBtn>
+          <IconBtn onClick={() => setDark((d) => !d)} title={dark ? "Switch to light" : "Switch to dark"} p={P}>
+            {dark ? <Sun style={{ width: "2.2vh", height: "2.2vh" }} /> : <Moon style={{ width: "2.2vh", height: "2.2vh" }} />}
+          </IconBtn>
+          <IconBtn onClick={toggleFullscreen} title={isFs ? "Exit fullscreen" : "Fullscreen"} p={P}>
+            {isFs ? <Minimize style={{ width: "2.2vh", height: "2.2vh" }} /> : <Maximize style={{ width: "2.2vh", height: "2.2vh" }} />}
+          </IconBtn>
         </div>
       </header>
 
       {/* KPI row */}
       <section className="grid grid-cols-6 gap-[1.1vh] min-h-0" style={{ flex: "15 0 0" }}>
-        <Kpi label="Total Live Parts" value={fmtInt(K.liveParts)} icon={Package} color={C.blue}
-          sub={<span className={tag(R.liveParts)}>{R.liveParts ? "live" : `+${vm.deltas.liveParts}% vs yesterday`}</span>}
+        <Kpi p={P} label="Total Live Parts" value={fmtInt(K.liveParts)} icon={Package} color={C.blue}
+          sub={subEl(R.liveParts, `+${vm.deltas.liveParts}% vs yesterday`)}
           onClick={() => openDrill("Total Live Parts", ["Category", "Parts"], vm.category.map((c) => [c.name, fmtInt(c.value)]))} />
-        <Kpi label="Total Value (INR)" value={fmtMoney(K.value)} icon={IndianRupee} color={C.green}
-          sub={<span className={tag(R.value)}>{R.value ? "live" : `+${vm.deltas.value}% vs yesterday`}</span>}
+        <Kpi p={P} label="Total Value (INR)" value={fmtMoney(K.value)} icon={IndianRupee} color={C.green}
+          sub={subEl(R.value, `+${vm.deltas.value}% vs yesterday`)}
           onClick={() => openDrill("Total Stock Value", ["Category", "Parts"], vm.category.map((c) => [c.name, fmtInt(c.value)]))} />
-        <Kpi label="Today's Consumption" value={fmtInt(K.todayConsumption)} icon={TrendingUp} color={C.purple}
-          sub={<span className={tag(R.todayConsumption)}>{R.todayConsumption ? "live" : `+${vm.deltas.todayConsumption}% vs yesterday`}</span>}
+        <Kpi p={P} label="Today's Consumption" value={fmtInt(K.todayConsumption)} icon={TrendingUp} color={C.purple}
+          sub={subEl(R.todayConsumption, `+${vm.deltas.todayConsumption}% vs yesterday`)}
           onClick={() => openDrill("Today's Consumption", ["Part No", "Description", "Qty"], vm.top5.map((t) => [t.no, t.desc, fmtInt(t.qty)]))} />
-        <Kpi label="Pending Put Away" value={fmtInt(K.pendingPutAway)} icon={Download} color={C.amber}
-          sub={<span className="text-slate-400">View Details</span>}
+        <Kpi p={P} label="Pending Put Away" value={fmtInt(K.pendingPutAway)} icon={Download} color={C.amber}
+          sub={<span style={{ color: P.dim }}>View Details</span>}
           onClick={() => openDrill("Pending Put Away", ["SRV", "GRN", "Part No", "Qty"], vm.pending.map((p) => [p.srv, p.grn, p.no, fmtInt(p.qty)]))} />
-        <Kpi label="Short Parts (below min)" value={fmtInt(K.shortParts)} icon={AlertTriangle} color={C.red}
-          sub={<span className={tag(R.shortParts)}>{R.shortParts ? "live" : "View Details"}</span>}
+        <Kpi p={P} label="Short Parts (below min)" value={fmtInt(K.shortParts)} icon={AlertTriangle} color={C.red}
+          sub={subEl(R.shortParts, "View Details")}
           onClick={() => {
             const rows = vm.lists?.reorder || [];
             openDrill("Short Parts — below minimum", ["Part No", "Description", "On hand", "Min", "Reorder Qty"],
               rows.length ? rows.map((r) => [r.part_no, r.part_name || "—", fmtInt(r.qty_on_hand), fmtInt(r.min_stock_level), fmtInt(r.reorder_qty)])
                 : vm.top5.slice(0, 3).map((t) => [t.no, t.desc, "—", "—", "—"]));
           }} />
-        <Kpi label="Excess Parts" value={fmtInt(K.excessParts)} icon={Boxes} color={C.cyan}
-          sub={<span className={tag(R.excessParts)}>{R.excessParts ? "live" : "View Details"}</span>}
+        <Kpi p={P} label="Excess Parts" value={fmtInt(K.excessParts)} icon={Boxes} color={C.cyan}
+          sub={subEl(R.excessParts, "View Details")}
           onClick={() => {
             const rows = vm.lists?.excess || [];
             openDrill("Excess Parts — above maximum", ["Part No", "Description", "On hand", "Max", "Excess"],
@@ -360,7 +375,7 @@ export default function TvDashboard() {
 
       {/* Charts row */}
       <section className="grid grid-cols-3 gap-[1.1vh] min-h-0" style={{ flex: "27 0 0" }}>
-        <Panel title="Live Stock by Part Category">
+        <Panel p={P} title="Live Stock by Part Category">
           <div className="flex h-full items-center gap-[1vh]">
             <div className="relative h-full" style={{ width: "45%" }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -371,8 +386,8 @@ export default function TvDashboard() {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-[2.4vh] font-extrabold text-white">{fmtInt(vm.category.reduce((s, c) => s + c.value, 0))}</span>
-                <span className="text-[1.2vh] text-slate-400">Total Parts</span>
+                <span className="text-[2.4vh] font-extrabold" style={{ color: P.heading }}>{fmtInt(vm.category.reduce((s, c) => s + c.value, 0))}</span>
+                <span className="text-[1.2vh]" style={{ color: P.muted }}>Total Parts</span>
               </div>
             </div>
             <div className="flex-1 flex flex-col justify-center gap-[0.7vh]">
@@ -381,9 +396,9 @@ export default function TvDashboard() {
                 return (
                   <div key={c.name} className="flex items-center gap-[0.8vh] text-[1.35vh]">
                     <span className="rounded-full" style={{ width: "1.2vh", height: "1.2vh", background: c.color }} />
-                    <span className="text-slate-300 flex-1 truncate">{c.name}</span>
-                    <span className="font-semibold text-white tabular-nums">{fmtInt(c.value)}</span>
-                    <span className="text-slate-500 w-[5vh] text-right tabular-nums">{((c.value / total) * 100).toFixed(1)}%</span>
+                    <span className="flex-1 truncate" style={{ color: P.text }}>{c.name}</span>
+                    <span className="font-semibold tabular-nums" style={{ color: P.heading }}>{fmtInt(c.value)}</span>
+                    <span className="w-[5vh] text-right tabular-nums" style={{ color: P.dim }}>{total ? ((c.value / total) * 100).toFixed(1) : "0.0"}%</span>
                   </div>
                 );
               })}
@@ -391,13 +406,13 @@ export default function TvDashboard() {
           </div>
         </Panel>
 
-        <Panel title="Stock Status Overview">
+        <Panel p={P} title="Stock Status Overview">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={vm.status} margin={{ top: 8, right: 6, left: -18, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
-              <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 10 }} tickLine={false} axisLine={{ stroke: C.border }} />
-              <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: "#e2e8f0" }} cursor={{ fill: "#ffffff08" }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={P.border} vertical={false} />
+              <XAxis dataKey="name" tick={{ fill: P.muted, fontSize: 10 }} tickLine={false} axisLine={{ stroke: P.border }} />
+              <YAxis tick={{ fill: P.muted, fontSize: 10 }} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={{ background: P.panel2, border: `1px solid ${P.border}`, borderRadius: 8, fontSize: 12, color: P.text }} cursor={{ fill: "#8080801a" }} />
               <Bar dataKey="Available" fill={C.green} radius={[3, 3, 0, 0]} />
               <Bar dataKey="Short" fill={C.red} radius={[3, 3, 0, 0]} />
               <Bar dataKey="Excess" fill={C.amber} radius={[3, 3, 0, 0]} />
@@ -405,13 +420,13 @@ export default function TvDashboard() {
           </ResponsiveContainer>
         </Panel>
 
-        <Panel title="Consumption Trend (Last 7 Days)">
+        <Panel p={P} title="Consumption Trend (Last 7 Days)">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={vm.trend} margin={{ top: 8, right: 10, left: -18, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
-              <XAxis dataKey="d" tick={{ fill: "#94a3b8", fontSize: 10 }} tickLine={false} axisLine={{ stroke: C.border }} />
-              <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: "#e2e8f0" }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={P.border} vertical={false} />
+              <XAxis dataKey="d" tick={{ fill: P.muted, fontSize: 10 }} tickLine={false} axisLine={{ stroke: P.border }} />
+              <YAxis tick={{ fill: P.muted, fontSize: 10 }} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={{ background: P.panel2, border: `1px solid ${P.border}`, borderRadius: 8, fontSize: 12, color: P.text }} />
               <Line type="monotone" dataKey="qty" stroke={C.blue} strokeWidth={2.5} dot={{ r: 3, fill: C.blue }} activeDot={{ r: 5 }} />
             </LineChart>
           </ResponsiveContainer>
@@ -420,10 +435,10 @@ export default function TvDashboard() {
 
       {/* Mid row */}
       <section className="grid grid-cols-3 gap-[1.1vh] min-h-0" style={{ flex: "27 0 0" }}>
-        <Panel title="Top 5 Consumed Parts (This Month)">
+        <Panel p={P} title="Top 5 Consumed Parts (This Month)">
           <table className="w-full text-[1.35vh]">
             <thead>
-              <tr className="text-slate-500 text-left">
+              <tr className="text-left" style={{ color: P.dim }}>
                 <th className="font-medium pb-[0.6vh]">Part No.</th>
                 <th className="font-medium pb-[0.6vh]">Part Description</th>
                 <th className="font-medium pb-[0.6vh] text-right">Consumed Qty</th>
@@ -431,40 +446,40 @@ export default function TvDashboard() {
             </thead>
             <tbody>
               {vm.top5.map((t) => (
-                <tr key={t.no} className="border-t" style={{ borderColor: C.border }}>
-                  <td className="py-[0.7vh] text-slate-300">{t.no}</td>
-                  <td className="py-[0.7vh] text-slate-200 truncate">{t.desc}</td>
-                  <td className="py-[0.7vh] text-right font-semibold text-white tabular-nums">{fmtInt(t.qty)}</td>
+                <tr key={t.no} className="border-t" style={{ borderColor: P.border }}>
+                  <td className="py-[0.7vh]" style={{ color: P.muted }}>{t.no}</td>
+                  <td className="py-[0.7vh] truncate" style={{ color: P.text }}>{t.desc}</td>
+                  <td className="py-[0.7vh] text-right font-semibold tabular-nums" style={{ color: P.heading }}>{fmtInt(t.qty)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </Panel>
 
-        <Panel title="Rack Utilization">
+        <Panel p={P} title="Rack Utilization">
           <div className="flex h-full items-center gap-[1vh]">
-            <div className="h-full" style={{ width: "52%" }}><RackGauge pct={vm.rack.occupiedPct} /></div>
+            <div className="h-full" style={{ width: "52%" }}><RackGauge pct={vm.rack.occupiedPct} p={P} /></div>
             <div className="flex-1 flex flex-col justify-center gap-[1.2vh]">
-              <div><p className="text-[1.3vh] text-slate-400">Total Racks</p><p className="text-[2.4vh] font-bold text-white">{vm.rack.total}</p></div>
-              <div><p className="text-[1.3vh] text-slate-400">Full Racks</p><p className="text-[2.4vh] font-bold" style={{ color: C.red }}>{vm.rack.full}</p></div>
-              <div><p className="text-[1.3vh] text-slate-400">Available Racks</p><p className="text-[2.4vh] font-bold" style={{ color: C.green }}>{vm.rack.available}</p></div>
+              <div><p className="text-[1.3vh]" style={{ color: P.muted }}>Total Racks</p><p className="text-[2.4vh] font-bold" style={{ color: P.heading }}>{vm.rack.total}</p></div>
+              <div><p className="text-[1.3vh]" style={{ color: P.muted }}>Full Racks</p><p className="text-[2.4vh] font-bold" style={{ color: C.red }}>{vm.rack.full}</p></div>
+              <div><p className="text-[1.3vh]" style={{ color: P.muted }}>Available Racks</p><p className="text-[2.4vh] font-bold" style={{ color: C.green }}>{vm.rack.available}</p></div>
             </div>
           </div>
         </Panel>
 
-        <Panel title="Store Transaction Summary (Today)">
+        <Panel p={P} title="Store Transaction Summary (Today)">
           <div className="grid grid-cols-2 gap-[1vh] h-full">
             {vm.txns.map((t) => (
               <button key={t.key} type="button"
                 onClick={() => openDrill(t.label, ["Reference", "Type", "Qty"], vm.pending.map((p) => [p.grn, t.label, fmtInt(p.qty)]))}
-                className="flex flex-col items-center justify-center rounded-[0.8vh] border transition-colors hover:border-slate-500"
-                style={{ borderColor: C.border, background: C.panel2 }}>
+                className="flex flex-col items-center justify-center rounded-[0.8vh] border transition-[filter] hover:brightness-110"
+                style={{ borderColor: P.border, background: P.panel2 }}>
                 <span className="rounded-full p-[1vh] mb-[0.5vh]" style={{ background: `${t.color}22`, color: t.color }}>
                   <t.icon style={{ width: "2.4vh", height: "2.4vh" }} />
                 </span>
-                <span className="text-[1.3vh] text-slate-300 text-center px-[0.5vh] leading-tight">{t.label}</span>
-                <span className="text-[2.6vh] font-extrabold text-white leading-tight">{t.value}</span>
-                <span className="text-[1.1vh] text-slate-500">{t.unit}</span>
+                <span className="text-[1.3vh] text-center px-[0.5vh] leading-tight" style={{ color: P.text }}>{t.label}</span>
+                <span className="text-[2.6vh] font-extrabold leading-tight" style={{ color: P.heading }}>{t.value}</span>
+                <span className="text-[1.1vh]" style={{ color: P.dim }}>{t.unit}</span>
               </button>
             ))}
           </div>
@@ -473,27 +488,26 @@ export default function TvDashboard() {
 
       {/* Bottom row */}
       <section className="grid gap-[1.1vh] min-h-0" style={{ flex: "23 0 0", gridTemplateColumns: "1fr 1.6fr 1fr" }}>
-        <Panel title="Recent Alerts"
-          action={<span className="text-[1.2vh] text-slate-500 cursor-pointer hover:text-slate-300"
-            onClick={() => openDrill("All Alerts", ["Alert", "Time"], vm.alerts.map((a) => [a.text, a.time]))}>View All</span>}>
+        <Panel p={P} title="Recent Alerts"
+          action={<span className="text-[1.2vh] cursor-pointer hover:underline" style={{ color: P.dim }} onClick={openAlerts}>View All</span>}>
           <div className="flex flex-col gap-[0.8vh] h-full justify-center">
             {vm.alerts.map((a, i) => (
               <div key={i} className="flex items-center gap-[0.8vh] text-[1.35vh]">
                 <span className="rounded-full shrink-0" style={{ width: "1vh", height: "1vh", background: ALERT_DOT[a.tone] }} />
-                <span className="text-slate-200 flex-1 truncate">{a.text}</span>
-                <span className="text-slate-500 tabular-nums">{a.time}</span>
+                <span className="flex-1 truncate" style={{ color: P.text }}>{a.text}</span>
+                <span className="tabular-nums" style={{ color: P.dim }}>{a.time}</span>
               </div>
             ))}
           </div>
         </Panel>
 
-        <Panel title="Pending Put Away List"
-          action={<span className="text-[1.2vh] text-slate-500 cursor-pointer hover:text-slate-300"
+        <Panel p={P} title="Pending Put Away List"
+          action={<span className="text-[1.2vh] cursor-pointer hover:underline" style={{ color: P.dim }}
             onClick={() => openDrill("Pending Put Away List", ["SRV No", "GRN No", "Part No", "Description", "Qty", "Date"],
               vm.pending.map((p) => [p.srv, p.grn, p.no, p.desc, fmtInt(p.qty), p.date]))}>View All</span>}>
           <table className="w-full text-[1.3vh]">
             <thead>
-              <tr className="text-slate-500 text-left">
+              <tr className="text-left" style={{ color: P.dim }}>
                 <th className="font-medium pb-[0.6vh]">SRV No.</th>
                 <th className="font-medium pb-[0.6vh]">GRN No.</th>
                 <th className="font-medium pb-[0.6vh]">Part No.</th>
@@ -504,12 +518,12 @@ export default function TvDashboard() {
             </thead>
             <tbody>
               {vm.pending.map((p) => (
-                <tr key={p.srv} className="border-t" style={{ borderColor: C.border }}>
-                  <td className="py-[0.7vh] text-slate-300">{p.srv}</td>
-                  <td className="py-[0.7vh] text-slate-300">{p.grn}</td>
-                  <td className="py-[0.7vh] text-slate-300">{p.no}</td>
-                  <td className="py-[0.7vh] text-slate-200 truncate">{p.desc}</td>
-                  <td className="py-[0.7vh] text-right text-white tabular-nums">{fmtInt(p.qty)}</td>
+                <tr key={p.srv} className="border-t" style={{ borderColor: P.border }}>
+                  <td className="py-[0.7vh]" style={{ color: P.muted }}>{p.srv}</td>
+                  <td className="py-[0.7vh]" style={{ color: P.muted }}>{p.grn}</td>
+                  <td className="py-[0.7vh]" style={{ color: P.muted }}>{p.no}</td>
+                  <td className="py-[0.7vh] truncate" style={{ color: P.text }}>{p.desc}</td>
+                  <td className="py-[0.7vh] text-right tabular-nums" style={{ color: P.heading }}>{fmtInt(p.qty)}</td>
                   <td className="py-[0.7vh] text-center">
                     <span className="rounded px-[0.8vh] py-[0.2vh] text-[1.1vh] font-semibold" style={{ background: `${C.amber}22`, color: C.amber }}>Pending</span>
                   </td>
@@ -519,14 +533,14 @@ export default function TvDashboard() {
           </table>
         </Panel>
 
-        <Panel title="Quick Actions">
+        <Panel p={P} title="Quick Actions">
           <div className="grid grid-cols-3 gap-[0.9vh] h-full">
             {QUICK_ACTIONS.map((q) => (
               <button key={q.label} type="button" onClick={() => navigate(q.to)}
-                className="flex flex-col items-center justify-center rounded-[0.8vh] border transition-colors hover:border-slate-500 p-[0.6vh]"
-                style={{ borderColor: C.border, background: C.panel2 }}>
-                <q.icon style={{ width: "2.4vh", height: "2.4vh" }} className="text-slate-300 mb-[0.5vh]" />
-                <span className="text-[1.15vh] text-slate-300 text-center leading-tight">{q.label}</span>
+                className="flex flex-col items-center justify-center rounded-[0.8vh] border transition-[filter] hover:brightness-110 p-[0.6vh]"
+                style={{ borderColor: P.border, background: P.panel2, color: P.text }}>
+                <q.icon style={{ width: "2.4vh", height: "2.4vh" }} className="mb-[0.5vh]" />
+                <span className="text-[1.15vh] text-center leading-tight">{q.label}</span>
               </button>
             ))}
           </div>
