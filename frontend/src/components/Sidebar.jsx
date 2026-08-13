@@ -81,6 +81,12 @@ const NAV_BY_STORE = {
   // SHARED_GROUPS rather than repeated — one gate, both stores.
   MAINTENANCE: [
     {
+      // The full-screen wallboard for the 53" LED. Opened from here but renders
+      // outside the layout, so it takes the whole screen with no rail.
+      label: "Overview",
+      items: [{ to: "/live-dashboard", label: "Live Dashboard", emoji: "🖥️" }],
+    },
+    {
       // Store Stock sits above the masters on purpose: it is the screen that
       // turns this store's Min and Max into something that can be judged.
       // Without a counted quantity, every health figure on the dashboard has

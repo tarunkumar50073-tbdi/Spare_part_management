@@ -8,7 +8,7 @@ import {
 import {
   Search, Bell, Moon, Package, IndianRupee, TrendingUp, Download,
   AlertTriangle, Boxes, FileText, ArrowRightLeft, Factory,
-  PackageCheck, ListChecks, FileBarChart,
+  PackageCheck, ListChecks, FileBarChart, ArrowLeft, Maximize, Minimize,
 } from "lucide-react";
 import Modal from "../components/Modal.jsx";
 import { spareStockService } from "../services/spareStockService.js";
@@ -159,6 +159,16 @@ export default function TvDashboard() {
   const [vm, setVm] = useState(DEMO);
   const [now, setNow] = useState(() => new Date());
   const [drill, setDrill] = useState(null); // { title, columns, rows }
+  const [isFs, setIsFs] = useState(false);
+
+  const goBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate("/store/MAINTENANCE");
+  };
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  };
 
   // Live clock.
   useEffect(() => {
@@ -166,30 +176,87 @@ export default function TvDashboard() {
     return () => clearInterval(id);
   }, []);
 
+  // Reflect the real fullscreen state (Esc exits it too, so we can't just track a toggle).
+  useEffect(() => {
+    const on = () => setIsFs(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
+
   // Real spare-store figures where the API has them; demo values stay for the rest.
   useEffect(() => {
     let alive = true;
     const load = async () => {
       const grab = (p) => p.then((r) => r.data.data).catch(() => null);
-      const [sum, today, ana] = await Promise.all([
+      const [sum, today, ana, list, excess, reorder] = await Promise.all([
         grab(spareStockService.summary(STORE)),
         grab(spareStockService.today(STORE)),
         grab(spareStockService.analytics(STORE)),
+        grab(spareStockService.list({ store_code: STORE })),
+        grab(spareStockService.excess(STORE, 100)),
+        grab(spareStockService.reorder(STORE)),
       ]);
       if (!alive) return;
       setVm((prev) => {
-        const next = { ...prev, kpis: { ...prev.kpis }, real: {} };
+        const next = { ...prev, kpis: { ...prev.kpis }, real: {}, lists: {} };
+
+        // KPIs
         if (sum) {
           if (sum.total_parts != null) { next.kpis.liveParts = sum.total_parts; next.real.liveParts = true; }
           if (sum.stock_value != null) { next.kpis.value = sum.stock_value; next.real.value = true; }
         }
         if (today && today.issued_qty != null) { next.kpis.todayConsumption = today.issued_qty; next.real.todayConsumption = true; }
+        let shortN = null, excessN = null;
         if (ana && Array.isArray(ana.status_distribution)) {
           const by = Object.fromEntries(ana.status_distribution.map((s) => [s.name, s.value]));
-          const short = (by["Below Minimum"] || 0) + (by["Zero Stock"] || 0);
-          next.kpis.shortParts = short; next.real.shortParts = true;
-          if (by["Above Maximum"] != null) { next.kpis.excessParts = by["Above Maximum"]; next.real.excessParts = true; }
+          shortN = (by["Below Minimum"] || 0) + (by["Zero Stock"] || 0);
+          excessN = by["Above Maximum"] || 0;
+          next.kpis.shortParts = shortN; next.real.shortParts = true;
+          next.kpis.excessParts = excessN; next.real.excessParts = true;
         }
+
+        // Category donut + per-category status bars — real once the rows carry
+        // a category (needs the backend with category on the stock row).
+        if (Array.isArray(list) && list.some((r) => r.category)) {
+          const byCat = {};
+          list.forEach((r) => { const c = r.category || "Uncategorised"; byCat[c] = (byCat[c] || 0) + 1; });
+          const palette = [C.blue, C.green, C.amber, C.purple, C.cyan, C.indigo, C.red];
+          next.category = Object.entries(byCat).sort((a, b) => b[1] - a[1])
+            .map(([name, value], i) => ({ name, value, color: palette[i % palette.length] }));
+          next.real.category = true;
+          next.status = next.category.slice(0, 4).map(({ name }) => {
+            const rs = list.filter((r) => (r.category || "Uncategorised") === name);
+            return {
+              name,
+              Available: rs.filter((r) => r.status === "Healthy").length,
+              Short: rs.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock").length,
+              Excess: rs.filter((r) => r.status === "Above Maximum").length,
+            };
+          });
+          next.real.status = true;
+        }
+
+        // Transaction summary: GRN and Issue come from today's movement lines;
+        // Stock Transfer / Production stay demo (no such flow in this store yet).
+        if (today) {
+          next.txns = prev.txns.map((t) => {
+            if (t.key === "grn" && today.received_lines != null) return { ...t, value: today.received_lines };
+            if (t.key === "issue" && today.issued_lines != null) return { ...t, value: today.issued_lines };
+            return t;
+          });
+        }
+
+        // Alerts built from real counts.
+        const alerts = [];
+        if (shortN) alerts.push({ tone: "red", text: `${shortN} part(s) short — below minimum`, time: "live" });
+        if (excessN) alerts.push({ tone: "amber", text: `${excessN} part(s) in excess — above maximum`, time: "live" });
+        if (sum && sum.uncounted_parts) alerts.push({ tone: "amber", text: `${sum.uncounted_parts} part(s) not yet counted`, time: "live" });
+        if (today && today.issued_lines != null) alerts.push({ tone: "green", text: `${today.issued_lines} issue line(s) this shift`, time: "live" });
+        if (alerts.length) { next.alerts = alerts; next.real.alerts = true; }
+
+        // Real lists behind the Short / Excess drill-downs.
+        next.lists.excess = Array.isArray(excess) ? excess : [];
+        next.lists.reorder = (reorder && Array.isArray(reorder.items)) ? reorder.items : [];
         return next;
       });
     };
@@ -217,9 +284,18 @@ export default function TvDashboard() {
 
       {/* Header */}
       <header className="shrink-0 flex items-center justify-between gap-[1.5vh]" style={{ height: "8vh" }}>
-        <div className="min-w-0">
-          <h1 className="text-[2.8vh] font-extrabold text-white leading-tight">Dashboard</h1>
-          <p className="text-[1.4vh] text-slate-400">Real-time overview of Consumable Spare Part Store</p>
+        <div className="flex items-center gap-[1.2vh] min-w-0">
+          {/* Back to the app — the board has no rail, so this is the way out on
+              a desk monitor; ignored on the LED where nobody clicks. */}
+          <button type="button" onClick={goBack} title="Back to app"
+            className="shrink-0 rounded-full border p-[1vh] text-slate-300 hover:text-white transition-colors"
+            style={{ background: C.panel, borderColor: C.border }}>
+            <ArrowLeft style={{ width: "2.4vh", height: "2.4vh" }} />
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-[2.8vh] font-extrabold text-white leading-tight">Dashboard</h1>
+            <p className="text-[1.4vh] text-slate-400">Real-time overview of Consumable Spare Part Store</p>
+          </div>
         </div>
         <div className="hidden md:flex items-center gap-[0.8vh] rounded-[0.8vh] border px-[1.2vh] py-[1vh] w-[32vw] max-w-[520px]"
           style={{ background: C.panel, borderColor: C.border }}>
@@ -238,6 +314,15 @@ export default function TvDashboard() {
           <span className="rounded-full p-[1vh] border" style={{ background: C.panel, borderColor: C.border }}>
             <Moon style={{ width: "2.2vh", height: "2.2vh" }} className="text-slate-300" />
           </span>
+          {/* True fullscreen for the LED — hides the browser chrome too. */}
+          <button type="button" onClick={toggleFullscreen}
+            title={isFs ? "Exit fullscreen" : "Fullscreen"}
+            className="rounded-full border p-[1vh] text-slate-300 hover:text-white transition-colors"
+            style={{ background: C.panel, borderColor: C.border }}>
+            {isFs
+              ? <Minimize style={{ width: "2.2vh", height: "2.2vh" }} />
+              : <Maximize style={{ width: "2.2vh", height: "2.2vh" }} />}
+          </button>
         </div>
       </header>
 
@@ -255,12 +340,22 @@ export default function TvDashboard() {
         <Kpi label="Pending Put Away" value={fmtInt(K.pendingPutAway)} icon={Download} color={C.amber}
           sub={<span className="text-slate-400">View Details</span>}
           onClick={() => openDrill("Pending Put Away", ["SRV", "GRN", "Part No", "Qty"], vm.pending.map((p) => [p.srv, p.grn, p.no, fmtInt(p.qty)]))} />
-        <Kpi label="Short Parts (< 1 Day)" value={fmtInt(K.shortParts)} icon={AlertTriangle} color={C.red}
+        <Kpi label="Short Parts (below min)" value={fmtInt(K.shortParts)} icon={AlertTriangle} color={C.red}
           sub={<span className={tag(R.shortParts)}>{R.shortParts ? "live" : "View Details"}</span>}
-          onClick={() => openDrill("Short Parts (< 1 Day)", ["Part No", "Description", "Qty"], vm.top5.slice(0, 3).map((t) => [t.no, t.desc, fmtInt(t.qty)]))} />
+          onClick={() => {
+            const rows = vm.lists?.reorder || [];
+            openDrill("Short Parts — below minimum", ["Part No", "Description", "On hand", "Min", "Reorder Qty"],
+              rows.length ? rows.map((r) => [r.part_no, r.part_name || "—", fmtInt(r.qty_on_hand), fmtInt(r.min_stock_level), fmtInt(r.reorder_qty)])
+                : vm.top5.slice(0, 3).map((t) => [t.no, t.desc, "—", "—", "—"]));
+          }} />
         <Kpi label="Excess Parts" value={fmtInt(K.excessParts)} icon={Boxes} color={C.cyan}
           sub={<span className={tag(R.excessParts)}>{R.excessParts ? "live" : "View Details"}</span>}
-          onClick={() => openDrill("Excess Parts", ["Part No", "Description", "Qty"], vm.top5.map((t) => [t.no, t.desc, fmtInt(t.qty)]))} />
+          onClick={() => {
+            const rows = vm.lists?.excess || [];
+            openDrill("Excess Parts — above maximum", ["Part No", "Description", "On hand", "Max", "Excess"],
+              rows.length ? rows.map((r) => [r.part_no, r.part_name || "—", fmtInt(r.qty_on_hand), fmtInt(r.max_stock_level), fmtInt(r.excess_qty)])
+                : vm.top5.map((t) => [t.no, t.desc, "—", "—", "—"]));
+          }} />
       </section>
 
       {/* Charts row */}

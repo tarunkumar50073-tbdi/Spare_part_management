@@ -215,6 +215,9 @@ class SpareStockService:
             "part_id": part.id, "part_no": part.part_no, "part_name": part.part_name,
             "location": part.location, "rework_location": part.rework_location,
             "uom": part.uom, "section_id": part.section_id,
+            # Business category (BOP / Import / …) and component type — carried so
+            # the Live Dashboard can group on-hand parts by category and by status.
+            "category": part.category, "sub_category": part.sub_category,
             "qty_on_hand": qty,
             "min_stock_level": minimum,
             "max_stock_level": maximum,

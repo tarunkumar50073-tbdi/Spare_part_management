@@ -50,9 +50,9 @@ function AuthenticatedApp() {
   return (
     <StoreProvider>
       <Routes>
-        {/* The 53" LED wallboard: behind login, but deliberately OUTSIDE
+        {/* The 53" LED "Live Dashboard": behind login, but deliberately OUTSIDE
             MainLayout — no sidebar, no top bar, it owns the whole screen. */}
-        <Route path="/tv" element={<TvDashboard />} />
+        <Route path="/live-dashboard" element={<TvDashboard />} />
         <Route element={<MainLayout />}>
           {/* Stores are navigated from the sidebar, so / opens whichever one is
               in scope rather than putting a chooser in the way. */}
