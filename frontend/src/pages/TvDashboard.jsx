@@ -63,10 +63,53 @@ const childList = (title, rows) => ({
   title, columns: ["Part No", "Description", "In Stock", "Status"],
   rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.total_qty), r.indicator || "—"], open: () => childDetail(r) })),
 });
+// Per-supplier window performance — who was On-Time / Late / Not-Arrived, worst
+// first. Drilling a supplier shows its own windows. (Today's windows; a
+// multi-day "how many times late" view needs a backend history endpoint.)
+const supplierPerfFrame = (windows) => {
+  const by = {};
+  windows.forEach((w) => {
+    const s = by[w.supplier] || (by[w.supplier] = { name: w.supplier, total: 0, onTime: 0, late: 0, notArrived: 0, pending: 0 });
+    s.total += 1;
+    if (w.status === "On-Time") s.onTime += 1;
+    else if (w.status === "Late") s.late += 1;
+    else if (w.status === "Not Arrived") s.notArrived += 1;
+    else s.pending += 1;
+  });
+  const rows = Object.values(by).sort((a, b) =>
+    (b.late + b.notArrived) - (a.late + a.notArrived) || (a.onTime / a.total) - (b.onTime / b.total));
+  return {
+    title: "Supplier Performance — today",
+    columns: ["Supplier", "Windows", "On-Time", "Late", "Not Arrived", "On-Time %"],
+    rows: rows.map((s) => ({
+      cells: [s.name, s.total, s.onTime, s.late, s.notArrived, `${Math.round((s.onTime / Math.max(1, s.total)) * 100)}%`],
+      open: () => ({
+        title: s.name,
+        columns: ["Window", "Status"],
+        rows: windows.filter((w) => w.supplier === s.name).map((w) => ({ cells: [`${w.start}–${w.end}`, w.status] })),
+      }),
+    })),
+  };
+};
+const windowsFrame = (windows) => ({
+  title: "Today's Windows",
+  columns: ["Window", "Supplier", "Arrived", "Status"],
+  rows: windows.map((w) => ({ cells: [`${w.start}–${w.end}`, w.supplier, w.arrival || "—", w.status] })),
+});
+// The category donut's own drill: group -> that group's parts -> a part's detail.
+const categoryFrame = (vm) => ({
+  title: vm.catTitle || "Stock by Category",
+  columns: [vm.catTitle === "Stock by Part Type" ? "Part Type" : "Category", "Parts"],
+  rows: (vm.category || []).map((c) => ({
+    cells: [c.name, fmtInt(c.value)],
+    open: () => vm.listFn(c.name, (vm.parts || []).filter((r) => (r[vm.groupKey] || "—") === c.name)),
+  })),
+});
 
 // ---- demo fallbacks (overridden by real values where the API answers) ----
 const DEMO_SPARE = {
   title: "Spare Parts Store", accent: C.blue, catTitle: "Stock by Part Type",
+  parts: [], listFn: spareList, groupKey: "sub_category",
   kpis: { total: 481 }, real: {},
   cards: [
     { label: "Total Parts", value: "481", color: C.blue },
@@ -88,6 +131,7 @@ const DEMO_SPARE = {
 };
 const DEMO_CHILD = {
   title: "Child Parts Store", accent: C.green,
+  parts: [], listFn: childList, groupKey: "category",
   kpis: { total: 1130 }, real: {},
   cards: [
     { label: "Total Parts", value: "1,130", color: C.blue },
@@ -129,10 +173,15 @@ function IconBtn({ onClick, title, p, children, badge }) {
   );
 }
 
-function Panel({ title, children, p }) {
+function Panel({ title, children, p, onClick }) {
   return (
-    <div className="flex flex-col min-h-0 rounded-[0.7vh] border p-[0.9vh]" style={{ background: p.panel, borderColor: p.border }}>
-      <h3 className="text-[1.8vh] font-semibold mb-[0.5vh] shrink-0" style={{ color: p.heading }}>{title}</h3>
+    <div onClick={onClick}
+      className={`flex flex-col min-h-0 rounded-[0.7vh] border p-[0.9vh] ${onClick ? "cursor-pointer hover:brightness-[1.04] transition-[filter]" : ""}`}
+      style={{ background: p.panel, borderColor: p.border }}>
+      <h3 className="text-[1.8vh] font-semibold mb-[0.5vh] shrink-0 flex items-center justify-between gap-2" style={{ color: p.heading }}>
+        <span className="truncate">{title}</span>
+        {onClick && <span className="shrink-0" style={{ color: p.dim }}>›</span>}
+      </h3>
       <div className="flex-1 min-h-0">{children}</div>
     </div>
   );
@@ -261,7 +310,7 @@ function VehicleTimeline({ windows, p }) {
 }
 
 // One store's compact strip: header + KPI row + a chart row.
-function StoreStrip({ vm, p, animate }) {
+function StoreStrip({ vm, p, animate, onOpen }) {
   const total = vm.category.reduce((s, c) => s + c.value, 0);
   const tone = (real) => ({ text: real ? "live" : "demo", color: real ? C.green : p.dim });
   return (
@@ -279,14 +328,14 @@ function StoreStrip({ vm, p, animate }) {
       </div>
 
       <div className={`grid ${vm.windows ? "grid-cols-4" : "grid-cols-3"} gap-[0.8vh] min-h-0`} style={{ flex: "62 0 0" }}>
-        <Panel title={vm.catTitle || "Stock by Category"} p={p}>
+        <Panel title={vm.catTitle || "Stock by Category"} p={p} onClick={() => onOpen(categoryFrame(vm))}>
           <Donut data={vm.category} centerTop={fmtInt(total)} centerSub="Parts" p={p} animate={animate} />
         </Panel>
         <Panel title="Stock Health" p={p}>
           <StatusBar healthy={vm.status.healthy} short={vm.status.short} excess={vm.status.excess} p={p} />
         </Panel>
         {vm.supplierPerf ? (
-          <Panel title="Supplier Performance (Windows)" p={p}>
+          <Panel title="Supplier Performance (Windows)" p={p} onClick={() => onOpen(supplierPerfFrame(vm.windows || []))}>
             <Donut data={vm.supplierPerf} centerTop={fmtInt(vm.supplierPerf.reduce((s, x) => s + x.value, 0))} centerSub="Windows" p={p} animate={animate} />
           </Panel>
         ) : vm.third === "rack" ? (
@@ -305,7 +354,9 @@ function StoreStrip({ vm, p, animate }) {
           </Panel>
         )}
         {vm.windows && (
-          <Panel title="Today's Vehicle Status" p={p}><VehicleTimeline windows={vm.windows} p={p} /></Panel>
+          <Panel title="Today's Vehicle Status" p={p} onClick={() => onOpen(windowsFrame(vm.windows))}>
+            <VehicleTimeline windows={vm.windows} p={p} />
+          </Panel>
         )}
       </div>
     </section>
@@ -388,6 +439,7 @@ export default function TvDashboard() {
           list.reduce((m, r) => { const c = r.sub_category || "Uncategorised"; m[c] = (m[c] || 0) + 1; return m; }, {}));
         if (Array.isArray(trend) && trend.some((t) => t.qty > 0)) next.trend = trend.map((t) => ({ d: t.d.slice(0, 2), qty: t.qty }));
         next.rows = Array.isArray(list) ? list : (prev.rows || []);
+        next.parts = next.rows;
         next.cards = [
           // Total Parts -> part types -> that type's parts -> a part's detail.
           { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
@@ -444,6 +496,7 @@ export default function TvDashboard() {
           next.status = { healthy: Math.max(0, (total || 0) - (short || 0) - (excess || 0)), short: short || 0, excess: excess || 0 };
           if (sum.category_counts) next.category = toCatArray(sum.category_counts);
           next.crows = Array.isArray(parts) ? parts : (prev.crows || []);
+          next.parts = next.crows;
           const isShort = (r) => String(r.indicator || "").toLowerCase().includes("short");
           const isExcess = (r) => String(r.indicator || "").toLowerCase().includes("excess");
           next.cards = [
@@ -535,9 +588,9 @@ export default function TvDashboard() {
         </div>
       </header>
 
-      <StoreStrip vm={spare} p={P} animate={animate} />
+      <StoreStrip vm={spare} p={P} animate={animate} onOpen={openStack} />
       <div className="shrink-0 border-t" style={{ borderColor: P.border }} />
-      <StoreStrip vm={child} p={P} animate={animate} />
+      <StoreStrip vm={child} p={P} animate={animate} onOpen={openStack} />
 
       {/* Nested drill as a FULL-SCREEN view — same theme as the board, a
           breadcrumb to walk back up, and clickable rows that go a level deeper. */}
