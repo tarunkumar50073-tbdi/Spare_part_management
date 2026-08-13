@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
-import { Bell, Moon, Sun, ArrowLeft, Maximize, Minimize, Layers, X } from "lucide-react";
+import { Bell, Moon, Sun, ArrowLeft, Maximize, Minimize, Layers, X, Truck } from "lucide-react";
 import { spareStockService } from "../services/spareStockService.js";
 import { storeDashboardService } from "../services/storeDashboardService.js";
 import { supplierWindowScheduleService } from "../services/supplierWindowScheduleService.js";
@@ -290,10 +290,12 @@ function VehicleTimeline({ windows, p }) {
             <div className="flex items-center gap-[0.7vh] text-[1.5vh]">
               <span className="tabular-nums shrink-0" style={{ color: p.muted }}>{w.start}</span>
               <div className="relative flex-1 rounded-full" style={{ height: "0.35vh", background: p.border }}>
-                <span className="absolute rounded-full" style={{
+                <span className="absolute flex items-center justify-center rounded-full p-[0.3vh]" style={{
                   left: `${frac * 100}%`, top: "50%", transform: "translate(-50%, -50%)",
-                  width: "1.8vh", height: "1.8vh", background: meta.color, boxShadow: `0 0 0 0.4vh ${meta.color}33`,
-                }} />
+                  background: p.panel, boxShadow: `0 0 0 0.25vh ${meta.color}33`,
+                }}>
+                  <Truck style={{ width: "2.6vh", height: "2.6vh", color: meta.color }} />
+                </span>
               </div>
               <span className="tabular-nums shrink-0" style={{ color: p.muted }}>{w.end}</span>
             </div>
