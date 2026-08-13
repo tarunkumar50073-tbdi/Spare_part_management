@@ -21,6 +21,12 @@ const C = {
 };
 const PIE = [C.blue, C.green, C.amber, C.purple, C.cyan, C.indigo, C.red];
 
+// Emoji per KPI / panel, matching the icon-per-card style of the app dashboards.
+const KPI_ICON = {
+  "Total Parts": "🔧", "Stock Value": "💰", "Today's Consumption": "📈",
+  "Short Parts": "⚠️", "Excess Parts": "📦", "Pending SRV": "📋", "Pending RGP": "🔁",
+};
+
 const THEMES = {
   dark: { bg: "#0a0f1e", panel: "#111a30", panel2: "#0e1526", border: "#1e2a44", heading: "#ffffff", text: "#e2e8f0", muted: "#94a3b8", dim: "#64748b" },
   light: { bg: "#eef2f7", panel: "#ffffff", panel2: "#f8fafc", border: "#e2e8f0", heading: "#0f172a", text: "#334155", muted: "#64748b", dim: "#94a3b8" },
@@ -173,13 +179,13 @@ function IconBtn({ onClick, title, p, children, badge }) {
   );
 }
 
-function Panel({ title, children, p, onClick }) {
+function Panel({ title, children, p, onClick, icon }) {
   return (
     <div onClick={onClick}
       className={`flex flex-col min-h-0 rounded-[0.7vh] border p-[0.9vh] ${onClick ? "cursor-pointer hover:brightness-[1.04] transition-[filter]" : ""}`}
       style={{ background: p.panel, borderColor: p.border }}>
       <h3 className="text-[1.8vh] font-semibold mb-[0.5vh] shrink-0 flex items-center justify-between gap-2" style={{ color: p.heading }}>
-        <span className="truncate">{title}</span>
+        <span className="truncate">{icon ? `${icon} ` : ""}{title}</span>
         {onClick && <span className="shrink-0" style={{ color: p.dim }}>›</span>}
       </h3>
       <div className="flex-1 min-h-0">{children}</div>
@@ -188,11 +194,18 @@ function Panel({ title, children, p, onClick }) {
 }
 
 function MiniKpi({ label, value, color, note, onClick, p }) {
+  const icon = KPI_ICON[label];
   return (
     <button type="button" onClick={onClick}
       className="flex-1 min-w-0 text-left rounded-[0.7vh] border p-[0.9vh] flex flex-col justify-center transition-transform hover:-translate-y-[0.2vh]"
       style={{ background: p.panel, borderColor: p.border, borderLeft: `0.5vh solid ${color}` }}>
-      <p className="text-[1.6vh] truncate" style={{ color: p.muted }}>{label}</p>
+      <div className="flex items-center justify-between gap-[0.6vh] min-w-0">
+        <p className="text-[1.6vh] truncate" style={{ color: p.muted }}>{label}</p>
+        {icon && (
+          <span className="shrink-0 rounded-full flex items-center justify-center text-[1.9vh] leading-none"
+            style={{ width: "3.4vh", height: "3.4vh", background: `${color}22` }}>{icon}</span>
+        )}
+      </div>
       <p className="text-[3.1vh] font-extrabold leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: p.heading }}>{value}</p>
       {note && <p className="text-[1.4vh] truncate" style={{ color: note.color || p.dim }}>{note.text}</p>}
     </button>
@@ -330,20 +343,20 @@ function StoreStrip({ vm, p, animate, onOpen }) {
       </div>
 
       <div className={`grid ${vm.windows ? "grid-cols-4" : "grid-cols-3"} gap-[0.8vh] min-h-0`} style={{ flex: "62 0 0" }}>
-        <Panel title={vm.catTitle || "Stock by Category"} p={p} onClick={() => onOpen(categoryFrame(vm))}>
+        <Panel title={vm.catTitle || "Stock by Category"} icon="🍩" p={p} onClick={() => onOpen(categoryFrame(vm))}>
           <Donut data={vm.category} centerTop={fmtInt(total)} centerSub="Parts" p={p} animate={animate} />
         </Panel>
-        <Panel title="Stock Health" p={p}>
+        <Panel title="Stock Health" icon="🩺" p={p}>
           <StatusBar healthy={vm.status.healthy} short={vm.status.short} excess={vm.status.excess} p={p} />
         </Panel>
         {vm.supplierPerf ? (
-          <Panel title="Supplier Performance (Windows)" p={p} onClick={() => onOpen(supplierPerfFrame(vm.windows || []))}>
+          <Panel title="Supplier Performance (Windows)" icon="🚚" p={p} onClick={() => onOpen(supplierPerfFrame(vm.windows || []))}>
             <Donut data={vm.supplierPerf} centerTop={fmtInt(vm.supplierPerf.reduce((s, x) => s + x.value, 0))} centerSub="Windows" p={p} animate={animate} />
           </Panel>
         ) : vm.third === "rack" ? (
-          <Panel title="Rack Utilization" p={p}><RackGauge pct={vm.rackPct} p={p} /></Panel>
+          <Panel title="Rack Utilization" icon="🗄️" p={p}><RackGauge pct={vm.rackPct} p={p} /></Panel>
         ) : (
-          <Panel title="Consumption Trend (7 Days)" p={p}>
+          <Panel title="Consumption Trend (7 Days)" icon="📉" p={p}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={vm.trend} margin={{ top: 6, right: 8, left: -22, bottom: -6 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={p.border} vertical={false} />
@@ -356,7 +369,7 @@ function StoreStrip({ vm, p, animate, onOpen }) {
           </Panel>
         )}
         {vm.windows && (
-          <Panel title="Today's Vehicle Status" p={p} onClick={() => onOpen(windowsFrame(vm.windows))}>
+          <Panel title="Today's Vehicle Status" icon="🚛" p={p} onClick={() => onOpen(windowsFrame(vm.windows))}>
             <VehicleTimeline windows={vm.windows} p={p} />
           </Panel>
         )}
