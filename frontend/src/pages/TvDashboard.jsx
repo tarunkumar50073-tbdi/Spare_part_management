@@ -7,6 +7,7 @@ import { Bell, Moon, Sun, ArrowLeft, Maximize, Minimize, Layers } from "lucide-r
 import Modal from "../components/Modal.jsx";
 import { spareStockService } from "../services/spareStockService.js";
 import { storeDashboardService } from "../services/storeDashboardService.js";
+import { supplierWindowScheduleService } from "../services/supplierWindowScheduleService.js";
 
 // A full-screen wallboard for a 53" LED — no menu, no scroll, fluid 16:9. Split
 // top/bottom: the Spare Parts store on top, the Child Parts store below, each a
@@ -75,6 +76,12 @@ const DEMO_CHILD = {
   ],
   status: { healthy: 980, short: 40, excess: 110 },
   rackPct: 72,
+  windows: [
+    { slot: "08:30–10:00", supplier: "Rane TRW", status: "On-Time" },
+    { slot: "10:00–11:30", supplier: "Sundram Fasteners", status: "Pending Arrival" },
+    { slot: "11:30–13:00", supplier: "Lucas TVS", status: "Late" },
+    { slot: "13:00–14:30", supplier: "Bosch (Milkrun)", status: "Not Arrived" },
+  ],
 };
 
 // ---------------------------------------------------------------- primitives
@@ -177,7 +184,27 @@ function RackGauge({ pct, p }) {
   );
 }
 
-// One store's compact strip: header + KPI row + a 3-panel chart row.
+const WIN_TONE = { "On-Time": C.green, "Pending Arrival": C.amber, "Late": C.red, "Not Arrived": C.red };
+
+// Today's supplier delivery windows — a compact schedule with each slot's
+// arrival status. Child Parts only (Spare has no inbound windows).
+function WindowList({ windows, p }) {
+  if (!windows.length) return <div className="h-full flex items-center justify-center text-[1.7vh]" style={{ color: p.dim }}>No windows today</div>;
+  return (
+    <div className="flex flex-col h-full justify-center gap-[0.6vh] overflow-hidden">
+      {windows.slice(0, 6).map((w, i) => (
+        <div key={i} className="flex items-center gap-[0.7vh] text-[1.6vh]">
+          <span className="tabular-nums shrink-0" style={{ color: p.muted }}>{w.slot}</span>
+          <span className="flex-1 truncate" style={{ color: p.text }}>{w.supplier}</span>
+          <span className="rounded px-[0.7vh] py-[0.1vh] text-[1.3vh] font-semibold shrink-0"
+            style={{ background: `${WIN_TONE[w.status] || p.dim}22`, color: WIN_TONE[w.status] || p.dim }}>{w.status}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// One store's compact strip: header + KPI row + a chart row.
 function StoreStrip({ vm, p }) {
   const total = vm.category.reduce((s, c) => s + c.value, 0);
   const tone = (real) => ({ text: real ? "live" : "demo", color: real ? C.green : p.dim });
@@ -195,7 +222,7 @@ function StoreStrip({ vm, p }) {
         ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-[0.8vh] min-h-0" style={{ flex: "62 0 0" }}>
+      <div className={`grid ${vm.windows ? "grid-cols-4" : "grid-cols-3"} gap-[0.8vh] min-h-0`} style={{ flex: "62 0 0" }}>
         <Panel title="Stock by Category" p={p}>
           <Donut data={vm.category} centerTop={fmtInt(total)} centerSub="Parts" p={p} />
         </Panel>
@@ -216,6 +243,9 @@ function StoreStrip({ vm, p }) {
               </LineChart>
             </ResponsiveContainer>
           </Panel>
+        )}
+        {vm.windows && (
+          <Panel title="Supplier Windows (Today)" p={p}><WindowList windows={vm.windows} p={p} /></Panel>
         )}
       </div>
     </section>
@@ -298,23 +328,32 @@ export default function TvDashboard() {
     let alive = true;
     const grab = (pr) => pr.then((r) => r.data.data).catch(() => null);
     const load = async () => {
-      const sum = await grab(storeDashboardService.summary());
-      if (!alive || !sum) return;
+      const [sum, windows] = await Promise.all([
+        grab(storeDashboardService.summary()),
+        grab(supplierWindowScheduleService.todayStatus()),
+      ]);
+      if (!alive) return;
       setChild((prev) => {
         const next = { ...prev, third: "rack" };
-        const total = sum.total_parts;
-        const short = sum.low_stock, excess = sum.excess_stock;
-        next.kpis = { total: total ?? prev.kpis.total };
-        next.status = { healthy: Math.max(0, (total || 0) - (short || 0) - (excess || 0)), short: short || 0, excess: excess || 0 };
-        if (sum.category_counts) next.category = toCatArray(sum.category_counts);
-        if (sum.rack_utilization != null) next.rackPct = sum.rack_utilization;
-        next.cards = [
-          { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null, onClick: () => openDrill("Child Parts — by category", ["Category", "Parts"], next.category.map((c) => [c.name, fmtInt(c.value)])) },
-          { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null },
-          { label: "Excess Parts", value: fmtInt(excess), color: C.amber, real: excess != null },
-          { label: "Today's Consumption", value: fmtInt(sum.todays_issue), color: C.purple, real: sum.todays_issue != null },
-          { label: "Today's Put-Away", value: fmtInt(sum.todays_put_away), color: C.cyan, real: sum.todays_put_away != null },
-        ];
+        if (sum) {
+          const total = sum.total_parts;
+          const short = sum.low_stock, excess = sum.excess_stock;
+          next.kpis = { total: total ?? prev.kpis.total };
+          next.status = { healthy: Math.max(0, (total || 0) - (short || 0) - (excess || 0)), short: short || 0, excess: excess || 0 };
+          if (sum.category_counts) next.category = toCatArray(sum.category_counts);
+          if (sum.rack_utilization != null) next.rackPct = sum.rack_utilization;
+          next.cards = [
+            { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null, onClick: () => openDrill("Child Parts — by category", ["Category", "Parts"], next.category.map((c) => [c.name, fmtInt(c.value)])) },
+            { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null },
+            { label: "Excess Parts", value: fmtInt(excess), color: C.amber, real: excess != null },
+            { label: "Today's Consumption", value: fmtInt(sum.todays_issue), color: C.purple, real: sum.todays_issue != null },
+            { label: "Today's Put-Away", value: fmtInt(sum.todays_put_away), color: C.cyan, real: sum.todays_put_away != null },
+          ];
+        }
+        // Today's supplier delivery windows (Child Parts only).
+        if (Array.isArray(windows)) next.windows = windows.map((w) => ({
+          supplier: w.supplier_name, slot: `${(w.window_start || "").slice(0, 5)}–${(w.window_end || "").slice(0, 5)}`, status: w.status,
+        }));
         return next;
       });
     };

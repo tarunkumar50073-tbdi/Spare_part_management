@@ -238,19 +238,28 @@ export default function Sidebar({ open, onClose, collapsed = false, onToggleColl
               }}
             />
           ))}
+          {/* The combined wallboard spans BOTH stores, so it is pinned here with
+              the store picker rather than tucked inside one store's menu. */}
+          <NavLink
+            to="/live-dashboard"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                isActive
+                  ? "bg-toyotared/[0.08] dark:bg-toyotared/15 text-slate-900 dark:text-white ring-1 ring-inset ring-toyotared/30"
+                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-navy-900"
+              }`
+            }
+          >
+            <span className="text-lg leading-none shrink-0">🖥️</span>
+            <span className="flex-1 min-w-0 text-[13px] font-semibold truncate">Live Dashboard</span>
+          </NavLink>
         </div>
 
         <nav className="flex-1 px-3 py-3 space-y-3 overflow-y-auto">
           <NavLink to={storeHome(activeCode)} end className={navClass} onClick={onClose}>
             <span className="text-base leading-none w-[18px] text-center shrink-0">📊</span>
             Dashboard
-          </NavLink>
-
-          {/* The combined wallboard spans BOTH stores, so it sits above the
-              per-store menus rather than inside one of them. */}
-          <NavLink to="/live-dashboard" className={navClass} onClick={onClose}>
-            <span className="text-base leading-none w-[18px] text-center shrink-0">🖥️</span>
-            Live Dashboard
           </NavLink>
 
           {[sectionGroup(activeStore), ...navFor(activeCode)].filter(Boolean).map((group) => (
