@@ -85,7 +85,7 @@ function IconBtn({ onClick, title, p, children, badge }) {
       style={{ background: p.panel, borderColor: p.border, color: p.text }}>
       {children}
       {badge != null && badge > 0 && (
-        <span className="absolute -top-[0.3vh] -right-[0.3vh] rounded-full bg-red-500 text-white text-[1.2vh] px-[0.6vh] font-bold">{badge}</span>
+        <span className="absolute -top-[0.3vh] -right-[0.3vh] rounded-full bg-red-500 text-white text-[1.45vh] px-[0.6vh] font-bold">{badge}</span>
       )}
     </button>
   );
@@ -94,7 +94,7 @@ function IconBtn({ onClick, title, p, children, badge }) {
 function Panel({ title, children, p }) {
   return (
     <div className="flex flex-col min-h-0 rounded-[0.7vh] border p-[0.9vh]" style={{ background: p.panel, borderColor: p.border }}>
-      <h3 className="text-[1.5vh] font-semibold mb-[0.5vh] shrink-0" style={{ color: p.heading }}>{title}</h3>
+      <h3 className="text-[1.8vh] font-semibold mb-[0.5vh] shrink-0" style={{ color: p.heading }}>{title}</h3>
       <div className="flex-1 min-h-0">{children}</div>
     </div>
   );
@@ -105,9 +105,9 @@ function MiniKpi({ label, value, color, note, onClick, p }) {
     <button type="button" onClick={onClick}
       className="flex-1 min-w-0 text-left rounded-[0.7vh] border p-[0.9vh] flex flex-col justify-center transition-transform hover:-translate-y-[0.2vh]"
       style={{ background: p.panel, borderColor: p.border, borderLeft: `0.5vh solid ${color}` }}>
-      <p className="text-[1.3vh] truncate" style={{ color: p.muted }}>{label}</p>
-      <p className="text-[2.6vh] font-extrabold leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: p.heading }}>{value}</p>
-      {note && <p className="text-[1.15vh] truncate" style={{ color: note.color || p.dim }}>{note.text}</p>}
+      <p className="text-[1.6vh] truncate" style={{ color: p.muted }}>{label}</p>
+      <p className="text-[3.1vh] font-extrabold leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: p.heading }}>{value}</p>
+      {note && <p className="text-[1.4vh] truncate" style={{ color: note.color || p.dim }}>{note.text}</p>}
     </button>
   );
 }
@@ -125,7 +125,7 @@ function StatusBar({ healthy, short, excess, p }) {
       <div className="flex h-[3.2vh] rounded-[0.5vh] overflow-hidden" style={{ background: p.panel2 }}>
         {seg(healthy, C.green)}{seg(short, C.red)}{seg(excess, C.amber)}
       </div>
-      <div className="flex flex-wrap gap-x-[1.6vh] gap-y-[0.5vh] text-[1.5vh]">
+      <div className="flex flex-wrap gap-x-[1.6vh] gap-y-[0.5vh] text-[1.8vh]">
         <Leg c={C.green} t="Healthy" n={healthy} /><Leg c={C.red} t="Short" n={short} /><Leg c={C.amber} t="Excess" n={excess} />
       </div>
     </div>
@@ -145,13 +145,13 @@ function Donut({ data, centerTop, centerSub, p }) {
           </PieChart>
         </ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-[2.2vh] font-extrabold" style={{ color: p.heading }}>{centerTop}</span>
-          <span className="text-[1.2vh]" style={{ color: p.muted }}>{centerSub}</span>
+          <span className="text-[2.6vh] font-extrabold" style={{ color: p.heading }}>{centerTop}</span>
+          <span className="text-[1.45vh]" style={{ color: p.muted }}>{centerSub}</span>
         </div>
       </div>
       <div className="flex-1 flex flex-col justify-center gap-[0.6vh] min-w-0">
         {data.slice(0, 4).map((c) => (
-          <div key={c.name} className="flex items-center gap-[0.7vh] text-[1.45vh]">
+          <div key={c.name} className="flex items-center gap-[0.7vh] text-[1.75vh]">
             <span className="rounded-full shrink-0" style={{ width: "1.2vh", height: "1.2vh", background: c.color }} />
             <span className="flex-1 truncate" style={{ color: p.text }}>{c.name}</span>
             <span className="font-semibold tabular-nums" style={{ color: p.heading }}>{fmtInt(c.value)}</span>
@@ -184,8 +184,8 @@ function StoreStrip({ vm, p }) {
   return (
     <section className="flex flex-col min-h-0 gap-[0.8vh]" style={{ flex: "1 0 0" }}>
       <div className="flex items-center gap-[1vh] shrink-0">
-        <span className="rounded-[0.6vh] px-[1.2vh] py-[0.4vh] text-[1.7vh] font-bold text-white" style={{ background: vm.accent }}>{vm.title}</span>
-        <span className="text-[1.4vh]" style={{ color: p.muted }}>{fmtInt(vm.kpis.total)} parts</span>
+        <span className="rounded-[0.6vh] px-[1.2vh] py-[0.4vh] text-[2vh] font-bold text-white" style={{ background: vm.accent }}>{vm.title}</span>
+        <span className="text-[1.7vh]" style={{ color: p.muted }}>{fmtInt(vm.kpis.total)} parts</span>
       </div>
 
       <div className="flex gap-[0.8vh] min-h-0" style={{ flex: "38 0 0" }}>
@@ -209,8 +209,8 @@ function StoreStrip({ vm, p }) {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={vm.trend} margin={{ top: 6, right: 8, left: -22, bottom: -6 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={p.border} vertical={false} />
-                <XAxis dataKey="d" tick={{ fill: p.muted, fontSize: 12 }} tickLine={false} axisLine={{ stroke: p.border }} />
-                <YAxis tick={{ fill: p.muted, fontSize: 12 }} tickLine={false} axisLine={false} width={30} />
+                <XAxis dataKey="d" tick={{ fill: p.muted, fontSize: 14 }} tickLine={false} axisLine={{ stroke: p.border }} />
+                <YAxis tick={{ fill: p.muted, fontSize: 14 }} tickLine={false} axisLine={false} width={30} />
                 <Tooltip contentStyle={{ background: p.panel2, border: `1px solid ${p.border}`, borderRadius: 8, fontSize: 12, color: p.text }} />
                 <Line type="monotone" dataKey="qty" stroke={vm.accent} strokeWidth={2.5} dot={{ r: 3, fill: vm.accent }} />
               </LineChart>
@@ -339,14 +339,14 @@ export default function TvDashboard() {
           <div className="flex items-center gap-[1vh] min-w-0">
             <Layers style={{ width: "2.8vh", height: "2.8vh", color: C.blue }} />
             <div className="min-w-0">
-              <h1 className="text-[2.6vh] font-extrabold leading-tight" style={{ color: P.heading }}>Plant Store — Live Dashboard</h1>
-              <p className="text-[1.4vh]" style={{ color: P.muted }}>Spare Parts &amp; Child Parts · real-time</p>
+              <h1 className="text-[3.1vh] font-extrabold leading-tight" style={{ color: P.heading }}>Plant Store — Live Dashboard</h1>
+              <p className="text-[1.7vh]" style={{ color: P.muted }}>Spare Parts &amp; Child Parts · real-time</p>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-[0.9vh]">
           <div className="hidden md:flex items-center rounded-[0.7vh] border px-[1.2vh] py-[0.9vh]" style={{ background: P.panel, borderColor: P.border }}>
-            <span className="text-[1.6vh] tabular-nums" style={{ color: P.text }}>{clock}</span>
+            <span className="text-[1.9vh] tabular-nums" style={{ color: P.text }}>{clock}</span>
           </div>
           <IconBtn onClick={() => openDrill("Alerts", ["Store", "Alert"], [
             ...["Spare"].flatMap(() => [[`Spare`, `${spare.status.short} short · ${spare.status.excess} excess`]]),
