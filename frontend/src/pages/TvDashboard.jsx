@@ -355,12 +355,27 @@ export default function TvDashboard() {
         if (Array.isArray(list) && list.some((r) => r.sub_category)) next.category = toCatArray(
           list.reduce((m, r) => { const c = r.sub_category || "Uncategorised"; m[c] = (m[c] || 0) + 1; return m; }, {}));
         if (Array.isArray(trend) && trend.some((t) => t.qty > 0)) next.trend = trend.map((t) => ({ d: t.d.slice(0, 2), qty: t.qty }));
+        next.rows = Array.isArray(list) ? list : (prev.rows || []);
         next.cards = [
-          { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null, onClick: () => openDrill("Spare — by part type", ["Part Type", "Parts"], next.category.map((c) => [c.name, fmtInt(c.value)])) },
-          { label: "Stock Value", value: fmtMoney(sum?.stock_value), color: C.green, real: sum?.stock_value != null },
-          { label: "Today's Consumption", value: fmtInt(today?.issued_qty), color: C.purple, real: today?.issued_qty != null },
-          { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null },
-          { label: "Excess Parts", value: fmtInt(excess), color: C.cyan, real: excess != null },
+          { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
+            onClick: () => openDrill("Spare Parts — all", ["Part No", "Description", "Part Type", "On hand", "Status"],
+              next.rows.map((r) => [r.part_no, r.part_name, r.sub_category || "—", fmtInt(r.qty_on_hand), r.status])) },
+          { label: "Stock Value", value: fmtMoney(sum?.stock_value), color: C.green, real: sum?.stock_value != null,
+            onClick: () => openDrill("Spare — by stock value (high → low)", ["Part No", "Description", "On hand", "Rate", "Stock Value"],
+              next.rows.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value)
+                .map((r) => [r.part_no, r.part_name, fmtInt(r.qty_on_hand), fmtMoney(r.unit_price), fmtMoney(r.stock_value)])) },
+          { label: "Today's Consumption", value: fmtInt(today?.issued_qty), color: C.purple, real: today?.issued_qty != null,
+            onClick: () => openDrill("Spare — consumption (last 7 days)", ["Day", "Qty issued"], next.trend.map((t) => [t.d, fmtInt(t.qty)])) },
+          { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null,
+            onClick: () => openDrill("Spare — short (below minimum)", ["Part No", "Description", "On hand", "Min", "Status"],
+              next.rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock")
+                .sort((a, b) => (b.min_stock_level - b.qty_on_hand) - (a.min_stock_level - a.qty_on_hand))
+                .map((r) => [r.part_no, r.part_name, fmtInt(r.qty_on_hand), fmtInt(r.min_stock_level), r.status])) },
+          { label: "Excess Parts", value: fmtInt(excess), color: C.cyan, real: excess != null,
+            onClick: () => openDrill("Spare — excess (above maximum)", ["Part No", "Description", "On hand", "Max", "Over by"],
+              next.rows.filter((r) => r.status === "Above Maximum")
+                .sort((a, b) => (b.qty_on_hand - (b.max_stock_level || 0)) - (a.qty_on_hand - (a.max_stock_level || 0)))
+                .map((r) => [r.part_no, r.part_name, fmtInt(r.qty_on_hand), fmtInt(r.max_stock_level), fmtInt(r.qty_on_hand - (r.max_stock_level || 0))])) },
         ];
         return next;
       });
@@ -396,14 +411,29 @@ export default function TvDashboard() {
           next.kpis = { total: total ?? prev.kpis.total };
           next.status = { healthy: Math.max(0, (total || 0) - (short || 0) - (excess || 0)), short: short || 0, excess: excess || 0 };
           if (sum.category_counts) next.category = toCatArray(sum.category_counts);
+          next.crows = Array.isArray(parts) ? parts : (prev.crows || []);
+          const isShort = (r) => String(r.indicator || "").toLowerCase().includes("short");
+          const isExcess = (r) => String(r.indicator || "").toLowerCase().includes("excess");
           next.cards = [
-            { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null, onClick: () => openDrill("Child Parts — by category", ["Category", "Parts"], next.category.map((c) => [c.name, fmtInt(c.value)])) },
-            { label: "Stock Value", value: fmtMoney(value), color: C.green, real: value != null },
-            { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null },
-            { label: "Excess Parts", value: fmtInt(excess), color: C.amber, real: excess != null },
-            { label: "Today's Consumption", value: fmtInt(sum.todays_issue), color: C.purple, real: sum.todays_issue != null },
-            { label: "Pending SRV", value: fmtInt(sum.pending_srv), color: C.cyan, real: sum.pending_srv != null },
-            { label: "Pending RGP", value: rgpVal != null ? fmtInt(rgpVal) : "—", color: C.indigo, real: true },
+            { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
+              onClick: () => openDrill("Child Parts — all", ["Part No", "Description", "Category", "On hand", "Status"],
+                next.crows.map((r) => [r.part_no, r.part_name, r.category || "—", fmtInt(r.total_qty), r.indicator || "—"])) },
+            { label: "Stock Value", value: fmtMoney(value), color: C.green, real: value != null,
+              onClick: () => openDrill("Child Parts — by stock value (high → low)", ["Part No", "Description", "On hand", "Rate", "Stock Value"],
+                next.crows.filter((r) => r.total_value != null).sort((a, b) => b.total_value - a.total_value)
+                  .map((r) => [r.part_no, r.part_name, fmtInt(r.total_qty), fmtMoney(r.unit_price), fmtMoney(r.total_value)])) },
+            { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null,
+              onClick: () => openDrill("Child Parts — short", ["Part No", "Description", "On hand", "Min", "COV Days"],
+                next.crows.filter(isShort).map((r) => [r.part_no, r.part_name, fmtInt(r.total_qty), fmtInt(r.min_stock_level), r.cov_days ?? "—"])) },
+            { label: "Excess Parts", value: fmtInt(excess), color: C.amber, real: excess != null,
+              onClick: () => openDrill("Child Parts — excess", ["Part No", "Description", "On hand", "Max", "COV Days"],
+                next.crows.filter(isExcess).map((r) => [r.part_no, r.part_name, fmtInt(r.total_qty), fmtInt(r.max_stock_level), r.cov_days ?? "—"])) },
+            { label: "Today's Consumption", value: fmtInt(sum.todays_issue), color: C.purple, real: sum.todays_issue != null,
+              onClick: () => openDrill("Today's Movement", ["Metric", "Count"], [["Issued today", fmtInt(sum.todays_issue)], ["Put-away today", fmtInt(sum.todays_put_away)], ["Receipts (SRV) today", fmtInt(sum.todays_srv)]]) },
+            { label: "Pending SRV", value: fmtInt(sum.pending_srv), color: C.cyan, real: sum.pending_srv != null,
+              onClick: () => openDrill("Pending — receiving pipeline", ["Stage", "Count"], [["Pending SRV", fmtInt(sum.pending_srv)], ["Pending Put-Away", fmtInt(sum.pending_put_away)], ["Pending RQC (Inspection)", fmtInt(sum.pending_rqc)]]) },
+            { label: "Pending RGP", value: rgpVal != null ? fmtInt(rgpVal) : "—", color: C.indigo, real: true,
+              onClick: () => openDrill("Pending RGP", ["Info"], [[rgpVal != null ? `${fmtInt(rgpVal)} returnable gate passes pending (from ERP).` : "Sourced from ERP — will populate when the ERP API (ERP_API_BASE_URL) is live."]]) },
           ];
         }
         // Today's supplier delivery windows (Child Parts only) + the window-wise
