@@ -137,7 +137,12 @@ class SupplierWindowScheduleService:
         SupplierVehicleService). Milkrun-grouped slots that share the exact
         same window collapse into one row (one vehicle, not N duplicate
         rows for its N suppliers)."""
-        today = date.today()
+        return self._status_for_date(date.today())
+
+    def _status_for_date(self, target_date):
+        """The window-vs-arrival status list for one day. get_today_status is
+        this for today; the monthly report replays it for each day in a range."""
+        today = target_date
         # Plant wall clock, not UTC. The windows are bare local times ("08:30")
         # and arrivals come back from SQLite as bare local times too, so judging
         # them against a UTC now put every status 5.5 hours behind here: a
@@ -247,3 +252,44 @@ class SupplierWindowScheduleService:
 
         results.sort(key=shift_day_key)
         return results
+
+    def supplier_month_performance(self, year, month):
+        """Per-supplier delivery-window performance for a calendar month — how
+        many windows, and how many were On-Time / Late / Not-Arrived, plus the
+        On-Time %. Built by replaying each day's window-vs-arrival status; worst
+        suppliers (most late + not-arrived) first."""
+        from calendar import monthrange
+        agg = {}
+        for day in range(1, monthrange(year, month)[1] + 1):
+            for row in self._status_for_date(date(year, month, day)):
+                s = agg.setdefault(row["supplier_name"], {
+                    "supplier": row["supplier_name"], "windows": 0,
+                    "on_time": 0, "late": 0, "not_arrived": 0, "pending": 0,
+                })
+                s["windows"] += 1
+                key = {"On-Time": "on_time", "Late": "late", "Not Arrived": "not_arrived"}.get(row["status"], "pending")
+                s[key] += 1
+        rows = list(agg.values())
+        for s in rows:
+            settled = s["on_time"] + s["late"] + s["not_arrived"]
+            s["on_time_pct"] = round(s["on_time"] / settled * 100, 1) if settled else None
+        rows.sort(key=lambda s: (-(s["late"] + s["not_arrived"]),
+                                 s["on_time_pct"] if s["on_time_pct"] is not None else 100))
+        return {"year": year, "month": month, "rows": rows}
+
+    def month_performance_export(self, year, month, fmt):
+        """The month report as a downloadable file. Returns (buffer, mimetype,
+        extension). fmt is 'pdf' or 'xlsx'."""
+        import calendar
+        from app.utils.excel_io import build_export
+        from app.utils.pdf_io import build_pdf_table
+        columns = [("Supplier", "supplier"), ("Windows", "windows"), ("On-Time", "on_time"),
+                   ("Late", "late"), ("Not Arrived", "not_arrived"), ("On-Time %", "on_time_pct")]
+        data = self.supplier_month_performance(year, month)
+        rows = [{**r, "on_time_pct": (f"{r['on_time_pct']}%" if r["on_time_pct"] is not None else "—")}
+                for r in data["rows"]]
+        title = f"Supplier Window Performance — {calendar.month_name[month]} {year}"
+        if fmt == "pdf":
+            return build_pdf_table(title, columns, rows), "application/pdf", "pdf"
+        return (build_export(columns, rows),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx")

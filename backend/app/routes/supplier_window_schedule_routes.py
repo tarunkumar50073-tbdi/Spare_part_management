@@ -1,5 +1,7 @@
 """Standard Supplier Window Schedule REST API (/api/v1/supplier-window-schedules)."""
-from flask import Blueprint, request
+from datetime import date
+
+from flask import Blueprint, request, send_file
 from app.services.supplier_window_schedule_service import SupplierWindowScheduleService
 from app.schemas.supplier_window_schedule_schema import (
     SupplierWindowScheduleCreateSchema, SupplierWindowScheduleUpdateSchema,
@@ -26,6 +28,26 @@ def today_status():
     matched against today's actual ERP gate-entry arrivals, zero manual
     per-day/per-vehicle entry required."""
     return success_response(service.get_today_status())
+
+
+@bp.route("/performance", methods=["GET"])
+def performance():
+    """Per-supplier window performance for a month (defaults to the current
+    month) — how many times each supplier was On-Time / Late / Not-Arrived."""
+    y = request.args.get("year", type=int) or date.today().year
+    m = request.args.get("month", type=int) or date.today().month
+    return success_response(service.supplier_month_performance(y, m))
+
+
+@bp.route("/performance/export", methods=["GET"])
+def performance_export():
+    """The month performance report as a download — format 'xlsx' or 'pdf'."""
+    y = request.args.get("year", type=int) or date.today().year
+    m = request.args.get("month", type=int) or date.today().month
+    fmt = (request.args.get("format") or "xlsx").lower()
+    buf, mime, ext = service.month_performance_export(y, m, fmt)
+    return send_file(buf, mimetype=mime, as_attachment=True,
+                     download_name=f"supplier_performance_{y}_{m:02d}.{ext}")
 
 
 @bp.route("", methods=["POST"])

@@ -86,6 +86,11 @@ const supplierPerfFrame = (windows) => {
     (b.late + b.notArrived) - (a.late + a.notArrived) || (a.onTime / a.total) - (b.onTime / b.total));
   return {
     title: "Supplier Performance — today",
+    // The on-screen table is today's; the download is this MONTH's full report.
+    downloads: [
+      { label: "This month · Excel", href: "/api/v1/supplier-window-schedules/performance/export?format=xlsx" },
+      { label: "This month · PDF", href: "/api/v1/supplier-window-schedules/performance/export?format=pdf" },
+    ],
     columns: ["Supplier", "Windows", "On-Time", "Late", "Not Arrived", "On-Time %"],
     rows: rows.map((s) => ({
       cells: [s.name, s.total, s.onTime, s.late, s.notArrived, `${Math.round((s.onTime / Math.max(1, s.total)) * 100)}%`],
@@ -628,7 +633,14 @@ export default function TvDashboard() {
                 ))}
               </div>
             </div>
-            <IconBtn onClick={() => setStack([])} title="Close" p={P}><X style={{ width: "2.2vh", height: "2.2vh" }} /></IconBtn>
+            <div className="flex items-center gap-[0.8vh] shrink-0">
+              {stack[stack.length - 1].downloads?.map((d) => (
+                <a key={d.label} href={d.href} download
+                  className="rounded-[0.7vh] border px-[1.4vh] py-[0.9vh] text-[1.6vh] font-semibold hover:brightness-110 transition-[filter]"
+                  style={{ background: P.panel, borderColor: P.border, color: P.text }}>⬇ {d.label}</a>
+              ))}
+              <IconBtn onClick={() => setStack([])} title="Close" p={P}><X style={{ width: "2.2vh", height: "2.2vh" }} /></IconBtn>
+            </div>
           </header>
           <div className="flex-1 min-h-0 overflow-auto rounded-[0.8vh] border" style={{ background: P.panel, borderColor: P.border }}>
             <table className="w-full text-[1.9vh]">
