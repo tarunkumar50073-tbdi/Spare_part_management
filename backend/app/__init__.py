@@ -136,6 +136,7 @@ def create_app(env_name=None):
         _seed_departments()
 
     _start_erp_ledger_poller(app)
+    _start_erp_sync_poller(app)
 
     return app
 
@@ -149,6 +150,17 @@ def _start_erp_ledger_poller(app):
         return  # reloader parent; the worker child will start it
     from app.services.erp_ledger_inbox_service import ERPLedgerInboxService
     ERPLedgerInboxService().start_poller(app)
+
+
+def _start_erp_sync_poller(app):
+    """Start the read-only ERP DB -> mirror sync poller — like the ledger poller,
+    only in the request-serving process (not the Werkzeug reloader parent), and
+    only when ERP_SYNC_POLL_SECONDS > 0 and ERP DB credentials are configured."""
+    import os
+    if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        return  # reloader parent; the worker child will start it
+    from app.services.erp_sync_service import ERPSyncService
+    ERPSyncService().start_poller(app)
 
 
 def _patch_schema():

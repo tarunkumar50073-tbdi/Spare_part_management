@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { BookOpen, Upload, ShoppingCart, Factory, FolderInput, RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
+import { BookOpen, Upload, ShoppingCart, Factory, FolderInput, RefreshCw, CheckCircle2, AlertTriangle, Database } from "lucide-react";
 import UploadReportModal from "../components/UploadReportModal.jsx";
 import { erpLedgerService } from "../services/erpLedgerService.js";
+import { erpSyncService } from "../services/erpSyncService.js";
 
 function fmt(v) {
   return v === null || v === undefined ? "—" : Number(v).toLocaleString();
@@ -20,6 +21,8 @@ export default function ERPLedgerImport() {
   const [uploadReport, setUploadReport] = useState(null);
   const [inbox, setInbox] = useState(null);
   const [scanning, setScanning] = useState(false);
+  const [erpSync, setErpSync] = useState(null);
+  const [erpSyncing, setErpSyncing] = useState(false);
 
   const loadStatus = async () => {
     try {
@@ -30,9 +33,37 @@ export default function ERPLedgerImport() {
     }
   };
 
+  const loadErpSync = async () => {
+    try {
+      const res = await erpSyncService.status();
+      setErpSync(res.data.data);
+    } catch (_) {
+      /* handled globally */
+    }
+  };
+
   useEffect(() => {
     loadStatus();
+    loadErpSync();
   }, []);
+
+  const handleErpSync = async () => {
+    setErpSyncing(true);
+    try {
+      const res = await erpSyncService.run();
+      const data = res.data.data;
+      if (data.configured === false) {
+        toast.error("ERP DB not configured — set ERP_DB_* in backend .env");
+      } else {
+        toast.success(res.data.message || "Synced from ERP");
+      }
+      await loadErpSync();
+    } catch (_) {
+      /* handled globally */
+    } finally {
+      setErpSyncing(false);
+    }
+  };
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
@@ -85,6 +116,70 @@ export default function ERPLedgerImport() {
           Valuation" Excel and shown in a part's Source Breakdown. De-duped by Doc No, so re-processing the same rows
           never double-counts. Coating-out, waste and opening rows are skipped for now.
         </p>
+      </div>
+
+      {/* ERP Report Sync — read-only pull of Gate Entry + Receiving Register from the ERP DB (termsdb) */}
+      <div className="card border-l-4 border-toyotared">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold text-slate-800 dark:text-white flex items-center gap-2">
+              <Database size={16} className="text-toyotared" /> ERP Report Sync (read-only)
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5 max-w-2xl">
+              Pulls <span className="font-medium">Gate Entry</span> (vehicle-in / material arrival) and{" "}
+              <span className="font-medium">Receiving Register</span> (GRN receiving history) straight from the plant ERP
+              database (schema <span className="font-mono">termsdb</span>) into the app — read-only, last{" "}
+              {erpSync?.since_days ?? "—"} days
+              {erpSync?.poll_seconds > 0
+                ? `, auto every ${Math.round(erpSync.poll_seconds / 60)} min`
+                : " (auto-sync off — use the button)"}
+              .
+              {erpSync && erpSync.configured === false && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {" "}
+                  ERP DB not configured yet — set ERP_DB_* in the backend .env.
+                </span>
+              )}
+            </p>
+          </div>
+          <button
+            className="btn-secondary whitespace-nowrap"
+            onClick={handleErpSync}
+            disabled={erpSyncing || (erpSync && erpSync.configured === false)}
+          >
+            <RefreshCw size={16} className={erpSyncing ? "animate-spin" : ""} /> {erpSyncing ? "Syncing..." : "Sync from ERP"}
+          </button>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+          <div className="rounded-lg border border-slate-200 dark:border-navy-800 p-3">
+            <p className="text-[11px] text-slate-400 mb-1">ERP DB</p>
+            <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
+              {erpSync?.configured ? "Connected" : "Not configured"}
+            </p>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-navy-800 p-3">
+            <p className="text-[11px] text-slate-400 mb-1">Last sync</p>
+            <p className="text-xs text-slate-700 dark:text-slate-200">{fmtTime(erpSync?.last_sync_at)}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-navy-800 p-3">
+            <p className="text-[11px] text-slate-400 mb-1">Gate Entry rows</p>
+            <p className="text-xs font-semibold tabular-nums text-slate-700 dark:text-slate-200">
+              {fmt(erpSync?.last_result?.gate_entry)}
+            </p>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-navy-800 p-3">
+            <p className="text-[11px] text-slate-400 mb-1">Receiving rows</p>
+            <p className="text-xs font-semibold tabular-nums text-slate-700 dark:text-slate-200">
+              {fmt(erpSync?.last_result?.receiving_register)}
+            </p>
+          </div>
+        </div>
+        {erpSync?.last_error && (
+          <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-400 flex items-center gap-1">
+            <AlertTriangle size={12} /> Last error: {erpSync.last_error}
+          </p>
+        )}
       </div>
 
       {/* Auto-import: drop the file in a folder, no daily manual upload */}

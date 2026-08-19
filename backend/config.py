@@ -35,6 +35,25 @@ class Config:
     ERP_LEDGER_INBOX = os.getenv("ERP_LEDGER_INBOX", os.path.join(basedir, "erp_ledger_inbox"))
     ERP_LEDGER_POLL_SECONDS = int(os.getenv("ERP_LEDGER_POLL_SECONDS", "300"))
 
+    # ERP source DB (plant PostgreSQL, schema termsdb) — the app mirrors the ERP
+    # reports locally and this READ-ONLY connection refreshes them. The app never
+    # writes to ERP (the session is opened read-only). All values come from the
+    # environment; the password is NEVER hardcoded and never logged. Leave
+    # ERP_DB_HOST unset to keep the sync disabled (mirror tables stay empty).
+    ERP_DB_HOST = os.getenv("ERP_DB_HOST") or None
+    ERP_DB_PORT = int(os.getenv("ERP_DB_PORT", "5432"))
+    ERP_DB_NAME = os.getenv("ERP_DB_NAME", "toyota_db")
+    ERP_DB_USER = os.getenv("ERP_DB_USER") or None
+    ERP_DB_PASSWORD = os.getenv("ERP_DB_PASSWORD") or None
+    ERP_DB_SCHEMA = os.getenv("ERP_DB_SCHEMA", "termsdb")
+    ERP_DB_CONNECT_TIMEOUT = int(os.getenv("ERP_DB_CONNECT_TIMEOUT", "8"))
+    # Only pull rows on/after (today - N days) to keep the local mirror lean;
+    # 0 = no date limit (full history).
+    ERP_SYNC_SINCE_DAYS = int(os.getenv("ERP_SYNC_SINCE_DAYS", "120"))
+    # Background ERP-sync interval in seconds; 0 disables the poller (the
+    # "Sync Now" endpoint still works on demand).
+    ERP_SYNC_POLL_SECONDS = int(os.getenv("ERP_SYNC_POLL_SECONDS", "0"))
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
