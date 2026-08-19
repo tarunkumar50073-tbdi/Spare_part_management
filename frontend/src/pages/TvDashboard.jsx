@@ -330,7 +330,7 @@ function VehicleTimeline({ windows, p }) {
 }
 
 // One store's compact strip: header + KPI row + a chart row.
-function StoreStrip({ vm, p, animate, onOpen }) {
+function StoreStrip({ vm, p, animate, onOpen, onSupplierPerf }) {
   const total = vm.category.reduce((s, c) => s + c.value, 0);
   const tone = (real) => ({ text: real ? "live" : "demo", color: real ? C.green : p.dim });
   return (
@@ -355,7 +355,7 @@ function StoreStrip({ vm, p, animate, onOpen }) {
           <StatusBar healthy={vm.status.healthy} short={vm.status.short} excess={vm.status.excess} p={p} />
         </Panel>
         {vm.supplierPerf ? (
-          <Panel title="Supplier Performance (Windows)" icon="🚚" p={p} onClick={() => onOpen(supplierPerfFrame(vm.windows || []))}>
+          <Panel title="Supplier Performance (Windows)" icon="🚚" p={p} onClick={() => onSupplierPerf(vm.windows || [])}>
             <Donut data={vm.supplierPerf} centerTop={fmtInt(vm.supplierPerf.reduce((s, x) => s + x.value, 0))} centerSub="Windows" p={p} animate={animate} />
           </Panel>
         ) : vm.third === "rack" ? (
@@ -415,6 +415,28 @@ export default function TvDashboard() {
   const popTo = (i) => setStack((s) => s.slice(0, i + 1));
   // A flat, single-level drill (no nesting) — rows are plain arrays of cells.
   const openDrill = (title, columns, rows) => setStack([{ title, columns, rows: rows.map((r) => ({ cells: r })) }]);
+
+  // This month's per-supplier performance (how many times late / not-arrived),
+  // fetched from the server. Falls back to today's view if the route isn't up
+  // yet (backend not restarted).
+  const openMonthlyPerf = async (todayWindows) => {
+    const data = await supplierWindowScheduleService.performance().then((r) => r.data.data).catch(() => null);
+    if (data && Array.isArray(data.rows) && data.rows.length) {
+      openStack({
+        title: "Supplier Performance — this month",
+        downloads: [
+          { label: "Excel", href: "/api/v1/supplier-window-schedules/performance/export?format=xlsx" },
+          { label: "PDF", href: "/api/v1/supplier-window-schedules/performance/export?format=pdf" },
+        ],
+        columns: ["Supplier", "Windows", "On-Time", "Late", "Not Arrived", "On-Time %"],
+        rows: data.rows.map((s) => ({
+          cells: [s.supplier, s.windows, s.on_time, s.late, s.not_arrived, s.on_time_pct != null ? `${s.on_time_pct}%` : "—"],
+        })),
+      });
+    } else {
+      openStack(supplierPerfFrame(todayWindows || []));
+    }
+  };
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -608,9 +630,9 @@ export default function TvDashboard() {
         </div>
       </header>
 
-      <StoreStrip vm={spare} p={P} animate={animate} onOpen={openStack} />
+      <StoreStrip vm={spare} p={P} animate={animate} onOpen={openStack} onSupplierPerf={openMonthlyPerf} />
       <div className="shrink-0 border-t" style={{ borderColor: P.border }} />
-      <StoreStrip vm={child} p={P} animate={animate} onOpen={openStack} />
+      <StoreStrip vm={child} p={P} animate={animate} onOpen={openStack} onSupplierPerf={openMonthlyPerf} />
 
       {/* Nested drill as a FULL-SCREEN view — same theme as the board, a
           breadcrumb to walk back up, and clickable rows that go a level deeper. */}
