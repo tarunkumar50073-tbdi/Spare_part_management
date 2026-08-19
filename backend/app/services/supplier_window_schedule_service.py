@@ -316,3 +316,34 @@ class SupplierWindowScheduleService:
             return build_pdf_table(title, columns, rows), "application/pdf", "pdf"
         return (build_export(columns, rows),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx")
+
+    def _window_master_rows(self):
+        """The standing schedule as the left block of the window-time sheet —
+        every Active slot once, in the same shift-day order the day-status list
+        uses (08:30 first ... post-midnight slots last)."""
+        rows = []
+        for r in self.repo.search(status="Active").all():
+            supplier = self.supplier_repo.get_by_vendor_code(r.vendor_code)
+            rows.append({
+                "vendor_code": r.vendor_code,
+                "supplier_name": supplier.supplier_name if supplier else r.vendor_code,
+                "window_start": r.window_start,
+                "window_end": r.window_end,
+                "frequency": r.frequency,
+            })
+        rows.sort(key=lambda x: (0 if x["window_start"] >= SHIFT_START else 1, x["window_start"]))
+        return rows
+
+    def window_time_workbook(self, year, month):
+        """The plant's 'VEHICLE WINDOW TIME' sheet (the format the store mails),
+        auto-filled for a whole month and colour-coded — green On-Time, amber
+        Late, red Not Come. Returns (buffer, mimetype, extension). Days after
+        today stay blank (their windows have not closed yet), exactly like the
+        paper sheet before the trucks come."""
+        from calendar import monthrange
+        from app.utils.window_time_report import build_window_time_report
+        master = self._window_master_rows()
+        status_by_day = {d: self._status_for_date(date(year, month, d))
+                         for d in range(1, monthrange(year, month)[1] + 1)}
+        buf = build_window_time_report(year, month, master, status_by_day)
+        return buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"

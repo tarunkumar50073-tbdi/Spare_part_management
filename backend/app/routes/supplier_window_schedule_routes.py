@@ -67,6 +67,18 @@ def performance_export():
                      download_name=f"supplier_performance_{y}_{m:02d}.{ext}")
 
 
+@bp.route("/window-time-report", methods=["GET"])
+def window_time_report():
+    """The plant's 'VEHICLE WINDOW TIME' sheet (the format the store mails),
+    auto-filled for a whole month and colour-coded (green On-Time / amber Late /
+    red Not Come). Defaults to the current month; ?year=&month= for any other."""
+    y = request.args.get("year", type=int) or date.today().year
+    m = request.args.get("month", type=int) or date.today().month
+    buf, mime, ext = service.window_time_workbook(y, m)
+    return send_file(buf, mimetype=mime, as_attachment=True,
+                     download_name=f"window_time_{y}_{m:02d}.{ext}")
+
+
 @bp.route("", methods=["POST"])
 @admin_required
 def create_schedule():

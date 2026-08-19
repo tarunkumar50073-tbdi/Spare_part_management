@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { Plus, Pencil, Trash2, Truck, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, Truck, Clock, FileSpreadsheet } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
@@ -286,9 +286,19 @@ export default function SupplierVehicleManagement() {
             <Clock size={16} className="text-emerald-600" /> With Window Time
             {!loading && <span className="text-xs font-normal text-slate-400">({schedules.length} slot{schedules.length === 1 ? "" : "s"})</span>}
           </h3>
-          <button className="btn-primary" onClick={openScheduleCreate}>
-            <Plus size={16} /> Add Window Slot
-          </button>
+          <div className="flex items-center gap-2">
+            <a
+              className="btn-secondary"
+              href="/api/v1/supplier-window-schedules/window-time-report"
+              download
+              title="Auto-filled 'VEHICLE WINDOW TIME' sheet for this month — colour-coded On-Time / Late / Not Come, ready to mail"
+            >
+              <FileSpreadsheet size={16} /> Window-Time Excel
+            </a>
+            <button className="btn-primary" onClick={openScheduleCreate}>
+              <Plus size={16} /> Add Window Slot
+            </button>
+          </div>
         </div>
         <p className="text-[11px] text-slate-400 mb-3">
           Standard recurring delivery slot per supplier (Daily / Alternate Day / Weekly) — a fixed schedule, not tied to

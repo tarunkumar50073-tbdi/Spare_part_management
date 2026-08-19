@@ -91,6 +91,7 @@ const supplierPerfFrame = (windows) => {
     downloads: [
       { label: "This month · Excel", href: "/api/v1/supplier-window-schedules/performance/export?format=xlsx" },
       { label: "This month · PDF", href: "/api/v1/supplier-window-schedules/performance/export?format=pdf" },
+      { label: "Window-Time sheet · Excel", href: "/api/v1/supplier-window-schedules/window-time-report" },
     ],
     columns: ["Supplier", "Windows", "On-Time", "Late", "Not Arrived", "On-Time %"],
     rows: rows.map((s) => ({
@@ -428,6 +429,7 @@ export default function TvDashboard() {
         downloads: [
           { label: "Excel", href: "/api/v1/supplier-window-schedules/performance/export?format=xlsx" },
           { label: "PDF", href: "/api/v1/supplier-window-schedules/performance/export?format=pdf" },
+          { label: "Window-Time sheet · Excel", href: "/api/v1/supplier-window-schedules/window-time-report" },
         ],
         columns: ["Supplier", "Windows", "On-Time", "Late", "Not Arrived", "On-Time %"],
         rows: data.rows.map((s) => ({
