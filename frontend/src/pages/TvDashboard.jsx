@@ -7,6 +7,7 @@ import { Bell, Moon, Sun, ArrowLeft, Maximize, Minimize, Layers, X, Truck } from
 import { spareStockService } from "../services/spareStockService.js";
 import { storeDashboardService } from "../services/storeDashboardService.js";
 import { supplierWindowScheduleService } from "../services/supplierWindowScheduleService.js";
+import { rgpService } from "../services/rgpService.js";
 
 // A full-screen wallboard for a 53" LED — no menu, no scroll, fluid 16:9. Split
 // top/bottom: the Spare Parts store on top, the Child Parts store below, each a
@@ -543,14 +544,16 @@ export default function TvDashboard() {
     let alive = true;
     const grab = (pr) => pr.then((r) => r.data.data).catch(() => null);
     const load = async () => {
-      const [sum, win, parts, rgp] = await Promise.all([
+      const [sum, win, parts, rgpCount, rgpList] = await Promise.all([
         grab(storeDashboardService.summary()),
         grab(supplierWindowScheduleService.todayStatus()),
         grab(storeDashboardService.partSummary()),
-        grab(storeDashboardService.pendingRgp()),
+        grab(rgpService.pendingCount("CHILD_PART")),
+        grab(rgpService.list("CHILD_PART", true)),
       ]);
-      // Pending RGP comes only from ERP; null until the ERP API is live.
-      const rgpVal = rgp && rgp.pending_rgp != null ? rgp.pending_rgp : null;
+      // Pending RGP — real app data (ERP will feed the same endpoint later).
+      const rgpVal = rgpCount && rgpCount.pending != null ? rgpCount.pending : null;
+      const rgpRows = Array.isArray(rgpList) ? rgpList : [];
       if (!alive) return;
       // Inventory value = sum of every part's stock value, the way the child
       // store's own dashboard computes it.
@@ -585,7 +588,14 @@ export default function TvDashboard() {
             { label: "Pending SRV", value: fmtInt(sum.pending_srv), color: C.cyan, real: sum.pending_srv != null,
               onClick: () => openDrill("Pending — receiving pipeline", ["Stage", "Count"], [["Pending SRV", fmtInt(sum.pending_srv)], ["Pending Put-Away", fmtInt(sum.pending_put_away)], ["Pending RQC (Inspection)", fmtInt(sum.pending_rqc)]]) },
             { label: "Pending RGP", value: rgpVal != null ? fmtInt(rgpVal) : "—", color: C.indigo, real: true,
-              onClick: () => openDrill("Pending RGP", ["Info"], [[rgpVal != null ? `${fmtInt(rgpVal)} returnable gate passes pending (from ERP).` : "Sourced from ERP — will populate when the ERP API (ERP_API_BASE_URL) is live."]]) },
+              onClick: () => openStack({
+                title: "Pending RGP",
+                columns: ["Challan No", "Vendor", "Item", "Balance Qty", "Pend Days", "Target Dt"],
+                rows: rgpRows.map((r) => ({
+                  cells: [r.challan_no || "—", r.ven_name || r.ven_cd || "—", r.item_desc || r.item_cd || "—",
+                    fmtInt(r.balance_qty), r.pend_days ?? "—", r.target_dt || "—"],
+                })),
+              }) },
           ];
         }
         // Today's supplier delivery windows (Child Parts only) + the window-wise

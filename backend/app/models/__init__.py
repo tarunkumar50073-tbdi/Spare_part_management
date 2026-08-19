@@ -24,11 +24,12 @@ from app.models.milkrun_group import MilkrunGroup, SupplierMilkrunMapping
 from app.models.user import User, UserStoreAccess
 from app.models.store import Store, Section
 from app.models.department import Department
+from app.models.rgp import RGP
 
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",
     "HoldingEntry", "Notification", "AuditLog",
     "FinishedGood", "BOM", "CustomerForecast", "DailyStockCount", "PhysicalStock", "QuarterlyInventory", "DashboardSnapshot",
     "SupplierVehicleWindow", "SupplierWindowSchedule", "MilkrunGroup", "SupplierMilkrunMapping",
-    "User", "UserStoreAccess", "Store", "Section", "Department",
+    "User", "UserStoreAccess", "Store", "Section", "Department", "RGP",
 ]
