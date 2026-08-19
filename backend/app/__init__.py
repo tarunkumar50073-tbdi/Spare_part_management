@@ -134,9 +134,11 @@ def create_app(env_name=None):
         # finding PORT-1).
         _seed_stores()
         _seed_departments()
+        _seed_report_recipients()
 
     _start_erp_ledger_poller(app)
     _start_erp_sync_poller(app)
+    _start_window_time_mailer(app)
 
     return app
 
@@ -161,6 +163,17 @@ def _start_erp_sync_poller(app):
         return  # reloader parent; the worker child will start it
     from app.services.erp_sync_service import ERPSyncService
     ERPSyncService().start_poller(app)
+
+
+def _start_window_time_mailer(app):
+    """Start the once-a-day window-time mail thread — only in the request-serving
+    process (not the Werkzeug reloader parent), and only when
+    WINDOW_TIME_MAIL_ENABLED is true and SMTP is configured."""
+    import os
+    if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        return  # reloader parent; the worker child will start it
+    from app.services.window_time_mail_service import WindowTimeMailService
+    WindowTimeMailService().start_scheduler(app)
 
 
 def _patch_schema():
@@ -250,4 +263,18 @@ def _seed_departments():
     for seed in SEED_DEPARTMENTS:
         if seed["name"] not in existing:
             db.session.add(Department(**seed))
+    db.session.commit()
+
+
+def _seed_report_recipients():
+    """Seed the window-time mail recipients so the master is never empty — the
+    names off the store's existing daily mail, e-mails left BLANK for an admin to
+    fill. Idempotent on (report_key, name, role): never overwrites an address an
+    admin has since typed, never double-inserts."""
+    from app.models.report_recipient import SEED_REPORT_RECIPIENTS, ReportRecipient
+
+    existing = {(r.report_key, r.name, r.role) for r in ReportRecipient.query.all()}
+    for seed in SEED_REPORT_RECIPIENTS:
+        if (seed["report_key"], seed["name"], seed["role"]) not in existing:
+            db.session.add(ReportRecipient(**seed))
     db.session.commit()

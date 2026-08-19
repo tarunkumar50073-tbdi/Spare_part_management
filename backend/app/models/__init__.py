@@ -31,6 +31,8 @@ from app.models.gate_exit import GateExit
 from app.models.current_stock import CurrentStock
 from app.models.pending_grn import PendingGRN
 from app.models.stock_valuation import StockValuation
+from app.models.report_recipient import ReportRecipient
+from app.models.mail_send_log import MailSendLog
 
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",
@@ -40,4 +42,5 @@ __all__ = [
     "User", "UserStoreAccess", "Store", "Section", "Department", "RGP",
     "ReceivingRegister", "GateEntry", "GateExit",
     "CurrentStock", "PendingGRN", "StockValuation",
+    "ReportRecipient", "MailSendLog",
 ]

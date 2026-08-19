@@ -64,6 +64,7 @@ const NAV_BY_STORE = {
         { to: "/parts", label: "Part Master", emoji: "🔩" },
         { to: "/suppliers", label: "Supplier Master", emoji: "🏭" },
         { to: "/rack-bins", label: "Rack/Bin Master", emoji: "🗃️" },
+        { to: "/report-recipients", label: "Report Recipients", emoji: "📧" },
       ],
     },
     {

@@ -3,6 +3,7 @@ from datetime import date
 
 from flask import Blueprint, request, send_file
 from app.services.supplier_window_schedule_service import SupplierWindowScheduleService
+from app.services.window_time_mail_service import WindowTimeMailService
 from app.schemas.supplier_window_schedule_schema import (
     SupplierWindowScheduleCreateSchema, SupplierWindowScheduleUpdateSchema,
 )
@@ -12,6 +13,7 @@ from app.utils.authz import admin_required
 
 bp = Blueprint("supplier_window_schedules", __name__, url_prefix="/api/v1/supplier-window-schedules")
 service = SupplierWindowScheduleService()
+mail_service = WindowTimeMailService()
 
 
 @bp.route("", methods=["GET"])
@@ -77,6 +79,25 @@ def window_time_report():
     buf, mime, ext = service.window_time_workbook(y, m)
     return send_file(buf, mimetype=mime, as_attachment=True,
                      download_name=f"window_time_{y}_{m:02d}.{ext}")
+
+
+@bp.route("/email-report", methods=["POST"])
+@admin_required
+def email_report():
+    """E-mail this month's window-time sheet to the report recipients now.
+    Returns {status:'sent'|'skipped', reason, to, cc, report_date}. admin_required
+    also lets the machine (X-API-Key) caller through, so a Windows Task Scheduler
+    job can POST here on a fixed schedule. The button sends {"force": true} to
+    override the once-per-day guard; an unattended trigger POSTs without it."""
+    force = bool((request.get_json(silent=True) or {}).get("force", False))
+    return success_response(mail_service.send_current_month(force=force), "Window-time report email processed")
+
+
+@bp.route("/email-status", methods=["GET"])
+@admin_required
+def email_status():
+    """SMTP configured? enabled? who To/Cc? last send? — drives the Email-now UI."""
+    return success_response(mail_service.status())
 
 
 @bp.route("", methods=["POST"])

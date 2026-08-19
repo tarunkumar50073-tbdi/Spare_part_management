@@ -6,6 +6,11 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, ".env"))
 
 
+def _env_bool(name, default):
+    """bool(os.getenv('x')) is truthy even for 'false' — parse real booleans."""
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(basedir, 'dx_store.db')}")
@@ -53,6 +58,23 @@ class Config:
     # Background ERP-sync interval in seconds; 0 disables the poller (the
     # "Sync Now" endpoint still works on demand).
     ERP_SYNC_POLL_SECONDS = int(os.getenv("ERP_SYNC_POLL_SECONDS", "0"))
+
+    # --- Outbound e-mail (window-time daily auto-mail). Backend-only.
+    # SMTP_PASSWORD is the only real secret and lives ONLY in the git-ignored
+    # backend/.env. The feature ships DISABLED so nothing sends until an admin
+    # has filled recipient addresses AND SMTP is verified. STARTTLS on 587 by
+    # default; set SMTP_USE_SSL (or port 465) for an implicit-TLS relay. ---
+    SMTP_HOST = os.getenv("SMTP_HOST") or None
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER = os.getenv("SMTP_USER") or None
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD") or None
+    SMTP_FROM = os.getenv("SMTP_FROM") or None
+    SMTP_USE_TLS = _env_bool("SMTP_USE_TLS", "true")
+    SMTP_USE_SSL = _env_bool("SMTP_USE_SSL", "false")
+    SMTP_TIMEOUT = int(os.getenv("SMTP_TIMEOUT", "20"))
+    MAIL_FROM_DISPLAY = os.getenv("MAIL_FROM_DISPLAY", "TBDI_store")
+    WINDOW_TIME_MAIL_ENABLED = _env_bool("WINDOW_TIME_MAIL_ENABLED", "false")
+    WINDOW_TIME_MAIL_HOUR = int(os.getenv("WINDOW_TIME_MAIL_HOUR", "7"))
 
 
 class DevelopmentConfig(Config):

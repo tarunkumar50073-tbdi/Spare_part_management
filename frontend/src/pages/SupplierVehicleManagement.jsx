@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { Plus, Pencil, Trash2, Truck, Clock, FileSpreadsheet } from "lucide-react";
+import { Plus, Pencil, Trash2, Truck, Clock, FileSpreadsheet, Mail } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
@@ -40,6 +40,7 @@ export default function SupplierVehicleManagement() {
   const [suppliers, setSuppliers] = useState([]);
   const [milkrunGroups, setMilkrunGroups] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [emailing, setEmailing] = useState(false);
 
   const [vehicleModalOpen, setVehicleModalOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState(null);
@@ -147,6 +148,29 @@ export default function SupplierVehicleManagement() {
   };
 
   // ---- Standing window slot CRUD ----
+
+  const emailWindowTime = async () => {
+    setEmailing(true);
+    try {
+      const res = await supplierWindowScheduleService.emailReport();
+      const { status, reason, to = [], cc = [] } = res.data.data;
+      if (status === "sent") {
+        toast.success(`Emailed to ${to.join(", ")}${cc.length ? ` (cc ${cc.join(", ")})` : ""}`);
+      } else {
+        const why = {
+          smtp_not_configured: "SMTP not set up yet",
+          no_recipient_email: "no To address in Report Recipients",
+          report_build_failed: "report build failed",
+          send_failed: "mail server rejected it",
+        }[reason] || reason;
+        toast(`Not sent: ${why}`, { icon: "⚠️" });
+      }
+    } catch {
+      /* api interceptor already toasts */
+    } finally {
+      setEmailing(false);
+    }
+  };
 
   const openScheduleCreate = () => {
     setEditingSchedule(null);
@@ -295,6 +319,14 @@ export default function SupplierVehicleManagement() {
             >
               <FileSpreadsheet size={16} /> Window-Time Excel
             </a>
+            <button
+              className="btn-secondary"
+              onClick={emailWindowTime}
+              disabled={emailing}
+              title="E-mail this month's window-time sheet to the report recipients now"
+            >
+              <Mail size={16} /> {emailing ? "Sending…" : "Email now"}
+            </button>
             <button className="btn-primary" onClick={openScheduleCreate}>
               <Plus size={16} /> Add Window Slot
             </button>
