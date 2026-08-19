@@ -30,6 +30,7 @@ def register_routes(app):
     from app.routes.spare_stock_routes import bp as spare_stock_bp
     from app.routes.department_routes import bp as department_bp
     from app.routes.rgp_routes import bp as rgp_bp
+    from app.routes.receiving_register_routes import bp as receiving_register_bp
 
     app.register_blueprint(supplier_bp)
     app.register_blueprint(part_bp)
@@ -59,6 +60,7 @@ def register_routes(app):
     app.register_blueprint(spare_stock_bp)
     app.register_blueprint(department_bp)
     app.register_blueprint(rgp_bp)
+    app.register_blueprint(receiving_register_bp)
 
     @app.route("/api/v1/health", methods=["GET"])
     def health_check():
