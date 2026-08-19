@@ -28,6 +28,9 @@ from app.models.rgp import RGP
 from app.models.receiving_register import ReceivingRegister
 from app.models.gate_entry import GateEntry
 from app.models.gate_exit import GateExit
+from app.models.current_stock import CurrentStock
+from app.models.pending_grn import PendingGRN
+from app.models.stock_valuation import StockValuation
 
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",
@@ -36,4 +39,5 @@ __all__ = [
     "SupplierVehicleWindow", "SupplierWindowSchedule", "MilkrunGroup", "SupplierMilkrunMapping",
     "User", "UserStoreAccess", "Store", "Section", "Department", "RGP",
     "ReceivingRegister", "GateEntry", "GateExit",
+    "CurrentStock", "PendingGRN", "StockValuation",
 ]
