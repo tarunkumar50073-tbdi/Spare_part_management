@@ -335,16 +335,22 @@ class SupplierWindowScheduleService:
             last_day = 0
         return self._cap_to_erp_data(year, month, last_day)
 
+    @staticmethod
+    def _latest_gate_date():
+        """The latest gate-entry date in the ERP mirror (the ERP data horizon),
+        or None when the mirror is empty."""
+        from sqlalchemy import func
+        from app.extensions import db
+        from app.models.gate_entry import GateEntry
+        return db.session.query(func.max(GateEntry.gate_entry_dt)).scalar()
+
     def _cap_to_erp_data(self, year, month, last_day):
         """Cap last_day to the latest gate-entry date in the mirror (the ERP
         data horizon). If the mirror is empty we're on the SRV fallback — judge
         up to today as before, no cap."""
         if last_day <= 0:
             return last_day
-        from sqlalchemy import func
-        from app.extensions import db
-        from app.models.gate_entry import GateEntry
-        latest = db.session.query(func.max(GateEntry.gate_entry_dt)).scalar()
+        latest = self._latest_gate_date()
         if latest is None:
             return last_day
         if latest < date(year, month, 1):
@@ -383,6 +389,71 @@ class SupplierWindowScheduleService:
         """Public: the window-vs-arrival status list for any given date — who
         came On-Time / Late / Not-Arrived that day."""
         return self._status_for_date(target_date)
+
+    def window_time_board(self, target_date=None):
+        """The Window-Time control tower for one operational day: KPI counts, a
+        derived live-alert list (not-arrived / late / window-open / upcoming) and
+        a severity summary. Defaults to the latest day the ERP has arrival data
+        for, so it isn't a wall of false 'Not Arrived' when the feed lags.
+        Overstay / gate-out need a Gate Exit source ERP does not expose yet, so
+        those KPIs come back as None."""
+        latest = self._latest_gate_date()
+        if target_date is None:
+            target_date = min(date.today(), latest) if latest else date.today()
+        is_today = target_date == date.today()
+        now = datetime.now()
+        rows = self._status_for_date(target_date)
+
+        counts = {"On-Time": 0, "Late": 0, "Not Arrived": 0, "Pending Arrival": 0}
+        window_open = upcoming = 0
+        milkrun = set()
+        alerts = []
+        for r in rows:
+            counts[r["status"]] = counts.get(r["status"], 0) + 1
+            if r.get("milkrun_group"):
+                milkrun.add(r["milkrun_group"])
+            win = f'{r["window_start"][:5]}-{r["window_end"][:5]}'
+            sup = r["supplier_name"]
+            if r["status"] == "Not Arrived":
+                alerts.append({"severity": "critical", "type": "Not Arrived / Window Missed",
+                               "supplier": sup, "title": f"{sup} not arrived, window missed",
+                               "window": win, "when": r["window_end"][:5]})
+            elif r["status"] == "Late":
+                dmin = r.get("delay_min")
+                alerts.append({"severity": "warning", "type": "Late Arrival", "supplier": sup,
+                               "title": f"{sup} late by {dmin} min" if dmin is not None else f"{sup} arrived late",
+                               "window": win, "when": (r["actual_arrival"] or "")[11:16]})
+            elif r["status"] == "Pending Arrival":
+                ws, we = time.fromisoformat(r["window_start"]), time.fromisoformat(r["window_end"])
+                open_now = (ws <= now.time() <= we) if ws <= we else (now.time() >= ws or now.time() <= we)
+                if is_today and open_now:
+                    window_open += 1
+                    alerts.append({"severity": "info", "type": "Window Open / Arrival Pending", "supplier": sup,
+                                   "title": f"{sup} window open, vehicle pending", "window": win, "when": r["window_start"][:5]})
+                else:
+                    upcoming += 1
+                    alerts.append({"severity": "info", "type": "Upcoming Window", "supplier": sup,
+                                   "title": f"{sup} window {win}", "window": win, "when": r["window_start"][:5]})
+
+        settled = counts["On-Time"] + counts["Late"] + counts["Not Arrived"]
+        sev_order = {"critical": 0, "warning": 1, "info": 2}
+        alerts.sort(key=lambda a: (sev_order.get(a["severity"], 3), a["when"]))
+        summary = {sev: sum(1 for a in alerts if a["severity"] == sev) for sev in ("critical", "warning", "info")}
+        return {
+            "date": target_date.isoformat(),
+            "is_today": is_today,
+            "latest_data_date": latest.isoformat() if latest else None,
+            "kpis": {
+                "total": len(rows), "window_open": window_open,
+                "on_time": counts["On-Time"], "late": counts["Late"], "upcoming": upcoming,
+                "not_arrived": counts["Not Arrived"],
+                "overstay": None,  # needs a Gate Exit ERP source
+                "on_time_pct": round(counts["On-Time"] / settled * 100, 1) if settled else None,
+                "milkrun_trips": len(milkrun),
+            },
+            "alerts": alerts,
+            "summary": summary,
+        }
 
     def month_daily_summary(self, year, month):
         """Per-DAY window totals for a month — the 'who was late on which day'

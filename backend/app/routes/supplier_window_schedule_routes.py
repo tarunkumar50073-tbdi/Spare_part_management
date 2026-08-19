@@ -50,6 +50,16 @@ def day_status():
     return success_response(service.get_status_for_date(d))
 
 
+@bp.route("/window-time-board", methods=["GET"])
+def window_time_board():
+    """The Window-Time control tower payload (KPIs + live alerts + severity
+    summary) for one day. Defaults to the latest day the ERP has data for; pass
+    ?date=YYYY-MM-DD for any other."""
+    ds = request.args.get("date")
+    d = date.fromisoformat(ds) if ds else None
+    return success_response(service.window_time_board(d))
+
+
 @bp.route("/month-daily", methods=["GET"])
 def month_daily():
     """Per-day window totals for a month — the by-date late view."""

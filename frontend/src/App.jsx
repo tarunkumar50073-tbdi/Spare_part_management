@@ -31,6 +31,7 @@ import ReportRecipientMaster from "./pages/ReportRecipientMaster.jsx";
 import PartHistory from "./pages/PartHistory.jsx";
 import VehicleInOut from "./pages/VehicleInOut.jsx";
 import CurrentStock from "./pages/CurrentStock.jsx";
+import WindowTimeBoard from "./pages/WindowTimeBoard.jsx";
 import TvDashboard from "./pages/TvDashboard.jsx";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
@@ -78,6 +79,7 @@ function AuthenticatedApp() {
           <Route path="/report-recipients" element={<ReportRecipientMaster />} />
           <Route path="/part-history" element={<PartHistory />} />
           <Route path="/vehicle-in-out" element={<VehicleInOut />} />
+          <Route path="/window-time" element={<WindowTimeBoard />} />
           <Route path="/current-stock" element={<CurrentStock />} />
           {/* Distinct from Child Parts' /store-stock — this is the Spare
               Parts Store's own on-hand screen. */}

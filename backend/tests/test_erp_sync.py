@@ -124,3 +124,34 @@ def test_month_late_report_only_late_with_delay():
     assert mine[0]["delay_min"] == 45
     assert mine[0]["actual_arrival"].endswith("10:45")
     assert any(s["supplier"] == "Late Test Supplier" and s["late_count"] == 1 for s in rep["summary"])
+
+
+def test_window_time_board():
+    """The control-tower payload: KPI counts + severity-tagged alerts derived
+    from the day's window-vs-arrival status."""
+    from datetime import date, time
+    from app.extensions import db
+    from app.models.supplier import Supplier
+    from app.models.supplier_window_schedule import SupplierWindowSchedule
+    from app.services.supplier_window_schedule_service import SupplierWindowScheduleService
+
+    vc = "VZ-9003"
+    day = date(2024, 7, 15)
+    db.session.add(Supplier(vendor_code=vc, supplier_name="Board Test Supplier", status="Active"))
+    db.session.add(SupplierWindowSchedule(vendor_code=vc, window_start=time(9, 0), window_end=time(10, 0),
+                                          frequency="Daily", effective_from=date(2024, 1, 1), status="Active"))
+    db.session.add(SupplierWindowSchedule(vendor_code=vc, window_start=time(13, 0), window_end=time(14, 0),
+                                          frequency="Daily", effective_from=date(2024, 1, 1), status="Active"))
+    db.session.add(GateEntry(store_code="CHILD_PART", gate_entry_no="GB-1", gate_entry_dt=day,
+                             gate_entry_time="09:30", ven_cd=vc, item_code="A"))   # On-Time
+    db.session.add(GateEntry(store_code="CHILD_PART", gate_entry_no="GB-2", gate_entry_dt=day,
+                             gate_entry_time="14:40", ven_cd=vc, item_code="B"))   # Late
+    db.session.commit()
+
+    board = SupplierWindowScheduleService().window_time_board(day)
+    assert board["date"] == "2024-07-15"
+    assert board["kpis"]["on_time"] >= 1
+    assert board["kpis"]["overstay"] is None                 # no Gate Exit source yet
+    assert board["summary"]["warning"] >= 1                  # our late arrival
+    late = [a for a in board["alerts"] if a["supplier"] == "Board Test Supplier" and a["severity"] == "warning"]
+    assert late and "late by 40 min" in late[0]["title"]

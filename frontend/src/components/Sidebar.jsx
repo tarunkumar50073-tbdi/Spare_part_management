@@ -39,6 +39,7 @@ const NAV_BY_STORE = {
       items: [
         { to: "/gate-entry", label: "Gate Entry", emoji: "🚚" },
         { to: "/supplier-vehicles", label: "Supplier Vehicle Management", emoji: "🚛" },
+        { to: "/window-time", label: "Window Time", emoji: "🕒" },
         { to: "/srvs", label: "SRV Workflow", emoji: "📋" },
         { to: "/put-away", label: "Pending Rack Allocation", emoji: "📦" },
         { to: "/holding-area", label: "Holding Area", emoji: "🗄️" },

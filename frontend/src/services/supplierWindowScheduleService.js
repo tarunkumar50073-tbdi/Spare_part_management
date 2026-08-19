@@ -11,6 +11,8 @@ export const supplierWindowScheduleService = {
     api.get("/supplier-window-schedules/month-daily", { params: { year, month } }),
   emailReport: () => api.post("/supplier-window-schedules/email-report", { force: true }),
   emailStatus: () => api.get("/supplier-window-schedules/email-status"),
+  board: (date) =>
+    api.get("/supplier-window-schedules/window-time-board", { params: date ? { date } : {} }),
   create: (payload) => api.post("/supplier-window-schedules", payload),
   update: (id, payload) => api.put(`/supplier-window-schedules/${id}`, payload),
   remove: (id) => api.delete(`/supplier-window-schedules/${id}`),
