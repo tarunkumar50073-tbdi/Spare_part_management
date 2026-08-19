@@ -96,3 +96,31 @@ def test_window_status_uses_gate_arrivals():
     assert by_start["09:00:00"]["status"] == "On-Time"
     assert by_start["09:00:00"]["actual_arrival"].endswith("09:20:00")
     assert by_start["11:00:00"]["status"] == "Late"
+
+
+def test_month_late_report_only_late_with_delay():
+    """The monthly late report lists only Late arrivals, date-wise, with the
+    minutes-late computed off the window close."""
+    from datetime import date, time
+    from app.extensions import db
+    from app.models.supplier import Supplier
+    from app.models.supplier_window_schedule import SupplierWindowSchedule
+    from app.services.supplier_window_schedule_service import SupplierWindowScheduleService
+
+    vc = "VZ-9002"
+    day = date(2024, 6, 10)  # a past month with no other seeded data
+    db.session.add(Supplier(vendor_code=vc, supplier_name="Late Test Supplier", status="Active"))
+    db.session.add(SupplierWindowSchedule(vendor_code=vc, window_start=time(9, 0), window_end=time(10, 0),
+                                          frequency="Daily", effective_from=date(2024, 1, 1), status="Active"))
+    db.session.add(GateEntry(store_code="CHILD_PART", gate_entry_no="GTL-1", gate_entry_dt=day,
+                             gate_entry_time="10:45", ven_cd=vc, item_code="Z"))   # 45 min after close
+    db.session.commit()
+
+    rep = SupplierWindowScheduleService().month_late_report(2024, 6)
+    mine = [r for r in rep["rows"] if r["supplier"] == "Late Test Supplier"]
+    assert len(mine) == 1                        # only the one late day, not every daily window
+    assert mine[0]["date"] == "2024-06-10"
+    assert mine[0]["window"] == "09:00-10:00"
+    assert mine[0]["delay_min"] == 45
+    assert mine[0]["actual_arrival"].endswith("10:45")
+    assert any(s["supplier"] == "Late Test Supplier" and s["late_count"] == 1 for s in rep["summary"])

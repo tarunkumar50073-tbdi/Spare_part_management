@@ -319,6 +319,14 @@ export default function SupplierVehicleManagement() {
             >
               <FileSpreadsheet size={16} /> Window-Time Excel
             </a>
+            <a
+              className="btn-secondary"
+              href="/api/v1/supplier-window-schedules/late-report/export?format=xlsx"
+              download
+              title="This month's late arrivals only, date-wise with minutes-late (Excel)"
+            >
+              <Clock size={16} /> Late Report
+            </a>
             <button
               className="btn-secondary"
               onClick={emailWindowTime}

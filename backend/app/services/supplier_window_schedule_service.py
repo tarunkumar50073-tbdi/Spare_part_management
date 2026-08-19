@@ -290,6 +290,11 @@ class SupplierWindowScheduleService:
             else:
                 status = "On-Time"
 
+            # How many minutes past the window's close the vehicle arrived — only
+            # meaningful when Late; None otherwise. Handles the midnight-crossing
+            # windows correctly because window_end_dt is a real datetime.
+            delay_min = int((actual_arrival - window_end_dt).total_seconds() // 60) if status == "Late" else None
+
             supplier = self.supplier_repo.get_by_vendor_code(row.vendor_code)
             results.append({
                 "vendor_code": row.vendor_code,
@@ -301,6 +306,7 @@ class SupplierWindowScheduleService:
                 "actual_out": actual_out.isoformat() if actual_out else None,
                 "actual_vehicle_no": actual_vehicle_no,
                 "status": status,
+                "delay_min": delay_min,
             })
 
         # Same shift-day ordering as the repository's search() — a plain
@@ -320,19 +326,30 @@ class SupplierWindowScheduleService:
         On-Time %. Built by replaying each day's window-vs-arrival status; worst
         suppliers (most late + not-arrived) first."""
         from calendar import monthrange
+        # Only days that have actually happened — a window on a future day (or one
+        # still open right now) has not been judged yet, so counting it would make
+        # the totals not reconcile (Windows > On-Time + Late + Not-Arrived).
+        today = date.today()
+        last_day = monthrange(year, month)[1]
+        if (year, month) == (today.year, today.month):
+            last_day = today.day
+        elif (year, month) > (today.year, today.month):
+            last_day = 0
         agg = {}
-        for day in range(1, monthrange(year, month)[1] + 1):
+        for day in range(1, last_day + 1):
             for row in self._status_for_date(date(year, month, day)):
                 s = agg.setdefault(row["supplier_name"], {
                     "supplier": row["supplier_name"], "windows": 0,
                     "on_time": 0, "late": 0, "not_arrived": 0, "pending": 0,
                 })
-                s["windows"] += 1
                 key = {"On-Time": "on_time", "Late": "late", "Not Arrived": "not_arrived"}.get(row["status"], "pending")
                 s[key] += 1
         rows = list(agg.values())
         for s in rows:
             settled = s["on_time"] + s["late"] + s["not_arrived"]
+            # Windows = the judged windows, so it always equals On-Time + Late +
+            # Not-Arrived on screen; still-open windows today sit in `pending`.
+            s["windows"] = settled
             s["on_time_pct"] = round(s["on_time"] / settled * 100, 1) if settled else None
         rows.sort(key=lambda s: (-(s["late"] + s["not_arrived"]),
                                  s["on_time_pct"] if s["on_time_pct"] is not None else 100))
@@ -373,6 +390,46 @@ class SupplierWindowScheduleService:
         rows = [{**r, "on_time_pct": (f"{r['on_time_pct']}%" if r["on_time_pct"] is not None else "—")}
                 for r in data["rows"]]
         title = f"Supplier Window Performance — {calendar.month_name[month]} {year}"
+        if fmt == "pdf":
+            return build_pdf_table(title, columns, rows), "application/pdf", "pdf"
+        return (build_export(columns, rows),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx")
+
+    def month_late_report(self, year, month):
+        """Every LATE arrival in a month (only late — not on-time, not
+        not-arrived), date-wise: date, supplier, window, actual arrival and how
+        many minutes late. Plus a per-supplier late-count summary, worst first."""
+        from calendar import monthrange
+        rows = []
+        by_supplier = {}
+        for day in range(1, monthrange(year, month)[1] + 1):
+            d = date(year, month, day)
+            for r in self._status_for_date(d):
+                if r["status"] != "Late":
+                    continue
+                rows.append({
+                    "date": d.isoformat(),
+                    "supplier": r["supplier_name"],
+                    "window": f'{r["window_start"][:5]}-{r["window_end"][:5]}',
+                    "actual_arrival": (r["actual_arrival"] or "").replace("T", " ")[:16],
+                    "delay_min": r.get("delay_min"),
+                })
+                by_supplier[r["supplier_name"]] = by_supplier.get(r["supplier_name"], 0) + 1
+        summary = sorted(({"supplier": k, "late_count": v} for k, v in by_supplier.items()),
+                         key=lambda s: -s["late_count"])
+        return {"year": year, "month": month, "late_total": len(rows), "rows": rows, "summary": summary}
+
+    def month_late_export(self, year, month, fmt):
+        """The monthly late report as a download — 'pdf' or 'xlsx'. Returns
+        (buffer, mimetype, extension). One row per late arrival, date-wise."""
+        import calendar
+        from app.utils.excel_io import build_export
+        from app.utils.pdf_io import build_pdf_table
+        data = self.month_late_report(year, month)
+        columns = [("Date", "date"), ("Supplier", "supplier"), ("Window", "window"),
+                   ("Actual Arrival", "actual_arrival"), ("Late by (min)", "delay_min")]
+        rows = [{**r, "delay_min": (r["delay_min"] if r["delay_min"] is not None else "")} for r in data["rows"]]
+        title = f"Monthly Late Report — {calendar.month_name[month]} {year}  ({data['late_total']} late arrivals)"
         if fmt == "pdf":
             return build_pdf_table(title, columns, rows), "application/pdf", "pdf"
         return (build_export(columns, rows),

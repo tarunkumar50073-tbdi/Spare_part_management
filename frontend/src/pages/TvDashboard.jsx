@@ -91,6 +91,8 @@ const supplierPerfFrame = (windows) => {
     downloads: [
       { label: "This month · Excel", href: "/api/v1/supplier-window-schedules/performance/export?format=xlsx" },
       { label: "This month · PDF", href: "/api/v1/supplier-window-schedules/performance/export?format=pdf" },
+      { label: "Late report · Excel", href: "/api/v1/supplier-window-schedules/late-report/export?format=xlsx" },
+      { label: "Late report · PDF", href: "/api/v1/supplier-window-schedules/late-report/export?format=pdf" },
       { label: "Window-Time sheet · Excel", href: "/api/v1/supplier-window-schedules/window-time-report" },
     ],
     columns: ["Supplier", "Windows", "On-Time", "Late", "Not Arrived", "On-Time %"],
@@ -429,6 +431,8 @@ export default function TvDashboard() {
         downloads: [
           { label: "Excel", href: "/api/v1/supplier-window-schedules/performance/export?format=xlsx" },
           { label: "PDF", href: "/api/v1/supplier-window-schedules/performance/export?format=pdf" },
+          { label: "Late report · Excel", href: "/api/v1/supplier-window-schedules/late-report/export?format=xlsx" },
+          { label: "Late report · PDF", href: "/api/v1/supplier-window-schedules/late-report/export?format=pdf" },
           { label: "Window-Time sheet · Excel", href: "/api/v1/supplier-window-schedules/window-time-report" },
         ],
         columns: ["Supplier", "Windows", "On-Time", "Late", "Not Arrived", "On-Time %"],

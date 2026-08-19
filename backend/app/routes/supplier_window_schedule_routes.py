@@ -58,6 +58,26 @@ def month_daily():
     return success_response(service.month_daily_summary(y, m))
 
 
+@bp.route("/late-report", methods=["GET"])
+def late_report():
+    """Every LATE arrival in a month (only late), date-wise + per-supplier
+    summary. Defaults to the current month."""
+    y = request.args.get("year", type=int) or date.today().year
+    m = request.args.get("month", type=int) or date.today().month
+    return success_response(service.month_late_report(y, m))
+
+
+@bp.route("/late-report/export", methods=["GET"])
+def late_report_export():
+    """The monthly late report as a download — format 'xlsx' or 'pdf'."""
+    y = request.args.get("year", type=int) or date.today().year
+    m = request.args.get("month", type=int) or date.today().month
+    fmt = (request.args.get("format") or "xlsx").lower()
+    buf, mime, ext = service.month_late_export(y, m, fmt)
+    return send_file(buf, mimetype=mime, as_attachment=True,
+                     download_name=f"late_report_{y}_{m:02d}.{ext}")
+
+
 @bp.route("/performance/export", methods=["GET"])
 def performance_export():
     """The month performance report as a download — format 'xlsx' or 'pdf'."""
