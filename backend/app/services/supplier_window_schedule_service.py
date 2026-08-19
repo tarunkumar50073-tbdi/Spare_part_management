@@ -320,21 +320,45 @@ class SupplierWindowScheduleService:
         results.sort(key=shift_day_key)
         return results
 
-    def supplier_month_performance(self, year, month):
-        """Per-supplier delivery-window performance for a calendar month — how
-        many windows, and how many were On-Time / Late / Not-Arrived, plus the
-        On-Time %. Built by replaying each day's window-vs-arrival status; worst
-        suppliers (most late + not-arrived) first."""
+    def _judgeable_last_day(self, year, month):
+        """The last day of `month` worth judging: not in the future, and not
+        beyond the latest day the ERP actually has arrival data for. Without the
+        second cap an ERP that lags a day or two makes every window on the
+        unloaded days read as 'Not Arrived' — a data gap masquerading as a
+        performance problem."""
         from calendar import monthrange
-        # Only days that have actually happened — a window on a future day (or one
-        # still open right now) has not been judged yet, so counting it would make
-        # the totals not reconcile (Windows > On-Time + Late + Not-Arrived).
         today = date.today()
         last_day = monthrange(year, month)[1]
         if (year, month) == (today.year, today.month):
             last_day = today.day
         elif (year, month) > (today.year, today.month):
             last_day = 0
+        return self._cap_to_erp_data(year, month, last_day)
+
+    def _cap_to_erp_data(self, year, month, last_day):
+        """Cap last_day to the latest gate-entry date in the mirror (the ERP
+        data horizon). If the mirror is empty we're on the SRV fallback — judge
+        up to today as before, no cap."""
+        if last_day <= 0:
+            return last_day
+        from sqlalchemy import func
+        from app.extensions import db
+        from app.models.gate_entry import GateEntry
+        latest = db.session.query(func.max(GateEntry.gate_entry_dt)).scalar()
+        if latest is None:
+            return last_day
+        if latest < date(year, month, 1):
+            return 0
+        if (latest.year, latest.month) == (year, month):
+            return min(last_day, latest.day)
+        return last_day
+
+    def supplier_month_performance(self, year, month):
+        """Per-supplier delivery-window performance for a calendar month — how
+        many windows, and how many were On-Time / Late / Not-Arrived, plus the
+        On-Time %. Built by replaying each day's window-vs-arrival status; worst
+        suppliers (most late + not-arrived) first."""
+        last_day = self._judgeable_last_day(year, month)
         agg = {}
         for day in range(1, last_day + 1):
             for row in self._status_for_date(date(year, month, day)):
@@ -364,9 +388,8 @@ class SupplierWindowScheduleService:
         """Per-DAY window totals for a month — the 'who was late on which day'
         view. Each row: date + windows / on-time / late / not-arrived counts.
         Newest day first; days with no windows are omitted."""
-        from calendar import monthrange
         out = []
-        for day in range(1, monthrange(year, month)[1] + 1):
+        for day in range(1, self._judgeable_last_day(year, month) + 1):
             rows = self._status_for_date(date(year, month, day))
             if not rows:
                 continue
@@ -399,10 +422,9 @@ class SupplierWindowScheduleService:
         """Every LATE arrival in a month (only late — not on-time, not
         not-arrived), date-wise: date, supplier, window, actual arrival and how
         many minutes late. Plus a per-supplier late-count summary, worst first."""
-        from calendar import monthrange
         rows = []
         by_supplier = {}
-        for day in range(1, monthrange(year, month)[1] + 1):
+        for day in range(1, self._judgeable_last_day(year, month) + 1):
             d = date(year, month, day)
             for r in self._status_for_date(d):
                 if r["status"] != "Late":
