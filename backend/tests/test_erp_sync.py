@@ -66,3 +66,33 @@ def test_sync_maps_and_casts(monkeypatch):
     # re-running replaces (idempotent) — still exactly one row, no double-count
     assert svc.sync_all() == {"gate_entry": 1, "receiving_register": 1}
     assert GateEntry.query.filter_by(store_code="CHILD_PART").count() == 1
+
+
+def test_window_status_uses_gate_arrivals():
+    """Once the Gate Entry mirror has rows, window-vs-arrival status is judged
+    against the real ERP gate arrivals (not the app's empty SRV table): a truck
+    inside its window reads On-Time, one after it reads Late."""
+    from datetime import date, time
+    from app.extensions import db
+    from app.models.supplier import Supplier
+    from app.models.supplier_window_schedule import SupplierWindowSchedule
+    from app.services.supplier_window_schedule_service import SupplierWindowScheduleService
+
+    vc = "VZ-9001"
+    day = date(2024, 3, 5)  # safely in the past so the status fully resolves
+    db.session.add(Supplier(vendor_code=vc, supplier_name="Wire Test Supplier", status="Active"))
+    db.session.add(SupplierWindowSchedule(vendor_code=vc, window_start=time(9, 0), window_end=time(10, 0),
+                                          frequency="Daily", effective_from=date(2024, 1, 1), status="Active"))
+    db.session.add(SupplierWindowSchedule(vendor_code=vc, window_start=time(11, 0), window_end=time(12, 0),
+                                          frequency="Daily", effective_from=date(2024, 1, 1), status="Active"))
+    db.session.add(GateEntry(store_code="CHILD_PART", gate_entry_no="GT-A", gate_entry_dt=day,
+                             gate_entry_time="09:20", ven_cd=vc, item_code="X1"))   # inside window A
+    db.session.add(GateEntry(store_code="CHILD_PART", gate_entry_no="GT-B", gate_entry_dt=day,
+                             gate_entry_time="12:30", ven_cd=vc, item_code="X2"))   # after window B
+    db.session.commit()
+
+    rows = [r for r in SupplierWindowScheduleService().get_status_for_date(day) if r["vendor_code"] == vc]
+    by_start = {r["window_start"]: r for r in rows}
+    assert by_start["09:00:00"]["status"] == "On-Time"
+    assert by_start["09:00:00"]["actual_arrival"].endswith("09:20:00")
+    assert by_start["11:00:00"]["status"] == "Late"

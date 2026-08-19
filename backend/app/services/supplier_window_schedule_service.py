@@ -8,6 +8,7 @@ on-time/late today" — the standing schedule (already real, entered once)
 plus ERP-pushed arrivals (SRV.gate_entry_time) is enough on its own; it
 needs zero manual per-day/per-vehicle entry (unlike SupplierVehicleWindow,
 which is for one-off/ad-hoc windows outside the standard schedule)."""
+from collections import namedtuple
 from datetime import date, datetime, time, timedelta
 from app.repositories.supplier_window_schedule_repository import SupplierWindowScheduleRepository, SHIFT_START
 from app.repositories.supplier_repository import SupplierRepository
@@ -76,6 +77,29 @@ def _naive(dt):
     return dt
 
 
+# A vehicle arrival built from the ERP-synced Gate Entry mirror, shaped like the
+# SRV rows _match_arrivals/_status_for_date already consume (.gate_entry_time,
+# .vehicle_no, .gate_out_time). Gate Entry carries no vehicle number or out-time
+# — ERP exposes neither yet — so vehicle_no falls back to the gate-entry no and
+# departure stays unknown until a Gate Exit source lands.
+_GateArrival = namedtuple("_GateArrival", ["gate_entry_time", "vehicle_no", "gate_out_time"])
+
+
+def _parse_gate_time(value):
+    """ERP gate_entry_time is a bare 'HH:MM' (occasionally 'HH:MM:SS') string.
+    Returns a time, or None for blank/unparseable — a bad cell just drops that
+    arrival rather than crashing the day's status."""
+    if not value:
+        return None
+    s = str(value).strip()
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            return datetime.strptime(s, fmt).time()
+        except ValueError:
+            continue
+    return None
+
+
 class SupplierWindowScheduleService:
     def __init__(self):
         self.repo = SupplierWindowScheduleRepository()
@@ -139,6 +163,38 @@ class SupplierWindowScheduleService:
         rows for its N suppliers)."""
         return self._status_for_date(date.today())
 
+    def _gate_arrivals_on_date(self, vendor_codes, on_date):
+        """Real vehicle arrivals for these vendors on a date, from the
+        ERP-synced Gate Entry mirror — one entry per vehicle (distinct
+        gate_entry_no; a truck bringing several items is still one arrival),
+        earliest first. Matches list_arrivals_on_date's shape so the window
+        matcher is unchanged."""
+        from app.models.gate_entry import GateEntry
+        rows = GateEntry.query.filter(
+            GateEntry.ven_cd.in_(vendor_codes),
+            GateEntry.gate_entry_dt == on_date,
+        ).all()
+        by_vehicle = {}
+        for r in rows:
+            t = _parse_gate_time(r.gate_entry_time)
+            if t is None:
+                continue
+            arrived = datetime.combine(r.gate_entry_dt, t)
+            key = r.gate_entry_no or (r.ven_cd, r.gate_entry_time)
+            prev = by_vehicle.get(key)
+            if prev is None or arrived < prev.gate_entry_time:
+                by_vehicle[key] = _GateArrival(gate_entry_time=arrived, vehicle_no=r.gate_entry_no, gate_out_time=None)
+        return sorted(by_vehicle.values(), key=lambda a: a.gate_entry_time)
+
+    def _arrivals_on_date(self, vendor_codes, on_date, use_gate):
+        """Arrival source for the window matcher. Prefers the ERP-synced Gate
+        Entry mirror once it holds any rows (the real gate data); falls back to
+        the app's own SRV gate-entries when the mirror is empty (ERP not synced
+        yet), so behaviour is unchanged until the sync runs."""
+        if use_gate:
+            return self._gate_arrivals_on_date(vendor_codes, on_date)
+        return self.srv_repo.list_arrivals_on_date(vendor_codes, on_date)
+
     def _status_for_date(self, target_date):
         """The window-vs-arrival status list for one day. get_today_status is
         this for today; the monthly report replays it for each day in a range."""
@@ -189,13 +245,18 @@ class SupplierWindowScheduleService:
             })
 
         # Pass two — pair each pool's windows with the vehicles it really sent.
+        # Once the ERP Gate Entry mirror holds any rows, the real gate arrivals
+        # drive this; before that (mirror empty) it falls back to the app's SRV
+        # gate-entries, so nothing changes until the ERP sync has run.
+        from app.models.gate_entry import GateEntry
+        use_gate = GateEntry.query.first() is not None
         arrival_for = {}
         pools = {}
         for idx, slot in enumerate(slots):
             pools.setdefault(slot["pool"], []).append(idx)
         for (vendor_codes, window_date), idxs in pools.items():
             idxs.sort(key=lambda i: slots[i]["start"])
-            arrivals = self.srv_repo.list_arrivals_on_date(list(vendor_codes), window_date)
+            arrivals = self._arrivals_on_date(list(vendor_codes), window_date, use_gate)
             matched = _match_arrivals([(slots[i]["start"], slots[i]["end"]) for i in idxs], arrivals)
             for position, arrival in matched.items():
                 arrival_for[idxs[position]] = arrival
