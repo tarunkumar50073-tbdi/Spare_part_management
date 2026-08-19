@@ -330,7 +330,7 @@ function VehicleTimeline({ windows, p }) {
 }
 
 // One store's compact strip: header + KPI row + a chart row.
-function StoreStrip({ vm, p, animate, onOpen, onSupplierPerf }) {
+function StoreStrip({ vm, p, animate, onOpen, onSupplierPerf, onDateView }) {
   const total = vm.category.reduce((s, c) => s + c.value, 0);
   const tone = (real) => ({ text: real ? "live" : "demo", color: real ? C.green : p.dim });
   return (
@@ -374,7 +374,7 @@ function StoreStrip({ vm, p, animate, onOpen, onSupplierPerf }) {
           </Panel>
         )}
         {vm.windows && (
-          <Panel title="Today's Vehicle Status" icon="🚛" p={p} onClick={() => onOpen(windowsFrame(vm.windows))}>
+          <Panel title="Today's Vehicle Status" icon="🚛" p={p} onClick={() => onDateView(vm.windows)}>
             <VehicleTimeline windows={vm.windows} p={p} />
           </Panel>
         )}
@@ -435,6 +435,32 @@ export default function TvDashboard() {
       });
     } else {
       openStack(supplierPerfFrame(todayWindows || []));
+    }
+  };
+
+  // By-date view: a list of the month's days -> click a day -> who came late /
+  // not-arrived that day. Falls back to today's windows if the route isn't up.
+  const openDateView = async (todayWindows) => {
+    const data = await supplierWindowScheduleService.monthDaily().then((r) => r.data.data).catch(() => null);
+    const dayFrame = (dateStr) => async () => {
+      const w = await supplierWindowScheduleService.dayStatus(dateStr).then((r) => r.data.data).catch(() => []);
+      return {
+        title: dateStr,
+        columns: ["Window", "Supplier", "Arrived", "Status"],
+        rows: (w || []).map((x) => ({
+          cells: [`${(x.window_start || "").slice(0, 5)}–${(x.window_end || "").slice(0, 5)}`,
+            x.supplier_name, x.actual_arrival ? x.actual_arrival.slice(11, 16) : "—", x.status],
+        })),
+      };
+    };
+    if (data && Array.isArray(data.rows) && data.rows.length) {
+      openStack({
+        title: "Vehicle Status — by date",
+        columns: ["Date", "Windows", "On-Time", "Late", "Not Arrived"],
+        rows: data.rows.map((d) => ({ cells: [d.date, d.windows, d.on_time, d.late, d.not_arrived], open: dayFrame(d.date) })),
+      });
+    } else {
+      openStack(windowsFrame(todayWindows || []));
     }
   };
 
@@ -630,9 +656,9 @@ export default function TvDashboard() {
         </div>
       </header>
 
-      <StoreStrip vm={spare} p={P} animate={animate} onOpen={openStack} onSupplierPerf={openMonthlyPerf} />
+      <StoreStrip vm={spare} p={P} animate={animate} onOpen={openStack} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
       <div className="shrink-0 border-t" style={{ borderColor: P.border }} />
-      <StoreStrip vm={child} p={P} animate={animate} onOpen={openStack} onSupplierPerf={openMonthlyPerf} />
+      <StoreStrip vm={child} p={P} animate={animate} onOpen={openStack} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
 
       {/* Nested drill as a FULL-SCREEN view — same theme as the board, a
           breadcrumb to walk back up, and clickable rows that go a level deeper. */}
@@ -678,7 +704,7 @@ export default function TvDashboard() {
                 {stack[stack.length - 1].rows.length === 0 ? (
                   <tr><td colSpan={stack[stack.length - 1].columns.length + 1} className="py-[5vh] text-center" style={{ color: P.dim }}>No rows</td></tr>
                 ) : stack[stack.length - 1].rows.map((r, i) => (
-                  <tr key={i} onClick={r.open ? () => pushFrame(r.open()) : undefined}
+                  <tr key={i} onClick={r.open ? async () => { const f = await r.open(); if (f) pushFrame(f); } : undefined}
                     className={r.open ? "cursor-pointer hover:bg-[#80808022]" : ""}>
                     {r.cells.map((cell, j) => (
                       <td key={j} className="py-[1.2vh] px-[1.6vh] border-t" style={{ color: P.text, borderColor: P.border }}>{cell}</td>

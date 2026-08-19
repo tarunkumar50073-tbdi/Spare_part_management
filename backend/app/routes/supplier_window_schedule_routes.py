@@ -39,6 +39,23 @@ def performance():
     return success_response(service.supplier_month_performance(y, m))
 
 
+@bp.route("/day-status", methods=["GET"])
+def day_status():
+    """Window-vs-arrival status for a specific date (defaults to today) — who
+    came late / not-arrived that day."""
+    ds = request.args.get("date")
+    d = date.fromisoformat(ds) if ds else date.today()
+    return success_response(service.get_status_for_date(d))
+
+
+@bp.route("/month-daily", methods=["GET"])
+def month_daily():
+    """Per-day window totals for a month — the by-date late view."""
+    y = request.args.get("year", type=int) or date.today().year
+    m = request.args.get("month", type=int) or date.today().month
+    return success_response(service.month_daily_summary(y, m))
+
+
 @bp.route("/performance/export", methods=["GET"])
 def performance_export():
     """The month performance report as a download — format 'xlsx' or 'pdf'."""

@@ -277,6 +277,29 @@ class SupplierWindowScheduleService:
                                  s["on_time_pct"] if s["on_time_pct"] is not None else 100))
         return {"year": year, "month": month, "rows": rows}
 
+    def get_status_for_date(self, target_date):
+        """Public: the window-vs-arrival status list for any given date — who
+        came On-Time / Late / Not-Arrived that day."""
+        return self._status_for_date(target_date)
+
+    def month_daily_summary(self, year, month):
+        """Per-DAY window totals for a month — the 'who was late on which day'
+        view. Each row: date + windows / on-time / late / not-arrived counts.
+        Newest day first; days with no windows are omitted."""
+        from calendar import monthrange
+        out = []
+        for day in range(1, monthrange(year, month)[1] + 1):
+            rows = self._status_for_date(date(year, month, day))
+            if not rows:
+                continue
+            c = {"on_time": 0, "late": 0, "not_arrived": 0, "pending": 0}
+            for r in rows:
+                key = {"On-Time": "on_time", "Late": "late", "Not Arrived": "not_arrived"}.get(r["status"], "pending")
+                c[key] += 1
+            out.append({"date": date(year, month, day).isoformat(), "windows": len(rows), **c})
+        out.sort(key=lambda r: r["date"], reverse=True)
+        return {"year": year, "month": month, "rows": out}
+
     def month_performance_export(self, year, month, fmt):
         """The month report as a downloadable file. Returns (buffer, mimetype,
         extension). fmt is 'pdf' or 'xlsx'."""
