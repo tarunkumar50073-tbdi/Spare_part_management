@@ -42,6 +42,8 @@ const NAV_BY_STORE = {
         { to: "/srvs", label: "SRV Workflow", emoji: "📋" },
         { to: "/put-away", label: "Pending Rack Allocation", emoji: "📦" },
         { to: "/holding-area", label: "Holding Area", emoji: "🗄️" },
+        { to: "/part-history", label: "Part History", emoji: "🔎" },
+        { to: "/vehicle-in-out", label: "Vehicle In / Out", emoji: "🚦" },
       ],
     },
     {
@@ -55,6 +57,7 @@ const NAV_BY_STORE = {
         { to: "/quarterly-inventory", label: "Quarterly Inventory", emoji: "🗓️" },
         { to: "/erp-gap", label: "ERP vs Physical Gap", emoji: "⚖️" },
         { to: "/erp-ledger-import", label: "ERP Ledger Import", emoji: "📚" },
+        { to: "/current-stock", label: "Current Stock (ERP)", emoji: "📦" },
         { to: "/stock-count", label: "Daily Stock Count", emoji: "📝" },
       ],
     },
