@@ -408,7 +408,7 @@ const categoryFrame = (vm, P) => ({
   columns: [vm.catTitle === "Stock by Part Type" ? "Part Type" : "Category", "Parts"],
   rows: (vm.category || []).map((c) => ({
     cells: [c.name, fmtInt(c.value)],
-    open: () => vm.listFn(c.name, (vm.parts || []).filter((r) => (r[vm.groupKey] || "—") === c.name)),
+    open: () => vm.listFn(c.name, (vm.parts || []).filter((r) => (r[vm.groupKey] || "Uncategorized") === c.name)),
   })),
 });
 
@@ -649,7 +649,7 @@ function StoreStrip({ vm, p, animate, onOpen, onSupplierPerf, onDateView }) {
       <div className="flex gap-[0.8vh] min-h-0" style={{ flex: "38 0 0" }}>
         {vm.cards.map((c) => (
           <MiniKpi key={c.label} label={c.label} value={c.value} color={c.color} p={p}
-            note={c.viaErp ? { text: "via ERP", color: p.dim } : c.real != null ? tone(c.real) : null} onClick={c.onClick} />
+            note={c.note != null ? c.note : c.viaErp ? { text: "via ERP", color: p.dim } : c.real != null ? tone(c.real) : null} onClick={c.onClick} />
         ))}
       </div>
 
@@ -874,7 +874,14 @@ export default function TvDashboard() {
           const short = sum.low_stock, excess = sum.excess_stock;
           next.kpis = { total: total ?? prev.kpis.total };
           next.status = { healthy: Math.max(0, (total || 0) - (short || 0) - (excess || 0)), short: short || 0, excess: excess || 0 };
-          if (sum.category_counts) next.category = toCatArray(sum.category_counts);
+          if (sum.category_counts) {
+            next.category = toCatArray(sum.category_counts);
+            // Parts with no category aren't in category_counts, so the donut
+            // summed to less than Total Parts — add the remainder as one slice
+            // so the donut centre matches the Total Parts count.
+            const catSum = next.category.reduce((s, c) => s + c.value, 0);
+            if (total != null && total > catSum) next.category = [...next.category, { name: "Uncategorized", value: total - catSum, color: "#94a3b8" }];
+          }
           next.crows = Array.isArray(parts) ? parts : (prev.crows || []);
           next.parts = next.crows;
           const isShort = (r) => String(r.indicator || "").toLowerCase().includes("short");
@@ -883,8 +890,9 @@ export default function TvDashboard() {
             { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
               onClick: () => openStack({ title: "Total Parts", cards: true, columns: ["Category", "Parts"],
                 rows: next.category.map((c) => ({ cells: [c.name, fmtInt(c.value)],
-                  open: () => childList(c.name, next.crows.filter((r) => (r.category || "—") === c.name)) })) }) },
-            { label: "Stock Value", value: fmtMoney(value), color: C.green, real: value != null,
+                  open: () => childList(c.name, next.crows.filter((r) => (r.category || "Uncategorized") === c.name)) })) }) },
+            { label: "Stock Value", value: value ? fmtMoney(value) : "—", color: C.green, real: value != null,
+              note: value ? null : { text: "no stock qty yet", color: C.amber },
               onClick: () => openStack({ title: "Stock Value (high → low)", cards: true, columns: ["Part No", "Description", "Stock Value"],
                 rows: next.crows.filter((r) => r.total_value != null).sort((a, b) => b.total_value - a.total_value)
                   .map((r) => ({ cells: [r.part_no, r.part_name, fmtMoney(r.total_value)], open: () => childDetail(r) })) }) },
