@@ -145,7 +145,7 @@ function SupplierPerfView({ data, P }) {
                   <span style={{ color: C.green }}>● {s.on_time} On-Time</span>
                   <span style={{ color: C.amber }}>● {s.late} Late</span>
                   <span style={{ color: C.red }}>● {s.not_arrived} NA</span>
-                  <span className="ml-auto" style={{ color: P.dim }}>{s.windows} win</span>
+                  <span className="ml-auto" style={{ color: P.dim }}>{s.windows} windows</span>
                 </div>
               </div>
             </div>
