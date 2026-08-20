@@ -230,6 +230,20 @@ def _patch_schema():
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_erp_pushed_at ON spare_stock_ledger (erp_pushed_at)"))
         db.session.commit()
 
+    # `rgps` was first created with an earlier schema; the RGP model since moved
+    # to the ERP Pending-RGP columns (ven_cd, balance_qty, ...). create_all never
+    # ALTERs an existing table, so the old shape made every /rgp query 500. It is
+    # an empty, ERP-fed mirror, so when the old shape is detected (and the table
+    # is empty) drop it and rebuild it to the current model.
+    rgp_info = db.session.execute(text("PRAGMA table_info(rgps)")).fetchall()
+    rgp_cols = [row[1] for row in rgp_info]
+    if rgp_info and "ven_cd" not in rgp_cols and \
+            db.session.execute(text("SELECT COUNT(*) FROM rgps")).scalar() == 0:
+        db.session.execute(text("DROP TABLE rgps"))
+        db.session.commit()
+        from app.models.rgp import RGP
+        RGP.__table__.create(bind=db.engine, checkfirst=True)
+
 
 def _seed_stores():
     """Create the starting stores and put every untagged part in the child-part
