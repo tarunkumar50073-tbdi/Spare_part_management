@@ -235,12 +235,7 @@ function CategoryBreakdownView({ vm, P, onSelect }) {
         <div className="text-[2vh] font-bold" style={{ color: P.heading }}>{vm.catTitle || "Breakdown"}</div>
         <div className="text-[1.7vh] font-semibold" style={{ color: P.dim }}>{fmtInt(total)} parts · {cats.length} groups</div>
       </div>
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh]">
-        <div className="rounded-[1vh] p-[1.6vh] flex items-center justify-center"
-          style={{ background: `linear-gradient(180deg, ${P.panel}, ${P.panel2})`, border: `1px solid ${P.border}`, boxShadow: "0 0.5vh 1.4vh rgba(0,0,0,0.14)" }}>
-          <Donut data={cats} centerTop={fmtInt(total)} centerSub="Parts" p={P} animate />
-        </div>
-        <div className="grid grid-cols-1 gap-[1vh]">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-[1vh]">
           {cats.map((c, i) => {
             const pct = Math.round((c.value / total) * 100);
             return (
@@ -265,7 +260,6 @@ function CategoryBreakdownView({ vm, P, onSelect }) {
               </button>
             );
           })}
-        </div>
       </div>
     </div>
   );
@@ -644,14 +638,26 @@ function VehicleTimeline({ windows, p }) {
 }
 
 // One store's compact strip: header + KPI row + a chart row.
-function StoreStrip({ vm, p, animate, onOpen, onSupplierPerf, onDateView }) {
+function StoreStrip({ vm, p, animate, onOpen, onSearch, onSupplierPerf, onDateView }) {
   const total = vm.category.reduce((s, c) => s + c.value, 0);
   const tone = (real) => ({ text: real ? "live" : "demo", color: real ? C.green : p.dim });
+  const [sq, setSq] = useState("");
   return (
     <section className="flex flex-col min-h-0 gap-[0.8vh]" style={{ flex: "1 0 0" }}>
       <div className="flex items-center gap-[1vh] shrink-0">
         <span className="rounded-[0.6vh] px-[1.2vh] py-[0.4vh] text-[2vh] font-bold text-white" style={{ background: vm.accent }}>{vm.title}</span>
         <span className="text-[1.7vh]" style={{ color: p.muted }}>{fmtInt(vm.kpis.total)} parts</span>
+        {onSearch && (
+          <form className="ml-auto flex items-center gap-[0.6vh]" onSubmit={(e) => { e.preventDefault(); onSearch(sq); }}>
+            <div className="flex items-center rounded-[0.7vh] border px-[1vh]" style={{ background: p.panel, borderColor: p.border, height: "3.4vh" }}>
+              <span className="text-[1.7vh]" style={{ color: p.dim }}>🔍</span>
+              <input value={sq} onChange={(e) => setSq(e.target.value)} placeholder={`Search ${vm.title} part…`}
+                className="bg-transparent outline-none ml-[0.7vh] text-[1.6vh]" style={{ color: p.text, width: "19vh" }} />
+              {sq && <button type="button" onClick={() => setSq("")} className="text-[2vh] leading-none px-[0.4vh]" style={{ color: p.dim }}>×</button>}
+            </div>
+            <button type="submit" className="rounded-[0.7vh] px-[1.4vh] text-[1.6vh] font-semibold text-white" style={{ background: vm.accent, height: "3.4vh" }}>Go</button>
+          </form>
+        )}
       </div>
 
       <div className="flex gap-[0.8vh] min-h-0" style={{ flex: "38 0 0" }}>
@@ -737,6 +743,22 @@ export default function TvDashboard() {
   const popTo = (i) => setStack((s) => s.slice(0, i + 1));
   // A flat, single-level drill (no nesting) — rows are plain arrays of cells.
   const openDrill = (title, columns, rows) => setStack([{ title, columns, rows: rows.map((r) => ({ cells: r })) }]);
+
+  // Per-store part search — each split panel has its own box. Matches part no /
+  // name / old no / new no (case-insensitive), opens a drill of the hits whose
+  // rows go to that part's detail. `field`/`detail` differ per store, the rest
+  // is shared.
+  const runSearch = (query, { rows, title, qtyKey, statusKey, detail }) => {
+    const q = (query || "").trim();
+    if (!q) return;
+    const ql = q.toLowerCase();
+    const hit = (r) => `${r.part_no || ""} ${r.part_name || ""} ${r.old_part_no || ""} ${r.new_part_no || ""}`.toLowerCase().includes(ql);
+    const hits = (rows || []).filter(hit)
+      .map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r[qtyKey]), r[statusKey] || "—"], open: () => detail(r) }));
+    openStack({ title: `${title} — “${q}” · ${hits.length} found`, columns: ["Part No", "Description", "In Stock", "Status"], rows: hits });
+  };
+  const searchSpare = (query) => runSearch(query, { rows: spare.rows, title: "Spare search", qtyKey: "qty_on_hand", statusKey: "status", detail: spareDetail });
+  const searchChild = (query) => runSearch(query, { rows: child.crows, title: "Child search", qtyKey: "total_qty", statusKey: "indicator", detail: childDetail });
 
   // This month's per-supplier performance (how many times late / not-arrived),
   // fetched from the server. Falls back to today's view if the route isn't up
@@ -1009,9 +1031,9 @@ export default function TvDashboard() {
         </div>
       </header>
 
-      <StoreStrip vm={spare} p={P} animate={animate} onOpen={openStack} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
+      <StoreStrip vm={spare} p={P} animate={animate} onOpen={openStack} onSearch={searchSpare} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
       <div className="shrink-0 border-t" style={{ borderColor: P.border }} />
-      <StoreStrip vm={child} p={P} animate={animate} onOpen={openStack} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
+      <StoreStrip vm={child} p={P} animate={animate} onOpen={openStack} onSearch={searchChild} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
 
       {/* Nested drill as a FULL-SCREEN view — same theme as the board, a
           breadcrumb to walk back up, and clickable rows that go a level deeper. */}
