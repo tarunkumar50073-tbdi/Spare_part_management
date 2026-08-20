@@ -429,10 +429,7 @@ const DEMO_SPARE = {
     { name: "Pin", value: 52, color: C.amber }, { name: "Spring", value: 42, color: C.purple },
   ],
   status: { healthy: 210, short: 16, excess: 255 },
-  trend: [
-    { d: "07", qty: 8 }, { d: "08", qty: 12 }, { d: "09", qty: 6 }, { d: "10", qty: 14 },
-    { d: "11", qty: 7 }, { d: "12", qty: 9 }, { d: "13", qty: 5 },
-  ],
+  trend: [],
   lists: {},
 };
 const DEMO_CHILD = {
@@ -668,6 +665,7 @@ function StoreStrip({ vm, p, animate, onOpen, onSupplierPerf, onDateView }) {
           <Panel title="Rack Utilization" icon="🗄️" p={p}><RackGauge pct={vm.rackPct} p={p} /></Panel>
         ) : (
           <Panel title="Consumption Trend (7 Days)" icon="📉" p={p}>
+            {vm.trend && vm.trend.some((t) => t.qty > 0) ? (
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={vm.trend} margin={{ top: 6, right: 8, left: -22, bottom: -6 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={p.border} vertical={false} />
@@ -677,6 +675,12 @@ function StoreStrip({ vm, p, animate, onOpen, onSupplierPerf, onDateView }) {
                 <Line type="monotone" dataKey="qty" stroke={vm.accent} strokeWidth={2.5} dot={{ r: 3, fill: vm.accent }} isAnimationActive={animate} animationDuration={600} />
               </LineChart>
             </ResponsiveContainer>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-[0.6vh] text-center" style={{ color: p.dim }}>
+                <span className="text-[2.4vh]">📉</span>
+                <span className="text-[1.8vh]">No consumption data yet</span>
+              </div>
+            )}
           </Panel>
         )}
         {vm.windows && (
@@ -815,7 +819,7 @@ export default function TvDashboard() {
         // Punch / Pin / Spring / Rail Die part …).
         if (Array.isArray(list) && list.some((r) => r.sub_category)) next.category = toCatArray(
           list.reduce((m, r) => { const c = r.sub_category || "Uncategorised"; m[c] = (m[c] || 0) + 1; return m; }, {}));
-        if (Array.isArray(trend) && trend.some((t) => t.qty > 0)) next.trend = trend.map((t) => ({ d: t.d.slice(0, 2), qty: t.qty }));
+        if (Array.isArray(trend)) next.trend = trend.map((t) => ({ d: t.d.slice(0, 2), qty: t.qty }));
         next.rows = Array.isArray(list) ? list : (prev.rows || []);
         next.parts = next.rows;
         next.cards = [
