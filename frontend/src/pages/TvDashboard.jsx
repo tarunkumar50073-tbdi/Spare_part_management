@@ -354,6 +354,10 @@ function CardListView({ frame, P, onOpen }) {
   cols.forEach((c, j) => { if (numCol(c)) valIdx = j; });
   const numOf = (cell) => { const n = parseFloat(String(cell == null ? "" : cell).replace(/[^\d.-]/g, "")); return Number.isNaN(n) ? 0 : n; };
   const maxVal = valIdx >= 0 ? Math.max(1, ...rows.map((r) => numOf(r.cells[valIdx]))) : 0;
+  // The share bar only reads as meaningful where the value IS the point (a
+  // category count / stock value — bigger = longer). On a part list the Status
+  // pill is the real indicator, so a qty-vs-max bar there just confused; drop it.
+  const showBar = valIdx >= 0 && statusIdx < 0;
   return (
     <div className="p-[1.4vh]">
       <div className="mb-[1.2vh] text-[1.9vh]">
@@ -381,7 +385,7 @@ function CardListView({ frame, P, onOpen }) {
                   </div>
                   {sub && <div className="text-[1.6vh] truncate" style={{ color: P.muted }} title={String(sub)}>{sub}</div>}
                   <div className="mt-[0.7vh] flex items-center gap-[1vh]">
-                    {valIdx >= 0 && (
+                    {showBar && (
                       <div className="flex-1 h-[1vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
                         <div className="h-full" style={{ width: `${barPct}%`, background: accent, transition: "width .8s ease" }} />
                       </div>
