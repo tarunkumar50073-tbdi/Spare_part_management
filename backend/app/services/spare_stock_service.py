@@ -213,6 +213,10 @@ class SpareStockService:
 
         return {
             "part_id": part.id, "part_no": part.part_no, "part_name": part.part_name,
+            # old_part_no = the customer/OEM reference code (Part Master maps
+            # "reference code" -> old_part_no); carried so the dashboard can
+            # search + show parts by their reference code, not just the TBDI no.
+            "old_part_no": part.old_part_no, "new_part_no": part.new_part_no,
             "location": part.location, "rework_location": part.rework_location,
             "uom": part.uom, "section_id": part.section_id,
             # Business category (BOP / Import / …) and component type — carried so

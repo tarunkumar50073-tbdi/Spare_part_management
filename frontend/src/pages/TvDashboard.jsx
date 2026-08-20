@@ -163,12 +163,14 @@ const detailFrame = (title, pairs) => ({
   title, columns: ["Field", "Value"], rows: pairs.map(([k, v]) => ({ cells: [k, v] })),
 });
 const spareDetail = (r) => detailFrame(r.part_no, [
+  ...(r.old_part_no ? [["Old Part No (Reference)", r.old_part_no]] : []),
   ["Description", r.part_name], ["Part Type", r.sub_category || "—"],
   ["In Stock", fmtInt(r.qty_on_hand)], ["Min", fmtInt(r.min_stock_level)], ["Max", fmtInt(r.max_stock_level)],
   ["Rate", fmtMoney(r.unit_price)], ["Stock Value", fmtMoney(r.stock_value)],
   ["Status", r.status], ["Location", r.location || "—"],
 ]);
 const childDetail = (r) => detailFrame(r.part_no, [
+  ...(r.old_part_no ? [["Old Part No (Reference)", r.old_part_no]] : []),
   ["Description", r.part_name], ["Category", r.category || "—"],
   ["In Stock", fmtInt(r.total_qty)], ["Min", fmtInt(r.min_stock_level)], ["Max", fmtInt(r.max_stock_level)],
   ["Rate", fmtMoney(r.unit_price)], ["Stock Value", fmtMoney(r.total_value)],
@@ -176,11 +178,11 @@ const childDetail = (r) => detailFrame(r.part_no, [
 ]);
 const spareList = (title, rows) => ({
   title, cards: true, columns: ["Part No", "Description", "In Stock", "Status"],
-  rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.qty_on_hand), r.status], open: () => spareDetail(r) })),
+  rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.qty_on_hand), r.status], ref: r.old_part_no, open: () => spareDetail(r) })),
 });
 const childList = (title, rows) => ({
   title, cards: true, columns: ["Part No", "Description", "In Stock", "Status"],
-  rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.total_qty), r.indicator || "—"], open: () => childDetail(r) })),
+  rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.total_qty), r.indicator || "—"], ref: r.old_part_no, open: () => childDetail(r) })),
 });
 // Per-supplier window performance — who was On-Time / Late / Not-Arrived, worst
 // first. Drilling a supplier shows its own windows. (Today's windows; a
@@ -377,6 +379,7 @@ function CardListView({ frame, P, onOpen }) {
                     <span className="text-[1.9vh] font-bold truncate" style={{ color: P.heading }} title={String(r.cells[0])}>{r.cells[0]}</span>
                     {valIdx >= 0 && <span className="text-[2.1vh] font-black tabular-nums shrink-0" style={{ color: accent }}>{r.cells[valIdx]}</span>}
                   </div>
+                  {r.ref && <div className="text-[1.5vh] font-semibold truncate" style={{ color: P.dim }} title={`Reference / Old Part No: ${r.ref}`}>Ref: {r.ref}</div>}
                   {sub && <div className="text-[1.6vh] truncate" style={{ color: P.muted }} title={String(sub)}>{sub}</div>}
                   <div className="mt-[0.7vh] flex items-center gap-[1vh]">
                     {showBar && (
@@ -651,7 +654,7 @@ function StoreStrip({ vm, p, animate, onOpen, onSearch, onSupplierPerf, onDateVi
           <form className="ml-auto flex items-center gap-[0.6vh]" onSubmit={(e) => { e.preventDefault(); onSearch(sq); }}>
             <div className="flex items-center rounded-[0.7vh] border px-[1vh]" style={{ background: p.panel, borderColor: p.border, height: "3.4vh" }}>
               <span className="text-[1.7vh]" style={{ color: p.dim }}>🔍</span>
-              <input value={sq} onChange={(e) => setSq(e.target.value)} placeholder={`Search ${vm.title} part…`}
+              <input value={sq} onChange={(e) => setSq(e.target.value)} placeholder="Search part no / ref / name…"
                 className="bg-transparent outline-none ml-[0.7vh] text-[1.6vh]" style={{ color: p.text, width: "19vh" }} />
               {sq && <button type="button" onClick={() => setSq("")} className="text-[2vh] leading-none px-[0.4vh]" style={{ color: p.dim }}>×</button>}
             </div>
@@ -754,8 +757,8 @@ export default function TvDashboard() {
     const ql = q.toLowerCase();
     const hit = (r) => `${r.part_no || ""} ${r.part_name || ""} ${r.old_part_no || ""} ${r.new_part_no || ""}`.toLowerCase().includes(ql);
     const hits = (rows || []).filter(hit)
-      .map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r[qtyKey]), r[statusKey] || "—"], open: () => detail(r) }));
-    openStack({ title: `${title} — “${q}” · ${hits.length} found`, columns: ["Part No", "Description", "In Stock", "Status"], rows: hits });
+      .map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r[qtyKey]), r[statusKey] || "—"], ref: r.old_part_no, open: () => detail(r) }));
+    openStack({ title: `${title} — “${q}” · ${hits.length} found`, cards: true, columns: ["Part No", "Description", "In Stock", "Status"], rows: hits });
   };
   const searchSpare = (query) => runSearch(query, { rows: spare.rows, title: "Spare search", qtyKey: "qty_on_hand", statusKey: "status", detail: spareDetail });
   const searchChild = (query) => runSearch(query, { rows: child.crows, title: "Child search", qtyKey: "total_qty", statusKey: "indicator", detail: childDetail });
