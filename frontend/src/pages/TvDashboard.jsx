@@ -303,10 +303,16 @@ function IconBtn({ onClick, title, p, children, badge }) {
 function Panel({ title, children, p, onClick, icon }) {
   return (
     <div onClick={onClick}
-      className={`flex flex-col min-h-0 rounded-[0.7vh] border p-[0.9vh] ${onClick ? "cursor-pointer hover:brightness-[1.04] transition-[filter]" : ""}`}
-      style={{ background: p.panel, borderColor: p.border }}>
-      <h3 className="text-[1.8vh] font-semibold mb-[0.5vh] shrink-0 flex items-center justify-between gap-2" style={{ color: p.heading }}>
-        <span className="truncate">{icon ? `${icon} ` : ""}{title}</span>
+      className={`flex flex-col min-h-0 rounded-[0.9vh] border p-[0.9vh] ${onClick ? "cursor-pointer hover:brightness-[1.05] transition-[filter]" : ""}`}
+      style={{ background: `linear-gradient(180deg, ${p.panel}, ${p.panel2})`, borderColor: p.border, boxShadow: "0 0.5vh 1.4vh rgba(0,0,0,0.14)" }}>
+      <h3 className="text-[1.8vh] font-bold mb-[0.6vh] shrink-0 flex items-center justify-between gap-2" style={{ color: p.heading }}>
+        <span className="flex items-center gap-[0.7vh] min-w-0">
+          {icon && (
+            <span className="shrink-0 rounded-[0.6vh] flex items-center justify-center text-[1.9vh] leading-none"
+              style={{ width: "3vh", height: "3vh", background: p.panel2, border: `1px solid ${p.border}` }}>{icon}</span>
+          )}
+          <span className="truncate">{title}</span>
+        </span>
         {onClick && <span className="shrink-0" style={{ color: p.dim }}>›</span>}
       </h3>
       <div className="flex-1 min-h-0">{children}</div>
@@ -318,17 +324,22 @@ function MiniKpi({ label, value, color, note, onClick, p }) {
   const icon = KPI_ICON[label];
   return (
     <button type="button" onClick={onClick}
-      className="flex-1 min-w-0 text-left rounded-[0.7vh] border p-[0.9vh] flex flex-col justify-center transition-transform hover:-translate-y-[0.2vh]"
-      style={{ background: p.panel, borderColor: p.border, borderLeft: `0.5vh solid ${color}` }}>
+      className="flex-1 min-w-0 text-left rounded-[0.9vh] border p-[0.9vh] flex flex-col justify-center transition-transform hover:-translate-y-[0.3vh]"
+      style={{
+        background: `linear-gradient(135deg, ${color}24, ${p.panel} 62%)`,
+        borderColor: p.border, borderLeft: `0.55vh solid ${color}`,
+        boxShadow: `0 0.5vh 1.5vh ${color}26`,
+      }}>
       <div className="flex items-center justify-between gap-[0.6vh] min-w-0">
-        <p className="text-[1.6vh] truncate" style={{ color: p.muted }}>{label}</p>
+        <p className="text-[1.6vh] font-semibold truncate" style={{ color: p.muted }}>{label}</p>
         {icon && (
           <span className="shrink-0 rounded-full flex items-center justify-center text-[1.9vh] leading-none"
-            style={{ width: "3.4vh", height: "3.4vh", background: `${color}22` }}>{icon}</span>
+            style={{ width: "3.4vh", height: "3.4vh", background: `${color}30`, boxShadow: `0 0 0.9vh ${color}44` }}>{icon}</span>
         )}
       </div>
-      <p className="text-[3.1vh] font-extrabold leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ color: p.heading }}>{value}</p>
-      {note && <p className="text-[1.4vh] truncate" style={{ color: note.color || p.dim }}>{note.text}</p>}
+      <p className="text-[3.2vh] font-black leading-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums"
+        style={{ color, textShadow: `0 0 1.4vh ${color}40` }}>{value}</p>
+      {note && <p className="text-[1.4vh] font-medium truncate" style={{ color: note.color || p.dim }}>{note.text}</p>}
     </button>
   );
 }
