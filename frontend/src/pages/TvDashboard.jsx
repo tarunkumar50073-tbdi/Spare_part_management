@@ -44,6 +44,104 @@ const toCatArray = (obj) =>
   Object.entries(obj || {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
     .map(([name, value], i) => ({ name, value, color: PIE[i % PIE.length] }));
 
+// On-time% -> traffic-light colour, reused across the supplier-performance view.
+const pctColor = (p) => (p == null ? C.indigo : p >= 80 ? C.green : p >= 50 ? C.amber : C.red);
+
+// A glossy digital ring gauge (SVG, vh-scaled) with a soft colour glow.
+function Ring({ pct, color, P }) {
+  const r = 42, circ = 2 * Math.PI * r;
+  const off = circ * (1 - Math.max(0, Math.min(100, pct || 0)) / 100);
+  return (
+    <svg viewBox="0 0 100 100" style={{ width: "8.6vh", height: "8.6vh", filter: `drop-shadow(0 0 0.7vh ${color}55)` }}>
+      <circle cx="50" cy="50" r={r} fill="none" stroke={P.border} strokeWidth="9" />
+      <circle cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="9" strokeLinecap="round"
+        strokeDasharray={circ} strokeDashoffset={off} transform="rotate(-90 50 50)"
+        style={{ transition: "stroke-dashoffset 0.9s ease" }} />
+      <text x="50" y="53" dominantBaseline="central" textAnchor="middle" fill={P.heading} fontWeight="800" fontSize="23">
+        {pct == null ? "—" : `${Math.round(pct)}%`}
+      </text>
+    </svg>
+  );
+}
+
+// On-Time / Late / Not-Arrived proportions as one animated stacked bar.
+function StackedBar({ onTime, late, na }) {
+  const tot = Math.max(1, onTime + late + na);
+  const seg = (v, color) => (v > 0 ? <div style={{ width: `${(v / tot) * 100}%`, background: color, transition: "width .8s ease" }} /> : null);
+  return (
+    <div className="flex h-[1.3vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
+      {seg(onTime, C.green)}{seg(late, C.amber)}{seg(na, C.red)}
+    </div>
+  );
+}
+
+function PerfSummaryCard({ label, value, color, P, grad }) {
+  return (
+    <div className="rounded-[1vh] p-[1.3vh] flex flex-col gap-[0.6vh]"
+      style={{ background: grad || P.panel, border: `1px solid ${P.border}`, boxShadow: `0 0.4vh 1.3vh ${color}22` }}>
+      <div className="text-[1.5vh] font-semibold" style={{ color: P.muted }}>{label}</div>
+      <div className="text-[3.4vh] font-black tabular-nums leading-none" style={{ color }}>{value}</div>
+    </div>
+  );
+}
+
+// The colourful, digital drill for "Supplier Performance — this month": KPI
+// summary + a ring/gauge card per supplier (worst first), all theme-aware.
+function SupplierPerfView({ data, P }) {
+  const rows = data.rows || [];
+  const sum = rows.reduce((a, s) => ({
+    on_time: a.on_time + (s.on_time || 0), late: a.late + (s.late || 0), not_arrived: a.not_arrived + (s.not_arrived || 0),
+  }), { on_time: 0, late: 0, not_arrived: 0 });
+  const settled = sum.on_time + sum.late + sum.not_arrived;
+  const overall = settled ? Math.round((sum.on_time / settled) * 1000) / 10 : null;
+  return (
+    <div className="p-[1.5vh] space-y-[1.5vh]">
+      <div className="grid grid-cols-3 xl:grid-cols-6 gap-[1.2vh]">
+        <PerfSummaryCard label="Suppliers" value={fmtInt(rows.length)} color={C.blue} P={P} />
+        <PerfSummaryCard label="Windows" value={fmtInt(settled)} color={P.heading} P={P} />
+        <PerfSummaryCard label="On-Time" value={fmtInt(sum.on_time)} color={C.green} P={P} grad={`linear-gradient(135deg, ${C.green}26, ${P.panel})`} />
+        <PerfSummaryCard label="Late" value={fmtInt(sum.late)} color={C.amber} P={P} grad={`linear-gradient(135deg, ${C.amber}26, ${P.panel})`} />
+        <PerfSummaryCard label="Not Arrived" value={fmtInt(sum.not_arrived)} color={C.red} P={P} grad={`linear-gradient(135deg, ${C.red}26, ${P.panel})`} />
+        <div className="rounded-[1vh] p-[1vh] flex items-center gap-[1.1vh]"
+          style={{ background: P.panel, border: `1px solid ${P.border}`, boxShadow: `0 0.4vh 1.3vh ${pctColor(overall)}33` }}>
+          <Ring pct={overall} color={pctColor(overall)} P={P} />
+          <div className="leading-tight">
+            <div className="text-[1.6vh] font-semibold" style={{ color: P.muted }}>Overall</div>
+            <div className="text-[1.5vh]" style={{ color: P.dim }}>On-Time %</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.2vh]">
+        {rows.map((s, i) => {
+          const col = pctColor(s.on_time_pct);
+          const bad = s.late + s.not_arrived > s.on_time;
+          return (
+            <div key={i} className="rounded-[1vh] p-[1.3vh] flex items-center gap-[1.4vh]"
+              style={{ background: P.panel, border: `1px solid ${P.border}`, borderLeft: `0.55vh solid ${col}`, boxShadow: bad ? `0 0 1.5vh ${C.red}22` : "none" }}>
+              <Ring pct={s.on_time_pct} color={col} P={P} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-[0.9vh]">
+                  <span className="text-[1.5vh] font-bold flex items-center justify-center rounded-full shrink-0"
+                    style={{ width: "2.7vh", height: "2.7vh", background: `${col}26`, color: col }}>{i + 1}</span>
+                  <span className="text-[2vh] font-bold truncate" style={{ color: P.heading }} title={s.supplier}>{s.supplier}</span>
+                </div>
+                <div className="mt-[1vh]"><StackedBar onTime={s.on_time} late={s.late} na={s.not_arrived} /></div>
+                <div className="flex items-center gap-[1.4vh] mt-[1vh] text-[1.6vh] font-semibold tabular-nums">
+                  <span style={{ color: C.green }}>● {s.on_time} On-Time</span>
+                  <span style={{ color: C.amber }}>● {s.late} Late</span>
+                  <span style={{ color: C.red }}>● {s.not_arrived} NA</span>
+                  <span className="ml-auto" style={{ color: P.dim }}>{s.windows} win</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ---- nested drill frames ----
 // A frame is { title, columns, rows }; a row is { cells: [...], open?: () => Frame }.
 // A row with `open` is clickable and pushes the next (nested) level onto the stack.
@@ -435,6 +533,7 @@ export default function TvDashboard() {
           { label: "Late report · PDF", href: "/api/v1/supplier-window-schedules/late-report/export?format=pdf" },
           { label: "Window-Time sheet · Excel", href: "/api/v1/supplier-window-schedules/window-time-report" },
         ],
+        custom: <SupplierPerfView data={data} P={P} />,
         columns: ["Supplier", "Windows", "On-Time", "Late", "Not Arrived", "On-Time %"],
         rows: data.rows.map((s) => ({
           cells: [s.supplier, s.windows, s.on_time, s.late, s.not_arrived, s.on_time_pct != null ? `${s.on_time_pct}%` : "—"],
@@ -707,6 +806,7 @@ export default function TvDashboard() {
             </div>
           </header>
           <div className="flex-1 min-h-0 overflow-auto rounded-[0.8vh] border" style={{ background: P.panel, borderColor: P.border }}>
+            {stack[stack.length - 1].custom ? stack[stack.length - 1].custom : (
             <table className="w-full text-[1.9vh]">
               <thead>
                 <tr className="text-left sticky top-0" style={{ background: P.panel }}>
@@ -730,6 +830,7 @@ export default function TvDashboard() {
                 ))}
               </tbody>
             </table>
+            )}
           </div>
         </div>
       )}
