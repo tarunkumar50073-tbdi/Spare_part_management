@@ -383,7 +383,10 @@ class SupplierWindowScheduleService:
             s["on_time_pct"] = round(s["on_time"] / settled * 100, 1) if settled else None
         rows.sort(key=lambda s: (-(s["late"] + s["not_arrived"]),
                                  s["on_time_pct"] if s["on_time_pct"] is not None else 100))
-        return {"year": year, "month": month, "rows": rows}
+        # The last day actually judged (capped at the ERP data horizon), so the
+        # UI can say "through <date>" rather than implying the whole month is in.
+        judged_through = date(year, month, last_day).isoformat() if last_day > 0 else None
+        return {"year": year, "month": month, "judged_through": judged_through, "rows": rows}
 
     def get_status_for_date(self, target_date):
         """Public: the window-vs-arrival status list for any given date — who

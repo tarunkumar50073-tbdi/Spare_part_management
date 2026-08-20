@@ -94,8 +94,22 @@ function SupplierPerfView({ data, P }) {
   }), { on_time: 0, late: 0, not_arrived: 0 });
   const settled = sum.on_time + sum.late + sum.not_arrived;
   const overall = settled ? Math.round((sum.on_time / settled) * 1000) / 10 : null;
+  const monthLabel = new Date(data.year, (data.month || 1) - 1, 1).toLocaleString(undefined, { month: "long", year: "numeric" });
+  const through = data.judged_through
+    ? new Date(data.judged_through + "T00:00:00").toLocaleDateString(undefined, { day: "2-digit", month: "short" })
+    : null;
   return (
     <div className="p-[1.5vh] space-y-[1.5vh]">
+      {/* Scope: whole month, but only through the latest day ERP has data for. */}
+      <div className="flex items-center justify-between gap-[1.5vh] flex-wrap">
+        <div className="text-[1.8vh]">
+          <span className="font-bold" style={{ color: P.heading }}>{monthLabel}</span>
+          {through && (
+            <span style={{ color: P.muted }}> · through <span style={{ color: P.text }}>{through}</span> · <span style={{ color: C.amber }}>latest ERP data</span></span>
+          )}
+        </div>
+        <div className="text-[1.7vh] font-semibold" style={{ color: P.dim }}>{fmtInt(settled)} windows judged</div>
+      </div>
       <div className="grid grid-cols-3 xl:grid-cols-6 gap-[1.2vh]">
         <PerfSummaryCard label="Suppliers" value={fmtInt(rows.length)} color={C.blue} P={P} />
         <PerfSummaryCard label="Windows" value={fmtInt(settled)} color={P.heading} P={P} />
