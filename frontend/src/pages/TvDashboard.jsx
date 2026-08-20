@@ -224,8 +224,59 @@ const windowsFrame = (windows) => ({
   rows: windows.map((w) => ({ cells: [`${w.start}–${w.end}`, w.supplier, w.arrival || "—", w.status] })),
 });
 // The category donut's own drill: group -> that group's parts -> a part's detail.
-const categoryFrame = (vm) => ({
+// Colourful drill for the Stock-by-Part-Type / Stock-by-Category donut: a big
+// donut + a card per group (share bar + %), each clickable into its parts list.
+function CategoryBreakdownView({ vm, P, onSelect }) {
+  const cats = vm.category || [];
+  const total = cats.reduce((s, c) => s + c.value, 0) || 1;
+  return (
+    <div className="p-[1.5vh] space-y-[1.4vh]">
+      <div className="flex items-center justify-between gap-[1.5vh] flex-wrap">
+        <div className="text-[2vh] font-bold" style={{ color: P.heading }}>{vm.catTitle || "Breakdown"}</div>
+        <div className="text-[1.7vh] font-semibold" style={{ color: P.dim }}>{fmtInt(total)} parts · {cats.length} groups</div>
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh]">
+        <div className="rounded-[1vh] p-[1.6vh] flex items-center justify-center"
+          style={{ background: `linear-gradient(180deg, ${P.panel}, ${P.panel2})`, border: `1px solid ${P.border}`, boxShadow: "0 0.5vh 1.4vh rgba(0,0,0,0.14)" }}>
+          <Donut data={cats} centerTop={fmtInt(total)} centerSub="Parts" p={P} animate />
+        </div>
+        <div className="grid grid-cols-1 gap-[1vh]">
+          {cats.map((c, i) => {
+            const pct = Math.round((c.value / total) * 100);
+            return (
+              <button key={i} type="button"
+                onClick={() => onSelect(() => vm.listFn(c.name, (vm.parts || []).filter((r) => (r[vm.groupKey] || "—") === c.name)))}
+                className="text-left rounded-[1vh] p-[1.2vh] flex items-center gap-[1.2vh] transition-transform hover:-translate-y-[0.3vh]"
+                style={{ background: `linear-gradient(135deg, ${c.color}22, ${P.panel} 62%)`, border: `1px solid ${P.border}`, borderLeft: `0.55vh solid ${c.color}`, boxShadow: `0 0.4vh 1.3vh ${c.color}22` }}>
+                <span className="rounded-full shrink-0" style={{ width: "1.8vh", height: "1.8vh", background: c.color, boxShadow: `0 0 0.9vh ${c.color}66` }} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-[1vh]">
+                    <span className="text-[2vh] font-bold truncate" style={{ color: P.heading }} title={c.name}>{c.name}</span>
+                    <span className="text-[2.3vh] font-black tabular-nums shrink-0" style={{ color: c.color }}>{fmtInt(c.value)}</span>
+                  </div>
+                  <div className="mt-[0.8vh] flex items-center gap-[1vh]">
+                    <div className="flex-1 h-[1.2vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
+                      <div className="h-full" style={{ width: `${pct}%`, background: c.color, transition: "width .8s ease" }} />
+                    </div>
+                    <span className="text-[1.6vh] font-semibold tabular-nums shrink-0" style={{ color: P.muted }}>{pct}%</span>
+                  </div>
+                </div>
+                <span className="shrink-0 text-[2vh]" style={{ color: P.dim }}>›</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const categoryFrame = (vm, P) => ({
   title: vm.catTitle || "Stock by Category",
+  custom: (push) => (
+    <CategoryBreakdownView vm={vm} P={P}
+      onSelect={async (openFn) => { const f = await openFn(); if (f) push(f); }} />
+  ),
   columns: [vm.catTitle === "Stock by Part Type" ? "Part Type" : "Category", "Parts"],
   rows: (vm.category || []).map((c) => ({
     cells: [c.name, fmtInt(c.value)],
@@ -475,7 +526,7 @@ function StoreStrip({ vm, p, animate, onOpen, onSupplierPerf, onDateView }) {
       </div>
 
       <div className={`grid ${vm.windows ? "grid-cols-4" : "grid-cols-3"} gap-[0.8vh] min-h-0`} style={{ flex: "62 0 0" }}>
-        <Panel title={vm.catTitle || "Stock by Category"} icon="🍩" p={p} onClick={() => onOpen(categoryFrame(vm))}>
+        <Panel title={vm.catTitle || "Stock by Category"} icon="🍩" p={p} onClick={() => onOpen(categoryFrame(vm, p))}>
           <Donut data={vm.category} centerTop={fmtInt(total)} centerSub="Parts" p={p} animate={animate} />
         </Panel>
         <Panel title="Stock Health" icon="🩺" p={p}>
@@ -831,7 +882,11 @@ export default function TvDashboard() {
             </div>
           </header>
           <div className="flex-1 min-h-0 overflow-auto rounded-[0.8vh] border" style={{ background: P.panel, borderColor: P.border }}>
-            {stack[stack.length - 1].custom ? stack[stack.length - 1].custom : (
+            {stack[stack.length - 1].custom ? (
+              typeof stack[stack.length - 1].custom === "function"
+                ? stack[stack.length - 1].custom(pushFrame)
+                : stack[stack.length - 1].custom
+            ) : (
             <table className="w-full text-[1.9vh]">
               <thead>
                 <tr className="text-left sticky top-0" style={{ background: P.panel }}>
