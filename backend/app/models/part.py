@@ -68,6 +68,15 @@ class Part(BaseModel):
     daily_consumption = db.Column(db.Numeric(12, 2), nullable=True)
     unit_price = db.Column(db.Numeric(12, 2), nullable=True)  # for Quarterly Inventory gap value
 
+    # Rack / coverage planning fields from the BOP bin-stock sheet
+    # ("NEW BOP PART SHEET"), Excel-uploaded per the child part master.
+    no_of_row = db.Column(db.Numeric(10, 2), nullable=True)
+    no_of_pallet = db.Column(db.Numeric(10, 2), nullable=True)
+    store_rack_capacity = db.Column(db.Numeric(14, 2), nullable=True)      # bin qty per store rack
+    total_store_rack_qty = db.Column(db.Numeric(14, 2), nullable=True)     # capacity * rows
+    monthly_peak_schedule_qty = db.Column(db.Numeric(14, 2), nullable=True)
+    reck_covg_days = db.Column(db.Numeric(10, 2), nullable=True)           # rack coverage = total rack qty / per-day peak
+
     # Set/cleared by COVService.refresh_since_tracking() whenever a Daily
     # Stock Count submission changes this part's status — powers "Short
     # Since"/"Excess Since"/"Days In Excess" without a scheduled job.

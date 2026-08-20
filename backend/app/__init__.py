@@ -204,6 +204,13 @@ def _patch_schema():
             db.session.execute(text(f"ALTER TABLE parts ADD COLUMN {col} VARCHAR(40)"))
             db.session.commit()
 
+    # BOP bin-stock sheet planning fields (added with the child part-master import).
+    for col in ("no_of_row", "no_of_pallet", "store_rack_capacity", "total_store_rack_qty",
+                "monthly_peak_schedule_qty", "reck_covg_days"):
+        if col not in part_cols:
+            db.session.execute(text(f"ALTER TABLE parts ADD COLUMN {col} NUMERIC(14, 2)"))
+            db.session.commit()
+
     srv_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(srvs)")).fetchall()]
     if srv_cols and "gate_out_time" not in srv_cols:
         db.session.execute(text("ALTER TABLE srvs ADD COLUMN gate_out_time DATETIME"))
