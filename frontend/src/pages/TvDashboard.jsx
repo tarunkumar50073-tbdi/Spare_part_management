@@ -271,6 +271,79 @@ function CategoryBreakdownView({ vm, P, onSelect }) {
   );
 }
 
+// Status text -> traffic-light colour, for the list-drill pills.
+const STATUS_COLOR = {
+  short: C.red, "not arrived": C.red, critical: C.red, out: C.red, rejected: C.red, overdue: C.red,
+  excess: C.amber, late: C.amber, pending: C.amber, "pending arrival": C.amber, warning: C.amber, hold: C.amber,
+  healthy: C.green, ok: C.green, "on-time": C.green, "in stock": C.green, transferred: C.green, consumed: C.green, accepted: C.green, cleared: C.green,
+};
+const statusColorOf = (v) => STATUS_COLOR[String(v == null ? "" : v).trim().toLowerCase()];
+function statusPill(val, P) {  // eslint-disable-line no-unused-vars
+  const color = statusColorOf(val);
+  if (!color) return val;
+  return (
+    <span className="inline-flex items-center gap-[0.6vh] rounded-full px-[1.1vh] py-[0.3vh] text-[1.6vh] font-semibold"
+      style={{ background: `${color}22`, color }}>
+      <span className="rounded-full" style={{ width: "0.9vh", height: "0.9vh", background: color }} />{val}
+    </span>
+  );
+}
+const numCol = (label) => /stock|parts|value|qty|days|arrived|\blate\b|on-time|count|total|balance|receipt|accept|reject|closing/i.test(String(label || ""));
+
+// Premium/digital table for the list drills (KPI tiles, category parts, by-date):
+// a summary strip (row count + status breakdown), an uppercase sticky header, and
+// colour-coded status pills + right-aligned bold numbers.
+function TableDrill({ frame, P, onOpen }) {
+  const cols = frame.columns || [];
+  const rows = frame.rows || [];
+  const statusIdx = cols.findIndex((c) => /status/i.test(c));
+  const counts = {};
+  if (statusIdx >= 0) rows.forEach((r) => { const v = String(r.cells[statusIdx] ?? "").trim(); if (v) counts[v] = (counts[v] || 0) + 1; });
+  return (
+    <div>
+      <div className="flex items-center gap-[1.5vh] flex-wrap px-[1.6vh] py-[1.1vh] border-b" style={{ borderColor: P.border, background: P.panel2 }}>
+        <span className="text-[2vh] font-black tabular-nums" style={{ color: P.heading }}>{fmtInt(rows.length)}</span>
+        <span className="text-[1.7vh]" style={{ color: P.muted }}>rows</span>
+        {Object.entries(counts).map(([s, n]) => {
+          const col = statusColorOf(s) || P.dim;
+          return (
+            <span key={s} className="inline-flex items-center gap-[0.6vh] text-[1.7vh] font-semibold tabular-nums" style={{ color: col }}>
+              <span className="rounded-full" style={{ width: "1vh", height: "1vh", background: col }} />{s} {n}
+            </span>
+          );
+        })}
+      </div>
+      <table className="w-full text-[1.9vh]">
+        <thead>
+          <tr className="text-left sticky top-0 z-10" style={{ background: P.panel2 }}>
+            {cols.map((c) => (
+              <th key={c} className={`py-[1.3vh] px-[1.6vh] text-[1.5vh] font-bold uppercase tracking-wide border-b ${numCol(c) ? "text-right" : ""}`}
+                style={{ color: P.dim, borderColor: P.border }}>{c}</th>
+            ))}
+            <th className="border-b" style={{ borderColor: P.border }} />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr><td colSpan={cols.length + 1} className="py-[5vh] text-center" style={{ color: P.dim }}>No rows</td></tr>
+          ) : rows.map((r, i) => (
+            <tr key={i} onClick={r.open ? () => onOpen(r.open) : undefined}
+              className={r.open ? "cursor-pointer hover:bg-[#8080801f]" : ""}>
+              {r.cells.map((cell, j) => (
+                <td key={j} className={`py-[1.2vh] px-[1.6vh] border-t ${numCol(cols[j]) ? "text-right tabular-nums font-semibold" : ""}`}
+                  style={{ color: P.text, borderColor: P.border }}>
+                  {j === statusIdx ? statusPill(cell, P) : cell}
+                </td>
+              ))}
+              <td className="text-right px-[1.4vh] border-t" style={{ color: P.dim, borderColor: P.border }}>{r.open ? "›" : ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 const categoryFrame = (vm, P) => ({
   title: vm.catTitle || "Stock by Category",
   custom: (push) => (
@@ -887,29 +960,8 @@ export default function TvDashboard() {
                 ? stack[stack.length - 1].custom(pushFrame)
                 : stack[stack.length - 1].custom
             ) : (
-            <table className="w-full text-[1.9vh]">
-              <thead>
-                <tr className="text-left sticky top-0" style={{ background: P.panel }}>
-                  {stack[stack.length - 1].columns.map((c) => (
-                    <th key={c} className="py-[1.3vh] px-[1.6vh] font-semibold border-b" style={{ color: P.dim, borderColor: P.border }}>{c}</th>
-                  ))}
-                  <th className="border-b" style={{ borderColor: P.border }} />
-                </tr>
-              </thead>
-              <tbody>
-                {stack[stack.length - 1].rows.length === 0 ? (
-                  <tr><td colSpan={stack[stack.length - 1].columns.length + 1} className="py-[5vh] text-center" style={{ color: P.dim }}>No rows</td></tr>
-                ) : stack[stack.length - 1].rows.map((r, i) => (
-                  <tr key={i} onClick={r.open ? async () => { const f = await r.open(); if (f) pushFrame(f); } : undefined}
-                    className={r.open ? "cursor-pointer hover:bg-[#80808022]" : ""}>
-                    {r.cells.map((cell, j) => (
-                      <td key={j} className="py-[1.2vh] px-[1.6vh] border-t" style={{ color: P.text, borderColor: P.border }}>{cell}</td>
-                    ))}
-                    <td className="text-right px-[1.4vh] border-t" style={{ color: P.dim, borderColor: P.border }}>{r.open ? "›" : ""}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <TableDrill frame={stack[stack.length - 1]} P={P}
+              onOpen={async (openFn) => { const f = await openFn(); if (f) pushFrame(f); }} />
             )}
           </div>
         </div>
