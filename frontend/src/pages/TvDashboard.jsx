@@ -175,11 +175,11 @@ const childDetail = (r) => detailFrame(r.part_no, [
   ["Status", r.indicator || "—"], ["COV Days", r.cov_days ?? "—"],
 ]);
 const spareList = (title, rows) => ({
-  title, columns: ["Part No", "Description", "In Stock", "Status"],
+  title, cards: true, columns: ["Part No", "Description", "In Stock", "Status"],
   rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.qty_on_hand), r.status], open: () => spareDetail(r) })),
 });
 const childList = (title, rows) => ({
-  title, columns: ["Part No", "Description", "In Stock", "Status"],
+  title, cards: true, columns: ["Part No", "Description", "In Stock", "Status"],
   rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.total_qty), r.indicator || "—"], open: () => childDetail(r) })),
 });
 // Per-supplier window performance — who was On-Time / Late / Not-Arrived, worst
@@ -340,6 +340,61 @@ function TableDrill({ frame, P, onOpen }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Premium card grid for list drills (part lists, value lists, category counts):
+// one card per row — rank, title, sub, primary value + share bar + status pill.
+function CardListView({ frame, P, onOpen }) {
+  const cols = frame.columns || [];
+  const rows = frame.rows || [];
+  const statusIdx = cols.findIndex((c) => /status/i.test(c));
+  let valIdx = -1;
+  cols.forEach((c, j) => { if (numCol(c)) valIdx = j; });
+  const numOf = (cell) => { const n = parseFloat(String(cell == null ? "" : cell).replace(/[^\d.-]/g, "")); return Number.isNaN(n) ? 0 : n; };
+  const maxVal = valIdx >= 0 ? Math.max(1, ...rows.map((r) => numOf(r.cells[valIdx]))) : 0;
+  return (
+    <div className="p-[1.4vh]">
+      <div className="mb-[1.2vh] text-[1.9vh]">
+        <span className="font-black tabular-nums" style={{ color: P.heading }}>{fmtInt(rows.length)}</span> <span style={{ color: P.muted }}>items</span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="py-[5vh] text-center" style={{ color: P.dim }}>No rows</div>
+      ) : (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1vh]">
+          {rows.map((r, i) => {
+            const status = statusIdx >= 0 ? r.cells[statusIdx] : null;
+            const accent = statusColorOf(status) || C.blue;
+            const barPct = valIdx >= 0 && maxVal ? Math.round((numOf(r.cells[valIdx]) / maxVal) * 100) : 0;
+            const sub = statusIdx !== 1 && valIdx !== 1 && r.cells[1] != null && r.cells[1] !== r.cells[0] ? r.cells[1] : null;
+            return (
+              <button key={i} type="button" onClick={r.open ? () => onOpen(r.open) : undefined}
+                className={`text-left rounded-[1vh] p-[1.2vh] flex items-center gap-[1.2vh] transition-transform ${r.open ? "hover:-translate-y-[0.3vh]" : ""}`}
+                style={{ background: `linear-gradient(135deg, ${accent}1c, ${P.panel} 60%)`, border: `1px solid ${P.border}`, borderLeft: `0.5vh solid ${accent}`, boxShadow: `0 0.4vh 1.2vh ${accent}1f` }}>
+                <span className="text-[1.5vh] font-bold flex items-center justify-center rounded-full shrink-0"
+                  style={{ width: "2.7vh", height: "2.7vh", background: `${accent}26`, color: accent }}>{i + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-[1vh]">
+                    <span className="text-[1.9vh] font-bold truncate" style={{ color: P.heading }} title={String(r.cells[0])}>{r.cells[0]}</span>
+                    {valIdx >= 0 && <span className="text-[2.1vh] font-black tabular-nums shrink-0" style={{ color: accent }}>{r.cells[valIdx]}</span>}
+                  </div>
+                  {sub && <div className="text-[1.6vh] truncate" style={{ color: P.muted }} title={String(sub)}>{sub}</div>}
+                  <div className="mt-[0.7vh] flex items-center gap-[1vh]">
+                    {valIdx >= 0 && (
+                      <div className="flex-1 h-[1vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
+                        <div className="h-full" style={{ width: `${barPct}%`, background: accent, transition: "width .8s ease" }} />
+                      </div>
+                    )}
+                    {status != null && String(status).trim() !== "" && <span className="shrink-0">{statusPill(status, P)}</span>}
+                  </div>
+                </div>
+                {r.open && <span className="shrink-0 text-[2vh]" style={{ color: P.dim }}>›</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -766,11 +821,11 @@ export default function TvDashboard() {
         next.cards = [
           // Total Parts -> part types -> that type's parts -> a part's detail.
           { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
-            onClick: () => openStack({ title: "Total Parts", columns: ["Part Type", "Parts"],
+            onClick: () => openStack({ title: "Total Parts", cards: true, columns: ["Part Type", "Parts"],
               rows: next.category.map((c) => ({ cells: [c.name, fmtInt(c.value)],
                 open: () => spareList(c.name, next.rows.filter((r) => (r.sub_category || "Uncategorised") === c.name)) })) }) },
           { label: "Stock Value", value: fmtMoney(sum?.stock_value), color: C.green, real: sum?.stock_value != null,
-            onClick: () => openStack({ title: "Stock Value (high → low)", columns: ["Part No", "Description", "Stock Value"],
+            onClick: () => openStack({ title: "Stock Value (high → low)", cards: true, columns: ["Part No", "Description", "Stock Value"],
               rows: next.rows.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value)
                 .map((r) => ({ cells: [r.part_no, r.part_name, fmtMoney(r.stock_value)], open: () => spareDetail(r) })) }) },
           { label: "Today's Consumption", value: fmtInt(today?.issued_qty), color: C.purple, real: today?.issued_qty != null,
@@ -826,11 +881,11 @@ export default function TvDashboard() {
           const isExcess = (r) => String(r.indicator || "").toLowerCase().includes("excess");
           next.cards = [
             { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
-              onClick: () => openStack({ title: "Total Parts", columns: ["Category", "Parts"],
+              onClick: () => openStack({ title: "Total Parts", cards: true, columns: ["Category", "Parts"],
                 rows: next.category.map((c) => ({ cells: [c.name, fmtInt(c.value)],
                   open: () => childList(c.name, next.crows.filter((r) => (r.category || "—") === c.name)) })) }) },
             { label: "Stock Value", value: fmtMoney(value), color: C.green, real: value != null,
-              onClick: () => openStack({ title: "Stock Value (high → low)", columns: ["Part No", "Description", "Stock Value"],
+              onClick: () => openStack({ title: "Stock Value (high → low)", cards: true, columns: ["Part No", "Description", "Stock Value"],
                 rows: next.crows.filter((r) => r.total_value != null).sort((a, b) => b.total_value - a.total_value)
                   .map((r) => ({ cells: [r.part_no, r.part_name, fmtMoney(r.total_value)], open: () => childDetail(r) })) }) },
             { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null,
@@ -959,6 +1014,9 @@ export default function TvDashboard() {
               typeof stack[stack.length - 1].custom === "function"
                 ? stack[stack.length - 1].custom(pushFrame)
                 : stack[stack.length - 1].custom
+            ) : stack[stack.length - 1].cards ? (
+              <CardListView frame={stack[stack.length - 1]} P={P}
+                onOpen={async (openFn) => { const f = await openFn(); if (f) pushFrame(f); }} />
             ) : (
             <TableDrill frame={stack[stack.length - 1]} P={P}
               onOpen={async (openFn) => { const f = await openFn(); if (f) pushFrame(f); }} />
