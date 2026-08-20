@@ -520,21 +520,28 @@ function MiniKpi({ label, value, color, note, onClick, p }) {
   );
 }
 
-function StatusBar({ healthy, short, excess, p }) {
+function StatusBar({ healthy, short, excess, p, onSelect }) {
   const total = (healthy || 0) + (short || 0) + (excess || 0) || 1;
-  const seg = (v, c) => (v > 0 ? <div style={{ width: `${(v / total) * 100}%`, background: c }} /> : null);
-  const Leg = ({ c, t, n }) => (
-    <span className="flex items-center gap-[0.5vh]" style={{ color: p.text }}>
+  const clickable = !!onSelect;
+  const seg = (v, c, sel) => (v > 0 ? (
+    <div onClick={clickable ? () => onSelect(sel) : undefined} title={clickable ? `${sel} (${v})` : undefined}
+      className={clickable ? "cursor-pointer hover:brightness-110 transition-[filter]" : ""}
+      style={{ width: `${(v / total) * 100}%`, background: c }} />
+  ) : null);
+  const Leg = ({ c, t, n, sel }) => (
+    <button type="button" onClick={clickable ? () => onSelect(sel) : undefined}
+      className={`flex items-center gap-[0.5vh] rounded-[0.5vh] px-[0.6vh] py-[0.2vh] ${clickable ? "cursor-pointer hover:bg-[#8080801f]" : ""}`}
+      style={{ color: p.text }}>
       <span className="rounded-full" style={{ width: "1.1vh", height: "1.1vh", background: c }} />{t} <b style={{ color: p.heading }}>{fmtInt(n)}</b>
-    </span>
+    </button>
   );
   return (
     <div className="flex flex-col h-full justify-center gap-[1.2vh]">
       <div className="flex h-[3.2vh] rounded-[0.5vh] overflow-hidden" style={{ background: p.panel2 }}>
-        {seg(healthy, C.green)}{seg(short, C.red)}{seg(excess, C.amber)}
+        {seg(healthy, C.green, "healthy")}{seg(short, C.red, "short")}{seg(excess, C.amber, "excess")}
       </div>
       <div className="flex flex-wrap gap-x-[1.6vh] gap-y-[0.5vh] text-[1.8vh]">
-        <Leg c={C.green} t="Healthy" n={healthy} /><Leg c={C.red} t="Short" n={short} /><Leg c={C.amber} t="Excess" n={excess} />
+        <Leg c={C.green} t="Healthy" n={healthy} sel="healthy" /><Leg c={C.red} t="Short" n={short} sel="short" /><Leg c={C.amber} t="Excess" n={excess} sel="excess" />
       </div>
     </div>
   );
@@ -655,7 +662,8 @@ function StoreStrip({ vm, p, animate, onOpen, onSupplierPerf, onDateView }) {
           <Donut data={vm.category} centerTop={fmtInt(total)} centerSub="Parts" p={p} animate={animate} />
         </Panel>
         <Panel title="Stock Health" icon="🩺" p={p}>
-          <StatusBar healthy={vm.status.healthy} short={vm.status.short} excess={vm.status.excess} p={p} />
+          <StatusBar healthy={vm.status.healthy} short={vm.status.short} excess={vm.status.excess} p={p}
+            onSelect={vm.health ? (sel) => vm.health[sel] && onOpen(vm.health[sel]) : undefined} />
         </Panel>
         {vm.supplierPerf ? (
           <Panel title="Supplier Performance (Windows)" icon="🚚" p={p} onClick={() => onSupplierPerf(vm.windows || [])}>
@@ -822,6 +830,11 @@ export default function TvDashboard() {
         if (Array.isArray(trend)) next.trend = trend.map((t) => ({ d: t.d.slice(0, 2), qty: t.qty }));
         next.rows = Array.isArray(list) ? list : (prev.rows || []);
         next.parts = next.rows;
+        next.health = {
+          short: spareList("Short — below minimum", next.rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock")),
+          excess: spareList("Excess — above maximum", next.rows.filter((r) => r.status === "Above Maximum")),
+          healthy: spareList("Healthy parts", next.rows.filter((r) => r.status !== "Below Minimum" && r.status !== "Out of Stock" && r.status !== "Above Maximum")),
+        };
         next.cards = [
           // Total Parts -> part types -> that type's parts -> a part's detail.
           { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
@@ -890,6 +903,11 @@ export default function TvDashboard() {
           next.parts = next.crows;
           const isShort = (r) => String(r.indicator || "").toLowerCase().includes("short");
           const isExcess = (r) => String(r.indicator || "").toLowerCase().includes("excess");
+          next.health = {
+            healthy: childList("Healthy parts", next.crows.filter((r) => !isShort(r) && !isExcess(r))),
+            short: childList("Short parts", next.crows.filter(isShort)),
+            excess: childList("Excess parts", next.crows.filter(isExcess)),
+          };
           next.cards = [
             { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
               onClick: () => openStack({ title: "Total Parts", cards: true, columns: ["Category", "Parts"],
