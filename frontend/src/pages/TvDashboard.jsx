@@ -8,6 +8,7 @@ import { spareStockService } from "../services/spareStockService.js";
 import { storeDashboardService } from "../services/storeDashboardService.js";
 import { supplierWindowScheduleService } from "../services/supplierWindowScheduleService.js";
 import { rgpService } from "../services/rgpService.js";
+import { storeService } from "../services/storeService.js";
 
 // A full-screen wallboard for a 53" LED — no menu, no scroll, fluid 16:9. Split
 // top/bottom: the Spare Parts store on top, the Child Parts store below, each a
@@ -725,6 +726,10 @@ export default function TvDashboard() {
   const [dark, setDark] = useState(false); // default to Day (light) on the LED
   const [animate, setAnimate] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
+  // The Live board honours stores.is_active: when the Child Parts store is
+  // disabled it drops off the board and Spare goes full-screen. Default true
+  // (fail-open) so a failed stores fetch never hides an active store.
+  const [childActive, setChildActive] = useState(true);
   const P = dark ? THEMES.dark : THEMES.light;
 
   // Charts animate once on open, then freeze — so the 30s auto-refresh doesn't
@@ -823,6 +828,18 @@ export default function TvDashboard() {
     const on = () => setIsFs(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", on);
     return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
+
+  // Honour stores.is_active: only show the Child half while its store is active.
+  // Re-checked on the data cadence so toggling the flag reflects without a reload.
+  useEffect(() => {
+    let alive = true;
+    const check = () => storeService.list()
+      .then((r) => { if (alive) setChildActive((r.data.data || []).some((s) => s.code === "CHILD_PART")); })
+      .catch(() => {});
+    check();
+    const id = setInterval(check, REFRESH_MS);
+    return () => { alive = false; clearInterval(id); };
   }, []);
 
   // Spare Parts store — from the spare-stock API.
@@ -1007,7 +1024,7 @@ export default function TvDashboard() {
             <Layers style={{ width: "2.8vh", height: "2.8vh", color: C.blue }} />
             <div className="min-w-0">
               <h1 className="text-[3.1vh] font-extrabold leading-tight" style={{ color: P.heading }}>Part Store — Live Dashboard</h1>
-              <p className="text-[1.7vh]" style={{ color: P.muted }}>Spare Parts &amp; Child Parts · real-time</p>
+              <p className="text-[1.7vh]" style={{ color: P.muted }}>{childActive ? "Spare Parts & Child Parts" : "Spare Parts"} · real-time</p>
             </div>
           </div>
         </div>
@@ -1020,9 +1037,9 @@ export default function TvDashboard() {
             <span className="text-[1.9vh] tabular-nums" style={{ color: P.text }}>{clock}</span>
           </div>
           <IconBtn onClick={() => openDrill("Alerts", ["Store", "Alert"], [
-            ...["Spare"].flatMap(() => [[`Spare`, `${spare.status.short} short · ${spare.status.excess} excess`]]),
-            [`Child`, `${child.status.short} short · ${child.status.excess} excess`],
-          ])} title="Alerts" p={P} badge={(spare.status.short || 0) + (child.status.short || 0)}>
+            [`Spare`, `${spare.status.short} short · ${spare.status.excess} excess`],
+            ...(childActive ? [[`Child`, `${child.status.short} short · ${child.status.excess} excess`]] : []),
+          ])} title="Alerts" p={P} badge={(spare.status.short || 0) + (childActive ? (child.status.short || 0) : 0)}>
             <Bell style={{ width: "2.2vh", height: "2.2vh" }} />
           </IconBtn>
           <IconBtn onClick={() => setDark((d) => !d)} title={dark ? "Switch to light" : "Switch to dark"} p={P}>
@@ -1035,8 +1052,12 @@ export default function TvDashboard() {
       </header>
 
       <StoreStrip vm={spare} p={P} animate={animate} onOpen={openStack} onSearch={searchSpare} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
-      <div className="shrink-0 border-t" style={{ borderColor: P.border }} />
-      <StoreStrip vm={child} p={P} animate={animate} onOpen={openStack} onSearch={searchChild} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
+      {childActive && (
+        <>
+          <div className="shrink-0 border-t" style={{ borderColor: P.border }} />
+          <StoreStrip vm={child} p={P} animate={animate} onOpen={openStack} onSearch={searchChild} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
+        </>
+      )}
 
       {/* Nested drill as a FULL-SCREEN view — same theme as the board, a
           breadcrumb to walk back up, and clickable rows that go a level deeper. */}
