@@ -28,7 +28,8 @@ export const spareStockService = {
   traceability: (partId) => api.get(`/spare-stock/traceability/${partId}`),
   forPart: (partId) => api.get(`/spare-stock/parts/${partId}`),
   setQuantity: (partId, payload) => api.put(`/spare-stock/parts/${partId}`, payload),
-  history: (partId, limit) => api.get(`/spare-stock/parts/${partId}/history`, { params: { limit } }),
+  history: (partId, limit, filters = {}) =>
+    api.get(`/spare-stock/parts/${partId}/history`, { params: { limit, ...filters } }),
   // ERP-vs-Physical gap: ERP from the feed, physical from this store's own count.
   erpGap: (storeCode, params = {}) =>
     api.get("/spare-stock/erp-gap", { params: { store_code: storeCode, ...params } }),

@@ -1,0 +1,167 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { useStores } from "../context/StoreContext.jsx";
+import { barcodeService } from "../services/barcodeService.js";
+import { spareStockService } from "../services/spareStockService.js";
+import { departmentService } from "../services/departmentService.js";
+
+// Standalone, filterable Complete Part History (spec §15) — search or scan a
+// part, then see its full chronological ledger (with the two-stage issue detail
+// the old view dropped) plus its location-move trail. Filters: txn type,
+// department, machine (server-side) and date range (client-side).
+const TXN_TYPES = ["", "ISSUE", "RECEIPT", "RETURN", "OPENING", "ADJUSTMENT"];
+const fmt = (v) => (v == null || v === "" ? "—" : v);
+
+export default function SparePartHistory() {
+  const { activeCode } = useStores();
+  const storeCode = activeCode || "MAINTENANCE";
+
+  const [query, setQuery] = useState("");
+  const [part, setPart] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [locs, setLocs] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [filters, setFilters] = useState({ txn_type: "", department: "", machine: "", from: "", to: "" });
+
+  useEffect(() => {
+    departmentService.list(true).then((r) => setDepartments(r.data.data || [])).catch(() => {});
+  }, []);
+
+  const loadHistory = async (partId, f = filters) => {
+    const [h, l] = await Promise.all([
+      spareStockService.history(partId, 500, {
+        txn_type: f.txn_type || undefined, department: f.department || undefined, machine: f.machine || undefined,
+      }),
+      spareStockService.locationHistory(partId),
+    ]);
+    setRows(h.data.data || []);
+    setLocs(l.data.data || []);
+  };
+
+  const find = async () => {
+    const q = query.trim();
+    if (!q) return;
+    setBusy(true);
+    try {
+      const r = await barcodeService.resolve(storeCode, q, { scanMode: "HISTORY" });
+      setPart(r.data.data);
+      await loadHistory(r.data.data.part_id);
+    } catch {
+      setPart(null); setRows([]); setLocs([]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyFilters = async () => {
+    if (!part) return;
+    setBusy(true);
+    try { await loadHistory(part.part_id); } finally { setBusy(false); }
+  };
+
+  // Date range is applied client-side over the fetched rows.
+  const shown = useMemo(() => rows.filter((r) => {
+    if (!r.at) return true;
+    const d = r.at.slice(0, 10);
+    if (filters.from && d < filters.from) return false;
+    if (filters.to && d > filters.to) return false;
+    return true;
+  }), [rows, filters.from, filters.to]);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Part History</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Scan or type a Part No. to see its complete movement + location history.</p>
+      </div>
+
+      <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
+        <div className="flex gap-2">
+          <input value={query} onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); find(); } }}
+            placeholder="e.g. CNTR2025" className="input-field flex-1 text-lg" />
+          <button className="btn-primary px-6" onClick={find} disabled={busy}>Find</button>
+        </div>
+      </div>
+
+      {part && (
+        <>
+          <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-lg font-bold text-slate-900 dark:text-white">{part.part_no}</div>
+                <div className="text-sm text-slate-500 dark:text-slate-400">{part.part_name}</div>
+              </div>
+            </div>
+
+            {/* filters */}
+            <div className="mb-3 flex flex-wrap gap-2">
+              <select value={filters.txn_type} onChange={(e) => setFilters((f) => ({ ...f, txn_type: e.target.value }))} className="input-field text-sm">
+                {TXN_TYPES.map((t) => <option key={t} value={t}>{t || "All types"}</option>)}
+              </select>
+              <select value={filters.department} onChange={(e) => setFilters((f) => ({ ...f, department: e.target.value }))} className="input-field text-sm">
+                <option value="">All departments</option>
+                {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+              </select>
+              <input value={filters.machine} onChange={(e) => setFilters((f) => ({ ...f, machine: e.target.value }))} placeholder="Machine" className="input-field text-sm" />
+              <input type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} className="input-field text-sm" />
+              <input type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} className="input-field text-sm" />
+              <button className="btn-secondary" onClick={applyFilters} disabled={busy}>Apply</button>
+            </div>
+
+            <div className="overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-xs uppercase text-slate-400">
+                  <tr>
+                    <th className="py-1">When</th><th>Type</th><th>Qty</th><th>Bal</th>
+                    <th>Dept / To</th><th>Line / Machine</th><th>Status</th><th>Ref</th><th>By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((h) => (
+                    <tr key={h.id} className="border-t border-slate-100 dark:border-navy-800">
+                      <td className="py-1 tabular-nums whitespace-nowrap">{h.at ? new Date(h.at).toLocaleString("en-GB") : "—"}</td>
+                      <td>{h.txn_type}</td>
+                      <td className="tabular-nums">{h.qty_delta}</td>
+                      <td className="tabular-nums">{h.balance_after}</td>
+                      <td>{fmt(h.department)}{h.issued_to ? ` / ${h.issued_to}` : ""}</td>
+                      <td>{fmt(h.line_name)}{h.machine ? ` / ${h.machine}` : ""}</td>
+                      <td>{fmt(h.status)}</td>
+                      <td>{fmt(h.reference || h.invoice_no)}</td>
+                      <td>{fmt(h.created_by || h.confirmed_by)}</td>
+                    </tr>
+                  ))}
+                  {shown.length === 0 && (
+                    <tr><td colSpan={9} className="py-6 text-center text-slate-400">No movements match.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
+            <div className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Location history</div>
+            {locs.length === 0 ? (
+              <p className="text-sm text-slate-400">No location moves recorded.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="text-left text-xs uppercase text-slate-400">
+                  <tr><th className="py-1">When</th><th>From</th><th>To</th><th>Reason</th><th>By</th></tr>
+                </thead>
+                <tbody>
+                  {locs.map((l) => (
+                    <tr key={l.id} className="border-t border-slate-100 dark:border-navy-800">
+                      <td className="py-1 tabular-nums whitespace-nowrap">{l.at ? new Date(l.at).toLocaleString("en-GB") : "—"}</td>
+                      <td>{fmt(l.old_location)}</td><td>{fmt(l.new_location)}</td>
+                      <td>{fmt(l.reason)}</td><td>{fmt(l.moved_by)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

@@ -14,6 +14,8 @@ import PartMaster from "./pages/PartMaster.jsx";
 import SpareStock from "./pages/SpareStock.jsx";
 import ScanPart from "./pages/ScanPart.jsx";
 import SupplierBarcodeMapping from "./pages/SupplierBarcodeMapping.jsx";
+import ScanAudit from "./pages/ScanAudit.jsx";
+import SparePartHistory from "./pages/SparePartHistory.jsx";
 import SupplierMaster from "./pages/SupplierMaster.jsx";
 import StockCount from "./pages/StockCount.jsx";
 import RackBinMaster from "./pages/RackBinMaster.jsx";
@@ -88,6 +90,8 @@ function AuthenticatedApp() {
           <Route path="/store-stock-spare" element={<SpareStock />} />
           <Route path="/scan-part" element={<ScanPart />} />
           <Route path="/supplier-barcodes" element={<SupplierBarcodeMapping />} />
+          <Route path="/scan-audit" element={<ScanAudit />} />
+          <Route path="/spare-part-history" element={<SparePartHistory />} />
           <Route path="/spare-erp-gap" element={<SpareErpGap />} />
           <Route path="/suppliers" element={<SupplierMaster />} />
           <Route path="/stock-count" element={<StockCount />} />

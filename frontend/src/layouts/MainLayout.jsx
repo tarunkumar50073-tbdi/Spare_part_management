@@ -14,6 +14,8 @@ const TITLES = {
   "/store-stock": "Store Stock",
   "/scan-part": "Scan Part",
   "/supplier-barcodes": "Supplier Barcode Mapping",
+  "/scan-audit": "Scan Audit",
+  "/spare-part-history": "Part History",
   "/reports": "Reports",
   "/audit-trail": "Audit Trail",
   "/parts": "Part Master",

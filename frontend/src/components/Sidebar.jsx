@@ -94,6 +94,7 @@ const NAV_BY_STORE = {
       items: [
         { to: "/scan-part", label: "Scan Part", emoji: "📷" },
         { to: "/store-stock-spare", label: "Store Stock", emoji: "📦" },
+        { to: "/spare-part-history", label: "Part History", emoji: "📜" },
         { to: "/spare-erp-gap", label: "ERP vs Physical Gap", emoji: "⚖️" },
       ],
     },
@@ -102,6 +103,7 @@ const NAV_BY_STORE = {
       items: [
         { to: "/parts", label: "Part Master", emoji: "🔩" },
         { to: "/supplier-barcodes", label: "Supplier Barcodes", emoji: "🏷️" },
+        { to: "/scan-audit", label: "Scan Audit", emoji: "🧾" },
         { to: "/departments", label: "Department Emails", emoji: "✉️" },
       ],
     },
