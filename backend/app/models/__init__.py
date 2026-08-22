@@ -33,6 +33,9 @@ from app.models.pending_grn import PendingGRN
 from app.models.stock_valuation import StockValuation
 from app.models.report_recipient import ReportRecipient
 from app.models.mail_send_log import MailSendLog
+from app.models.part_barcode import PartBarcode
+from app.models.scan_audit import ScanAudit
+from app.models.label_print_audit import LabelPrintAudit
 
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",
@@ -43,4 +46,5 @@ __all__ = [
     "ReceivingRegister", "GateEntry", "GateExit",
     "CurrentStock", "PendingGRN", "StockValuation",
     "ReportRecipient", "MailSendLog",
+    "PartBarcode", "ScanAudit", "LabelPrintAudit",
 ]

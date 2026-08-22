@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { Pencil, Trash2, Search } from "lucide-react";
+import { Pencil, Trash2, Search, Printer } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
 import UploadReportModal from "../components/UploadReportModal.jsx";
+import PrintBarcodeModal from "../components/PrintBarcodeModal.jsx";
 import { partService } from "../services/partService.js";
 import { supplierService } from "../services/supplierService.js";
+import { barcodeService } from "../services/barcodeService.js";
 import { useStoreCategories } from "../constants/categories.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { downloadFile } from "../utils/download.js";
@@ -65,9 +67,13 @@ export default function PartMaster() {
   // {id, field} of the cell being typed into — Max and Rate only.
   const [editCell, setEditCell] = useState(null);
   const [editValue, setEditValue] = useState("");
+  // Barcode label printing (Spare Parts store only).
+  const [printPart, setPrintPart] = useState(null);
+  const [labelConfig, setLabelConfig] = useState(null);
 
   useEffect(() => {
     supplierService.list({ per_page: 500 }).then((res) => setSuppliers(res.data.data)).catch(() => {});
+    barcodeService.labelConfig().then((res) => setLabelConfig(res.data.data)).catch(() => {});
   }, []);
 
   // Follows the URL rather than only seeding from it: searching again from the
@@ -337,6 +343,12 @@ export default function PartMaster() {
           <button onClick={() => openEdit(r)} className="text-navy-700 dark:text-slate-300 hover:text-toyotared">
             <Pencil size={16} />
           </button>
+          {activeCode === "MAINTENANCE" && (
+            <button onClick={() => setPrintPart(r)} title="Print barcode label"
+              className="text-navy-700 dark:text-slate-300 hover:text-toyotared">
+              <Printer size={16} />
+            </button>
+          )}
           <button onClick={() => handleDelete(r)} className="text-rose-500 hover:text-rose-700">
             <Trash2 size={16} />
           </button>
@@ -622,6 +634,13 @@ export default function PartMaster() {
       </Modal>
 
       <UploadReportModal report={uploadReport} onClose={() => setUploadReport(null)} />
+
+      <PrintBarcodeModal
+        open={!!printPart}
+        part={printPart}
+        config={labelConfig}
+        onClose={() => setPrintPart(null)}
+      />
     </div>
   );
 }
