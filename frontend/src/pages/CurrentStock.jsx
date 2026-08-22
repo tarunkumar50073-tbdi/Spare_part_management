@@ -49,7 +49,7 @@ export default function CurrentStock() {
           <Boxes size={18} className="text-toyotared" /> Current Stock (ERP)
         </h2>
         <p className="text-xs text-slate-400 mt-0.5 max-w-3xl">
-          ERP's real on-hand per item — closing stock plus what's under receiving and under inspection. Read-only;
+          ERP's real in-stock per item — closing stock plus what's under receiving and under inspection. Read-only;
           this populates once the ERP Current Stock source is connected.
         </p>
       </div>

@@ -249,7 +249,7 @@ export default function SpareStock() {
       render: (r) => (r.max_stock_level == null ? "—" : num(r.max_stock_level)),
     },
     {
-      key: "qty_on_hand", label: "On Hand", align: "right", sortable: true,
+      key: "qty_on_hand", label: "In Stock", align: "right", sortable: true,
       render: (r) => (editing === r.part_id ? (
         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           <input
@@ -318,7 +318,7 @@ export default function SpareStock() {
             disabled={!r.qty_on_hand}
             className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
               text-rose-600 dark:text-rose-400 hover:border-toyotared disabled:opacity-40 disabled:cursor-not-allowed"
-            title={r.qty_on_hand ? "Issue this spare to a department" : "Nothing on hand to issue"}
+            title={r.qty_on_hand ? "Issue this spare to a department" : "Nothing in stock to issue"}
           >
             Issue
           </button>
@@ -333,7 +333,7 @@ export default function SpareStock() {
         <div>
           <h2 className="text-lg font-bold text-slate-800 dark:text-white">Store Stock</h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            On-hand quantity for {activeStore?.name || "this store"} — the figure Min and Max are judged against
+            In-stock quantity for {activeStore?.name || "this store"} — the figure Min and Max are judged against
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -389,7 +389,7 @@ export default function SpareStock() {
           <KpiCard featured tone="blue" label="Parts in Store" icon="🔧" value={summary.total_parts} />
           <KpiCard featured tone="green" label="Counted" icon="✅" value={summary.counted_parts}
             hint={`${num(summary.uncounted_parts)} still to count`} />
-          <KpiCard featured tone="navy" label="On Hand" icon="📦" value={summary.total_qty} unit="pcs" />
+          <KpiCard featured tone="navy" label="In Stock" icon="📦" value={summary.total_qty} unit="pcs" />
           <KpiCard featured tone="amber" label="Stock Value" icon="💰"
             value={summary.stock_value ? money(summary.stock_value) : "—"}
             hint={`${num(summary.valued_parts)} parts carry a rate`} />
@@ -398,7 +398,7 @@ export default function SpareStock() {
 
       <div className="card">
         <CardHead icon="📦" tone="navy" title="Every part in this store"
-          hint="Click an On Hand figure to count that part" />
+          hint="Click an In Stock figure to count that part" />
         <div className="flex flex-wrap gap-2 mb-3">
           {FILTERS.map((f) => (
             <button
@@ -437,7 +437,7 @@ export default function SpareStock() {
               <thead className="bg-slate-50 dark:bg-navy-800 text-slate-600 dark:text-slate-300">
                 <tr>
                   <th className="text-left font-semibold px-3 py-2.5">Part</th>
-                  <th className="text-right font-semibold px-3 py-2.5">On Hand</th>
+                  <th className="text-right font-semibold px-3 py-2.5">In Stock</th>
                   <th className="text-right font-semibold px-3 py-2.5">Min</th>
                   <th className="text-right font-semibold px-3 py-2.5">Reorder Qty</th>
                   <th className="text-right font-semibold px-3 py-2.5">Est. Value</th>
@@ -530,7 +530,7 @@ export default function SpareStock() {
             <button
               className="px-3 py-1.5 rounded-lg bg-toyotared text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
               onClick={submitIssue}
-              disabled={submitting}
+              disabled={submitting || issueQty === "" || Number(issueQty) <= 0 || Number(issueQty) > Number(issuing?.qty_on_hand ?? 0)}
             >
               {submitting ? "Issuing…" : "Issue"}
             </button>
@@ -540,17 +540,23 @@ export default function SpareStock() {
         {issuing && (
           <div className="space-y-3 text-sm">
             <p className="text-slate-500 dark:text-slate-400">
-              {issuing.part_name} · <b>{num(issuing.qty_on_hand)}</b> on hand
+              {issuing.part_name} · <b>{num(issuing.qty_on_hand)}</b> in stock
             </p>
             <label className="block">
               <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Quantity to issue</span>
               <input
                 type="number" min="0" step="any" autoFocus
+                max={Number(issuing.qty_on_hand ?? 0)}
                 value={issueQty}
                 onChange={(e) => setIssueQty(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") submitIssue(); }}
-                className="input-field w-full mt-1"
+                className={`input-field w-full mt-1 ${issueQty !== "" && Number(issueQty) > Number(issuing.qty_on_hand ?? 0) ? "border-rose-400" : ""}`}
               />
+              {issueQty !== "" && Number(issueQty) > Number(issuing.qty_on_hand ?? 0) && (
+                <p className="mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+                  Only {num(issuing.qty_on_hand)} in stock — cannot issue more.
+                </p>
+              )}
             </label>
             <label className="block">
               <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Department</span>
@@ -615,7 +621,7 @@ export default function SpareStock() {
         {receivingRow && (
           <div className="space-y-3 text-sm">
             <p className="text-slate-500 dark:text-slate-400">
-              {receivingRow.part_name} · <b>{num(receivingRow.qty_on_hand)}</b> on hand now
+              {receivingRow.part_name} · <b>{num(receivingRow.qty_on_hand)}</b> in stock now
             </p>
             <label className="block">
               <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Quantity received</span>

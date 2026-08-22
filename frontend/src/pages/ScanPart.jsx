@@ -115,6 +115,7 @@ export default function ScanPart() {
 
   const doIssue = () => {
     if (!(Number(form.qty) > 0)) return toast.error("Enter a quantity");
+    if (Number(form.qty) > Number(part.qty_on_hand ?? 0)) return toast.error(`Only ${fmt(part.qty_on_hand)} in stock`);
     if (!form.department) return toast.error("Choose a department");
     return submit(() => spareStockService.issue(part.part_id, {
       qty: Number(form.qty), department: form.department,
@@ -203,7 +204,7 @@ export default function ScanPart() {
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Field label="On hand">{fmt(part.qty_on_hand)}</Field>
+            <Field label="In Stock">{fmt(part.qty_on_hand)}</Field>
             <Field label="Min / Max">{fmt(part.min_stock_level)} / {fmt(part.max_stock_level)}</Field>
             <Field label="Location">{fmt(part.location)}</Field>
             <Field label="UOM">{fmt(part.uom)}</Field>
@@ -239,7 +240,12 @@ export default function ScanPart() {
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Quantity *</span>
-                    <input type="number" min={1} value={form.qty} onChange={(e) => set("qty", e.target.value)} className="input-field mt-1 w-full text-lg" /></label>
+                    <input type="number" min={1} max={Number(part.qty_on_hand ?? 0)} value={form.qty} onChange={(e) => set("qty", e.target.value)}
+                      className={`input-field mt-1 w-full text-lg ${form.qty !== "" && Number(form.qty) > Number(part.qty_on_hand ?? 0) ? "border-rose-400" : ""}`} />
+                    {form.qty !== "" && Number(form.qty) > Number(part.qty_on_hand ?? 0) && (
+                      <span className="mt-1 block text-[11px] font-semibold text-rose-600 dark:text-rose-400">Only {fmt(part.qty_on_hand)} in stock — cannot issue more.</span>
+                    )}
+                  </label>
                   <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Department *</span>
                     <select value={form.department} onChange={(e) => set("department", e.target.value)} className="input-field mt-1 w-full text-lg">
                       <option value="">Select…</option>
@@ -251,7 +257,9 @@ export default function ScanPart() {
                     <input type="checkbox" checked={form.returnable} onChange={(e) => set("returnable", e.target.checked)} /> Returnable (tool/die)</label>
                 </div>
                 <p className="text-xs text-slate-400">Machine / line are captured later by the user who fits the part (Confirm mode).</p>
-                <button type="button" onClick={doIssue} disabled={busy} className="btn-primary w-full py-3 text-lg">Confirm issue</button>
+                <button type="button" onClick={doIssue}
+                  disabled={busy || form.qty === "" || Number(form.qty) <= 0 || Number(form.qty) > Number(part.qty_on_hand ?? 0)}
+                  className="btn-primary w-full py-3 text-lg">Confirm issue</button>
               </div>
             )}
 

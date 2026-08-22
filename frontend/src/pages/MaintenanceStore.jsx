@@ -260,7 +260,7 @@ function SparePartDetail({ part, onClose, onTrace }) {
             <div className="mt-3 rounded-lg border border-slate-200 dark:border-navy-800 px-3 py-2.5
               flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] uppercase font-semibold text-slate-400">On Hand</p>
+                <p className="text-[11px] uppercase font-semibold text-slate-400">In Stock</p>
                 {stock && stock.qty_on_hand != null ? (
                   <p className="text-lg font-semibold text-slate-800 dark:text-white tabular">
                     {num(stock.qty_on_hand)} <span className="text-xs font-normal text-slate-400">{part.uom || "pcs"}</span>
@@ -449,7 +449,7 @@ const BELOW_MIN_COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true },
   { key: "part_name", label: "Description", sortable: true },
   { key: "location", label: "Location", render: (r) => r.location || "—" },
-  { key: "qty_on_hand", label: "On Hand", sortable: true, align: "right", render: (r) => num(r.qty_on_hand) },
+  { key: "qty_on_hand", label: "In Stock", sortable: true, align: "right", render: (r) => num(r.qty_on_hand) },
   { key: "min_stock_level", label: "Min", sortable: true, align: "right", render: (r) => num(r.min_stock_level) },
   { key: "max_stock_level", label: "Max", align: "right", render: (r) => (r.max_stock_level == null ? "—" : num(r.max_stock_level)) },
   {
@@ -702,7 +702,7 @@ const STOCK_VALUE_COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true },
   { key: "part_name", label: "Description", sortable: true },
   { key: "location", label: "Location", render: (r) => r.location || "—" },
-  { key: "qty_on_hand", label: "On Hand", sortable: true, align: "right", render: (r) => num(r.qty_on_hand) },
+  { key: "qty_on_hand", label: "In Stock", sortable: true, align: "right", render: (r) => num(r.qty_on_hand) },
   { key: "unit_price", label: "Rate", sortable: true, align: "right", render: (r) => money(r.unit_price) },
   {
     key: "stock_value", label: "Stock Value", sortable: true, align: "right",
@@ -790,7 +790,7 @@ function Traceability({ part, onClose }) {
           </TraceStep>
           <TraceStep emoji="🏬" label="Store Stock" done={data.stock.qty_on_hand != null}>
             {data.stock.qty_on_hand != null
-              ? <>On hand <span className="font-semibold text-slate-700 dark:text-slate-200">{num(data.stock.qty_on_hand)}</span>
+              ? <>In Stock <span className="font-semibold text-slate-700 dark:text-slate-200">{num(data.stock.qty_on_hand)}</span>
                   {data.stock.last_counted_at && ` · counted ${fmtStamp(data.stock.last_counted_at)}`}</>
               : <span className="text-slate-400">Never counted</span>}
           </TraceStep>
@@ -1080,7 +1080,7 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
                 byStatus("Out of Stock"), "spares_zero_stock"))} />
             <ActionTile tone="amber" emoji="⚠️" label="Below Minimum" value={stock.below_minimum}
               hint="Reorder before they run out"
-              onClick={() => setDrill(stockDrill("Below Minimum", "On hand has fallen under the minimum",
+              onClick={() => setDrill(stockDrill("Below Minimum", "In stock has fallen under the minimum",
                 byStatus("Below Minimum"), "spares_below_minimum"))} />
             <ActionTile tone="blue" emoji="📈" label="Excess Parts" value={ops.excess.length}
               hint="Money tied up on the shelf"
@@ -1118,7 +1118,7 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
                 say nothing day to day. The Master Data Completeness section
                 below carries the gaps and opens the missing parts. */}
             <GaugeCard title="Capacity Used" emoji="📦" g={ops.analytics.gauges.stock_utilisation}
-              polarity="higher-worse" note="How full the store is against its max limit — over 100% means more on hand than the max says to hold"
+              polarity="higher-worse" note="How full the store is against its max limit — over 100% means more in stock than the max says to hold"
               badges={{ good: "OK", warn: "High", bad: "Over Limit" }} />
             <GaugeCard title="Inventory Health" emoji="🩺" g={ops.analytics.gauges.inventory_health}
               polarity="higher-better" note="Counted parts sitting inside Min/Max"

@@ -7,7 +7,7 @@ const COLUMNS = [
   { key: "part_no", label: "Part No" },
   { key: "part_name", label: "Part Name" },
   { key: "uom", label: "UOM" },
-  { key: "qty_on_hand", label: "Qty On Hand" },
+  { key: "qty_on_hand", label: "In Stock" },
 ];
 
 export default function StoreStock() {
