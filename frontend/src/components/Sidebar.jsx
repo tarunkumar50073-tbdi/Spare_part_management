@@ -101,6 +101,7 @@ const NAV_BY_STORE = {
       label: "Masters",
       items: [
         { to: "/parts", label: "Part Master", emoji: "🔩" },
+        { to: "/supplier-barcodes", label: "Supplier Barcodes", emoji: "🏷️" },
         { to: "/departments", label: "Department Emails", emoji: "✉️" },
       ],
     },
