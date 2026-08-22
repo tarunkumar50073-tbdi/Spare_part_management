@@ -36,6 +36,14 @@ export const spareStockService = {
     api.get("/spare-stock/erp-gap/summary", { params: { store_code: storeCode } }),
   issue: (partId, payload) => api.post(`/spare-stock/parts/${partId}/issue`, payload),
   receive: (partId, payload) => api.post(`/spare-stock/parts/${partId}/receive`, payload),
+  // Two-stage issue: Stage 2 confirmation + the pending-confirmation queue.
+  confirm: (ledgerId, payload) => api.post(`/spare-stock/issues/${ledgerId}/confirm`, payload),
+  pendingConfirmations: (storeCode, limit) =>
+    api.get("/spare-stock/pending-confirmations", { params: { store_code: storeCode, limit } }),
+  partPendingConfirmations: (partId) =>
+    api.get(`/spare-stock/parts/${partId}/pending-confirmations`),
+  updateLocation: (partId, payload) => api.post(`/spare-stock/parts/${partId}/update-location`, payload),
+  locationHistory: (partId) => api.get(`/spare-stock/parts/${partId}/location-history`),
   consumption: (storeCode, groupBy = "department") =>
     api.get("/spare-stock/consumption", { params: { store_code: storeCode, group_by: groupBy } }),
   machines: (storeCode) => api.get("/spare-stock/machines", { params: { store_code: storeCode } }),

@@ -92,6 +92,7 @@ const NAV_BY_STORE = {
       // nothing to compare against.
       label: "Inventory",
       items: [
+        { to: "/scan-part", label: "Scan Part", emoji: "📷" },
         { to: "/store-stock-spare", label: "Store Stock", emoji: "📦" },
         { to: "/spare-erp-gap", label: "ERP vs Physical Gap", emoji: "⚖️" },
       ],

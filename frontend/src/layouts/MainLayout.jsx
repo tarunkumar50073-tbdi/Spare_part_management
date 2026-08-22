@@ -12,6 +12,7 @@ const TITLES = {
   "/put-away": "Pending Rack Allocation",
   "/holding-area": "Holding Area",
   "/store-stock": "Store Stock",
+  "/scan-part": "Scan Part",
   "/reports": "Reports",
   "/audit-trail": "Audit Trail",
   "/parts": "Part Master",

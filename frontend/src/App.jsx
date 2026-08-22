@@ -12,6 +12,7 @@ import AuditTrail from "./pages/AuditTrail.jsx";
 import Reports from "./pages/Reports.jsx";
 import PartMaster from "./pages/PartMaster.jsx";
 import SpareStock from "./pages/SpareStock.jsx";
+import ScanPart from "./pages/ScanPart.jsx";
 import SupplierMaster from "./pages/SupplierMaster.jsx";
 import StockCount from "./pages/StockCount.jsx";
 import RackBinMaster from "./pages/RackBinMaster.jsx";
@@ -84,6 +85,7 @@ function AuthenticatedApp() {
           {/* Distinct from Child Parts' /store-stock — this is the Spare
               Parts Store's own on-hand screen. */}
           <Route path="/store-stock-spare" element={<SpareStock />} />
+          <Route path="/scan-part" element={<ScanPart />} />
           <Route path="/spare-erp-gap" element={<SpareErpGap />} />
           <Route path="/suppliers" element={<SupplierMaster />} />
           <Route path="/stock-count" element={<StockCount />} />

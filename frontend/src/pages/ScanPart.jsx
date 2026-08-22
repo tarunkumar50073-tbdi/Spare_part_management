@@ -1,0 +1,352 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import toast from "react-hot-toast";
+import { useStores } from "../context/StoreContext.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
+import ScanPanel from "../components/ScanPanel.jsx";
+import Badge from "../components/Badge.jsx";
+import { barcodeService } from "../services/barcodeService.js";
+import { spareStockService } from "../services/spareStockService.js";
+import { departmentService } from "../services/departmentService.js";
+import { supplierService } from "../services/supplierService.js";
+
+const MODES = [
+  { key: "LOOKUP", label: "Lookup", emoji: "🔎" },
+  { key: "ISSUE", label: "Issue", emoji: "📤" },
+  { key: "RECEIVE", label: "Receive", emoji: "📥" },
+  { key: "UPDATE_LOCATION", label: "Location", emoji: "📍" },
+  { key: "CONFIRM", label: "Confirm", emoji: "✅" },
+  { key: "HISTORY", label: "History", emoji: "📜" },
+];
+const CHECK_RESULTS = ["OK", "SHORT", "EXCESS", "DAMAGED"];
+const scanModeFor = (mode) => (mode === "CONFIRM" ? "ISSUE" : mode);
+const fmt = (v) => (v == null || v === "" ? "—" : v);
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="text-base font-semibold text-slate-800 dark:text-slate-100">{children}</div>
+    </div>
+  );
+}
+
+export default function ScanPart() {
+  const { activeCode } = useStores();
+  const { user } = useAuth();
+  const storeCode = activeCode || "MAINTENANCE";
+
+  const [mode, setMode] = useState("LOOKUP");
+  const [busy, setBusy] = useState(false);
+  const [part, setPart] = useState(null);
+  const [form, setForm] = useState({});
+  const [pending, setPending] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const [now, setNow] = useState(() => new Date());
+  const resolvingRef = useRef(false);
+
+  useEffect(() => {
+    departmentService.list(true).then((r) => setDepartments(r.data.data || [])).catch(() => {});
+    supplierService.list({ per_page: 500 }).then((r) => setSuppliers(r.data.data || [])).catch(() => {});
+  }, []);
+  useEffect(() => {
+    const on = () => setOnline(true), off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); clearInterval(id); };
+  }, []);
+
+  const reset = () => { setPart(null); setForm({}); setPending([]); setHistory([]); };
+  const changeMode = (m) => { setMode(m); reset(); };
+
+  const handleCode = async (code, source) => {
+    if (resolvingRef.current || busy) return;
+    resolvingRef.current = true;
+    setBusy(true);
+    try {
+      const res = await barcodeService.resolve(storeCode, code, {
+        scanSource: source, scanMode: scanModeFor(mode),
+      });
+      const data = res.data.data;
+      setPart(data);
+      setForm(defaultForm(mode));
+      if (mode === "CONFIRM") {
+        const p = await spareStockService.partPendingConfirmations(data.part_id);
+        setPending(p.data.data || []);
+      }
+      if (mode === "HISTORY") {
+        const h = await spareStockService.history(data.part_id, 200);
+        setHistory(h.data.data || []);
+      }
+    } catch {
+      /* interceptor toasts the message (unknown/inactive/no-access) */
+    } finally {
+      setBusy(false);
+      resolvingRef.current = false;
+    }
+  };
+
+  const defaultForm = (m) => {
+    if (m === "ISSUE") return { qty: "", department: "", issued_to: "", returnable: false, remarks: "" };
+    if (m === "RECEIVE") return { qty: "", supplier_id: "", invoice_no: "", invoice_date: "", check_result: "OK", department: "", remarks: "" };
+    if (m === "UPDATE_LOCATION") return { new_location: "", reason: "" };
+    if (m === "CONFIRM") return { ledger_id: "", line_name: "", line_no: "", machine: "", actual_qty: "" };
+    return {};
+  };
+
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const submit = async (action) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await action();
+      toast.success("Done — scan the next part");
+      reset();
+    } catch {
+      /* interceptor toasts */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doIssue = () => {
+    if (!(Number(form.qty) > 0)) return toast.error("Enter a quantity");
+    if (!form.department) return toast.error("Choose a department");
+    return submit(() => spareStockService.issue(part.part_id, {
+      qty: Number(form.qty), department: form.department,
+      issued_to: form.issued_to || undefined, returnable: !!form.returnable,
+      remarks: form.remarks || undefined,
+    }));
+  };
+
+  const doReceive = () => {
+    if (!(Number(form.qty) > 0)) return toast.error("Enter a quantity");
+    return submit(() => spareStockService.receive(part.part_id, {
+      qty: Number(form.qty),
+      supplier_id: form.supplier_id ? Number(form.supplier_id) : undefined,
+      invoice_no: form.invoice_no || undefined,
+      invoice_date: form.invoice_date || undefined,
+      check_result: form.check_result || undefined,
+      department: form.department || undefined,
+      remarks: form.remarks || undefined,
+    }));
+  };
+
+  const doLocation = () => {
+    if (!form.new_location.trim()) return toast.error("Enter a new location");
+    if (!form.reason.trim()) return toast.error("Enter a reason");
+    return submit(() => spareStockService.updateLocation(part.part_id, {
+      new_location: form.new_location.trim(), reason: form.reason.trim(),
+    }));
+  };
+
+  const doConfirm = () => {
+    if (!form.ledger_id) return toast.error("Select the issue to confirm");
+    return submit(() => spareStockService.confirm(form.ledger_id, {
+      line_name: form.line_name || undefined, line_no: form.line_no || undefined,
+      machine: form.machine || undefined,
+      actual_qty: form.actual_qty !== "" ? Number(form.actual_qty) : undefined,
+    }));
+  };
+
+  const clock = useMemo(() =>
+    `${now.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })} ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`,
+  [now]);
+
+  return (
+    <div className="space-y-4">
+      {/* status bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl2 border border-slate-200 bg-white px-4 py-2 text-sm dark:border-navy-800 dark:bg-navy-900">
+        <div className="flex items-center gap-3">
+          <span className="font-semibold text-slate-800 dark:text-white">Scan Part</span>
+          <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-navy-800 dark:text-slate-300">{storeCode}</span>
+        </div>
+        <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400">
+          <span className={`inline-flex items-center gap-1 ${online ? "text-emerald-600" : "text-rose-500"}`}>
+            <span className={`h-2 w-2 rounded-full ${online ? "bg-emerald-500" : "bg-rose-500"}`} />{online ? "Online" : "Offline"}
+          </span>
+          <span>{user?.full_name || user?.username}</span>
+          <span className="tabular-nums">{clock}</span>
+        </div>
+      </div>
+
+      {/* mode tabs */}
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+        {MODES.map((m) => (
+          <button key={m.key} type="button" onClick={() => changeMode(m.key)}
+            className={`rounded-lg py-3 text-sm font-semibold ${
+              mode === m.key ? "bg-toyotared text-white" : "bg-slate-100 text-slate-700 dark:bg-navy-800 dark:text-slate-200"}`}>
+            <span className="mr-1">{m.emoji}</span>{m.label}
+          </button>
+        ))}
+      </div>
+
+      <ScanPanel onCode={handleCode} busy={busy}
+        hint={mode === "CONFIRM" ? "Re-scan the issued part to confirm" : "Scan or enter Part No., then Enter"} />
+
+      {part && (
+        <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
+          {/* resolved part header */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3 dark:border-navy-800">
+            <div>
+              <div className="text-lg font-bold text-slate-900 dark:text-white">{part.part_no}</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">{part.part_name}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge status={part.status} />
+              <button type="button" onClick={reset} className="btn-secondary">Scan next</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Field label="On hand">{fmt(part.qty_on_hand)}</Field>
+            <Field label="Min / Max">{fmt(part.min_stock_level)} / {fmt(part.max_stock_level)}</Field>
+            <Field label="Location">{fmt(part.location)}</Field>
+            <Field label="UOM">{fmt(part.uom)}</Field>
+            <Field label="Category">{fmt(part.category)}</Field>
+            <Field label="Type">{fmt(part.sub_category)}</Field>
+            <Field label="Resolved by">{part.resolved_by === "SUPPLIER" ? "Supplier barcode" : part.resolved_by === "INTERNAL" ? "Internal barcode" : "Part No."}</Field>
+            <Field label="Stock source">
+              <span className="rounded bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                {part.data_status?.stock_source || "MANUAL"}
+              </span>
+              {part.data_status?.erp_last_sync && (
+                <span className="ml-1 text-xs text-slate-400">ERP sync {new Date(part.data_status.erp_last_sync).toLocaleString("en-GB")}</span>
+              )}
+            </Field>
+          </div>
+
+          {/* mode-specific action */}
+          <div className="mt-4 border-t border-slate-100 pt-4 dark:border-navy-800">
+            {mode === "LOOKUP" && (
+              <p className="text-sm text-slate-500 dark:text-slate-400">Read-only lookup — no stock changed. Switch to a mode above to act on this part.</p>
+            )}
+
+            {mode === "ISSUE" && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Quantity *</span>
+                    <input type="number" min={1} value={form.qty} onChange={(e) => set("qty", e.target.value)} className="input-field mt-1 w-full text-lg" /></label>
+                  <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Department *</span>
+                    <select value={form.department} onChange={(e) => set("department", e.target.value)} className="input-field mt-1 w-full text-lg">
+                      <option value="">Select…</option>
+                      {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+                    </select></label>
+                  <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Issued to (person)</span>
+                    <input value={form.issued_to} onChange={(e) => set("issued_to", e.target.value)} className="input-field mt-1 w-full" /></label>
+                  <label className="mt-6 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                    <input type="checkbox" checked={form.returnable} onChange={(e) => set("returnable", e.target.checked)} /> Returnable (tool/die)</label>
+                </div>
+                <p className="text-xs text-slate-400">Machine / line are captured later by the user who fits the part (Confirm mode).</p>
+                <button type="button" onClick={doIssue} disabled={busy} className="btn-primary w-full py-3 text-lg">Confirm issue</button>
+              </div>
+            )}
+
+            {mode === "RECEIVE" && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Received qty *</span>
+                    <input type="number" min={1} value={form.qty} onChange={(e) => set("qty", e.target.value)} className="input-field mt-1 w-full text-lg" /></label>
+                  <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Supplier</span>
+                    <select value={form.supplier_id} onChange={(e) => set("supplier_id", e.target.value)} className="input-field mt-1 w-full">
+                      <option value="">Select…</option>
+                      {suppliers.map((s) => <option key={s.id} value={s.id}>{s.supplier_name}</option>)}
+                    </select></label>
+                  <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Invoice no.</span>
+                    <input value={form.invoice_no} onChange={(e) => set("invoice_no", e.target.value)} className="input-field mt-1 w-full" /></label>
+                  <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Invoice date</span>
+                    <input type="date" value={form.invoice_date} onChange={(e) => set("invoice_date", e.target.value)} className="input-field mt-1 w-full" /></label>
+                  <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Physical check</span>
+                    <select value={form.check_result} onChange={(e) => set("check_result", e.target.value)} className="input-field mt-1 w-full">
+                      {CHECK_RESULTS.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select></label>
+                  <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Responsible section</span>
+                    <select value={form.department} onChange={(e) => set("department", e.target.value)} className="input-field mt-1 w-full">
+                      <option value="">Select…</option>
+                      {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+                    </select></label>
+                </div>
+                <p className="text-xs text-slate-400">Spare receiving is direct — no RQC, no put-away.</p>
+                <button type="button" onClick={doReceive} disabled={busy} className="btn-primary w-full py-3 text-lg">Confirm receive</button>
+              </div>
+            )}
+
+            {mode === "UPDATE_LOCATION" && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Current location">{fmt(part.location)}</Field>
+                  <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">New location *</span>
+                    <input value={form.new_location} onChange={(e) => set("new_location", e.target.value)} className="input-field mt-1 w-full text-lg" /></label>
+                  <label className="block sm:col-span-2"><span className="text-sm text-slate-600 dark:text-slate-300">Reason *</span>
+                    <input value={form.reason} onChange={(e) => set("reason", e.target.value)} className="input-field mt-1 w-full" /></label>
+                </div>
+                <button type="button" onClick={doLocation} disabled={busy} className="btn-primary w-full py-3 text-lg">Update location</button>
+              </div>
+            )}
+
+            {mode === "CONFIRM" && (
+              <div className="space-y-3">
+                {pending.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">No pending issues for this part to confirm.</p>
+                ) : (
+                  <>
+                    <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Which issue *</span>
+                      <select value={form.ledger_id} onChange={(e) => set("ledger_id", e.target.value)} className="input-field mt-1 w-full">
+                        <option value="">Select the issue…</option>
+                        {pending.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {new Date(p.issued_at).toLocaleDateString("en-GB")} · {p.qty} to {p.department}{p.issued_to ? ` · ${p.issued_to}` : ""}
+                          </option>
+                        ))}
+                      </select></label>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Line name (seat slider / recliner…)</span>
+                        <input value={form.line_name} onChange={(e) => set("line_name", e.target.value)} className="input-field mt-1 w-full" /></label>
+                      <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Line no.</span>
+                        <input value={form.line_no} onChange={(e) => set("line_no", e.target.value)} className="input-field mt-1 w-full" /></label>
+                      <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Machine no.</span>
+                        <input value={form.machine} onChange={(e) => set("machine", e.target.value)} className="input-field mt-1 w-full" /></label>
+                      <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Actual used qty</span>
+                        <input type="number" min={0} value={form.actual_qty} onChange={(e) => set("actual_qty", e.target.value)} className="input-field mt-1 w-full" /></label>
+                    </div>
+                    <button type="button" onClick={doConfirm} disabled={busy} className="btn-primary w-full py-3 text-lg">Confirm installation</button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {mode === "HISTORY" && (
+              <div className="max-h-[50vh] overflow-y-auto">
+                {history.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">No history yet.</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs uppercase text-slate-400">
+                      <tr><th className="py-1">When</th><th>Type</th><th>Qty</th><th>Dept / To</th><th>Line / Machine</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                      {history.map((h) => (
+                        <tr key={h.id} className="border-t border-slate-100 dark:border-navy-800">
+                          <td className="py-1 tabular-nums">{h.at ? new Date(h.at).toLocaleString("en-GB") : "—"}</td>
+                          <td>{h.txn_type}</td>
+                          <td className="tabular-nums">{h.qty_delta}</td>
+                          <td>{fmt(h.department)}{h.issued_to ? ` / ${h.issued_to}` : ""}</td>
+                          <td>{fmt(h.line_name)}{h.machine ? ` / ${h.machine}` : ""}</td>
+                          <td>{fmt(h.status)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
