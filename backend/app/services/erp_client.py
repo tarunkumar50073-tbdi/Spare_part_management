@@ -19,8 +19,13 @@ class ERPNotConfigured(Exception):
 class ERPClient:
     def push_stock_movement(self, part_no, qty_delta, reason, reference=None):
         """Push a spare stock movement to ERP so ERP's on-hand tracks the store's.
-        Returns True on success; raises ERPNotConfigured when ERP_API_BASE_URL is
-        unset (the movement then stays pending until the endpoint is live)."""
+        Returns True on success; raises ERPNotConfigured when writing to ERP is
+        not both approved (ERP_STOCK_WRITE_ENABLED) and configured
+        (ERP_API_BASE_URL) — the movement then stays pending, ERP untouched."""
+        # Two independent gates: the write must be explicitly enabled AND an
+        # endpoint URL set. Either missing = no write, movement stays pending.
+        if not current_app.config.get("ERP_STOCK_WRITE_ENABLED"):
+            raise ERPNotConfigured()
         base_url = current_app.config.get("ERP_API_BASE_URL")
         if not base_url:
             raise ERPNotConfigured()

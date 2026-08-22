@@ -234,3 +234,33 @@ def test_update_location_via_route(client):
                     json={"new_location": "B-2", "reason": "moved"})
     assert r.status_code == 200
     assert Part.query.get(p.id).location == "B-2"
+
+
+# ---- ERP add/less write is gated OFF by default (safe until approved) ----
+
+def test_erp_write_disabled_by_default_movements_stay_pending():
+    svc = SpareStockService()
+    st = svc.erp_write_status()
+    assert st["write_enabled"] is False and st["active"] is False
+    p = _part(); _stock(p.id, 10)
+    svc.issue(p.id, 2, "Maintenance")     # would be ERP minus
+    svc.receive(p.id, 5)                   # would be ERP plus
+    res = svc.sync_pending_to_erp("MAINTENANCE")
+    assert res["configured"] is False
+    assert res["write_enabled"] is False   # nothing pushed — ERP untouched
+    assert res["pending"] >= 2
+
+
+def test_erp_write_needs_both_flag_and_url(app):
+    """Even with the flag ON, no endpoint URL = still no write (both gates)."""
+    svc = SpareStockService()
+    p = _part(); _stock(p.id, 5)
+    svc.issue(p.id, 1, "Maintenance")
+    app.config["ERP_STOCK_WRITE_ENABLED"] = True
+    app.config["ERP_API_BASE_URL"] = None
+    try:
+        res = svc.sync_pending_to_erp("MAINTENANCE")
+        assert res["configured"] is False
+        assert res["write_enabled"] is True and res["api_configured"] is False
+    finally:
+        app.config["ERP_STOCK_WRITE_ENABLED"] = False

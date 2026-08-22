@@ -140,7 +140,10 @@ def reorder():
 
 @bp.route("/erp-sync/pending", methods=["GET"])
 def erp_sync_pending():
-    return success_response({"pending": service.pending_erp_count(_store_code())})
+    return success_response({
+        "pending": service.pending_erp_count(_store_code()),
+        **service.erp_write_status(),
+    })
 
 
 @bp.route("/erp-sync", methods=["POST"])

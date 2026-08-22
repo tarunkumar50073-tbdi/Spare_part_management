@@ -875,12 +875,30 @@ class SpareStockService:
             .scalar() or 0
         )
 
+    @staticmethod
+    def erp_write_status():
+        """Truthful state of the ERP stock-write path — so the UI can say WHY
+        movements are (or aren't) syncing without ever faking 'ERP updated'.
+        Writing needs BOTH the enable flag and an endpoint URL."""
+        from flask import current_app
+        write_enabled = bool(current_app.config.get("ERP_STOCK_WRITE_ENABLED"))
+        api_configured = bool(current_app.config.get("ERP_API_BASE_URL"))
+        active = write_enabled and api_configured
+        if active:
+            reason = "ERP stock write is enabled"
+        elif not write_enabled:
+            reason = "ERP stock write is disabled (approval pending) — movements stay in the app only"
+        else:
+            reason = "ERP stock API endpoint is not configured yet"
+        return {"write_enabled": write_enabled, "api_configured": api_configured,
+                "active": active, "reason": reason}
+
     def sync_pending_to_erp(self, store_code):
         """Push every not-yet-pushed movement (ISSUE/RECEIPT/RETURN) to ERP,
-        oldest first, stamping erp_pushed_at on each success. When the ERP
-        endpoint isn't configured yet, nothing is pushed and the movements stay
-        pending — run this again once ERP_API_BASE_URL is set and it clears the
-        backlog."""
+        oldest first, stamping erp_pushed_at on each success. Writing needs BOTH
+        ERP_STOCK_WRITE_ENABLED and ERP_API_BASE_URL; until then nothing is
+        pushed and the movements stay pending — run this again once ERP is
+        approved + configured and it clears the backlog."""
         from app.extensions import db
         from app.models.base import utcnow
         from app.models.spare_stock import SpareStockLedger
@@ -906,12 +924,15 @@ class SpareStockService:
                 pushed += 1
             except ERPNotConfigured:
                 db.session.rollback()
-                return {"configured": False, "pushed": 0, "pending": len(rows)}
+                status = self.erp_write_status()
+                return {"configured": False, "write_enabled": status["write_enabled"],
+                        "api_configured": status["api_configured"], "reason": status["reason"],
+                        "pushed": 0, "pending": len(rows)}
             except Exception:
                 failed += 1
         db.session.commit()
-        return {"configured": True, "pushed": pushed, "failed": failed,
-                "pending": len(rows) - pushed}
+        return {"configured": True, "write_enabled": True, "pushed": pushed,
+                "failed": failed, "pending": len(rows) - pushed}
 
     def recent_activity(self, store_code, limit=20):
         """The store's own event feed, off the ledger. Every row is something

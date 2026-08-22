@@ -32,6 +32,16 @@ class Config:
     ERP_API_BASE_URL = os.getenv("ERP_API_BASE_URL") or None
     ERP_API_TIMEOUT = int(os.getenv("ERP_API_TIMEOUT", "10"))
 
+    # Writing spare stock movements (+receipt / -issue) back to ERP is OFF by
+    # default and stays off until it is explicitly approved AND enabled. It is a
+    # second, independent gate on top of ERP_API_BASE_URL: BOTH the endpoint URL
+    # and this flag must be set before any movement is pushed, so a stray config
+    # URL can never silently start changing ERP stock. While OFF, movements are
+    # deducted/added in the app's own on-hand only and queue as "pending ERP
+    # sync" — ERP is never touched. Read-only ERP data pull (ERP_DB_*) is
+    # completely separate and always allowed.
+    ERP_STOCK_WRITE_ENABLED = _env_bool("ERP_STOCK_WRITE_ENABLED", "false")
+
     # ERP Ledger auto-import "inbox" — drop the ERP stock-ledger Excel in this
     # folder and the app imports it automatically (a folder-drop bridge until
     # the ERP API push is live). Processed files move to processed/ or failed/
