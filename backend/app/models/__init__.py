@@ -36,6 +36,7 @@ from app.models.mail_send_log import MailSendLog
 from app.models.part_barcode import PartBarcode
 from app.models.scan_audit import ScanAudit
 from app.models.label_print_audit import LabelPrintAudit
+from app.models.location_history import SpareLocationHistory
 
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",
@@ -46,5 +47,5 @@ __all__ = [
     "ReceivingRegister", "GateEntry", "GateExit",
     "CurrentStock", "PendingGRN", "StockValuation",
     "ReportRecipient", "MailSendLog",
-    "PartBarcode", "ScanAudit", "LabelPrintAudit",
+    "PartBarcode", "ScanAudit", "LabelPrintAudit", "SpareLocationHistory",
 ]

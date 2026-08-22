@@ -7,8 +7,10 @@ Child Parts screens are untouched.
 """
 from datetime import datetime, timedelta
 
+from app.extensions import db
 from app.models.base import utcnow
 from app.models.part import Part
+from app.models.spare_stock import CHECK_RESULTS
 from app.repositories.supplier_window_schedule_repository import SHIFT_START
 from app.repositories.part_repository import PartRepository
 from app.repositories.spare_stock_repository import (
@@ -52,10 +54,11 @@ class SpareStockService:
 
     def _write(self, part_id, new_qty, txn_type, reference=None, remarks=None,
                user=None, counted=False, department=None, machine=None,
-               returnable=False, return_of_id=None):
+               returnable=False, return_of_id=None, extra=None):
         """Set a part's quantity and record why, in one go. The ledger row and
         the maintained qty are written together — a balance that moved with no
-        row to explain it is worse than no history at all."""
+        row to explain it is worse than no history at all. `extra` carries the
+        two-stage-issue / structured-receiving columns onto the ledger row."""
         row = self.repo.get_or_create(part_id)
         before = float(row.qty_on_hand or 0)
         delta = round(new_qty - before, 2)
@@ -73,6 +76,7 @@ class SpareStockService:
                 txn_type=txn_type, reference=reference, remarks=remarks,
                 created_by=user, department=department, machine=machine,
                 returnable=returnable, return_of_id=return_of_id,
+                **(extra or {}),
             )
         return row, delta
 
@@ -91,21 +95,37 @@ class SpareStockService:
             )
         return self._row_dict(part, row)
 
+    def _valid_department_names(self):
+        """Active department names from the master (dynamic — new departments
+        become issuable with no code change). Falls back to the seed tuple only
+        if the master table is somehow empty, so a partial/empty master never
+        blocks the store."""
+        from app.models.department import Department
+        names = {d.name for d in Department.query.filter_by(is_active=True).all()}
+        return names or set(DEPARTMENTS)
+
     def issue(self, part_id, qty, department, machine=None, returnable=False,
-              reference=None, remarks=None, user=None):
-        """Issue a spare to a department, fitted on a machine — the movement that
-        fills Department-wise and Machine-wise Consumption. Deducts on-hand and
-        writes an ISSUE ledger row tagged with department + machine; refuses to
-        issue more than is on the shelf, so the count can never go negative."""
+              reference=None, remarks=None, user=None, issued_to=None, status=None):
+        """Stage 1 of the two-stage issue: the store issues a spare to a
+        department + person. Machine/line are NOT required here — the store may
+        not know where it will be fitted; the user confirms those later
+        (confirm_installation). Deducts on-hand, writes an ISSUE ledger row, and
+        refuses to issue more than is on the shelf. Department is validated
+        against the live master, so a newly-added department works with no code
+        change."""
         part = self.part_repo.get_by_id(part_id)
         if not part:
             raise NotFoundError(f"Part {part_id} not found")
+        if not part.is_active:
+            raise BadRequestError(f"Part '{part.part_no}' is inactive")
         qty = float(qty) if qty is not None else 0.0
         if qty <= 0:
             raise BadRequestError("Issue quantity must be greater than zero")
-        if department not in DEPARTMENTS:
-            raise BadRequestError(f"department must be one of {list(DEPARTMENTS)}")
+        if department not in self._valid_department_names():
+            raise BadRequestError(f"Unknown department '{department}'")
         machine = (machine or "").strip() or None
+        issued_to = (issued_to or "").strip() or None
+        status = status or "PENDING_USER_CONFIRMATION"
         with atomic():
             row = self.repo.get_or_create(part.id)
             on_hand = float(row.qty_on_hand or 0)
@@ -115,26 +135,141 @@ class SpareStockService:
                 part.id, round(on_hand - qty, 2), "ISSUE",
                 reference=reference, remarks=remarks, user=user,
                 department=department, machine=machine, returnable=bool(returnable),
+                extra={"issued_to": issued_to, "status": status},
             )
         return self._row_dict(part, row)
 
-    def receive(self, part_id, qty, reference=None, remarks=None, user=None):
-        """Receive new stock into the store (a purchase / GRN) — a RECEIPT that
-        adds to on-hand. The inbound counterpart to issue()."""
+    def confirm_installation(self, ledger_id, line_name=None, line_no=None,
+                             machine=None, actual_qty=None, user=None, remarks=None):
+        """Stage 2: the user who fitted the part re-scans it and records WHERE it
+        went — production line + machine + how many were actually used +
+        installation confirmation. Enriches the same ISSUE row (no stock moves;
+        the quantity was already deducted at issue). Store issue details are
+        preserved."""
+        row = self.ledger_repo.get_by_id(ledger_id)
+        if not row or row.txn_type != "ISSUE":
+            raise NotFoundError(f"Issue {ledger_id} not found")
+        if row.status in ("INSTALLED", "CANCELLED", "RETURNED"):
+            raise BadRequestError(f"This issue is already {row.status.lower().replace('_', ' ')}")
+        issued_qty = abs(float(row.qty_delta))
+        used = float(actual_qty) if actual_qty is not None else issued_qty
+        if used < 0 or used > issued_qty:
+            raise BadRequestError(f"Actual usage must be between 0 and {issued_qty:g}")
+        line_name = (line_name or "").strip() or None
+        line_no = (line_no or "").strip() or None
+        machine = (machine or "").strip() or row.machine
+        new_status = "INSTALLED" if used >= issued_qty else "PARTIALLY_USED"
+        self.ledger_repo.update(
+            row, line_name=line_name, line_no=line_no, machine=machine,
+            actual_qty=round(used, 2), confirmed_by=user, confirmed_at=utcnow(),
+            status=new_status,
+            remarks=(remarks.strip() if remarks and remarks.strip() else row.remarks),
+        )
+        return self._issue_row_dict(row)
+
+    def receive(self, part_id, qty, reference=None, remarks=None, user=None,
+                supplier_id=None, invoice_no=None, invoice_date=None,
+                check_result=None, department=None, status=None):
+        """Physically receive spare stock into the store — a RECEIPT that adds to
+        on-hand. Spare receiving is deliberately direct: NO RQC and NO
+        Pending-Put-Away. The structured fields (supplier / invoice / physical
+        check / responsible section) are all optional, so the plain 'qty +
+        reference' call still works exactly as before."""
         part = self.part_repo.get_by_id(part_id)
         if not part:
             raise NotFoundError(f"Part {part_id} not found")
         qty = float(qty) if qty is not None else 0.0
         if qty <= 0:
             raise BadRequestError("Receive quantity must be greater than zero")
+        if check_result:
+            check_result = check_result.strip().upper()
+            if check_result not in CHECK_RESULTS:
+                raise BadRequestError(f"check_result must be one of {list(CHECK_RESULTS)}")
+        if department and department not in self._valid_department_names():
+            raise BadRequestError(f"Unknown department '{department}'")
+        extra = {
+            "status": status or "PHYSICALLY_RECEIVED",
+            "supplier_id": supplier_id,
+            "invoice_no": (invoice_no or "").strip() or None,
+            "invoice_date": invoice_date,
+            "check_result": check_result or None,
+        }
         with atomic():
             row = self.repo.get_or_create(part.id)
             new_qty = round(float(row.qty_on_hand or 0) + qty, 2)
             row, _ = self._write(
                 part.id, new_qty, "RECEIPT",
                 reference=reference, remarks=remarks, user=user,
+                department=department, extra=extra,
             )
         return self._row_dict(part, row)
+
+    def update_location(self, part_id, new_location, reason=None, qty=None, user=None):
+        """Move a spare to a new rack/shelf. Records the old + new location in the
+        location history instead of silently overwriting it, and applies the
+        change only after that succeeds. Location is locally owned today."""
+        from app.models.location_history import SpareLocationHistory
+        part = self.part_repo.get_by_id(part_id)
+        if not part:
+            raise NotFoundError(f"Part {part_id} not found")
+        new_location = (new_location or "").strip()
+        if not new_location:
+            raise BadRequestError("New location is required")
+        old_location = part.location or None
+        if new_location == (old_location or ""):
+            raise BadRequestError("New location is the same as the current one")
+        with atomic():
+            self.part_repo.update(part, location=new_location)
+            db.session.add(SpareLocationHistory(
+                part_id=part.id, old_location=old_location, new_location=new_location,
+                reason=(reason or "").strip() or None,
+                qty=(round(float(qty), 2) if qty is not None else None), moved_by=user,
+            ))
+        return {
+            "part_id": part.id, "part_no": part.part_no,
+            "old_location": old_location, "new_location": new_location,
+        }
+
+    def pending_confirmations(self, store_code, limit=None):
+        """ISSUE rows awaiting Stage-2 user confirmation (line/machine/install),
+        newest first — the queue a user works through by re-scanning."""
+        from app.models.spare_stock import SpareStockLedger
+        q = (
+            db.session.query(SpareStockLedger)
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(
+                Part.store_code == store_code,
+                SpareStockLedger.txn_type == "ISSUE",
+                SpareStockLedger.status.in_(("PENDING_USER_CONFIRMATION", "ISSUED_BY_STORE")),
+            )
+            .order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc())
+        )
+        if limit:
+            q = q.limit(limit)
+        return [self._issue_row_dict(r) for r in q.all()]
+
+    def pending_confirmations_for_part(self, part_id):
+        from app.models.spare_stock import SpareStockLedger
+        rows = (
+            SpareStockLedger.query.filter(
+                SpareStockLedger.part_id == part_id,
+                SpareStockLedger.txn_type == "ISSUE",
+                SpareStockLedger.status.in_(("PENDING_USER_CONFIRMATION", "ISSUED_BY_STORE")),
+            ).order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc()).all()
+        )
+        return [self._issue_row_dict(r) for r in rows]
+
+    def location_history_for_part(self, part_id):
+        from app.models.location_history import SpareLocationHistory
+        rows = (
+            SpareLocationHistory.query.filter_by(part_id=part_id)
+            .order_by(SpareLocationHistory.created_at.desc(), SpareLocationHistory.id.desc()).all()
+        )
+        return [{
+            "id": r.id, "old_location": r.old_location, "new_location": r.new_location,
+            "reason": r.reason, "qty": float(r.qty) if r.qty is not None else None,
+            "moved_by": r.moved_by, "at": r.created_at.isoformat() if r.created_at else None,
+        } for r in rows]
 
     def return_item(self, ledger_id, user=None):
         """Bring a returnable tool/die back to the shelf — a RETURN that adds the
@@ -232,6 +367,32 @@ class SpareStockService:
             "stock_value": round(qty * rate, 2) if (qty is not None and rate is not None) else None,
             "status": status,
             "last_counted_at": stock.last_counted_at.isoformat() if stock and stock.last_counted_at else None,
+        }
+
+    @staticmethod
+    def _issue_row_dict(row):
+        """One ISSUE row with its two-stage detail — used by the confirmation
+        queue and the confirm response."""
+        return {
+            "id": row.id,
+            "part_id": row.part_id,
+            "part_no": row.part.part_no if row.part else None,
+            "part_name": row.part.part_name if row.part else None,
+            "qty": abs(float(row.qty_delta)),
+            "actual_qty": float(row.actual_qty) if row.actual_qty is not None else None,
+            "department": row.department,
+            "issued_to": row.issued_to,
+            "machine": row.machine,
+            "line_name": row.line_name,
+            "line_no": row.line_no,
+            "status": row.status,
+            "returnable": row.returnable,
+            "reference": row.reference,
+            "remarks": row.remarks,
+            "issued_by": row.created_by,
+            "issued_at": row.created_at.isoformat() if row.created_at else None,
+            "confirmed_by": row.confirmed_by,
+            "confirmed_at": row.confirmed_at.isoformat() if row.confirmed_at else None,
         }
 
     def resolve_scan(self, store_code, code):
@@ -771,17 +932,50 @@ class SpareStockService:
             "created_by": e.created_by,
         } for e in self.ledger_repo.recent_for_store(store_code, limit)]
 
-    def history_for_part(self, part_id, limit=25):
+    def history_for_part(self, part_id, limit=25, txn_type=None, department=None,
+                         machine=None, since=None, until=None):
+        """Complete chronological history for a part — now carrying the two-stage
+        issue detail (department / issued-to / line / machine / status) and the
+        receiving detail (supplier / invoice / check) that the old view dropped,
+        with optional server-side filters."""
+        from app.models.spare_stock import SpareStockLedger
+        q = SpareStockLedger.query.filter(SpareStockLedger.part_id == part_id)
+        if txn_type:
+            q = q.filter(SpareStockLedger.txn_type == txn_type)
+        if department:
+            q = q.filter(SpareStockLedger.department == department)
+        if machine:
+            q = q.filter(SpareStockLedger.machine == machine)
+        if since:
+            q = q.filter(SpareStockLedger.created_at >= since)
+        if until:
+            q = q.filter(SpareStockLedger.created_at <= until)
+        q = q.order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc())
+        if limit:
+            q = q.limit(limit)
         return [{
             "id": e.id,
             "at": e.created_at.isoformat() if e.created_at else None,
             "qty_delta": float(e.qty_delta),
             "balance_after": float(e.balance_after),
             "txn_type": e.txn_type,
+            "status": e.status,
             "reference": e.reference,
             "remarks": e.remarks,
+            "department": e.department,
+            "issued_to": e.issued_to,
+            "machine": e.machine,
+            "line_name": e.line_name,
+            "line_no": e.line_no,
+            "actual_qty": float(e.actual_qty) if e.actual_qty is not None else None,
+            "invoice_no": e.invoice_no,
+            "invoice_date": e.invoice_date.isoformat() if e.invoice_date else None,
+            "check_result": e.check_result,
+            "supplier": e.supplier.supplier_name if e.supplier else None,
             "created_by": e.created_by,
-        } for e in self.ledger_repo.list_for_part(part_id, limit)]
+            "confirmed_by": e.confirmed_by,
+            "confirmed_at": e.confirmed_at.isoformat() if e.confirmed_at else None,
+        } for e in q.all()]
 
     # ---- Excel ----
 

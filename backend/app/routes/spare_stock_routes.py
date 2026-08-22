@@ -9,7 +9,10 @@ from app.repositories.part_repository import PartRepository
 from app.services.auth_service import AuthService
 from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_stock_service import SpareStockService
-from app.schemas.spare_stock_schema import SpareStockSetSchema, SpareIssueSchema, SpareReceiveSchema
+from app.schemas.spare_stock_schema import (
+    SpareStockSetSchema, SpareIssueSchema, SpareReceiveSchema,
+    SpareConfirmSchema, SpareLocationSchema,
+)
 from app.utils.authz import require_store_access
 from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
@@ -244,15 +247,47 @@ def set_quantity(part_id):
 
 @bp.route("/parts/<int:part_id>/issue", methods=["POST"])
 def issue_part(part_id):
+    """Stage 1 — store issues to a department + person (no machine/line)."""
     _require_part_store(part_id)
     data = validate_payload(SpareIssueSchema(), request.get_json(force=True) or {})
     row = service.issue(
         part_id, float(data["qty"]), data["department"],
         machine=data.get("machine"), returnable=data.get("returnable", False),
         reference=data.get("reference"), remarks=data.get("remarks"), user=_username(),
+        issued_to=data.get("issued_to"),
     )
-    where = f"{data['department']}" + (f" · {data['machine']}" if data.get("machine") else "")
+    who = data.get("issued_to")
+    where = data["department"] + (f" · {who}" if who else "")
     return success_response(row, f"Issued to {where}")
+
+
+@bp.route("/issues/<int:ledger_id>/confirm", methods=["POST"])
+def confirm_issue(ledger_id):
+    """Stage 2 — the user at the line confirms line + machine + installation."""
+    row = service.ledger_repo.get_by_id(ledger_id)
+    if not row or not row.part:
+        raise NotFoundError(f"Issue {ledger_id} not found")
+    require_store_access(row.part.store_code)
+    data = validate_payload(SpareConfirmSchema(), request.get_json(force=True) or {})
+    result = service.confirm_installation(
+        ledger_id, line_name=data.get("line_name"), line_no=data.get("line_no"),
+        machine=data.get("machine"),
+        actual_qty=(float(data["actual_qty"]) if data.get("actual_qty") is not None else None),
+        user=_username(), remarks=data.get("remarks"),
+    )
+    return success_response(result, "Installation confirmed")
+
+
+@bp.route("/pending-confirmations", methods=["GET"])
+def pending_confirmations():
+    return success_response(service.pending_confirmations(
+        _store_code(), limit=request.args.get("limit", type=int)))
+
+
+@bp.route("/parts/<int:part_id>/pending-confirmations", methods=["GET"])
+def part_pending_confirmations(part_id):
+    _require_part_store(part_id)
+    return success_response(service.pending_confirmations_for_part(part_id))
 
 
 @bp.route("/parts/<int:part_id>/receive", methods=["POST"])
@@ -262,8 +297,29 @@ def receive_part(part_id):
     row = service.receive(
         part_id, float(data["qty"]),
         reference=data.get("reference"), remarks=data.get("remarks"), user=_username(),
+        supplier_id=data.get("supplier_id"), invoice_no=data.get("invoice_no"),
+        invoice_date=data.get("invoice_date"), check_result=data.get("check_result"),
+        department=data.get("department"),
     )
     return success_response(row, "Stock received")
+
+
+@bp.route("/parts/<int:part_id>/update-location", methods=["POST"])
+def update_location(part_id):
+    _require_part_store(part_id)
+    data = validate_payload(SpareLocationSchema(), request.get_json(force=True) or {})
+    result = service.update_location(
+        part_id, data["new_location"], reason=data.get("reason"),
+        qty=(float(data["qty"]) if data.get("qty") is not None else None),
+        user=_username(),
+    )
+    return success_response(result, "Location updated")
+
+
+@bp.route("/parts/<int:part_id>/location-history", methods=["GET"])
+def part_location_history(part_id):
+    _require_part_store(part_id)
+    return success_response(service.location_history_for_part(part_id))
 
 
 @bp.route("/parts/<int:part_id>/history", methods=["GET"])
@@ -271,6 +327,9 @@ def part_history(part_id):
     _require_part_store(part_id)
     return success_response(service.history_for_part(
         part_id, limit=request.args.get("limit", default=25, type=int),
+        txn_type=request.args.get("txn_type"),
+        department=request.args.get("department"),
+        machine=request.args.get("machine"),
     ))
 
 

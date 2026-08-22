@@ -20,6 +20,22 @@ from app.models.base import BaseModel
 # a department/machine; RETURN brings a returnable tool/die back to the shelf.
 TXN_TYPES = ("OPENING", "RECEIPT", "ISSUE", "RETURN", "ADJUSTMENT")
 
+# Two-stage issue lifecycle: the store issues to a department + person (Stage 1,
+# no machine known yet), then the user who fits the part confirms the line +
+# machine + installation by re-scanning (Stage 2).
+ISSUE_STATUSES = (
+    "ISSUED_BY_STORE", "PENDING_USER_CONFIRMATION", "PARTIALLY_USED",
+    "INSTALLED", "RETURNED", "CANCELLED",
+)
+# Spare receiving lifecycle — deliberately no RQC and no Pending-Put-Away.
+RECEIVE_STATUSES = (
+    "PHYSICALLY_RECEIVED", "PENDING_SRV_GRN", "PENDING_DEPARTMENT_CLEARANCE",
+    "ERP_STOCK_UPDATED", "IMMEDIATELY_ISSUED", "MOVED_TO_STORE_LOCATION",
+    "REJECTED_OR_HOLD",
+)
+# Physical-check result the store supervisor records against the invoice.
+CHECK_RESULTS = ("OK", "SHORT", "EXCESS", "DAMAGED")
+
 
 class SpareStock(BaseModel):
     __tablename__ = "spare_stock"
@@ -80,7 +96,29 @@ class SpareStockLedger(BaseModel):
     # syncing the backlog fills these in; nothing is lost while ERP is offline.
     erp_pushed_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
 
+    # ---- two-stage issue (Stage 1 store -> Stage 2 user at the line) ----
+    # Stage 1: which person the store handed the part to. Set on ISSUE.
+    issued_to = db.Column(db.String(80), nullable=True)
+    # Lifecycle status of an ISSUE (ISSUE_STATUSES) or RECEIPT (RECEIVE_STATUSES)
+    # row. NULL on legacy rows and on OPENING/RETURN/ADJUSTMENT. Validated in the
+    # service, not by a DB CHECK (it holds two disjoint sets by txn_type, and an
+    # ALTER-added column can't carry the same CHECK a fresh create_all would).
+    status = db.Column(db.String(30), nullable=True, index=True)
+    # Stage 2: where the user actually fitted the part — production line + machine.
+    line_name = db.Column(db.String(60), nullable=True)   # e.g. Seat Slider / Recliner
+    line_no = db.Column(db.String(30), nullable=True)
+    actual_qty = db.Column(db.Numeric(12, 2), nullable=True)  # actually used (Stage 2)
+    confirmed_by = db.Column(db.String(60), nullable=True)
+    confirmed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    # ---- structured receiving (RECEIPT rows) ----
+    supplier_id = db.Column(db.Integer, db.ForeignKey("suppliers.id"), nullable=True)
+    invoice_no = db.Column(db.String(60), nullable=True)
+    invoice_date = db.Column(db.Date, nullable=True)
+    check_result = db.Column(db.String(20), nullable=True)  # OK / SHORT / EXCESS / DAMAGED
+
     part = db.relationship("Part")
+    supplier = db.relationship("Supplier")
 
     __table_args__ = (
         db.CheckConstraint(

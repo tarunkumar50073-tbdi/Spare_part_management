@@ -237,6 +237,25 @@ def _patch_schema():
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_erp_pushed_at ON spare_stock_ledger (erp_pushed_at)"))
         db.session.commit()
 
+    # Two-stage issue + structured receiving columns (barcode module Phase 2).
+    # All nullable/additive; validated in the service, no DB CHECK (so an
+    # ALTER-added column matches a fresh create_all one).
+    _ledger_adds = {
+        "issued_to": "VARCHAR(80)", "status": "VARCHAR(30)",
+        "line_name": "VARCHAR(60)", "line_no": "VARCHAR(30)",
+        "actual_qty": "NUMERIC(12, 2)", "confirmed_by": "VARCHAR(60)",
+        "confirmed_at": "DATETIME", "supplier_id": "INTEGER",
+        "invoice_no": "VARCHAR(60)", "invoice_date": "DATE",
+        "check_result": "VARCHAR(20)",
+    }
+    for _col, _type in _ledger_adds.items():
+        if ledger_cols and _col not in ledger_cols:
+            db.session.execute(text(f"ALTER TABLE spare_stock_ledger ADD COLUMN {_col} {_type}"))
+            db.session.commit()
+    if ledger_cols and "status" not in ledger_cols:
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_status ON spare_stock_ledger (status)"))
+        db.session.commit()
+
     # `rgps` was first created with an earlier schema; the RGP model since moved
     # to the ERP Pending-RGP columns (ven_cd, balance_qty, ...). create_all never
     # ALTERs an existing table, so the old shape made every /rgp query 500. It is
