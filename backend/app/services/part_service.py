@@ -139,7 +139,8 @@ class PartService:
         self.repo.delete(part)
         LiveStockService.invalidate_rows_cache()
 
-    def bulk_import_excel(self, file_stream, store_code=None, section_id=None):
+    def bulk_import_excel(self, file_stream, store_code=None, section_id=None,
+                          user=None, filename=None, sheet_name=None):
         """Upsert by Part No — creates new parts, updates fields on existing
         ones (e.g. bulk-setting daily_consumption/category for an already-
         loaded part master), rather than rejecting duplicates outright.
@@ -149,7 +150,12 @@ class PartService:
         Store does not land with store_code = NULL and vanish from every
         dashboard. An existing part keeps the store it already has — an import
         is for filling fields in, not for moving parts between stores.
+
+        Reports a granular outcome (inserted / updated / failed) and records the
+        run in the import history. Missing parts are never auto-deleted.
         """
+        stats = {"inserted": 0, "updated": 0}
+
         def row_processor(raw_row):
             part_no = to_text(raw_row.get("part_no"))
             if not part_no:
@@ -194,6 +200,7 @@ class PartService:
                 for key, value in fields.items():
                     if value is not None:
                         setattr(existing, key, value)
+                stats["updated"] += 1
                 return
 
             part_name = to_text(raw_row.get("part_name"))
@@ -217,10 +224,75 @@ class PartService:
                 section_id=section_id,
                 **new_fields,
             ))
+            stats["inserted"] += 1
 
-        report = bulk_import(file_stream, FIELD_ALIASES, REQUIRED_FIELDS, row_processor)
+        report = bulk_import(file_stream, FIELD_ALIASES, REQUIRED_FIELDS, row_processor, sheet_name)
         LiveStockService.invalidate_rows_cache()
+        report["inserted"] = stats["inserted"]
+        report["updated"] = stats["updated"]
+        report["failed"] = report.get("error_count", 0)
+        report["skipped"] = 0
+        # Record the run (a temporary-master audit trail until ERP is the source).
+        from app.models.part_import_history import PartImportHistory
+        hist = PartImportHistory(
+            filename=filename, store_code=store_code, imported_by=user,
+            total_rows=report.get("total_rows", 0),
+            inserted=stats["inserted"], updated=stats["updated"],
+            failed=report.get("error_count", 0),
+        )
+        db.session.add(hist)
+        db.session.commit()
+        report["history_id"] = hist.id
         return report
+
+    def preview_import(self, file_stream, sheet_name=None):
+        """Dry-run: parse + validate the file and return the planned action for
+        every row (INSERT / UPDATE / ERROR) WITHOUT writing anything. Detects
+        duplicate Part No. within the same file. Lets the user confirm before
+        committing (spec §2)."""
+        from app.utils.excel_io import read_rows, AmbiguousSheetError
+        from app.utils.exceptions import BadRequestError
+        try:
+            rows = list(read_rows(file_stream, FIELD_ALIASES, REQUIRED_FIELDS, sheet_name))
+        except AmbiguousSheetError as exc:
+            raise BadRequestError(str(exc), errors={"sheets": exc.sheet_names}) from exc
+        except ValueError as exc:
+            raise BadRequestError(str(exc)) from exc
+
+        counts = {"insert": 0, "update": 0, "error": 0}
+        preview = []
+        seen = {}
+        for row_no, raw in rows:
+            part_no = to_text(raw.get("part_no"))
+            part_name = to_text(raw.get("part_name"))
+            action, reason = "INSERT", None
+            if not part_no:
+                action, reason = "ERROR", "Part No is required"
+            elif part_no in seen:
+                action, reason = "ERROR", f"Duplicate Part No in file (first at row {seen[part_no]})"
+            elif self.repo.get_by_part_no(part_no):
+                action = "UPDATE"
+            elif not part_name:
+                action, reason = "ERROR", "Part Name is required for a new part"
+            if part_no and part_no not in seen:
+                seen[part_no] = row_no
+            counts[action.lower()] += 1
+            preview.append({"row": row_no, "part_no": part_no, "part_name": part_name,
+                            "action": action, "reason": reason})
+        return {"total_rows": len(rows), "counts": counts, "rows": preview}
+
+    def import_history(self, limit=50):
+        from app.models.part_import_history import PartImportHistory
+        q = PartImportHistory.query.order_by(
+            PartImportHistory.created_at.desc(), PartImportHistory.id.desc())
+        if limit:
+            q = q.limit(limit)
+        return [{
+            "id": h.id, "filename": h.filename, "store_code": h.store_code,
+            "total_rows": h.total_rows, "inserted": h.inserted, "updated": h.updated,
+            "failed": h.failed, "imported_by": h.imported_by,
+            "at": h.created_at.isoformat() if h.created_at else None,
+        } for h in q.all()]
 
     @staticmethod
     def build_template():

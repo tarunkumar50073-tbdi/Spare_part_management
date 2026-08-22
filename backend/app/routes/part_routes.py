@@ -6,7 +6,7 @@ from app.utils.validators import validate_payload
 from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import success_response, paginated_response
 from app.utils.exceptions import BadRequestError
-from app.utils.authz import admin_required
+from app.utils.authz import admin_required, current_user
 
 bp = Blueprint("parts", __name__, url_prefix="/api/v1/parts")
 service = PartService()
@@ -85,20 +85,47 @@ def export_parts():
                       mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+@bp.route("/import/preview", methods=["POST"])
+@admin_required
+def preview_import_parts():
+    """Dry-run before committing: per-row INSERT/UPDATE/ERROR + counts."""
+    file = request.files.get("file")
+    if not file or file.filename == "":
+        raise BadRequestError("No file uploaded")
+    report = service.preview_import(file.stream, sheet_name=request.form.get("sheet_name") or None)
+    return success_response(report, "Preview ready")
+
+
 @bp.route("/import", methods=["POST"])
 @admin_required
 def import_parts():
     file = request.files.get("file")
     if not file or file.filename == "":
         raise BadRequestError("No file uploaded")
+    u = current_user()
     # Sent as form fields alongside the file: a multipart upload has no JSON
     # body to validate, and these only decide where NEW rows land.
     report = service.bulk_import_excel(
         file.stream,
         store_code=request.form.get("store_code") or None,
         section_id=request.form.get("section_id", type=int),
+        user=(u.username if u else None),
+        filename=file.filename,
+        sheet_name=request.form.get("sheet_name") or None,
     )
-    return success_response(report, f"{report['created']} of {report['total_rows']} parts imported", 201)
+    return success_response(
+        report,
+        f"{report.get('inserted', 0)} added, {report.get('updated', 0)} updated, "
+        f"{report.get('failed', 0)} failed of {report['total_rows']}",
+        201,
+    )
+
+
+@bp.route("/import/history", methods=["GET"])
+@admin_required
+def import_history():
+    return success_response(service.import_history(
+        limit=request.args.get("limit", default=50, type=int)))
 
 
 @bp.route("/derive-categories", methods=["POST"])

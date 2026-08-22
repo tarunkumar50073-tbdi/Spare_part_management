@@ -7,6 +7,9 @@ is fetched from the DB (and, later, ERP) after resolving — never encoded in th
 barcode. Nothing here fakes ERP data: stock is reported as MANUAL until an ERP
 Current-Stock source lands (see the erp-integration plan).
 """
+from datetime import timezone
+
+from app.models.base import utcnow
 from app.models.erp_stock import ERPStock
 from app.models.part_barcode import SYMBOLOGIES
 from app.models.scan_audit import SCAN_MODES, SCAN_SOURCES
@@ -21,6 +24,10 @@ from app.utils.db_tx import atomic
 from app.utils.exceptions import (
     BadRequestError, ConflictError, NotFoundError, ValidationError,
 )
+
+# An ERP stock snapshot older than this reads as STALE rather than SYNCED.
+# 24h suits the hourly ERP poller; a missed sync then shows honestly as stale.
+STALE_AFTER_HOURS = 24
 
 # The label template. Configurable — 100mm x 50mm is only the starting default
 # because the label-roll size may change; the frontend reads these values rather
@@ -104,16 +111,32 @@ class BarcodeService:
         return payload
 
     def _data_status(self, part):
-        """Honest freshness of the stock figure shown. The on-hand for a spare
-        is store-maintained (physical) today, so it is MANUAL; an ERP live-stock
-        source will flip this to SYNCED/LIVE later. Never reports fake ERP data.
-        """
+        """Honest freshness of the stock figure shown — never fakes ERP data:
+        - MANUAL: no ERP feed for this part; the store's physical figure is shown.
+        - SYNCED: an ERP snapshot exists and was refreshed within STALE_AFTER_HOURS.
+        - STALE:  an ERP snapshot exists but is older than that window.
+        (LIVE is reserved for a real-time ERP query, which does not exist yet.)
+        Also carries the ERP stock-WRITE status so the UI can say whether an
+        issue/receive will reflect back in ERP."""
         erp = ERPStock.query.filter_by(part_id=part.id).first()
+        last_sync = erp.synced_at if erp else None
+        if last_sync is None:
+            source, warning = "MANUAL", "ERP live stock not available yet — showing the store's physical figure."
+        else:
+            aware = last_sync if last_sync.tzinfo else last_sync.replace(tzinfo=timezone.utc)
+            age_h = (utcnow() - aware).total_seconds() / 3600.0
+            if age_h > STALE_AFTER_HOURS:
+                source, warning = "STALE", f"ERP stock is stale — last synced over {STALE_AFTER_HOURS}h ago."
+            else:
+                source, warning = "SYNCED", None
         return {
             "data_status": {
-                "stock_source": "MANUAL",
+                "stock_source": source,          # LIVE / SYNCED / MANUAL / STALE
                 "erp_available": erp is not None,
-                "erp_last_sync": erp.synced_at.isoformat() if erp and erp.synced_at else None,
+                "erp_qty": float(erp.qty_on_hand) if erp and erp.qty_on_hand is not None else None,
+                "erp_last_sync": last_sync.isoformat() if last_sync else None,
+                "warning": warning,
+                "write": self.spare_service.erp_write_status(),
             }
         }
 
