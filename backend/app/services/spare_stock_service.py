@@ -292,6 +292,9 @@ class SpareStockService:
                 department=issue_row.department, machine=issue_row.machine,
                 return_of_id=ledger_id,
             )
+            # Close the ISSUE out: mark it RETURNED so it drops from the Stage-2
+            # confirmation queue and can no longer be confirmed as installed.
+            self.ledger_repo.update(issue_row, status="RETURNED")
         return self._row_dict(part, row)
 
     def outstanding_returnables(self, store_code):

@@ -290,11 +290,25 @@ class BarcodeService:
         clash = self.pb_repo.get_by_code(code)
         if clash:
             if clash.part_id == part_id and not clash.is_active:
-                return self.list_part_barcodes(part_id)  # reactivate path handled separately
+                # Reactivate a previously-deactivated mapping for THIS part so the
+                # code resolves again — before this it was a silent no-op that
+                # still reported success (finding #2).
+                self.pb_repo.update(clash, is_active=True, supplier_id=supplier_id, symbology=symbology)
+                return self.list_part_barcodes(part_id)
+            # Already mapped (to this part while active, or to any other part).
             raise ConflictError(
                 f"Barcode '{code}' is already mapped"
                 + ("" if clash.part_id == part_id else " to another part")
             )
+
+        # A supplier code must not collide with another part's internal Part No.
+        # (or that part's own barcode) — scanning it would otherwise silently
+        # resolve to the wrong part. Equal to THIS part's own number is a
+        # harmless alias and allowed.
+        owner = self.part_repo.get_by_scan_code(code)
+        if owner and owner.id != part_id:
+            raise ConflictError(f"Barcode '{code}' is the internal Part No. of another part")
+
         if supplier_id is not None and not self.supplier_repo.get_by_id(supplier_id):
             raise NotFoundError(f"Supplier {supplier_id} not found")
 

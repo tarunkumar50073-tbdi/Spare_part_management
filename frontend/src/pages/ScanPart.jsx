@@ -46,6 +46,7 @@ export default function ScanPart() {
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [now, setNow] = useState(() => new Date());
   const resolvingRef = useRef(false);
+  const reqSeqRef = useRef(0);   // invalidates a resolve whose mode changed mid-flight
 
   useEffect(() => {
     departmentService.list(true).then((r) => setDepartments(r.data.data || [])).catch(() => {});
@@ -60,16 +61,20 @@ export default function ScanPart() {
   }, []);
 
   const reset = () => { setPart(null); setForm({}); setPending([]); setHistory([]); };
-  const changeMode = (m) => { setMode(m); reset(); };
+  const changeMode = (m) => { reqSeqRef.current++; setMode(m); reset(); };
 
   const handleCode = async (code, source) => {
     if (resolvingRef.current || busy) return;
     resolvingRef.current = true;
+    const seq = ++reqSeqRef.current;
     setBusy(true);
     try {
       const res = await barcodeService.resolve(storeCode, code, {
         scanSource: source, scanMode: scanModeFor(mode),
       });
+      // Mode changed (or a new scan started) while this resolve was in flight —
+      // drop the stale result instead of resurrecting the old part.
+      if (reqSeqRef.current !== seq) return;
       const data = res.data.data;
       setPart(data);
       setForm(defaultForm(mode));
@@ -178,7 +183,7 @@ export default function ScanPart() {
       {/* mode tabs */}
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
         {MODES.map((m) => (
-          <button key={m.key} type="button" onClick={() => changeMode(m.key)}
+          <button key={m.key} type="button" onClick={() => changeMode(m.key)} disabled={busy}
             className={`rounded-lg py-3 text-sm font-semibold ${
               mode === m.key ? "bg-toyotared text-white" : "bg-slate-100 text-slate-700 dark:bg-navy-800 dark:text-slate-200"}`}>
             <span className="mr-1">{m.emoji}</span>{m.label}

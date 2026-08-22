@@ -338,7 +338,12 @@ def part_history(part_id):
 
 @bp.route("/template", methods=["GET"])
 def download_template():
-    buf = service.build_template(request.args.get("store_code"))
+    # When a store is named, enforce access on it — the template is pre-filled
+    # with that store's part numbers + quantities (audit finding AUTHZ).
+    code = request.args.get("store_code")
+    if code:
+        require_store_access(code)
+    buf = service.build_template(code)
     return send_file(buf, as_attachment=True,
                      download_name="spare_opening_stock_template.xlsx", mimetype=XLSX_MIME)
 
@@ -352,11 +357,15 @@ def export_stock():
 
 @bp.route("/import", methods=["POST"])
 def import_stock():
+    # store_code is REQUIRED and access-enforced (audit finding AUTHZ): without
+    # it the per-row store guard in bulk_import is skipped, letting an upload
+    # overwrite another store's on-hand. _store_code() reads the form field too.
+    store_code = _store_code()
     file = request.files.get("file")
     if not file or file.filename == "":
         raise BadRequestError("No file uploaded")
     report = service.bulk_import(
-        file.stream, store_code=request.form.get("store_code") or None,
+        file.stream, store_code=store_code,
         user=_username(), sheet_name=request.form.get("sheet_name") or None,
     )
     return success_response(report, f"{report.get('updated', 0)} part(s) updated", 201)

@@ -17,6 +17,7 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
   const [multiCam, setMultiCam] = useState(false);
+  const [paused, setPaused] = useState(false);   // camera stops after a hit; tap to scan next
 
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
@@ -26,6 +27,7 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
   const keyTimesRef = useRef([]);
   const busyRef = useRef(busy);
   const deviceIdRef = useRef(undefined);
+  const startSeqRef = useRef(0);   // invalidates an in-flight async camera start
   useEffect(() => { busyRef.current = busy; }, [busy]);
 
   const cameraCapable =
@@ -34,6 +36,7 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
     !!navigator.mediaDevices?.getUserMedia;
 
   const stopCamera = () => {
+    startSeqRef.current++;   // any in-flight start() sees a stale seq and self-stops
     try { controlsRef.current?.stop(); } catch { /* already stopped */ }
     controlsRef.current = null;
     setTorchOn(false);
@@ -41,24 +44,32 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
 
   const emit = (text, source) => {
     const now = Date.now();
-    if (text === lastRef.current.code && now - lastRef.current.t < DUP_MS) return;
+    if (text === lastRef.current.code && now - lastRef.current.t < DUP_MS) return false;
     lastRef.current = { code: text, t: now };
     onCode(text, source);
+    return true;
   };
 
   const startCamera = async (deviceId) => {
     setCamError("");
+    const seq = ++startSeqRef.current;
     try {
       if (!readerRef.current) readerRef.current = new BrowserMultiFormatReader();
       const reader = readerRef.current;
       const cb = (result) => {
         if (!result || busyRef.current) return;
-        emit(result.getText(), "TABLET_CAMERA");
+        // Stop decoding after a successful read so the same in-frame barcode
+        // cannot re-fire every 1.5s and wipe the operator's in-progress form.
+        if (emit(result.getText(), "TABLET_CAMERA")) { stopCamera(); setPaused(true); }
       };
-      controlsRef.current = deviceId
+      const controls = deviceId
         ? await reader.decodeFromVideoDevice(deviceId, videoRef.current, cb)
         : await reader.decodeFromConstraints(
             { video: { facingMode: { ideal: "environment" } } }, videoRef.current, cb);
+      // The user switched mode / unmounted while getUserMedia was resolving —
+      // don't keep this now-orphaned stream alive.
+      if (startSeqRef.current !== seq) { try { controls.stop(); } catch { /* */ } return; }
+      controlsRef.current = controls;
       deviceIdRef.current = deviceId;
       const track = videoRef.current?.srcObject?.getVideoTracks?.()[0];
       setTorchSupported(!!track?.getCapabilities?.().torch);
@@ -80,7 +91,7 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
   };
 
   useEffect(() => {
-    if (method === "camera" && cameraCapable) startCamera(deviceIdRef.current);
+    if (method === "camera" && cameraCapable) { setPaused(false); startCamera(deviceIdRef.current); }
     else stopCamera();
     return stopCamera;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,6 +180,12 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
           <div className="relative mx-auto max-w-md overflow-hidden rounded-lg bg-black">
             <video ref={videoRef} className="w-full" style={{ maxHeight: "50vh" }} muted playsInline />
             <div className="pointer-events-none absolute inset-6 rounded-lg border-2 border-white/70" />
+            {paused && (
+              <button type="button" onClick={() => { setPaused(false); startCamera(deviceIdRef.current); }}
+                className="absolute inset-0 flex items-center justify-center bg-black/60 text-lg font-semibold text-white">
+                ▶ Scan next part
+              </button>
+            )}
           </div>
           <div className="mt-3 flex justify-center gap-2">
             {torchSupported && (
