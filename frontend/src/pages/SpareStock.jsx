@@ -56,8 +56,7 @@ export default function SpareStock() {
   const [issueDept, setIssueDept] = useState(DEPARTMENTS[0]);
   const [issueRemarks, setIssueRemarks] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [machines, setMachines] = useState([]);          // type-ahead source
-  const [issueMachine, setIssueMachine] = useState("");
+  const [issueIssuedTo, setIssueIssuedTo] = useState("");   // person the store hands it to (Stage 1)
   const [issueReturnable, setIssueReturnable] = useState(false);
   const [returnables, setReturnables] = useState([]);    // outstanding returnable issues
   const [reorder, setReorder] = useState(null);          // reorder list {items,count,total}
@@ -77,13 +76,12 @@ export default function SpareStock() {
     Promise.all([
       spareStockService.list({ store_code: activeCode }).then((r) => r.data.data).catch(() => []),
       spareStockService.summary(activeCode).then((r) => r.data.data).catch(() => null),
-      spareStockService.machines(activeCode).then((r) => r.data.data).catch(() => []),
       spareStockService.returnables(activeCode).then((r) => r.data.data).catch(() => []),
       spareStockService.reorder(activeCode).then((r) => r.data.data).catch(() => null),
       spareStockService.erpPending(activeCode).then((r) => r.data.data?.pending ?? 0).catch(() => 0),
     ])
-      .then(([list, sum, mc, ret, ro, ep]) => {
-        setRows(list); setSummary(sum); setMachines(mc); setReturnables(ret); setReorder(ro); setErpPending(ep);
+      .then(([list, sum, ret, ro, ep]) => {
+        setRows(list); setSummary(sum); setReturnables(ret); setReorder(ro); setErpPending(ep);
       })
       .finally(() => setLoading(false));
   }, [activeCode]);
@@ -129,7 +127,7 @@ export default function SpareStock() {
     setIssuing(row);
     setIssueQty("");
     setIssueDept(DEPARTMENTS[0]);
-    setIssueMachine("");
+    setIssueIssuedTo("");
     setIssueReturnable(false);
     setIssueRemarks("");
   };
@@ -215,11 +213,11 @@ export default function SpareStock() {
     try {
       await spareStockService.issue(issuing.part_id, {
         qty, department: issueDept,
-        machine: issueMachine.trim() || undefined,
+        issued_to: issueIssuedTo.trim() || undefined,
         returnable: issueReturnable,
         remarks: issueRemarks || undefined,
       });
-      toast.success(`Issued ${qty} of ${issuing.part_no} to ${issueDept}${issueMachine.trim() ? ` · ${issueMachine.trim()}` : ""}`);
+      toast.success(`Issued ${qty} of ${issuing.part_no} to ${issueDept}${issueIssuedTo.trim() ? ` · ${issueIssuedTo.trim()}` : ""}`);
       setIssuing(null);
       load();
     } catch (err) {
@@ -562,18 +560,16 @@ export default function SpareStock() {
             </label>
             <label className="block">
               <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Machine <span className="font-normal text-slate-400">— where it was fitted</span>
+                Issued to <span className="font-normal text-slate-400">— person taking the part</span>
               </span>
               <input
-                type="text" list="spare-machine-list"
-                value={issueMachine}
-                onChange={(e) => setIssueMachine(e.target.value)}
-                placeholder="Type or pick — e.g. Press-05"
+                type="text"
+                value={issueIssuedTo}
+                onChange={(e) => setIssueIssuedTo(e.target.value)}
+                placeholder="e.g. Ravi Kumar"
                 className="input-field w-full mt-1"
               />
-              <datalist id="spare-machine-list">
-                {machines.map((m) => <option key={m} value={m} />)}
-              </datalist>
+              <p className="mt-1 text-[11px] text-slate-400">Line &amp; machine are recorded later, when the user fits the part (Scan Part &rarr; Confirm).</p>
             </label>
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
@@ -591,7 +587,7 @@ export default function SpareStock() {
               <input
                 type="text" value={issueRemarks}
                 onChange={(e) => setIssueRemarks(e.target.value)}
-                placeholder="Work order, machine, etc."
+                placeholder="Work order, reference, etc."
                 className="input-field w-full mt-1"
               />
             </label>
