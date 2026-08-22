@@ -7,7 +7,7 @@ import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
-import UploadReportModal from "../components/UploadReportModal.jsx";
+import PartImportModal from "../components/PartImportModal.jsx";
 import PrintBarcodeModal from "../components/PrintBarcodeModal.jsx";
 import { partService } from "../services/partService.js";
 import { supplierService } from "../services/supplierService.js";
@@ -62,7 +62,7 @@ export default function PartMaster() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [uploadReport, setUploadReport] = useState(null);
+  const [importFile, setImportFile] = useState(null);
   const [suppliers, setSuppliers] = useState([]);
   // {id, field} of the cell being typed into — Max and Rate only.
   const [editCell, setEditCell] = useState(null);
@@ -273,20 +273,10 @@ export default function PartMaster() {
     loadCounts();
   };
 
+  // Open the preview modal instead of importing immediately — the user reviews
+  // per-row INSERT/UPDATE/ERROR and confirms before anything is written.
   const handleUpload = async (file) => {
-    try {
-      const res = await partService.import(file, {
-        store_code: activeCode,
-        // Only meaningful when the store has exactly one section — otherwise
-        // the file itself has to say, and new rows land unsectioned.
-        section_id: sections.length === 1 ? sections[0].id : undefined,
-      });
-      setUploadReport(res.data.data);
-      load(page, keyword, missing);
-      loadCounts();
-    } catch (_) {
-      /* handled globally */
-    }
+    setImportFile(file);
   };
 
   const handleDownloadTemplate = () => downloadFile("/parts/template", "part_master_template.xlsx");
@@ -633,7 +623,13 @@ export default function PartMaster() {
         </form>
       </Modal>
 
-      <UploadReportModal report={uploadReport} onClose={() => setUploadReport(null)} />
+      <PartImportModal
+        file={importFile}
+        storeCode={activeCode}
+        sectionId={sections.length === 1 ? sections[0].id : undefined}
+        onClose={() => setImportFile(null)}
+        onImported={() => { load(page, keyword, missing); loadCounts(); }}
+      />
 
       <PrintBarcodeModal
         open={!!printPart}

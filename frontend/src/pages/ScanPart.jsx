@@ -220,6 +220,15 @@ export default function ScanPart() {
             </Field>
           </div>
 
+          {part.data_status?.warning && (
+            <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+              ⚠️ {part.data_status.warning}
+              {part.data_status?.write && !part.data_status.write.active && (
+                <span className="ml-1">· ERP stock write is off — issue/receive stay in the app for now.</span>
+              )}
+            </div>
+          )}
+
           {/* mode-specific action */}
           <div className="mt-4 border-t border-slate-100 pt-4 dark:border-navy-800">
             {mode === "LOOKUP" && (
