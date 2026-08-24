@@ -73,8 +73,8 @@ export default function SparePartHistory() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Part History</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Search by part no / ref / name, then pick a part to see its complete movement + location history.</p>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Part Ledger</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Search by part no / ref / name, then pick a part to see its full ledger — what came in, what went out, and where it went.</p>
       </div>
 
       <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
