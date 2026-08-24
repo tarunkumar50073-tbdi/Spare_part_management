@@ -15,6 +15,16 @@ const INPUT =
 
 const clean = (s) => (s.trim() ? s.trim() : null);
 
+// The company mail domain is fixed and shown as a suffix, so only the username
+// is typed. A pasted full address (already has "@") is kept as-is.
+const MAIL_DOMAIN = "@toyota-boshoku.com";
+const localPart = (email) => (email || "").split("@")[0];
+const toEmail = (v) => {
+  const t = (v || "").trim();
+  if (!t) return "";
+  return t.includes("@") ? t : t + MAIL_DOMAIN;
+};
+
 export default function DepartmentMaster() {
   const { user } = useAuth();
   const isAdmin = !!user?.is_admin;
@@ -152,17 +162,20 @@ export default function DepartmentMaster() {
                     />
                   </td>
                   <td className="px-4 py-3">
-                    <div className="relative max-w-sm">
-                      <Mail size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                      <input
-                        type="email"
-                        className={`${INPUT} pl-8`}
-                        placeholder="name@toyota-boshoku.com"
-                        value={r._email}
-                        disabled={!isAdmin}
-                        onChange={(e) => patchRow(r.id, { _email: e.target.value })}
-                        onKeyDown={(e) => { if (e.key === "Enter" && isDirty(r)) saveRow(r); }}
-                      />
+                    <div className="flex items-stretch max-w-sm">
+                      <div className="relative flex-1">
+                        <Mail size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <input
+                          type="text"
+                          className={`${INPUT} pl-8 rounded-r-none`}
+                          placeholder="username"
+                          value={localPart(r._email)}
+                          disabled={!isAdmin}
+                          onChange={(e) => patchRow(r.id, { _email: toEmail(e.target.value) })}
+                          onKeyDown={(e) => { if (e.key === "Enter" && isDirty(r)) saveRow(r); }}
+                        />
+                      </div>
+                      <span className="shrink-0 rounded-r-lg border border-l-0 border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 px-2.5 flex items-center text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{MAIL_DOMAIN}</span>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right">
@@ -195,14 +208,17 @@ export default function DepartmentMaster() {
                 value={adding.name}
                 onChange={(e) => setAdding((a) => ({ ...a, name: e.target.value }))}
               />
-              <input
-                type="email"
-                className={`${INPUT} md:max-w-sm`}
-                placeholder="name@toyota-boshoku.com (optional)"
-                value={adding.email}
-                onChange={(e) => setAdding((a) => ({ ...a, email: e.target.value }))}
-                onKeyDown={(e) => { if (e.key === "Enter") addDept(); }}
-              />
+              <div className="flex items-stretch md:max-w-sm">
+                <input
+                  type="text"
+                  className={`${INPUT} rounded-r-none`}
+                  placeholder="username (optional)"
+                  value={localPart(adding.email)}
+                  onChange={(e) => setAdding((a) => ({ ...a, email: toEmail(e.target.value) }))}
+                  onKeyDown={(e) => { if (e.key === "Enter") addDept(); }}
+                />
+                <span className="shrink-0 rounded-r-lg border border-l-0 border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 px-2.5 flex items-center text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{MAIL_DOMAIN}</span>
+              </div>
               <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 px-1 whitespace-nowrap">
                 <input
                   type="checkbox"
