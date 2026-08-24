@@ -24,6 +24,7 @@ const TITLES = {
   "/rack-bins": "Rack/Bin Master",
   "/inventory-overview": "Inventory Overview",
   "/supplier-vehicles": "Supplier Vehicle Management",
+  "/vehicle-in-out": "Vehicle In / Out",
 };
 
 const COLLAPSED_KEY = "dx_sidebar_collapsed";

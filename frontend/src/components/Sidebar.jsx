@@ -24,7 +24,12 @@ function ToyotaBoshokuLogo({ size = 56 }) {
 const SHARED_GROUPS = [
   {
     label: "Receiving",
-    items: [{ to: "/gate-entry", label: "Gate Entry", emoji: "🚚" }],
+    items: [
+      { to: "/gate-entry", label: "Gate Entry", emoji: "🚚" },
+      // The ERP-fed gate arrivals / vehicle in-out live here so they stay
+      // reachable even when the Child store nav is off (Spare-only mode).
+      { to: "/vehicle-in-out", label: "Vehicle In / Out", emoji: "🚦" },
+    ],
   },
 ];
 
