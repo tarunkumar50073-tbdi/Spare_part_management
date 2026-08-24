@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useStores } from "../context/StoreContext.jsx";
-import { barcodeService } from "../services/barcodeService.js";
 import { spareStockService } from "../services/spareStockService.js";
 import { departmentService } from "../services/departmentService.js";
 
@@ -16,6 +15,7 @@ export default function SparePartHistory() {
   const storeCode = activeCode || "MAINTENANCE";
 
   const [query, setQuery] = useState("");
+  const [allParts, setAllParts] = useState([]);
   const [part, setPart] = useState(null);
   const [rows, setRows] = useState([]);
   const [locs, setLocs] = useState([]);
@@ -25,7 +25,8 @@ export default function SparePartHistory() {
 
   useEffect(() => {
     departmentService.list(true).then((r) => setDepartments(r.data.data || [])).catch(() => {});
-  }, []);
+    spareStockService.list({ store_code: storeCode }).then((r) => setAllParts(r.data.data || [])).catch(() => {});
+  }, [storeCode]);
 
   const loadHistory = async (partId, f = filters) => {
     const [h, l] = await Promise.all([
@@ -38,19 +39,20 @@ export default function SparePartHistory() {
     setLocs(l.data.data || []);
   };
 
-  const find = async () => {
-    const q = query.trim();
-    if (!q) return;
+  // Partial, case-insensitive match on part no / name / ref (old) no — so a
+  // search finds EVERY matching part, not just one exact code.
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return allParts
+      .filter((p) => `${p.part_no || ""} ${p.part_name || ""} ${p.old_part_no || ""}`.toLowerCase().includes(q))
+      .slice(0, 50);
+  }, [query, allParts]);
+
+  const pick = async (p) => {
+    setPart(p);
     setBusy(true);
-    try {
-      const r = await barcodeService.resolve(storeCode, q, { scanMode: "HISTORY" });
-      setPart(r.data.data);
-      await loadHistory(r.data.data.part_id);
-    } catch {
-      setPart(null); setRows([]); setLocs([]);
-    } finally {
-      setBusy(false);
-    }
+    try { await loadHistory(p.part_id); } finally { setBusy(false); }
   };
 
   const applyFilters = async () => {
@@ -72,16 +74,28 @@ export default function SparePartHistory() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">Part History</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Scan or type a Part No. to see its complete movement + location history.</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Search by part no / ref / name, then pick a part to see its complete movement + location history.</p>
       </div>
 
       <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
-        <div className="flex gap-2">
-          <input value={query} onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); find(); } }}
-            placeholder="e.g. CNTR2025" className="input-field flex-1 text-lg" />
-          <button className="btn-primary px-6" onClick={find} disabled={busy}>Find</button>
-        </div>
+        <input value={query} onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && matches.length) { e.preventDefault(); pick(matches[0]); } }}
+          placeholder="Search part no / ref / name… (e.g. cntr, 2025)" className="input-field w-full text-lg" />
+        {query.trim() && (
+          <div className="mt-2 max-h-60 overflow-auto rounded-lg border border-slate-100 dark:border-navy-800">
+            {matches.length === 0 ? (
+              <div className="px-3 py-3 text-sm text-slate-400">No matching parts</div>
+            ) : matches.map((p) => (
+              <button key={p.part_id} type="button" onClick={() => pick(p)}
+                className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-navy-800 ${part?.part_id === p.part_id ? "bg-slate-50 dark:bg-navy-800" : ""}`}>
+                <span className="font-mono shrink-0">{p.part_no}</span>
+                <span className="flex-1 truncate text-slate-500 dark:text-slate-400">{p.part_name}</span>
+                {p.old_part_no && <span className="shrink-0 text-xs text-slate-400">{p.old_part_no}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+        {matches.length >= 50 && <p className="mt-1 text-xs text-slate-400">Showing first 50 — refine your search.</p>}
       </div>
 
       {part && (
