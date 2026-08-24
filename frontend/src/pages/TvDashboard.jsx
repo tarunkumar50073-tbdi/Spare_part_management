@@ -827,7 +827,6 @@ export default function TvDashboard() {
     ]);
     openStack({
       title: "Consumption — department / machine / part-type / month / year",
-      downloads: [{ label: "Download report (Excel)", href: "/api/v1/spare-stock/consumption/export?store_code=MAINTENANCE" }],
       custom: <ConsumptionView data={{ department, machine, type, month, year }} P={P} />,
     });
   };

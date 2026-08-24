@@ -8,6 +8,7 @@ import HorizontalBars from "../components/HorizontalBars.jsx";
 import KpiCard from "../components/KpiCard.jsx";
 import Modal from "../components/Modal.jsx";
 import NotCaptured from "../components/NotCaptured.jsx";
+import { downloadFile } from "../utils/download.js";
 import RadialGauge from "../components/RadialGauge.jsx";
 import Table from "../components/Table.jsx";
 import { storeService } from "../services/storeService.js";
@@ -1291,9 +1292,15 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
       {/* ---- Consumption: laid out and waiting on a capture point ---- */}
       {ops && (
         <section>
-          <div className="mb-3">
-            <h3 className="section-title">Consumption</h3>
-            <p className="section-hint">By department, and over time</p>
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="section-title">Consumption</h3>
+              <p className="section-hint">By department, and over time</p>
+            </div>
+            <button className="btn-secondary shrink-0"
+              onClick={() => downloadFile("/spare-stock/consumption/export", "spare_consumption_report.xlsx", { store_code: STORE_CODE })}>
+              ⬇ Download report (Excel)
+            </button>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="card">
