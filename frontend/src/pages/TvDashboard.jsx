@@ -939,6 +939,11 @@ export default function TvDashboard() {
         if (Array.isArray(trend)) next.trend = trend.map((t) => ({ d: t.d.slice(0, 2), qty: t.qty }));
         next.rows = Array.isArray(list) ? list : (prev.rows || []);
         next.parts = next.rows;
+        // Stock value tied up in the short / excess parts — shown as the ₹ note
+        // under those KPI cards so the money at risk is visible, not just a count.
+        const sumVal = (pred) => next.rows.filter(pred).reduce((s, r) => s + (r.stock_value || 0), 0);
+        const excessValue = sumVal((r) => r.status === "Above Maximum");
+        const shortValue = sumVal((r) => r.status === "Below Minimum" || r.status === "Out of Stock");
         next.health = {
           short: spareList("Short — below minimum", next.rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock")),
           excess: spareList("Excess — above maximum", next.rows.filter((r) => r.status === "Above Maximum")),
@@ -957,10 +962,12 @@ export default function TvDashboard() {
           { label: "Today's Consumption", value: fmtInt(today?.issued_qty), color: C.purple, real: today?.issued_qty != null,
             onClick: openConsumption },
           { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null,
+            note: short ? { text: `${fmtMoney(shortValue)} value`, color: C.red } : null,
             onClick: () => openStack(spareList("Short — below minimum",
               next.rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock")
                 .sort((a, b) => (b.min_stock_level - b.qty_on_hand) - (a.min_stock_level - a.qty_on_hand)))) },
           { label: "Excess Parts", value: fmtInt(excess), color: C.cyan, real: excess != null,
+            note: excess ? { text: `${fmtMoney(excessValue)} value`, color: C.cyan } : null,
             onClick: () => openStack(spareList("Excess — above maximum",
               next.rows.filter((r) => r.status === "Above Maximum")
                 .sort((a, b) => (b.qty_on_hand - (b.max_stock_level || 0)) - (a.qty_on_hand - (a.max_stock_level || 0))))) },
