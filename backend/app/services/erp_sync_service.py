@@ -144,13 +144,19 @@ class ERPSyncService:
         ERPSyncService._poller_started = True
 
         def loop():
+            # Sync-first, not sleep-first: refresh ERP data ~immediately on start
+            # so it is fresh the moment the app comes up (and after every restart),
+            # then repeat on the interval. Sleep-first meant a backend that
+            # restarted within the interval never completed a first sync — which
+            # is exactly why the mirror could sit days behind ERP.
+            time.sleep(3)  # let the app finish starting before the first pull
             while True:
-                time.sleep(interval)
                 try:
                     with app.app_context():
                         self.sync_all()
                 except Exception as exc:  # noqa: BLE001 — never let the poller thread die
                     ERPSyncService._last_error = f"{type(exc).__name__}: {exc}"
                     logger.exception("ERP sync failed")
+                time.sleep(interval)
 
         threading.Thread(target=loop, name="erp-sync-poller", daemon=True).start()
