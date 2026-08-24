@@ -1,16 +1,62 @@
 """Department master — the departments the spare store serves and the e-mail
 each one's reorder notifications are sent to. The reorder notifier reads its
 recipient list straight off this master (repo.reorder_recipients)."""
-from app.repositories.department_repository import DepartmentRepository
+from app.repositories.department_repository import (
+    DepartmentRecipientRepository, DepartmentRepository,
+)
 from app.utils.exceptions import BadRequestError, NotFoundError
 
 
 class DepartmentService:
     def __init__(self):
         self.repo = DepartmentRepository()
+        self.rec_repo = DepartmentRecipientRepository()
 
     def list_departments(self, active_only=False):
-        return [d.to_dict() for d in self.repo.list_all(active_only=active_only)]
+        out = []
+        for d in self.repo.list_all(active_only=active_only):
+            row = d.to_dict()
+            # Person-wise recipients (name + email) — a department can have many.
+            row["recipients"] = [r.to_dict() for r in
+                                 sorted(d.recipients, key=lambda x: x.id) if r.is_active]
+            out.append(row)
+        return out
+
+    # ---- person-wise recipients ----
+
+    def add_recipient(self, dept_id, name, email):
+        if not self.repo.get_by_id(dept_id):
+            raise NotFoundError(f"Department {dept_id} not found")
+        name = (name or "").strip()
+        if not name:
+            raise BadRequestError("Person name is required")
+        rec = self.rec_repo.create(
+            department_id=dept_id, name=name,
+            email=(email or "").strip() or None, is_active=True)
+        return rec.to_dict()
+
+    def update_recipient(self, rec_id, data):
+        rec = self.rec_repo.get_by_id(rec_id)
+        if not rec:
+            raise NotFoundError(f"Recipient {rec_id} not found")
+        fields = {}
+        if "name" in data:
+            name = (data["name"] or "").strip()
+            if not name:
+                raise BadRequestError("Person name is required")
+            fields["name"] = name
+        if "email" in data:
+            fields["email"] = (data["email"] or "").strip() or None
+        if "is_active" in data:
+            fields["is_active"] = bool(data["is_active"])
+        return self.rec_repo.update(rec, **fields).to_dict()
+
+    def delete_recipient(self, rec_id):
+        rec = self.rec_repo.get_by_id(rec_id)
+        if not rec:
+            raise NotFoundError(f"Recipient {rec_id} not found")
+        self.rec_repo.delete(rec)
+        return {"id": rec_id, "deleted": True}
 
     def create_department(self, data):
         data = self._normalise(data)

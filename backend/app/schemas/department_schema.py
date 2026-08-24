@@ -18,3 +18,15 @@ class DepartmentUpdateSchema(Schema):
     notify_reorder = fields.Boolean()
     sort_order = fields.Integer(validate=validate.Range(min=0))
     is_active = fields.Boolean()
+
+
+class DepartmentRecipientCreateSchema(Schema):
+    name = fields.String(required=True, validate=validate.Length(min=1, max=120))
+    email = fields.Email(allow_none=True)
+    is_active = fields.Boolean(load_default=True)
+
+
+class DepartmentRecipientUpdateSchema(Schema):
+    name = fields.String(validate=validate.Length(min=1, max=120))
+    email = fields.Email(allow_none=True)
+    is_active = fields.Boolean()

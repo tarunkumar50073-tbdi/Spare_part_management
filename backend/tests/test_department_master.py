@@ -121,3 +121,17 @@ def test_invalid_email_is_rejected_at_the_route(client):
         headers={"X-API-Key": "test-machine-key"},
     )
     assert resp.status_code == 422  # marshmallow Email validation bites (Unprocessable Entity)
+
+
+def test_department_recipients_add_list_delete():
+    from app.models.department import Department
+    from app.services.department_service import DepartmentService
+    svc = DepartmentService()
+    dept = Department.query.first()
+    r = svc.add_recipient(dept.id, "Ravi Kumar", "ravi.kumar@toyota-boshoku.com")
+    assert r["name"] == "Ravi Kumar" and r["email"] == "ravi.kumar@toyota-boshoku.com"
+    row = next(d for d in svc.list_departments() if d["id"] == dept.id)
+    assert any(x["email"] == "ravi.kumar@toyota-boshoku.com" for x in row["recipients"])
+    svc.delete_recipient(r["id"])
+    row2 = next(d for d in svc.list_departments() if d["id"] == dept.id)
+    assert not any(x["id"] == r["id"] for x in row2["recipients"])

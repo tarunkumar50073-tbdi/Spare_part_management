@@ -24,6 +24,7 @@ from app.models.milkrun_group import MilkrunGroup, SupplierMilkrunMapping
 from app.models.user import User, UserStoreAccess
 from app.models.store import Store, Section
 from app.models.department import Department
+from app.models.department_recipient import DepartmentRecipient
 from app.models.rgp import RGP
 from app.models.receiving_register import ReceivingRegister
 from app.models.gate_entry import GateEntry
@@ -44,7 +45,7 @@ __all__ = [
     "HoldingEntry", "Notification", "AuditLog",
     "FinishedGood", "BOM", "CustomerForecast", "DailyStockCount", "PhysicalStock", "QuarterlyInventory", "DashboardSnapshot",
     "SupplierVehicleWindow", "SupplierWindowSchedule", "MilkrunGroup", "SupplierMilkrunMapping",
-    "User", "UserStoreAccess", "Store", "Section", "Department", "RGP",
+    "User", "UserStoreAccess", "Store", "Section", "Department", "DepartmentRecipient", "RGP",
     "ReceivingRegister", "GateEntry", "GateExit",
     "CurrentStock", "PendingGRN", "StockValuation",
     "ReportRecipient", "MailSendLog",

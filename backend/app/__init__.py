@@ -134,6 +134,7 @@ def create_app(env_name=None):
         # finding PORT-1).
         _seed_stores()
         _seed_departments()
+        _seed_department_recipients()
         _seed_report_recipients()
 
     _start_erp_ledger_poller(app)
@@ -303,6 +304,22 @@ def _seed_departments():
     for seed in SEED_DEPARTMENTS:
         if seed["name"] not in existing:
             db.session.add(Department(**seed))
+    db.session.commit()
+
+
+def _seed_department_recipients():
+    """One-time migration: turn each department's legacy single e-mail into a
+    person-wise recipient, so an address set before the master went person-wise
+    still shows. Runs only while the recipients table is empty; idempotent."""
+    from app.models.department import Department
+    from app.models.department_recipient import DepartmentRecipient
+    if DepartmentRecipient.query.first() is not None:
+        return
+    for d in Department.query.all():
+        email = (d.email or "").strip()
+        if email:
+            db.session.add(DepartmentRecipient(
+                department_id=d.id, name=email.split("@")[0], email=email, is_active=True))
     db.session.commit()
 
 

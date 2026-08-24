@@ -1,19 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Mail, Plus, Check, BellRing } from "lucide-react";
+import { BellRing } from "lucide-react";
 import { departmentService } from "../services/departmentService.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
-// Department Email Master — where each department's reorder / low-stock mail is
-// sent. The reorder notifier reads its recipient list straight off the rows
-// flagged "Reorder mail" that carry an address, so this screen is the one place
-// that decides who hears about a part that needs buying.
+// Department Email Master — each department's reorder / low-stock mail can now go
+// to SEVERAL people (name + e-mail), not one address. Tick "Reorder mail" for a
+// department and every person listed under it receives the mail.
 const INPUT =
   "w-full rounded-lg border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-900 " +
   "px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 " +
   "focus:outline-none focus:ring-2 focus:ring-toyotared/40 disabled:opacity-60 disabled:cursor-not-allowed";
-
-const clean = (s) => (s.trim() ? s.trim() : null);
 
 // The company mail domain is fixed and shown as a suffix, so only the username
 // is typed. A pasted full address (already has "@") is kept as-is.
@@ -25,43 +22,79 @@ const toEmail = (v) => {
   return t.includes("@") ? t : t + MAIL_DOMAIN;
 };
 
+// A username field with the fixed domain shown beside it.
+function EmailInput({ value, onChange, onBlur, onEnter, disabled, placeholder = "username" }) {
+  return (
+    <div className="flex items-stretch flex-1 min-w-0">
+      <input
+        type="text" className={`${INPUT} rounded-r-none`} placeholder={placeholder}
+        value={localPart(value)} disabled={disabled}
+        onChange={(e) => onChange(toEmail(e.target.value))}
+        onBlur={onBlur}
+        onKeyDown={(e) => { if (e.key === "Enter" && onEnter) onEnter(); }}
+      />
+      <span className="shrink-0 flex items-center rounded-r-lg border border-l-0 border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 px-2.5 text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{MAIL_DOMAIN}</span>
+    </div>
+  );
+}
+
 export default function DepartmentMaster() {
   const { user } = useAuth();
   const isAdmin = !!user?.is_admin;
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState({ name: "", email: "", notify_reorder: false, saving: false });
+  const [adding, setAdding] = useState({ name: "", notify_reorder: false, saving: false });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await departmentService.list();
       setRows(res.data.data.map((d) => ({
-        ...d, _email: d.email || "", _notify: d.notify_reorder, saving: false,
+        ...d, _notify: d.notify_reorder,
+        recipients: d.recipients || [],
+        _draft: { name: "", email: "" },
       })));
     } finally {
       setLoading(false);
     }
   }, []);
-
   useEffect(() => { load(); }, [load]);
 
   const patchRow = (id, patch) =>
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const patchDraft = (id, patch) =>
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, _draft: { ...r._draft, ...patch } } : r)));
+  const patchPerson = (rId, recId, patch) =>
+    setRows((rs) => rs.map((r) => (r.id === rId
+      ? { ...r, recipients: r.recipients.map((x) => (x.id === recId ? { ...x, ...patch } : x)) }
+      : r)));
 
-  const isDirty = (r) => r._email !== (r.email || "") || r._notify !== r.notify_reorder;
+  const toggleNotify = async (r, val) => {
+    patchRow(r.id, { _notify: val });
+    try { await departmentService.update(r.id, { notify_reorder: val }); }
+    catch { patchRow(r.id, { _notify: !val }); }
+  };
 
-  const saveRow = async (r) => {
-    patchRow(r.id, { saving: true });
+  const addPerson = async (r) => {
+    const name = (r._draft.name || "").trim();
+    if (!name) { toast.error("Person name is required"); return; }
     try {
-      const res = await departmentService.update(r.id, { email: clean(r._email), notify_reorder: r._notify });
-      const d = res.data.data;
-      patchRow(r.id, { ...d, _email: d.email || "", _notify: d.notify_reorder, saving: false });
-      toast.success(`${d.name} saved`);
-    } catch {
-      patchRow(r.id, { saving: false }); // api interceptor already surfaced the error
-    }
+      const res = await departmentService.addRecipient(r.id, { name, email: r._draft.email || null });
+      patchRow(r.id, { recipients: [...r.recipients, res.data.data], _draft: { name: "", email: "" } });
+    } catch { /* interceptor toasts */ }
+  };
+
+  const savePerson = async (rec) => {
+    try { await departmentService.updateRecipient(rec.id, { name: rec.name, email: rec.email || null }); }
+    catch { load(); }
+  };
+
+  const removePerson = async (rId, recId) => {
+    try {
+      await departmentService.deleteRecipient(recId);
+      patchRow(rId, { recipients: rows.find((r) => r.id === rId).recipients.filter((x) => x.id !== recId) });
+    } catch { /* interceptor toasts */ }
   };
 
   const addDept = async () => {
@@ -69,8 +102,8 @@ export default function DepartmentMaster() {
     if (!name) { toast.error("Department name is required"); return; }
     setAdding((a) => ({ ...a, saving: true }));
     try {
-      await departmentService.create({ name, email: clean(adding.email), notify_reorder: adding.notify_reorder });
-      setAdding({ name: "", email: "", notify_reorder: false, saving: false });
+      await departmentService.create({ name, notify_reorder: adding.notify_reorder });
+      setAdding({ name: "", notify_reorder: false, saving: false });
       toast.success(`${name} added`);
       load();
     } catch {
@@ -78,51 +111,41 @@ export default function DepartmentMaster() {
     }
   };
 
-  // The exact list the reorder mail will reach: flagged AND carrying an address.
-  const recipients = useMemo(
-    () => rows.filter((r) => r.notify_reorder && (r.email || "").trim()),
-    [rows],
-  );
-  const flaggedNoAddress = useMemo(
-    () => rows.filter((r) => r.notify_reorder && !(r.email || "").trim()),
-    [rows],
-  );
+  const hasAddr = (r) => r.recipients.some((x) => (x.email || "").trim());
+  const flaggedWith = useMemo(() => rows.filter((r) => r.notify_reorder && hasAddr(r)), [rows]);
+  const flaggedNoAddress = useMemo(() => rows.filter((r) => r.notify_reorder && !hasAddr(r)), [rows]);
+  const totalPeople = flaggedWith.reduce((n, r) => n + r.recipients.filter((x) => (x.email || "").trim()).length, 0);
 
   return (
     <div className="space-y-5">
       <div>
         <h3 className="section-title">Department Emails</h3>
         <p className="section-hint">
-          Who the reorder / low-stock mail is sent to. Tick “Reorder mail” for the department that should receive it
-          and give it an address.
+          Who the reorder / low-stock mail is sent to. Tick “Reorder mail” for a department and add the people
+          (name + e-mail) who should receive it — several per department is fine.
         </p>
       </div>
 
-      {/* Who will actually be mailed — computed the same way the backend does,
-          so this line is a true preview, not a promise. */}
       <div className="card !p-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
         <span className="inline-flex items-center gap-2">
           <BellRing size={16} className="text-toyotared" />
           <span className="font-semibold text-slate-700 dark:text-slate-200">
-            {recipients.length} department{recipients.length === 1 ? "" : "s"}
+            {totalPeople} {totalPeople === 1 ? "person" : "people"}
           </span>
-          <span className="text-slate-500 dark:text-slate-400">will receive the reorder mail</span>
+          <span className="text-slate-500 dark:text-slate-400">
+            across {flaggedWith.length} department{flaggedWith.length === 1 ? "" : "s"} will receive the reorder mail
+          </span>
         </span>
-        {recipients.length > 0 && (
-          <span className="text-slate-500 dark:text-slate-400 truncate">
-            → {recipients.map((r) => r.name).join(", ")}
-          </span>
-        )}
         {flaggedNoAddress.length > 0 && (
           <span className="text-amber-600 dark:text-amber-400">
-            ⚠ {flaggedNoAddress.map((r) => r.name).join(", ")} flagged but no address — will be skipped
+            ⚠ {flaggedNoAddress.map((r) => r.name).join(", ")} flagged but no person — will be skipped
           </span>
         )}
       </div>
 
       {!isAdmin && (
         <p className="text-[13px] text-amber-600 dark:text-amber-400">
-          You are viewing this master read-only — an administrator can edit the addresses.
+          You are viewing this master read-only — an administrator can edit the recipients.
         </p>
       )}
 
@@ -130,67 +153,61 @@ export default function DepartmentMaster() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400
-                border-b border-slate-200 dark:border-navy-800">
+              <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-navy-800">
                 <th className="px-4 py-3 font-semibold">Department</th>
                 <th className="px-4 py-3 font-semibold text-center">Reorder mail</th>
-                <th className="px-4 py-3 font-semibold">E-mail address</th>
-                <th className="px-4 py-3 font-semibold text-right">&nbsp;</th>
+                <th className="px-4 py-3 font-semibold">Recipients (person + e-mail)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
-              {loading && (
-                <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-400">Loading…</td></tr>
-              )}
+              {loading && <tr><td colSpan={3} className="px-4 py-10 text-center text-slate-400">Loading…</td></tr>}
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-400">No departments yet.</td></tr>
+                <tr><td colSpan={3} className="px-4 py-10 text-center text-slate-400">No departments yet.</td></tr>
               )}
               {!loading && rows.map((r) => (
-                <tr key={r.id} className={r.is_active ? "" : "opacity-50"}>
+                <tr key={r.id} className={r.is_active ? "align-top" : "align-top opacity-50"}>
                   <td className="px-4 py-3">
                     <span className="font-medium text-slate-800 dark:text-slate-100">{r.name}</span>
                     {!r.is_active && <span className="ml-2 text-[11px] text-slate-400">(inactive)</span>}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-toyotared cursor-pointer disabled:cursor-not-allowed"
-                      checked={r._notify}
-                      disabled={!isAdmin}
-                      onChange={(e) => patchRow(r.id, { _notify: e.target.checked })}
-                      aria-label={`Send reorder mail to ${r.name}`}
-                    />
+                    <input type="checkbox" className="h-4 w-4 accent-toyotared cursor-pointer"
+                      checked={r._notify} disabled={!isAdmin}
+                      onChange={(e) => toggleNotify(r, e.target.checked)} />
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-stretch max-w-sm">
-                      <div className="relative flex-1">
-                        <Mail size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                        <input
-                          type="text"
-                          className={`${INPUT} pl-8 rounded-r-none`}
-                          placeholder="username"
-                          value={localPart(r._email)}
-                          disabled={!isAdmin}
-                          onChange={(e) => patchRow(r.id, { _email: toEmail(e.target.value) })}
-                          onKeyDown={(e) => { if (e.key === "Enter" && isDirty(r)) saveRow(r); }}
-                        />
-                      </div>
-                      <span className="shrink-0 rounded-r-lg border border-l-0 border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 px-2.5 flex items-center text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{MAIL_DOMAIN}</span>
+                    <div className="space-y-1.5">
+                      {r.recipients.map((rec) => (
+                        <div key={rec.id} className="flex items-stretch gap-2 max-w-2xl">
+                          <input className={`${INPUT} md:max-w-[12rem]`} placeholder="Person name"
+                            value={rec.name} disabled={!isAdmin}
+                            onChange={(e) => patchPerson(r.id, rec.id, { name: e.target.value })}
+                            onBlur={() => isAdmin && savePerson(rec)} />
+                          <EmailInput value={rec.email} disabled={!isAdmin}
+                            onChange={(v) => patchPerson(r.id, rec.id, { email: v })}
+                            onBlur={() => isAdmin && savePerson(rec)} />
+                          {isAdmin && (
+                            <button type="button" onClick={() => removePerson(r.id, rec.id)}
+                              className="shrink-0 rounded-lg px-2.5 text-slate-400 hover:text-rose-500" title="Remove">✕</button>
+                          )}
+                        </div>
+                      ))}
+                      {r.recipients.length === 0 && (
+                        <div className="text-xs text-slate-400">No people yet.</div>
+                      )}
+                      {isAdmin && (
+                        <div className="flex items-stretch gap-2 max-w-2xl pt-0.5">
+                          <input className={`${INPUT} md:max-w-[12rem]`} placeholder="Add person name"
+                            value={r._draft.name}
+                            onChange={(e) => patchDraft(r.id, { name: e.target.value })} />
+                          <EmailInput value={r._draft.email}
+                            onChange={(v) => patchDraft(r.id, { email: v })}
+                            onEnter={() => addPerson(r)} />
+                          <button type="button" onClick={() => addPerson(r)}
+                            className="shrink-0 rounded-lg bg-toyotared px-3 text-xs font-semibold text-white hover:opacity-90">+ Add</button>
+                        </div>
+                      )}
                     </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => saveRow(r)}
-                        disabled={!isDirty(r) || r.saving}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-toyotared px-3 py-1.5 text-xs font-semibold
-                          text-white transition-opacity disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90"
-                      >
-                        <Check size={14} />
-                        {r.saving ? "Saving…" : "Save"}
-                      </button>
-                    )}
                   </td>
                 </tr>
               ))}
@@ -202,44 +219,22 @@ export default function DepartmentMaster() {
           <div className="border-t border-slate-200 dark:border-navy-800 bg-slate-50 dark:bg-navy-900/50 px-4 py-3">
             <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Add a department</p>
             <div className="flex flex-col md:flex-row md:items-center gap-2">
-              <input
-                className={`${INPUT} md:max-w-[14rem]`}
-                placeholder="Department name"
+              <input className={`${INPUT} md:max-w-[14rem]`} placeholder="Department name"
                 value={adding.name}
                 onChange={(e) => setAdding((a) => ({ ...a, name: e.target.value }))}
-              />
-              <div className="flex items-stretch md:max-w-sm">
-                <input
-                  type="text"
-                  className={`${INPUT} rounded-r-none`}
-                  placeholder="username (optional)"
-                  value={localPart(adding.email)}
-                  onChange={(e) => setAdding((a) => ({ ...a, email: toEmail(e.target.value) }))}
-                  onKeyDown={(e) => { if (e.key === "Enter") addDept(); }}
-                />
-                <span className="shrink-0 rounded-r-lg border border-l-0 border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 px-2.5 flex items-center text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{MAIL_DOMAIN}</span>
-              </div>
+                onKeyDown={(e) => { if (e.key === "Enter") addDept(); }} />
               <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 px-1 whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-toyotared cursor-pointer"
+                <input type="checkbox" className="h-4 w-4 accent-toyotared cursor-pointer"
                   checked={adding.notify_reorder}
-                  onChange={(e) => setAdding((a) => ({ ...a, notify_reorder: e.target.checked }))}
-                />
+                  onChange={(e) => setAdding((a) => ({ ...a, notify_reorder: e.target.checked }))} />
                 Reorder mail
               </label>
-              <button
-                type="button"
-                onClick={addDept}
-                disabled={adding.saving || !adding.name.trim()}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-toyotared
-                  px-3 py-2 text-xs font-semibold text-toyotared transition-colors hover:bg-toyotared hover:text-white
-                  disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Plus size={14} />
-                {adding.saving ? "Adding…" : "Add"}
+              <button type="button" onClick={addDept} disabled={adding.saving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-toyotared px-3 py-2 text-sm font-semibold text-white disabled:opacity-40 hover:opacity-90">
+                {adding.saving ? "Adding…" : "+ Add"}
               </button>
             </div>
+            <p className="mt-1 text-[11px] text-slate-400">Add the department first, then add its people below.</p>
           </div>
         )}
       </div>

@@ -1,6 +1,15 @@
 """Department master data access layer."""
 from app.models.department import Department
+from app.models.department_recipient import DepartmentRecipient
 from app.repositories.base_repository import BaseRepository
+
+
+class DepartmentRecipientRepository(BaseRepository):
+    model = DepartmentRecipient
+
+    def list_for_department(self, dept_id):
+        return (self.model.query.filter_by(department_id=dept_id)
+                .order_by(self.model.id.asc()).all())
 
 
 class DepartmentRepository(BaseRepository):
