@@ -716,6 +716,76 @@ function StoreStrip({ vm, p, animate, onOpen, onSearch, onSupplierPerf, onDateVi
 }
 
 // ---------------------------------------------------------------- main
+// One consumption breakdown as a colourful bar list (department / machine /
+// part-type), reused by the Live board's Today's-Consumption drill.
+function ConsumptionBars({ title, subtitle, rows, color, P }) {
+  const max = Math.max(1, ...rows.map((r) => r.value || 0));
+  return (
+    <div className="rounded-[1vh] p-[1.5vh]" style={{ background: `linear-gradient(180deg, ${P.panel}, ${P.panel2})`, border: `1px solid ${P.border}`, boxShadow: "0 0.4vh 1.3vh rgba(0,0,0,0.12)" }}>
+      <div className="text-[2vh] font-bold" style={{ color: P.heading }}>{title}</div>
+      {subtitle && <div className="text-[1.5vh] mb-[1vh]" style={{ color: P.dim }}>{subtitle}</div>}
+      {rows.length === 0 ? (
+        <div className="py-[2vh] text-[1.7vh]" style={{ color: P.dim }}>No consumption yet</div>
+      ) : rows.map((r, i) => (
+        <div key={i} className="mb-[1.1vh]">
+          <div className="flex items-center justify-between gap-[1vh]">
+            <span className="text-[1.8vh] truncate" style={{ color: P.text }} title={r.name}>{r.name}</span>
+            <span className="text-[2vh] font-black tabular-nums shrink-0" style={{ color }}>{fmtInt(r.value)}</span>
+          </div>
+          <div className="mt-[0.5vh] h-[1.2vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
+            <div className="h-full" style={{ width: `${Math.round(((r.value || 0) / max) * 100)}%`, background: color, transition: "width .8s ease" }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConsumptionView({ data, P }) {
+  const trend = data.trend || [];
+  // Roll the daily trend up into months (d = "18 Aug" -> "Aug"), preserving
+  // chronological order as they first appear.
+  const monthly = [];
+  const monIdx = {};
+  trend.forEach((t) => {
+    const mon = (t.d || "").split(" ")[1] || "?";
+    if (monIdx[mon] == null) { monIdx[mon] = monthly.length; monthly.push({ name: mon, value: 0 }); }
+    monthly[monIdx[mon]].value += t.qty || 0;
+  });
+  const hasTrend = trend.some((t) => t.qty > 0);
+  return (
+    <div className="p-[1.5vh] space-y-[1.4vh]">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-[1.4vh]">
+        <ConsumptionBars title="Department-wise" subtitle="Which department drew the spares" rows={data.department || []} color={C.purple} P={P} />
+        <ConsumptionBars title="Machine-wise" subtitle="Which machine eats the most spares" rows={data.machine || []} color={C.green} P={P} />
+        <ConsumptionBars title="Part-type-wise" subtitle="Sensor / Cylinder / Punch / Pin …" rows={data.type || []} color={C.amber} P={P} />
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-[1.4vh]">
+        <div className="xl:col-span-2 rounded-[1vh] p-[1.5vh]" style={{ background: `linear-gradient(180deg, ${P.panel}, ${P.panel2})`, border: `1px solid ${P.border}`, boxShadow: "0 0.4vh 1.3vh rgba(0,0,0,0.12)" }}>
+          <div className="text-[2vh] font-bold" style={{ color: P.heading }}>Date-wise consumption</div>
+          <div className="text-[1.5vh] mb-[1vh]" style={{ color: P.dim }}>Daily issued quantity (last 90 days)</div>
+          <div style={{ height: "26vh" }}>
+            {hasTrend ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trend} margin={{ top: 6, right: 8, left: -18, bottom: -6 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={P.border} vertical={false} />
+                  <XAxis dataKey="d" tick={{ fill: P.muted, fontSize: 12 }} tickLine={false} axisLine={{ stroke: P.border }} minTickGap={28} />
+                  <YAxis tick={{ fill: P.muted, fontSize: 12 }} tickLine={false} axisLine={false} width={30} />
+                  <Tooltip contentStyle={{ background: P.panel2, border: `1px solid ${P.border}`, borderRadius: 8, fontSize: 12, color: P.text }} />
+                  <Line type="monotone" dataKey="qty" stroke={C.purple} strokeWidth={2.5} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-[1.7vh]" style={{ color: P.dim }}>No consumption data yet</div>
+            )}
+          </div>
+        </div>
+        <ConsumptionBars title="Month-wise" subtitle="Total issued per month" rows={monthly} color={C.blue} P={P} />
+      </div>
+    </div>
+  );
+}
+
 export default function TvDashboard() {
   const navigate = useNavigate();
   const [spare, setSpare] = useState(DEMO_SPARE);
@@ -768,6 +838,23 @@ export default function TvDashboard() {
   };
   const searchSpare = (query) => runSearch(query, { rows: spare.rows, title: "Spare search", qtyKey: "qty_on_hand", statusKey: "status", detail: spareDetail });
   const searchChild = (query) => runSearch(query, { rows: child.crows, title: "Child search", qtyKey: "total_qty", statusKey: "indicator", detail: childDetail });
+
+  // Today's-Consumption drill — the Spare store's department / machine /
+  // part-type consumption breakdown (same figures as the store's Consumption
+  // section), fetched live and shown as colourful bars.
+  const openConsumption = async () => {
+    const grab = (pr) => pr.then((r) => r.data.data).catch(() => []);
+    const [department, machine, type, trend] = await Promise.all([
+      grab(spareStockService.consumption("MAINTENANCE", "department")),
+      grab(spareStockService.consumption("MAINTENANCE", "machine")),
+      grab(spareStockService.consumption("MAINTENANCE", "type")),
+      grab(spareStockService.consumptionTrend("MAINTENANCE", 90)),
+    ]);
+    openStack({
+      title: "Consumption — department / machine / part-type / date-wise",
+      custom: <ConsumptionView data={{ department, machine, type, trend }} P={P} />,
+    });
+  };
 
   // This month's per-supplier performance (how many times late / not-arrived),
   // fetched from the server. Falls back to today's view if the route isn't up
@@ -893,7 +980,7 @@ export default function TvDashboard() {
               rows: next.rows.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value)
                 .map((r) => ({ cells: [r.part_no, r.part_name, fmtMoney(r.stock_value)], open: () => spareDetail(r) })) }) },
           { label: "Today's Consumption", value: fmtInt(today?.issued_qty), color: C.purple, real: today?.issued_qty != null,
-            onClick: () => openDrill("Spare — consumption (last 7 days)", ["Day", "Qty issued"], next.trend.map((t) => [t.d, fmtInt(t.qty)])) },
+            onClick: openConsumption },
           { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null,
             onClick: () => openStack(spareList("Short — below minimum",
               next.rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock")
