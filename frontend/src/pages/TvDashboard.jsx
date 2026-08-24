@@ -522,11 +522,11 @@ function MiniKpi({ label, value, color, note, onClick, p }) {
   );
 }
 
-function StatusBar({ healthy, short, excess, p, onSelect }) {
+function StatusBar({ healthy, short, excess, p, onSelect, fmt = fmtInt }) {
   const total = (healthy || 0) + (short || 0) + (excess || 0) || 1;
   const clickable = !!onSelect;
   const seg = (v, c, sel) => (v > 0 ? (
-    <div onClick={clickable ? () => onSelect(sel) : undefined} title={clickable ? `${sel} (${v})` : undefined}
+    <div onClick={clickable ? () => onSelect(sel) : undefined} title={clickable ? `${sel} (${fmt(v)})` : undefined}
       className={clickable ? "cursor-pointer hover:brightness-110 transition-[filter]" : ""}
       style={{ width: `${(v / total) * 100}%`, background: c }} />
   ) : null);
@@ -534,7 +534,7 @@ function StatusBar({ healthy, short, excess, p, onSelect }) {
     <button type="button" onClick={clickable ? () => onSelect(sel) : undefined}
       className={`flex items-center gap-[0.5vh] rounded-[0.5vh] px-[0.6vh] py-[0.2vh] ${clickable ? "cursor-pointer hover:bg-[#8080801f]" : ""}`}
       style={{ color: p.text }}>
-      <span className="rounded-full" style={{ width: "1.1vh", height: "1.1vh", background: c }} />{t} <b style={{ color: p.heading }}>{fmtInt(n)}</b>
+      <span className="rounded-full" style={{ width: "1.1vh", height: "1.1vh", background: c }} />{t} <b style={{ color: p.heading }}>{fmt(n)}</b>
     </button>
   );
   return (
@@ -760,6 +760,54 @@ function ConsumptionView({ data, P }) {
   );
 }
 
+// Parts bucketed by unit rate — the "Value Bands" view (screenshot spec).
+const VALUE_BANDS = [
+  { key: "u1k", label: "Under ₹1k", color: "#94a3b8", test: (r) => r < 1000 },
+  { key: "1k10k", label: "₹1k – ₹10k", color: C.blue, test: (r) => r >= 1000 && r < 10000 },
+  { key: "10k50k", label: "₹10k – ₹50k", color: C.amber, test: (r) => r >= 10000 && r < 50000 },
+  { key: "50kplus", label: "₹50k and above", color: C.red, test: (r) => r >= 50000 },
+];
+
+function ValueBandsView({ rows, onSelect, P }) {
+  const max = Math.max(1, ...rows.map((b) => b.count));
+  return (
+    <div className="p-[1.6vh]">
+      <div className="text-[2.1vh] font-bold" style={{ color: P.heading }}>Value Bands</div>
+      <div className="text-[1.5vh] mb-[1.8vh]" style={{ color: P.dim }}>Rated parts grouped by unit rate</div>
+      <div className="space-y-[1.8vh]">
+        {rows.map((b) => (
+          <button key={b.key} type="button" onClick={() => b.count && onSelect(b)}
+            className={`block w-full text-left ${b.count ? "cursor-pointer" : "cursor-default"}`}>
+            <div className="flex items-center justify-between text-[1.9vh]">
+              <span style={{ color: P.text }}>{b.label}</span>
+              <span className="font-black tabular-nums" style={{ color: P.heading }}>{fmtInt(b.count)}</span>
+            </div>
+            <div className="mt-[0.6vh] h-[1.4vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
+              <div className="h-full rounded-full" style={{ width: `${Math.round((b.count / max) * 100)}%`, background: b.color, transition: "width .8s ease" }} />
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Stock Value drill: parts grouped into unit-rate bands; a band opens its parts.
+const valueBandsFrame = (rows, P) => {
+  const bands = VALUE_BANDS.map((b) => {
+    const parts = (rows || []).filter((r) => r.unit_price != null && b.test(Number(r.unit_price)));
+    return { ...b, count: parts.length, parts };
+  });
+  return {
+    title: "Value Bands — rated parts by unit rate",
+    custom: (push) => (
+      <ValueBandsView rows={bands} P={P}
+        onSelect={(b) => push(spareList(`${b.label} · ${b.count} parts`,
+          b.parts.slice().sort((a, c) => (c.unit_price || 0) - (a.unit_price || 0))))} />
+    ),
+  };
+};
+
 export default function TvDashboard() {
   const navigate = useNavigate();
   const [spare, setSpare] = useState(DEMO_SPARE);
@@ -956,9 +1004,7 @@ export default function TvDashboard() {
           { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
             onClick: () => openStack(spareList("All parts", next.rows)) },
           { label: "Stock Value", value: fmtMoney(sum?.stock_value), color: C.green, real: sum?.stock_value != null,
-            onClick: () => openStack({ title: "Stock Value (high → low)", cards: true, columns: ["Part No", "Description", "Stock Value"],
-              rows: next.rows.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value)
-                .map((r) => ({ cells: [r.part_no, r.part_name, fmtMoney(r.stock_value)], open: () => spareDetail(r) })) }) },
+            onClick: () => openStack(valueBandsFrame(next.rows, P)) },
           { label: "Today's Consumption", value: fmtInt(today?.issued_qty), color: C.purple, real: today?.issued_qty != null,
             onClick: openConsumption },
           { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null,
