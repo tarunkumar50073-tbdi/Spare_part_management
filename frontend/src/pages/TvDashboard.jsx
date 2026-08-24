@@ -883,10 +883,10 @@ export default function TvDashboard() {
         };
         next.cards = [
           // Total Parts -> part types -> that type's parts -> a part's detail.
+          // Straight to the full parts list — the part-type split already lives
+          // in the "Stock by Part Type" donut below, so don't repeat it here.
           { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
-            onClick: () => openStack({ title: "Total Parts", cards: true, columns: ["Part Type", "Parts"],
-              rows: next.category.map((c) => ({ cells: [c.name, fmtInt(c.value)],
-                open: () => spareList(c.name, next.rows.filter((r) => (r.sub_category || "Uncategorised") === c.name)) })) }) },
+            onClick: () => openStack(spareList("All parts", next.rows)) },
           { label: "Stock Value", value: fmtMoney(sum?.stock_value), color: C.green, real: sum?.stock_value != null,
             onClick: () => openStack({ title: "Stock Value (high → low)", cards: true, columns: ["Part No", "Description", "Stock Value"],
               rows: next.rows.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value)
@@ -955,10 +955,9 @@ export default function TvDashboard() {
             excess: childList("Excess parts", next.crows.filter(isExcess)),
           };
           next.cards = [
+            // Full parts list — the category split already lives in the donut.
             { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
-              onClick: () => openStack({ title: "Total Parts", cards: true, columns: ["Category", "Parts"],
-                rows: next.category.map((c) => ({ cells: [c.name, fmtInt(c.value)],
-                  open: () => childList(c.name, next.crows.filter((r) => (r.category || "Uncategorized") === c.name)) })) }) },
+              onClick: () => openStack(childList("All parts", next.crows)) },
             { label: "Stock Value", value: value ? fmtMoney(value) : "—", color: C.green, real: value != null,
               note: value ? null : { text: "no stock qty yet", color: C.amber },
               onClick: () => openStack({ title: "Stock Value (high → low)", cards: true, columns: ["Part No", "Description", "Stock Value"],
@@ -1036,10 +1035,15 @@ export default function TvDashboard() {
           <div className="hidden md:flex items-center rounded-[0.7vh] border px-[1.2vh] py-[0.9vh]" style={{ background: P.panel, borderColor: P.border }}>
             <span className="text-[1.9vh] tabular-nums" style={{ color: P.text }}>{clock}</span>
           </div>
-          <IconBtn onClick={() => openDrill("Alerts", ["Store", "Alert"], [
-            [`Spare`, `${spare.status.short} short · ${spare.status.excess} excess`],
-            ...(childActive ? [[`Child`, `${child.status.short} short · ${child.status.excess} excess`]] : []),
-          ])} title="Alerts" p={P} badge={(spare.status.short || 0) + (childActive ? (child.status.short || 0) : 0)}>
+          <IconBtn onClick={() => openStack({ title: "Alerts", columns: ["Alert", "Parts"], rows: [
+            ...(spare.status.short ? [{ cells: [childActive ? "Spare — short parts" : "Short parts", fmtInt(spare.status.short)], open: spare.health ? () => spare.health.short : undefined }] : []),
+            ...(spare.status.excess ? [{ cells: [childActive ? "Spare — excess parts" : "Excess parts", fmtInt(spare.status.excess)], open: spare.health ? () => spare.health.excess : undefined }] : []),
+            ...(childActive && child.status.short ? [{ cells: ["Child — short parts", fmtInt(child.status.short)], open: child.health ? () => child.health.short : undefined }] : []),
+            ...(childActive && child.status.excess ? [{ cells: ["Child — excess parts", fmtInt(child.status.excess)], open: child.health ? () => child.health.excess : undefined }] : []),
+          ] })} title="Alerts" p={P} badge={
+            (spare.status.short > 0 ? 1 : 0) + (spare.status.excess > 0 ? 1 : 0)
+            + (childActive ? (child.status.short > 0 ? 1 : 0) + (child.status.excess > 0 ? 1 : 0) : 0)
+          }>
             <Bell style={{ width: "2.2vh", height: "2.2vh" }} />
           </IconBtn>
           <IconBtn onClick={() => setDark((d) => !d)} title={dark ? "Switch to light" : "Switch to dark"} p={P}>
