@@ -727,9 +727,10 @@ export default function TvDashboard() {
   const [animate, setAnimate] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
   // The Live board honours stores.is_active: when the Child Parts store is
-  // disabled it drops off the board and Spare goes full-screen. Default true
-  // (fail-open) so a failed stores fetch never hides an active store.
-  const [childActive, setChildActive] = useState(true);
+  // disabled it drops off the board and Spare goes full-screen. Default FALSE so
+  // a disabled Child never flashes on the board for the moment before the stores
+  // list loads; the fetch below flips it on only if CHILD_PART is actually active.
+  const [childActive, setChildActive] = useState(false);
   const P = dark ? THEMES.dark : THEMES.light;
 
   // Charts animate once on open, then freeze — so the 30s auto-refresh doesn't
