@@ -20,7 +20,6 @@ export default function SparePartHistory() {
   const [rows, setRows] = useState([]);
   const [locs, setLocs] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [busy, setBusy] = useState(false);
   const [filters, setFilters] = useState({ txn_type: "", department: "", machine: "", from: "", to: "" });
 
   useEffect(() => {
@@ -28,11 +27,11 @@ export default function SparePartHistory() {
     spareStockService.list({ store_code: storeCode }).then((r) => setAllParts(r.data.data || [])).catch(() => {});
   }, [storeCode]);
 
-  const loadHistory = async (partId, f = filters) => {
+  // Fetch every movement once; the filters below are applied instantly on the
+  // client so changing a dropdown updates the table with no re-fetch / Apply.
+  const loadHistory = async (partId) => {
     const [h, l] = await Promise.all([
-      spareStockService.history(partId, 500, {
-        txn_type: f.txn_type || undefined, department: f.department || undefined, machine: f.machine || undefined,
-      }),
+      spareStockService.history(partId, 500),
       spareStockService.locationHistory(partId),
     ]);
     setRows(h.data.data || []);
@@ -51,24 +50,22 @@ export default function SparePartHistory() {
 
   const pick = async (p) => {
     setPart(p);
-    setBusy(true);
-    try { await loadHistory(p.part_id); } finally { setBusy(false); }
+    await loadHistory(p.part_id);
   };
 
-  const applyFilters = async () => {
-    if (!part) return;
-    setBusy(true);
-    try { await loadHistory(part.part_id); } finally { setBusy(false); }
-  };
-
-  // Date range is applied client-side over the fetched rows.
+  // All filters (type / department / machine / date range) apply instantly on
+  // the client — changing any control updates the table with no Apply, no Enter.
   const shown = useMemo(() => rows.filter((r) => {
-    if (!r.at) return true;
-    const d = r.at.slice(0, 10);
-    if (filters.from && d < filters.from) return false;
-    if (filters.to && d > filters.to) return false;
+    if (filters.txn_type && r.txn_type !== filters.txn_type) return false;
+    if (filters.department && r.department !== filters.department) return false;
+    if (filters.machine && !(r.machine || "").toLowerCase().includes(filters.machine.trim().toLowerCase())) return false;
+    if (r.at) {
+      const d = r.at.slice(0, 10);
+      if (filters.from && d < filters.from) return false;
+      if (filters.to && d > filters.to) return false;
+    }
     return true;
-  }), [rows, filters.from, filters.to]);
+  }), [rows, filters]);
 
   return (
     <div className="space-y-4">
@@ -120,7 +117,9 @@ export default function SparePartHistory() {
               <input value={filters.machine} onChange={(e) => setFilters((f) => ({ ...f, machine: e.target.value }))} placeholder="Machine" className="input-field text-sm" />
               <input type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} className="input-field text-sm" />
               <input type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} className="input-field text-sm" />
-              <button className="btn-secondary" onClick={applyFilters} disabled={busy}>Apply</button>
+              {(filters.txn_type || filters.department || filters.machine || filters.from || filters.to) && (
+                <button className="btn-secondary" onClick={() => setFilters({ txn_type: "", department: "", machine: "", from: "", to: "" })}>Clear</button>
+              )}
             </div>
 
             <div className="overflow-auto">
