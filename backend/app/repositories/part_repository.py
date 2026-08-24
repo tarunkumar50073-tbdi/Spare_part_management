@@ -10,14 +10,23 @@ class PartRepository(BaseRepository):
     model = Part
 
     def get_by_part_no(self, part_no):
-        return self.model.query.filter_by(part_no=part_no).first()
+        # Case-insensitive: a part number typed/scanned in lower case (cntr2025)
+        # must still resolve CNTR2025. Surrounding whitespace is trimmed.
+        if not part_no:
+            return None
+        return self.model.query.filter(
+            func.lower(self.model.part_no) == part_no.strip().lower()).first()
 
     def get_by_barcode(self, barcode):
-        return self.model.query.filter_by(barcode=barcode).first()
+        if not barcode:
+            return None
+        return self.model.query.filter(
+            func.lower(self.model.barcode) == barcode.strip().lower()).first()
 
     def get_by_scan_code(self, code):
         """Scan-match a part by its dedicated barcode first, falling back to
-        part_no — parts without a distinct barcode label still scan correctly."""
+        part_no — parts without a distinct barcode label still scan correctly.
+        Both lookups are case-insensitive."""
         return self.get_by_barcode(code) or self.get_by_part_no(code)
 
     # "Not set" for these three is a missing value OR a zero/blank — the Spare

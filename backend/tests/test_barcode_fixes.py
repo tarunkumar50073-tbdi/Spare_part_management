@@ -73,6 +73,16 @@ def test_returned_issue_is_closed_and_not_confirmable():
         svc.confirm_installation(lid, machine="MC-1")
 
 
+# Case-insensitive resolve — a part number typed in lower case still resolves.
+def test_resolve_is_case_insensitive():
+    bc = BarcodeService()
+    p = _part()
+    payload = bc.resolve("MAINTENANCE", p.part_no.lower(), scan_source="MANUAL_ENTRY", scan_mode="LOOKUP")
+    assert payload["part_no"] == p.part_no
+    # trailing/leading spaces are tolerated too
+    assert bc.resolve("MAINTENANCE", f"  {p.part_no.lower()}  ")["part_no"] == p.part_no
+
+
 # #5 — a supplier code equal to ANOTHER part's internal Part No is rejected.
 def test_supplier_mapping_cannot_hijack_another_part_no():
     bc = BarcodeService()

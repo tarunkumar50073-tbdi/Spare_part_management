@@ -3,6 +3,8 @@
 Query-only concerns for the barcode module; business rules (duplicate blocking,
 resolve fallback order, audit-on-every-scan) live in BarcodeService.
 """
+from sqlalchemy import func
+
 from app.models.part_barcode import PartBarcode
 from app.models.scan_audit import ScanAudit
 from app.models.label_print_audit import LabelPrintAudit
@@ -13,12 +15,16 @@ class PartBarcodeRepository(BaseRepository):
     model = PartBarcode
 
     def get_by_code(self, code):
-        """Any mapping for this exact code (active or not) — used to block
-        duplicates and to detect a deactivated code on scan."""
-        return self.model.query.filter_by(code=code).first()
+        """Any mapping for this code (active or not) — used to block duplicates
+        and to detect a deactivated code on scan. Case-insensitive so a supplier
+        barcode typed in lower case still matches."""
+        return self.model.query.filter(
+            func.lower(self.model.code) == (code or "").strip().lower()).first()
 
     def get_active_by_code(self, code):
-        return self.model.query.filter_by(code=code, is_active=True).first()
+        return self.model.query.filter(
+            func.lower(self.model.code) == (code or "").strip().lower(),
+            self.model.is_active.is_(True)).first()
 
     def list_for_part(self, part_id):
         return (
