@@ -727,6 +727,44 @@ class SpareStockService:
         out.sort(key=lambda r: r["value"], reverse=True)
         return out
 
+    def consumption_by_period(self, store_code, period="month"):
+        """Total issued quantity per month (YYYY-MM) or per year (YYYY) over the
+        whole ledger — the month-wise / year-wise consumption report. SQLite
+        strftime; the app is SQLite (see _patch_schema)."""
+        from app.extensions import db
+        from sqlalchemy import func
+        from app.models.spare_stock import SpareStockLedger
+        fmt = "%Y" if period == "year" else "%Y-%m"
+        key = func.strftime(fmt, SpareStockLedger.created_at)
+        rows = (
+            db.session.query(key, func.sum(func.abs(SpareStockLedger.qty_delta)))
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE")
+            .group_by(key).order_by(key)
+            .all()
+        )
+        return [{"period": p, "qty": round(float(q or 0), 2)} for p, q in rows if p]
+
+    def consumption_report_excel(self, store_code):
+        """Downloadable consumption report — a Month-wise sheet and a Year-wise
+        sheet of total issued quantity."""
+        from io import BytesIO
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = "Month-wise"
+        ws1.append(["Month", "Issued Qty"])
+        for r in self.consumption_by_period(store_code, "month"):
+            ws1.append([r["period"], r["qty"]])
+        ws2 = wb.create_sheet("Year-wise")
+        ws2.append(["Year", "Issued Qty"])
+        for r in self.consumption_by_period(store_code, "year"):
+            ws2.append([r["period"], r["qty"]])
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf
+
     def consumption_trend(self, store_code, days=7):
         """Issued quantity per day for the last `days` days — the Live
         Dashboard's consumption trend. Days with no issue come back as 0 so the

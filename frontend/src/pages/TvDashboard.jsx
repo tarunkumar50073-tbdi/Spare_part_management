@@ -742,17 +742,9 @@ function ConsumptionBars({ title, subtitle, rows, color, P }) {
 }
 
 function ConsumptionView({ data, P }) {
-  const trend = data.trend || [];
-  // Roll the daily trend up into months (d = "18 Aug" -> "Aug"), preserving
-  // chronological order as they first appear.
-  const monthly = [];
-  const monIdx = {};
-  trend.forEach((t) => {
-    const mon = (t.d || "").split(" ")[1] || "?";
-    if (monIdx[mon] == null) { monIdx[mon] = monthly.length; monthly.push({ name: mon, value: 0 }); }
-    monthly[monIdx[mon]].value += t.qty || 0;
-  });
-  const hasTrend = trend.some((t) => t.qty > 0);
+  // Consumption Trend (the daily line) already lives on the board as its own
+  // panel, so this drill shows the splits + the month/year report, not the line.
+  const toBars = (rows) => (rows || []).map((r) => ({ name: r.period, value: r.qty }));
   return (
     <div className="p-[1.5vh] space-y-[1.4vh]">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-[1.4vh]">
@@ -760,27 +752,9 @@ function ConsumptionView({ data, P }) {
         <ConsumptionBars title="Machine-wise" subtitle="Which machine eats the most spares" rows={data.machine || []} color={C.green} P={P} />
         <ConsumptionBars title="Part-type-wise" subtitle="Sensor / Cylinder / Punch / Pin …" rows={data.type || []} color={C.amber} P={P} />
       </div>
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-[1.4vh]">
-        <div className="xl:col-span-2 rounded-[1vh] p-[1.5vh]" style={{ background: `linear-gradient(180deg, ${P.panel}, ${P.panel2})`, border: `1px solid ${P.border}`, boxShadow: "0 0.4vh 1.3vh rgba(0,0,0,0.12)" }}>
-          <div className="text-[2vh] font-bold" style={{ color: P.heading }}>Date-wise consumption</div>
-          <div className="text-[1.5vh] mb-[1vh]" style={{ color: P.dim }}>Daily issued quantity (last 90 days)</div>
-          <div style={{ height: "26vh" }}>
-            {hasTrend ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trend} margin={{ top: 6, right: 8, left: -18, bottom: -6 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={P.border} vertical={false} />
-                  <XAxis dataKey="d" tick={{ fill: P.muted, fontSize: 12 }} tickLine={false} axisLine={{ stroke: P.border }} minTickGap={28} />
-                  <YAxis tick={{ fill: P.muted, fontSize: 12 }} tickLine={false} axisLine={false} width={30} />
-                  <Tooltip contentStyle={{ background: P.panel2, border: `1px solid ${P.border}`, borderRadius: 8, fontSize: 12, color: P.text }} />
-                  <Line type="monotone" dataKey="qty" stroke={C.purple} strokeWidth={2.5} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-[1.7vh]" style={{ color: P.dim }}>No consumption data yet</div>
-            )}
-          </div>
-        </div>
-        <ConsumptionBars title="Month-wise" subtitle="Total issued per month" rows={monthly} color={C.blue} P={P} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-[1.4vh]">
+        <ConsumptionBars title="Month-wise" subtitle="Total issued per month" rows={toBars(data.month)} color={C.blue} P={P} />
+        <ConsumptionBars title="Year-wise" subtitle="Total issued per year" rows={toBars(data.year)} color={C.cyan} P={P} />
       </div>
     </div>
   );
@@ -844,15 +818,17 @@ export default function TvDashboard() {
   // section), fetched live and shown as colourful bars.
   const openConsumption = async () => {
     const grab = (pr) => pr.then((r) => r.data.data).catch(() => []);
-    const [department, machine, type, trend] = await Promise.all([
+    const [department, machine, type, month, year] = await Promise.all([
       grab(spareStockService.consumption("MAINTENANCE", "department")),
       grab(spareStockService.consumption("MAINTENANCE", "machine")),
       grab(spareStockService.consumption("MAINTENANCE", "type")),
-      grab(spareStockService.consumptionTrend("MAINTENANCE", 90)),
+      grab(spareStockService.consumptionByPeriod("MAINTENANCE", "month")),
+      grab(spareStockService.consumptionByPeriod("MAINTENANCE", "year")),
     ]);
     openStack({
-      title: "Consumption — department / machine / part-type / date-wise",
-      custom: <ConsumptionView data={{ department, machine, type, trend }} P={P} />,
+      title: "Consumption — department / machine / part-type / month / year",
+      downloads: [{ label: "Download report (Excel)", href: "/api/v1/spare-stock/consumption/export?store_code=MAINTENANCE" }],
+      custom: <ConsumptionView data={{ department, machine, type, month, year }} P={P} />,
     });
   };
 

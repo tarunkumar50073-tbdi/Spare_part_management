@@ -227,6 +227,16 @@ def test_two_stage_via_routes(client):
     assert c.get_json()["data"]["status"] == "INSTALLED"
 
 
+def test_consumption_by_period_month_and_year():
+    svc = SpareStockService()
+    p = _part(); _stock(p.id, 20)
+    svc.issue(p.id, 3, "Maintenance")
+    m = svc.consumption_by_period("MAINTENANCE", "month")
+    y = svc.consumption_by_period("MAINTENANCE", "year")
+    assert any(r["qty"] >= 3 for r in m) and all(len(r["period"]) == 7 for r in m)  # YYYY-MM
+    assert any(r["qty"] >= 3 for r in y) and all(len(r["period"]) == 4 for r in y)  # YYYY
+
+
 def test_update_location_via_route(client):
     _login(client, _store_user().id)
     p = _part(location="A-1")

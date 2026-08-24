@@ -47,6 +47,8 @@ export const spareStockService = {
   locationHistory: (partId) => api.get(`/spare-stock/parts/${partId}/location-history`),
   consumption: (storeCode, groupBy = "department") =>
     api.get("/spare-stock/consumption", { params: { store_code: storeCode, group_by: groupBy } }),
+  consumptionByPeriod: (storeCode, period = "month") =>
+    api.get("/spare-stock/consumption/report", { params: { store_code: storeCode, period } }),
   machines: (storeCode) => api.get("/spare-stock/machines", { params: { store_code: storeCode } }),
   consumptionTrend: (storeCode, days = 7) =>
     api.get("/spare-stock/consumption-trend", { params: { store_code: storeCode, days } }),

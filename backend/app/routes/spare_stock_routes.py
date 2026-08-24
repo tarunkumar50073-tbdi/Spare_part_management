@@ -107,6 +107,19 @@ def consumption():
     raise BadRequestError(f"Unsupported group_by: {group_by}")
 
 
+@bp.route("/consumption/report", methods=["GET"])
+def consumption_report():
+    return success_response(service.consumption_by_period(
+        _store_code(), period=request.args.get("period", "month")))
+
+
+@bp.route("/consumption/export", methods=["GET"])
+def consumption_export():
+    buf = service.consumption_report_excel(_store_code())
+    return send_file(buf, as_attachment=True,
+                     download_name="spare_consumption_report.xlsx", mimetype=XLSX_MIME)
+
+
 @bp.route("/machines", methods=["GET"])
 def machines():
     return success_response(service.machines_used(_store_code()))
