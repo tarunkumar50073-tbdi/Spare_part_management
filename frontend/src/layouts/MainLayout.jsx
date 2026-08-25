@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "../components/Sidebar.jsx";
 import { useStores } from "../context/StoreContext.jsx";
 import Topbar from "../components/Topbar.jsx";
+import BackToTop from "../components/BackToTop.jsx";
 
 const TITLES = {
   "/dashboard": "Child Parts Store",
@@ -72,6 +73,7 @@ export default function MainLayout() {
           <Outlet />
         </main>
       </div>
+      <BackToTop />
     </div>
   );
 }
