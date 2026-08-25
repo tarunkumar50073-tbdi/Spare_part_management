@@ -74,13 +74,15 @@
   }
   /* Only cards you can actually click should lift. A static card that rises
      under the cursor promises something it won't do. */
-  /* Three clear states so a clickable tile behaves like a real button:
-     rest → hover (lifts, red-tinted edge) → pressed (settles back, slight
-     squeeze). A keyboard focus ring too. */
+  /* Three clear states so a clickable tile behaves like a real button, the way
+     the HDFC app's tiles do: rest → hover (lifts a notch, red edge + a soft
+     red ring glow) → pressed (pushes back in, squeezes). A keyboard focus ring
+     too. */
   .card-interactive {
     @apply cursor-pointer
-           hover:shadow-cardHover hover:-translate-y-0.5 hover:border-toyotared/40
-           active:translate-y-0 active:scale-[0.99] active:shadow-card
+           hover:shadow-cardHover hover:-translate-y-1 hover:border-toyotared
+           hover:ring-2 hover:ring-toyotared/25
+           active:-translate-y-0 active:scale-[0.98] active:shadow-card active:ring-toyotared/40
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/50;
   }
 
