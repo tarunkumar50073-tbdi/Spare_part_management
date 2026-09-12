@@ -149,7 +149,7 @@ class SpareStockService:
         row = self.ledger_repo.get_by_id(ledger_id)
         if not row or row.txn_type != "ISSUE":
             raise NotFoundError(f"Issue {ledger_id} not found")
-        if row.status in ("INSTALLED", "CANCELLED", "RETURNED"):
+        if row.status in ("INSTALLED", "PARTIALLY_USED", "CANCELLED", "RETURNED"):
             raise BadRequestError(f"This issue is already {row.status.lower().replace('_', ' ')}")
         issued_qty = abs(float(row.qty_delta))
         used = float(actual_qty) if actual_qty is not None else issued_qty
@@ -279,11 +279,19 @@ class SpareStockService:
         issue_row = self.ledger_repo.get_by_id(ledger_id)
         if not issue_row or issue_row.txn_type != "ISSUE" or not issue_row.returnable:
             raise BadRequestError("That is not a returnable issue")
-        if SpareStockLedger.query.filter_by(return_of_id=ledger_id).first():
-            raise BadRequestError("This issue has already been returned")
+        # A part already fitted (INSTALLED/PARTIALLY_USED), cancelled, or already
+        # brought back (RETURNED) can't be returned to the shelf — its quantity
+        # would be credited for stock that never physically came back.
+        if issue_row.status in ("INSTALLED", "PARTIALLY_USED", "CANCELLED", "RETURNED"):
+            raise BadRequestError(
+                f"This issue is {issue_row.status.lower().replace('_', ' ')} and cannot be returned")
         part = issue_row.part
         qty_back = abs(float(issue_row.qty_delta))
         with atomic():
+            # Re-checked inside the transaction so two concurrent returns can't
+            # both pass the guard and credit the same issue twice.
+            if SpareStockLedger.query.filter_by(return_of_id=ledger_id).first():
+                raise BadRequestError("This issue has already been returned")
             row = self.repo.get_or_create(issue_row.part_id)
             new_qty = round(float(row.qty_on_hand or 0) + qty_back, 2)
             row, _ = self._write(
@@ -503,11 +511,13 @@ class SpareStockService:
             r["excess_qty"] = round(r["qty_on_hand"] - (r["max_stock_level"] or 0), 2)
         return rows
 
-    def movements_between(self, store_code, since, until=None):
+    def movements_between(self, store_code, since, until=None, section_id=None):
         """What moved in a window, split by direction. RECEIPT and ISSUE are
         the two the floor is asked about; OPENING and ADJUSTMENT are counted
         separately so a stock-take is never reported as a day's receipts."""
         entries = self.ledger_repo.list_for_store_between(store_code, since, until)
+        if section_id:
+            entries = [e for e in entries if e.part and e.part.section_id == section_id]
         out = {
             "received_qty": 0.0, "received_lines": 0,
             "issued_qty": 0.0, "issued_lines": 0,
@@ -529,7 +539,7 @@ class SpareStockService:
         out["issued_qty"] = round(out["issued_qty"], 2)
         return out
 
-    def today_movements(self, store_code):
+    def today_movements(self, store_code, section_id=None):
         """Since the shift started, not since midnight — the plant's day runs
         08:30 to about 03:20 the next morning, so a midnight cut would split
         one night shift's receipts across two days.
@@ -548,7 +558,7 @@ class SpareStockService:
         if now_local < start_local:
             start_local -= timedelta(days=1)
 
-        summary = self.movements_between(store_code, start_local - offset)
+        summary = self.movements_between(store_code, start_local - offset, section_id=section_id)
         # Reported as the plant clock, which is the shift anyone is thinking of.
         summary["since"] = start_local.isoformat()
         return summary
@@ -563,11 +573,11 @@ class SpareStockService:
             return None
         return round(part / whole * 100, 1)
 
-    def analytics(self, store_code):
+    def analytics(self, store_code, section_id=None):
         """Every percentage the dashboard's gauges show, worked out here rather
         than in the browser — one definition per metric, and the same figure
         whoever asks."""
-        rows = self.list_stock(store_code)
+        rows = self.list_stock(store_code, section_id)
         counted = [r for r in rows if r["qty_on_hand"] is not None]
         by = lambda s: sum(1 for r in counted if r["status"] == s)  # noqa: E731
 
@@ -652,21 +662,22 @@ class SpareStockService:
                 "qty_on_hand": r["qty_on_hand"], "unit_price": r["unit_price"],
                 "stock_value": r["stock_value"], "status": r["status"],
             } for r in sorted(valued, key=lambda r: -r["stock_value"])[:10]],
-            "monthly_consumption": self.monthly_consumption(store_code),
+            "monthly_consumption": self.monthly_consumption(store_code, section_id=section_id),
         }
 
-    def monthly_consumption(self, store_code, months=12):
+    def monthly_consumption(self, store_code, months=12, section_id=None):
         """Issued quantity per month, off the ledger. Real usage — an empty
         list means nothing has been issued, not that the query failed."""
         entries = [e for e in self.ledger_repo.recent_for_store(store_code, 5000)
-                   if e.txn_type == "ISSUE" and e.created_at]
+                   if e.txn_type == "ISSUE" and e.created_at
+                   and (not section_id or (e.part and e.part.section_id == section_id))]
         by_month = {}
         for e in entries:
             key = e.created_at.strftime("%Y-%m")
             by_month[key] = by_month.get(key, 0) + abs(float(e.qty_delta))
         return [{"name": k, "value": round(v, 2)} for k, v in sorted(by_month.items())][-months:]
 
-    def consumption_by_department(self, store_code):
+    def consumption_by_department(self, store_code, section_id=None):
         """Total issued quantity per department — the split behind Department-wise
         Consumption. Only ISSUE rows carry a department, so opening/receipt/
         adjustment rows never appear here."""
@@ -679,14 +690,15 @@ class SpareStockService:
                 func.sum(func.abs(SpareStockLedger.qty_delta)),
             )
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE")
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
+                    *((Part.section_id == section_id,) if section_id else ()))
             .group_by(SpareStockLedger.department)
             .all()
         )
         return [{"name": dept or "Unspecified", "value": round(float(total or 0), 2)}
                 for dept, total in rows if total]
 
-    def consumption_by_machine(self, store_code):
+    def consumption_by_machine(self, store_code, section_id=None):
         """Total issued quantity per machine — the split behind Machine-wise
         Consumption (which machine eats the most spares). Only ISSUE rows carry
         a machine."""
@@ -699,7 +711,8 @@ class SpareStockService:
                 func.sum(func.abs(SpareStockLedger.qty_delta)),
             )
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE")
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
+                    *((Part.section_id == section_id,) if section_id else ()))
             .group_by(SpareStockLedger.machine)
             .all()
         )
@@ -708,7 +721,7 @@ class SpareStockService:
         out.sort(key=lambda r: r["value"], reverse=True)
         return out
 
-    def consumption_by_type(self, store_code):
+    def consumption_by_type(self, store_code, section_id=None):
         """Total issued quantity per component type (Part.sub_category) — the
         split behind Part-type-wise Consumption. Parts with no type group under
         'Uncategorised'."""
@@ -718,7 +731,8 @@ class SpareStockService:
         rows = (
             db.session.query(Part.sub_category, func.sum(func.abs(SpareStockLedger.qty_delta)))
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE")
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
+                    *((Part.section_id == section_id,) if section_id else ()))
             .group_by(Part.sub_category)
             .all()
         )
@@ -727,7 +741,7 @@ class SpareStockService:
         out.sort(key=lambda r: r["value"], reverse=True)
         return out
 
-    def consumption_by_period(self, store_code, period="month"):
+    def consumption_by_period(self, store_code, period="month", section_id=None):
         """Total issued quantity per month (YYYY-MM) or per year (YYYY) over the
         whole ledger — the month-wise / year-wise consumption report. SQLite
         strftime; the app is SQLite (see _patch_schema)."""
@@ -739,7 +753,8 @@ class SpareStockService:
         rows = (
             db.session.query(key, func.sum(func.abs(SpareStockLedger.qty_delta)))
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE")
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
+                    *((Part.section_id == section_id,) if section_id else ()))
             .group_by(key).order_by(key)
             .all()
         )
@@ -765,7 +780,7 @@ class SpareStockService:
         buf.seek(0)
         return buf
 
-    def consumption_trend(self, store_code, days=7):
+    def consumption_trend(self, store_code, days=7, section_id=None):
         """Issued quantity per day for the last `days` days — the Live
         Dashboard's consumption trend. Days with no issue come back as 0 so the
         line has a point for every day rather than a gap."""
@@ -782,7 +797,8 @@ class SpareStockService:
             .join(Part, Part.id == SpareStockLedger.part_id)
             .filter(Part.store_code == store_code,
                     SpareStockLedger.txn_type == "ISSUE",
-                    func.date(SpareStockLedger.created_at) >= start.isoformat())
+                    func.date(SpareStockLedger.created_at) >= start.isoformat(),
+                    *((Part.section_id == section_id,) if section_id else ()))
             .group_by(func.date(SpareStockLedger.created_at))
             .all()
         )

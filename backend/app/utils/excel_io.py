@@ -332,13 +332,27 @@ def to_text(value, default=""):
     return str(value).strip()
 
 
+# Excel/CSV formula-injection guard. A cell whose text begins with one of these
+# is treated by Excel/LibreOffice as a formula when the sheet is opened — so a
+# value imported from an untrusted vendor/ERP sheet (=HYPERLINK(...), =cmd|...,
+# =WEBSERVICE(...)) could fire in whoever later opens our export. Prefixing a
+# single quote forces the cell to be read as literal text.
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _excel_safe(value):
+    if isinstance(value, str) and value and value[0] in _FORMULA_LEAD:
+        return "'" + value
+    return value
+
+
 def build_export(columns, rows):
     """columns: list of (header_label, dict_key). rows: list of dicts."""
     wb = Workbook()
     ws = wb.active
     ws.append([label for label, _ in columns])
     for row in rows:
-        ws.append([row.get(key, "") for _, key in columns])
+        ws.append([_excel_safe(row.get(key, "")) for _, key in columns])
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

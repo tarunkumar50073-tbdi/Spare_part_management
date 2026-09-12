@@ -5,6 +5,7 @@ from flask import Blueprint, request, send_file
 from app.services.erp_gap_service import ERPGapService
 from app.utils.exceptions import BadRequestError
 from app.utils.response import success_response
+from app.utils.authz import admin_required
 
 bp = Blueprint("erp_gap", __name__, url_prefix="/api/v1/erp-gap")
 service = ERPGapService()
@@ -28,6 +29,7 @@ def summary():
 
 
 @bp.route("/import", methods=["POST"])
+@admin_required
 def import_physical():
     file = request.files.get("file")
     if not file or file.filename == "":
@@ -37,6 +39,7 @@ def import_physical():
 
 
 @bp.route("/physical", methods=["DELETE"])
+@admin_required
 def clear_physical():
     removed = service.clear_physical()
     return success_response({"removed": removed}, f"Cleared {removed} physical count(s)")

@@ -5,6 +5,7 @@ from app.services.erp_ledger_import_service import ERPLedgerImportService
 from app.services.erp_ledger_inbox_service import ERPLedgerInboxService
 from app.utils.exceptions import BadRequestError
 from app.utils.response import success_response
+from app.utils.authz import admin_required
 
 bp = Blueprint("store_dashboard", __name__, url_prefix="/api/v1/store/dashboard")
 service = StoreDashboardService()
@@ -87,6 +88,7 @@ def part_source_breakdown_monthly(part_id):
 
 
 @bp.route("/erp-ledger/import", methods=["POST"])
+@admin_required
 def erp_ledger_import():
     """One-time ERP stock-ledger Excel import — backfills BOP (SR) and
     in-house (PP) receipts into the source-breakdown history. De-duped by
@@ -104,6 +106,7 @@ def erp_ledger_inbox_status():
 
 
 @bp.route("/erp-ledger/scan-now", methods=["POST"])
+@admin_required
 def erp_ledger_scan_now():
     """Immediately scan the inbox folder and import any dropped ledger files —
     the manual trigger alongside the background poller."""

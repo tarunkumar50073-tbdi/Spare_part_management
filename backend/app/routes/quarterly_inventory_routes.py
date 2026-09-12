@@ -3,6 +3,7 @@ from flask import Blueprint, request, send_file
 from app.services.quarterly_inventory_service import QuarterlyInventoryService
 from app.utils.response import success_response
 from app.utils.exceptions import BadRequestError
+from app.utils.authz import admin_required
 
 bp = Blueprint("quarterly_inventory", __name__, url_prefix="/api/v1/quarterly-inventory")
 service = QuarterlyInventoryService()
@@ -57,6 +58,7 @@ def download_template():
 
 
 @bp.route("/import", methods=["POST"])
+@admin_required
 def import_inventory():
     fiscal_year = request.form.get("fiscal_year") or request.args.get("fiscal_year")
     quarter = request.form.get("quarter") or request.args.get("quarter")

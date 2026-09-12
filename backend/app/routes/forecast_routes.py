@@ -4,12 +4,14 @@ from flask import Blueprint, request
 from app.services.forecast_service import ForecastService
 from app.utils.exceptions import BadRequestError
 from app.utils.response import success_response
+from app.utils.authz import admin_required
 
 bp = Blueprint("forecast", __name__, url_prefix="/api/v1/forecast")
 service = ForecastService()
 
 
 @bp.route("/upload", methods=["POST"])
+@admin_required
 def upload_forecast():
     file = request.files.get("file")
     if not file or file.filename == "":

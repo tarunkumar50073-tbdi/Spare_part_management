@@ -37,6 +37,12 @@ def _store_code():
     return code
 
 
+def _section():
+    """Optional section filter (a section of the Spare store) — an int id, or
+    None for the whole store. Used by the Live Dashboard's section switcher."""
+    return request.args.get("section_id", type=int)
+
+
 def _require_part_store(part_id):
     """Resolve the part's own store and enforce access on it, so a raw part_id
     can't be used to read or overwrite another store's stock (audit finding
@@ -72,7 +78,7 @@ def summary():
 @bp.route("/analytics", methods=["GET"])
 def analytics():
     store = _store_code()
-    data = service.analytics(store)
+    data = service.analytics(store, section_id=_section())
     # The ERP feed is measured separately: it says how much of the list ERP
     # has reported on, not how the store itself is doing.
     data["erp"] = service.erp_completeness(store)
@@ -97,20 +103,21 @@ def erp_gap_summary():
 @bp.route("/consumption", methods=["GET"])
 def consumption():
     store = _store_code()
+    section_id = _section()
     group_by = request.args.get("group_by", "department")
     if group_by == "department":
-        return success_response(service.consumption_by_department(store))
+        return success_response(service.consumption_by_department(store, section_id))
     if group_by == "machine":
-        return success_response(service.consumption_by_machine(store))
+        return success_response(service.consumption_by_machine(store, section_id))
     if group_by == "type":
-        return success_response(service.consumption_by_type(store))
+        return success_response(service.consumption_by_type(store, section_id))
     raise BadRequestError(f"Unsupported group_by: {group_by}")
 
 
 @bp.route("/consumption/report", methods=["GET"])
 def consumption_report():
     return success_response(service.consumption_by_period(
-        _store_code(), period=request.args.get("period", "month")))
+        _store_code(), period=request.args.get("period", "month"), section_id=_section()))
 
 
 @bp.route("/consumption/export", methods=["GET"])
@@ -129,6 +136,7 @@ def machines():
 def consumption_trend():
     return success_response(service.consumption_trend(
         _store_code(), days=request.args.get("days", default=7, type=int),
+        section_id=_section(),
     ))
 
 
@@ -195,7 +203,7 @@ def excess():
 
 @bp.route("/today", methods=["GET"])
 def today():
-    return success_response(service.today_movements(_store_code()))
+    return success_response(service.today_movements(_store_code(), section_id=_section()))
 
 
 @bp.route("/activity", methods=["GET"])

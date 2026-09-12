@@ -133,6 +133,40 @@ def test_cannot_confirm_twice():
         svc.confirm_installation(lid, machine="MC-1")
 
 
+def test_cannot_reconfirm_partially_used():
+    """A partially-used issue is terminal too — re-confirming it would silently
+    overwrite the recorded line/machine/actual_qty (audit finding)."""
+    svc = SpareStockService()
+    p = _part(); _stock(p.id, 10)
+    svc.issue(p.id, 6, "Tool Room")
+    lid = _issue_row(p.id).id
+    svc.confirm_installation(lid, machine="MC-2", actual_qty=4)   # -> PARTIALLY_USED
+    with pytest.raises(BadRequestError):
+        svc.confirm_installation(lid, machine="MC-2", actual_qty=5)
+
+
+# ---- returnable guards (audit: double-return / return-after-install) ----
+
+def test_returnable_double_return_rejected():
+    svc = SpareStockService()
+    p = _part(); _stock(p.id, 5)
+    svc.issue(p.id, 1, "Tool Room", returnable=True)
+    lid = _issue_row(p.id).id
+    svc.return_item(lid)                       # first return credits the shelf
+    with pytest.raises(BadRequestError):       # second return must not double-credit
+        svc.return_item(lid)
+
+
+def test_installed_returnable_cannot_be_returned():
+    svc = SpareStockService()
+    p = _part(); _stock(p.id, 5)
+    svc.issue(p.id, 1, "Tool Room", returnable=True)
+    lid = _issue_row(p.id).id
+    svc.confirm_installation(lid, machine="MC-1")   # -> INSTALLED
+    with pytest.raises(BadRequestError):
+        svc.return_item(lid)
+
+
 def test_pending_confirmations_queue():
     svc = SpareStockService()
     p = _part(); _stock(p.id, 10)
