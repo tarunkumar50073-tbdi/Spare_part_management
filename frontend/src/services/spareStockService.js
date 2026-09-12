@@ -17,10 +17,12 @@ export const spareStockService = {
     api.get("/spare-stock/excess", { params: { store_code: storeCode, limit } }),
   // Since the shift started (08:30), not since midnight — the plant's day runs
   // past midnight, so a calendar cut would split one night shift in two.
-  today: (storeCode) => api.get("/spare-stock/today", { params: { store_code: storeCode } }),
+  today: (storeCode, sectionId) =>
+    api.get("/spare-stock/today", { params: { store_code: storeCode, section_id: sectionId } }),
   activity: (storeCode, limit) =>
     api.get("/spare-stock/activity", { params: { store_code: storeCode, limit } }),
-  analytics: (storeCode) => api.get("/spare-stock/analytics", { params: { store_code: storeCode } }),
+  analytics: (storeCode, sectionId) =>
+    api.get("/spare-stock/analytics", { params: { store_code: storeCode, section_id: sectionId } }),
   flow: (storeCode) => api.get("/spare-stock/flow", { params: { store_code: storeCode } }),
   pending: (storeCode) => api.get("/spare-stock/pending", { params: { store_code: storeCode } }),
   pendingList: (storeCode, kind, limit) =>
@@ -45,13 +47,16 @@ export const spareStockService = {
     api.get(`/spare-stock/parts/${partId}/pending-confirmations`),
   updateLocation: (partId, payload) => api.post(`/spare-stock/parts/${partId}/update-location`, payload),
   locationHistory: (partId) => api.get(`/spare-stock/parts/${partId}/location-history`),
-  consumption: (storeCode, groupBy = "department") =>
-    api.get("/spare-stock/consumption", { params: { store_code: storeCode, group_by: groupBy } }),
-  consumptionByPeriod: (storeCode, period = "month") =>
-    api.get("/spare-stock/consumption/report", { params: { store_code: storeCode, period } }),
+  consumption: (storeCode, groupBy = "department", sectionId) =>
+    api.get("/spare-stock/consumption",
+      { params: { store_code: storeCode, group_by: groupBy, section_id: sectionId } }),
+  consumptionByPeriod: (storeCode, period = "month", sectionId) =>
+    api.get("/spare-stock/consumption/report",
+      { params: { store_code: storeCode, period, section_id: sectionId } }),
   machines: (storeCode) => api.get("/spare-stock/machines", { params: { store_code: storeCode } }),
-  consumptionTrend: (storeCode, days = 7) =>
-    api.get("/spare-stock/consumption-trend", { params: { store_code: storeCode, days } }),
+  consumptionTrend: (storeCode, days = 7, sectionId) =>
+    api.get("/spare-stock/consumption-trend",
+      { params: { store_code: storeCode, days, section_id: sectionId } }),
   topConsumed: (storeCode, limit = 5, days = 30) =>
     api.get("/spare-stock/top-consumed", { params: { store_code: storeCode, limit, days } }),
   scan: (storeCode, code) => api.get("/spare-stock/scan", { params: { store_code: storeCode, code } }),

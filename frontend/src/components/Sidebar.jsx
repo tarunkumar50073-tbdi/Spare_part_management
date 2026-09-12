@@ -271,11 +271,9 @@ export default function Sidebar({ open, onClose, collapsed = false, onToggleColl
         </div>
 
         <nav className="flex-1 px-3 py-3 space-y-3 overflow-y-auto">
-          <NavLink to={storeHome(activeCode)} end className={navClass} onClick={onClose}>
-            <span className="text-base leading-none w-[18px] text-center shrink-0">📊</span>
-            Dashboard
-          </NavLink>
-
+          {/* The store's own "Dashboard" link used to sit here, but the store
+              tab above already opens exactly this page (storeHome), so in the
+              single-store (Spare-only) setup it was a duplicate — removed. */}
           {[sectionGroup(activeStore), ...navFor(activeCode)].filter(Boolean).map((group) => (
             <div key={group.label}>
               <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">

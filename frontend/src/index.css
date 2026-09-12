@@ -38,10 +38,21 @@
   animation: rise 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
+/* A gentle attention blink for a call-to-action on the wallboard — soft enough
+   not to be annoying on a screen that runs all day. */
+@keyframes cta-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.cta-blink {
+  animation: cta-blink 1.4s ease-in-out infinite;
+}
+
 /* Anyone who has asked their OS to reduce motion gets none of it. */
 @media (prefers-reduced-motion: reduce) {
   .animate-rise,
-  .ticker-track-x {
+  .ticker-track-x,
+  .cta-blink {
     animation: none !important;
   }
 }

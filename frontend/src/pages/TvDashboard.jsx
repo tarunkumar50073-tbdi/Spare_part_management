@@ -1,38 +1,34 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
-  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, BarChart, Bar, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
-import { Bell, Moon, Sun, ArrowLeft, Maximize, Minimize, Layers, X, Truck } from "lucide-react";
+import {
+  Box, Database, AlertTriangle, Boxes, ClipboardList, ShoppingCart,
+  FileBarChart, PackagePlus, Sun, Moon, ArrowLeft,
+  Maximize, Minimize,
+} from "lucide-react";
 import { spareStockService } from "../services/spareStockService.js";
-import { storeDashboardService } from "../services/storeDashboardService.js";
-import { supplierWindowScheduleService } from "../services/supplierWindowScheduleService.js";
-import { rgpService } from "../services/rgpService.js";
 import { storeService } from "../services/storeService.js";
 
-// A full-screen wallboard for a 53" LED — no menu, no scroll, fluid 16:9. Split
-// top/bottom: the Spare Parts store on top, the Child Parts store below, each a
-// compact strip of KPIs + charts. Real figures come straight from the app's own
-// APIs (spare-stock for the top, the store dashboard for the bottom); demo
-// values fill any gap so the board reads complete for a trial.
+// A full-screen wallboard for a 64" PORTRAIT LED — no menu, no scroll, a tall
+// single-store (Spare) board. Real figures come from the spare-stock API; the
+// header switches between the store's sections (auto-rotating on the wall).
 const REFRESH_MS = 30000;
 
 const C = {
-  blue: "#3b82f6", green: "#10b981", purple: "#a855f7", amber: "#f59e0b",
-  red: "#ef4444", cyan: "#06b6d4", indigo: "#6366f1",
+  blue: "#2563eb", green: "#059669", red: "#dc2626", amber: "#d97706",
+  purple: "#7c3aed", cyan: "#0891b2", slate: "#334155",
 };
-const PIE = [C.blue, C.green, C.amber, C.purple, C.cyan, C.indigo, C.red];
+const PIE = [C.blue, C.green, C.amber, C.purple, C.cyan, "#ec4899", C.red];
 
-// Emoji per KPI / panel, matching the icon-per-card style of the app dashboards.
-const KPI_ICON = {
-  "Total Parts": "🔧", "Stock Value": "💰", "Today's Consumption": "📈",
-  "Short Parts": "⚠️", "Excess Parts": "📦", "Pending SRV": "📋", "Pending RGP": "🔁",
-};
-
-const THEMES = {
-  dark: { bg: "#0a0f1e", panel: "#111a30", panel2: "#0e1526", border: "#1e2a44", heading: "#ffffff", text: "#e2e8f0", muted: "#94a3b8", dim: "#64748b" },
-  light: { bg: "#eef2f7", panel: "#ffffff", panel2: "#f8fafc", border: "#e2e8f0", heading: "#0f172a", text: "#334155", muted: "#64748b", dim: "#94a3b8" },
-};
+// Demo-only sections so the switcher can be shown before the real section
+// master is filled in. Delete once real sections exist in the store master.
+const DUMMY_SECTIONS = [
+  { id: -101, name: "Maintenance", dummy: true },
+  { id: -102, name: "Sensor", dummy: true },
+  { id: -103, name: "Cylinder", dummy: true },
+];
 
 const fmtInt = (n) => (n == null ? "—" : Number(n).toLocaleString("en-IN"));
 const fmtMoney = (v) => {
@@ -41,896 +37,116 @@ const fmtMoney = (v) => {
   if (v >= 1e5) return `₹ ${(v / 1e5).toFixed(2)} L`;
   return `₹ ${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 };
-const toCatArray = (obj) =>
-  Object.entries(obj || {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
-    .map(([name, value], i) => ({ name, value, color: PIE[i % PIE.length] }));
-
-// On-time% -> traffic-light colour, reused across the supplier-performance view.
-const pctColor = (p) => (p == null ? C.indigo : p >= 80 ? C.green : p >= 50 ? C.amber : C.red);
-
-// A glossy digital ring gauge (SVG, vh-scaled) with a soft colour glow.
-function Ring({ pct, color, P }) {
-  const r = 42, circ = 2 * Math.PI * r;
-  const off = circ * (1 - Math.max(0, Math.min(100, pct || 0)) / 100);
-  return (
-    <svg viewBox="0 0 100 100" style={{ width: "8.6vh", height: "8.6vh", filter: `drop-shadow(0 0 0.7vh ${color}55)` }}>
-      <circle cx="50" cy="50" r={r} fill="none" stroke={P.border} strokeWidth="9" />
-      <circle cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="9" strokeLinecap="round"
-        strokeDasharray={circ} strokeDashoffset={off} transform="rotate(-90 50 50)"
-        style={{ transition: "stroke-dashoffset 0.9s ease" }} />
-      <text x="50" y="53" dominantBaseline="central" textAnchor="middle" fill={P.heading} fontWeight="800" fontSize="23">
-        {pct == null ? "—" : `${Math.round(pct)}%`}
-      </text>
-    </svg>
-  );
-}
-
-// On-Time / Late / Not-Arrived proportions as one animated stacked bar.
-function StackedBar({ onTime, late, na }) {
-  const tot = Math.max(1, onTime + late + na);
-  const seg = (v, color) => (v > 0 ? <div style={{ width: `${(v / tot) * 100}%`, background: color, transition: "width .8s ease" }} /> : null);
-  return (
-    <div className="flex h-[1.3vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
-      {seg(onTime, C.green)}{seg(late, C.amber)}{seg(na, C.red)}
-    </div>
-  );
-}
-
-function PerfSummaryCard({ label, value, color, P, grad }) {
-  return (
-    <div className="rounded-[1vh] p-[1.3vh] flex flex-col gap-[0.6vh]"
-      style={{ background: grad || P.panel, border: `1px solid ${P.border}`, boxShadow: `0 0.4vh 1.3vh ${color}22` }}>
-      <div className="text-[1.5vh] font-semibold" style={{ color: P.muted }}>{label}</div>
-      <div className="text-[3.4vh] font-black tabular-nums leading-none" style={{ color }}>{value}</div>
-    </div>
-  );
-}
-
-// The colourful, digital drill for "Supplier Performance — this month": KPI
-// summary + a ring/gauge card per supplier (worst first), all theme-aware.
-function SupplierPerfView({ data, P }) {
-  const rows = data.rows || [];
-  const sum = rows.reduce((a, s) => ({
-    on_time: a.on_time + (s.on_time || 0), late: a.late + (s.late || 0), not_arrived: a.not_arrived + (s.not_arrived || 0),
-  }), { on_time: 0, late: 0, not_arrived: 0 });
-  const settled = sum.on_time + sum.late + sum.not_arrived;
-  const overall = settled ? Math.round((sum.on_time / settled) * 1000) / 10 : null;
-  const monthLabel = new Date(data.year, (data.month || 1) - 1, 1).toLocaleString(undefined, { month: "long", year: "numeric" });
-  const through = data.judged_through
-    ? new Date(data.judged_through + "T00:00:00").toLocaleDateString(undefined, { day: "2-digit", month: "short" })
-    : null;
-  return (
-    <div className="p-[1.5vh] space-y-[1.5vh]">
-      {/* Scope: whole month, but only through the latest day ERP has data for. */}
-      <div className="flex items-center justify-between gap-[1.5vh] flex-wrap">
-        <div className="text-[1.8vh]">
-          <span className="font-bold" style={{ color: P.heading }}>{monthLabel}</span>
-          {through && (
-            <span style={{ color: P.muted }}> · through <span style={{ color: P.text }}>{through}</span> · <span style={{ color: C.amber }}>latest ERP data</span></span>
-          )}
-        </div>
-        <div className="text-[1.7vh] font-semibold" style={{ color: P.dim }}>{fmtInt(settled)} windows judged</div>
-      </div>
-      <div className="grid grid-cols-3 xl:grid-cols-6 gap-[1.2vh]">
-        <PerfSummaryCard label="Suppliers" value={fmtInt(rows.length)} color={C.blue} P={P} />
-        <PerfSummaryCard label="Windows" value={fmtInt(settled)} color={P.heading} P={P} />
-        <PerfSummaryCard label="On-Time" value={fmtInt(sum.on_time)} color={C.green} P={P} grad={`linear-gradient(135deg, ${C.green}26, ${P.panel})`} />
-        <PerfSummaryCard label="Late" value={fmtInt(sum.late)} color={C.amber} P={P} grad={`linear-gradient(135deg, ${C.amber}26, ${P.panel})`} />
-        <PerfSummaryCard label="Not Arrived" value={fmtInt(sum.not_arrived)} color={C.red} P={P} grad={`linear-gradient(135deg, ${C.red}26, ${P.panel})`} />
-        <div className="rounded-[1vh] p-[1vh] flex items-center gap-[1.1vh]"
-          style={{ background: P.panel, border: `1px solid ${P.border}`, boxShadow: `0 0.4vh 1.3vh ${pctColor(overall)}33` }}>
-          <Ring pct={overall} color={pctColor(overall)} P={P} />
-          <div className="leading-tight">
-            <div className="text-[1.6vh] font-semibold" style={{ color: P.muted }}>Overall</div>
-            <div className="text-[1.5vh]" style={{ color: P.dim }}>On-Time %</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.2vh]">
-        {rows.map((s, i) => {
-          const col = pctColor(s.on_time_pct);
-          const bad = s.late + s.not_arrived > s.on_time;
-          return (
-            <div key={i} className="rounded-[1vh] p-[1.3vh] flex items-center gap-[1.4vh]"
-              style={{ background: P.panel, border: `1px solid ${P.border}`, borderLeft: `0.55vh solid ${col}`, boxShadow: bad ? `0 0 1.5vh ${C.red}22` : "none" }}>
-              <Ring pct={s.on_time_pct} color={col} P={P} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-[0.9vh]">
-                  <span className="text-[1.5vh] font-bold flex items-center justify-center rounded-full shrink-0"
-                    style={{ width: "2.7vh", height: "2.7vh", background: `${col}26`, color: col }}>{i + 1}</span>
-                  <span className="text-[2vh] font-bold truncate" style={{ color: P.heading }} title={s.supplier}>{s.supplier}</span>
-                </div>
-                <div className="mt-[1vh]"><StackedBar onTime={s.on_time} late={s.late} na={s.not_arrived} /></div>
-                <div className="flex items-center gap-[1.4vh] mt-[1vh] text-[1.6vh] font-semibold tabular-nums">
-                  <span style={{ color: C.green }}>● {s.on_time} On-Time</span>
-                  <span style={{ color: C.amber }}>● {s.late} Late</span>
-                  <span style={{ color: C.red }}>● {s.not_arrived} NA</span>
-                  <span className="ml-auto" style={{ color: P.dim }}>{s.windows} windows</span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ---- nested drill frames ----
-// A frame is { title, columns, rows }; a row is { cells: [...], open?: () => Frame }.
-// A row with `open` is clickable and pushes the next (nested) level onto the stack.
-const detailFrame = (title, pairs) => ({
-  title, columns: ["Field", "Value"], rows: pairs.map(([k, v]) => ({ cells: [k, v] })),
-});
-const spareDetail = (r) => detailFrame(r.part_no, [
-  ...(r.old_part_no ? [["Old Part No (Reference)", r.old_part_no]] : []),
-  ["Description", r.part_name], ["Part Type", r.sub_category || "—"],
-  ["In Stock", fmtInt(r.qty_on_hand)], ["Min", fmtInt(r.min_stock_level)], ["Max", fmtInt(r.max_stock_level)],
-  ["Rate", fmtMoney(r.unit_price)], ["Stock Value", fmtMoney(r.stock_value)],
-  ["Status", r.status], ["Location", r.location || "—"],
-]);
-const childDetail = (r) => detailFrame(r.part_no, [
-  ...(r.old_part_no ? [["Old Part No (Reference)", r.old_part_no]] : []),
-  ["Description", r.part_name], ["Category", r.category || "—"],
-  ["In Stock", fmtInt(r.total_qty)], ["Min", fmtInt(r.min_stock_level)], ["Max", fmtInt(r.max_stock_level)],
-  ["Rate", fmtMoney(r.unit_price)], ["Stock Value", fmtMoney(r.total_value)],
-  ["Status", r.indicator || "—"], ["COV Days", r.cov_days ?? "—"],
-]);
-const spareList = (title, rows) => ({
-  title, cards: true, columns: ["Part No", "Description", "In Stock", "Status"],
-  rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.qty_on_hand), r.status], ref: r.old_part_no, open: () => spareDetail(r) })),
-});
-const childList = (title, rows) => ({
-  title, cards: true, columns: ["Part No", "Description", "In Stock", "Status"],
-  rows: rows.map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r.total_qty), r.indicator || "—"], ref: r.old_part_no, open: () => childDetail(r) })),
-});
-// Per-supplier window performance — who was On-Time / Late / Not-Arrived, worst
-// first. Drilling a supplier shows its own windows. (Today's windows; a
-// multi-day "how many times late" view needs a backend history endpoint.)
-const supplierPerfFrame = (windows) => {
-  const by = {};
-  windows.forEach((w) => {
-    const s = by[w.supplier] || (by[w.supplier] = { name: w.supplier, total: 0, onTime: 0, late: 0, notArrived: 0, pending: 0 });
-    s.total += 1;
-    if (w.status === "On-Time") s.onTime += 1;
-    else if (w.status === "Late") s.late += 1;
-    else if (w.status === "Not Arrived") s.notArrived += 1;
-    else s.pending += 1;
-  });
-  const rows = Object.values(by).sort((a, b) =>
-    (b.late + b.notArrived) - (a.late + a.notArrived) || (a.onTime / a.total) - (b.onTime / b.total));
-  return {
-    title: "Supplier Performance — today",
-    // The on-screen table is today's; the download is this MONTH's full report.
-    downloads: [
-      { label: "This month · Excel", href: "/api/v1/supplier-window-schedules/performance/export?format=xlsx" },
-      { label: "This month · PDF", href: "/api/v1/supplier-window-schedules/performance/export?format=pdf" },
-      { label: "Late report · Excel", href: "/api/v1/supplier-window-schedules/late-report/export?format=xlsx" },
-      { label: "Late report · PDF", href: "/api/v1/supplier-window-schedules/late-report/export?format=pdf" },
-      { label: "Window-Time sheet · Excel", href: "/api/v1/supplier-window-schedules/window-time-report" },
-    ],
-    columns: ["Supplier", "Windows", "On-Time", "Late", "Not Arrived", "On-Time %"],
-    rows: rows.map((s) => ({
-      cells: [s.name, s.total, s.onTime, s.late, s.notArrived, `${Math.round((s.onTime / Math.max(1, s.total)) * 100)}%`],
-      open: () => ({
-        title: s.name,
-        columns: ["Window", "Status"],
-        rows: windows.filter((w) => w.supplier === s.name).map((w) => ({ cells: [`${w.start}–${w.end}`, w.status] })),
-      }),
-    })),
-  };
+const monthLabel = (period) => {
+  // "2026-09" -> "Sep"
+  const [y, m] = (period || "").split("-");
+  const names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return m ? names[Number(m)] || period : (y || period);
 };
-const windowsFrame = (windows) => ({
-  title: "Today's Windows",
-  columns: ["Window", "Supplier", "Arrived", "Status"],
-  rows: windows.map((w) => ({ cells: [`${w.start}–${w.end}`, w.supplier, w.arrival || "—", w.status] })),
-});
-// The category donut's own drill: group -> that group's parts -> a part's detail.
-// Colourful drill for the Stock-by-Part-Type / Stock-by-Category donut: a big
-// donut + a card per group (share bar + %), each clickable into its parts list.
-function CategoryBreakdownView({ vm, P, onSelect }) {
-  const cats = vm.category || [];
-  const total = cats.reduce((s, c) => s + c.value, 0) || 1;
+const timeOf = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—");
+
+// ---- small building blocks -------------------------------------------------
+
+function Card({ children, className = "", style }) {
   return (
-    <div className="p-[1.5vh] space-y-[1.4vh]">
-      <div className="flex items-center justify-between gap-[1.5vh] flex-wrap">
-        <div className="text-[2vh] font-bold" style={{ color: P.heading }}>{vm.catTitle || "Breakdown"}</div>
-        <div className="text-[1.7vh] font-semibold" style={{ color: P.dim }}>{fmtInt(total)} parts · {cats.length} groups</div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-[1vh]">
-          {cats.map((c, i) => {
-            const pct = Math.round((c.value / total) * 100);
-            return (
-              <button key={i} type="button"
-                onClick={() => onSelect(() => vm.listFn(c.name, (vm.parts || []).filter((r) => (r[vm.groupKey] || "—") === c.name)))}
-                className="text-left rounded-[1vh] p-[1.2vh] flex items-center gap-[1.2vh] transition-transform hover:-translate-y-[0.3vh]"
-                style={{ background: `linear-gradient(135deg, ${c.color}22, ${P.panel} 62%)`, border: `1px solid ${P.border}`, borderLeft: `0.55vh solid ${c.color}`, boxShadow: `0 0.4vh 1.3vh ${c.color}22` }}>
-                <span className="rounded-full shrink-0" style={{ width: "1.8vh", height: "1.8vh", background: c.color, boxShadow: `0 0 0.9vh ${c.color}66` }} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-[1vh]">
-                    <span className="text-[2vh] font-bold truncate" style={{ color: P.heading }} title={c.name}>{c.name}</span>
-                    <span className="text-[2.3vh] font-black tabular-nums shrink-0" style={{ color: c.color }}>{fmtInt(c.value)}</span>
-                  </div>
-                  <div className="mt-[0.8vh] flex items-center gap-[1vh]">
-                    <div className="flex-1 h-[1.2vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
-                      <div className="h-full" style={{ width: `${pct}%`, background: c.color, transition: "width .8s ease" }} />
-                    </div>
-                    <span className="text-[1.6vh] font-semibold tabular-nums shrink-0" style={{ color: P.muted }}>{pct}%</span>
-                  </div>
-                </div>
-                <span className="shrink-0 text-[2vh]" style={{ color: P.dim }}>›</span>
-              </button>
-            );
-          })}
-      </div>
-    </div>
-  );
-}
-
-// Status text -> traffic-light colour, for the list-drill pills.
-const STATUS_COLOR = {
-  short: C.red, "not arrived": C.red, critical: C.red, out: C.red, rejected: C.red, overdue: C.red,
-  excess: C.amber, late: C.amber, pending: C.amber, "pending arrival": C.amber, warning: C.amber, hold: C.amber,
-  healthy: C.green, ok: C.green, "on-time": C.green, "in stock": C.green, transferred: C.green, consumed: C.green, accepted: C.green, cleared: C.green,
-};
-const statusColorOf = (v) => STATUS_COLOR[String(v == null ? "" : v).trim().toLowerCase()];
-function statusPill(val, P) {  // eslint-disable-line no-unused-vars
-  const color = statusColorOf(val);
-  if (!color) return val;
-  return (
-    <span className="inline-flex items-center gap-[0.6vh] rounded-full px-[1.1vh] py-[0.3vh] text-[1.6vh] font-semibold"
-      style={{ background: `${color}22`, color }}>
-      <span className="rounded-full" style={{ width: "0.9vh", height: "0.9vh", background: color }} />{val}
-    </span>
-  );
-}
-const numCol = (label) => /stock|parts|value|qty|days|arrived|\blate\b|on-time|count|total|balance|receipt|accept|reject|closing/i.test(String(label || ""));
-
-// Premium/digital table for the list drills (KPI tiles, category parts, by-date):
-// a summary strip (row count + status breakdown), an uppercase sticky header, and
-// colour-coded status pills + right-aligned bold numbers.
-function TableDrill({ frame, P, onOpen }) {
-  const cols = frame.columns || [];
-  const rows = frame.rows || [];
-  const statusIdx = cols.findIndex((c) => /status/i.test(c));
-  const counts = {};
-  if (statusIdx >= 0) rows.forEach((r) => { const v = String(r.cells[statusIdx] ?? "").trim(); if (v) counts[v] = (counts[v] || 0) + 1; });
-  return (
-    <div>
-      <div className="flex items-center gap-[1.5vh] flex-wrap px-[1.6vh] py-[1.1vh] border-b" style={{ borderColor: P.border, background: P.panel2 }}>
-        <span className="text-[2vh] font-black tabular-nums" style={{ color: P.heading }}>{fmtInt(rows.length)}</span>
-        <span className="text-[1.7vh]" style={{ color: P.muted }}>rows</span>
-        {Object.entries(counts).map(([s, n]) => {
-          const col = statusColorOf(s) || P.dim;
-          return (
-            <span key={s} className="inline-flex items-center gap-[0.6vh] text-[1.7vh] font-semibold tabular-nums" style={{ color: col }}>
-              <span className="rounded-full" style={{ width: "1vh", height: "1vh", background: col }} />{s} {n}
-            </span>
-          );
-        })}
-      </div>
-      <table className="w-full text-[1.9vh]">
-        <thead>
-          <tr className="text-left sticky top-0 z-10" style={{ background: P.panel2 }}>
-            {cols.map((c) => (
-              <th key={c} className={`py-[1.3vh] px-[1.6vh] text-[1.5vh] font-bold uppercase tracking-wide border-b ${numCol(c) ? "text-right" : ""}`}
-                style={{ color: P.dim, borderColor: P.border }}>{c}</th>
-            ))}
-            <th className="border-b" style={{ borderColor: P.border }} />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr><td colSpan={cols.length + 1} className="py-[5vh] text-center" style={{ color: P.dim }}>No rows</td></tr>
-          ) : rows.map((r, i) => (
-            <tr key={i} onClick={r.open ? () => onOpen(r.open) : undefined}
-              className={r.open ? "cursor-pointer hover:bg-[#8080801f]" : ""}>
-              {r.cells.map((cell, j) => (
-                <td key={j} className={`py-[1.2vh] px-[1.6vh] border-t ${numCol(cols[j]) ? "text-right tabular-nums font-semibold" : ""}`}
-                  style={{ color: P.text, borderColor: P.border }}>
-                  {j === statusIdx ? statusPill(cell, P) : cell}
-                </td>
-              ))}
-              <td className="text-right px-[1.4vh] border-t" style={{ color: P.dim, borderColor: P.border }}>{r.open ? "›" : ""}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// Premium card grid for list drills (part lists, value lists, category counts):
-// one card per row — rank, title, sub, primary value + share bar + status pill.
-function CardListView({ frame, P, onOpen }) {
-  const cols = frame.columns || [];
-  const rows = frame.rows || [];
-  const statusIdx = cols.findIndex((c) => /status/i.test(c));
-  let valIdx = -1;
-  cols.forEach((c, j) => { if (numCol(c)) valIdx = j; });
-  const numOf = (cell) => { const n = parseFloat(String(cell == null ? "" : cell).replace(/[^\d.-]/g, "")); return Number.isNaN(n) ? 0 : n; };
-  const maxVal = valIdx >= 0 ? Math.max(1, ...rows.map((r) => numOf(r.cells[valIdx]))) : 0;
-  // The share bar only reads as meaningful where the value IS the point (a
-  // category count / stock value — bigger = longer). On a part list the Status
-  // pill is the real indicator, so a qty-vs-max bar there just confused; drop it.
-  const showBar = valIdx >= 0 && statusIdx < 0;
-  return (
-    <div className="p-[1.4vh]">
-      <div className="mb-[1.2vh] text-[1.9vh]">
-        <span className="font-black tabular-nums" style={{ color: P.heading }}>{fmtInt(rows.length)}</span> <span style={{ color: P.muted }}>items</span>
-      </div>
-      {rows.length === 0 ? (
-        <div className="py-[5vh] text-center" style={{ color: P.dim }}>No rows</div>
-      ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1vh]">
-          {rows.map((r, i) => {
-            const status = statusIdx >= 0 ? r.cells[statusIdx] : null;
-            const accent = statusColorOf(status) || C.blue;
-            const barPct = valIdx >= 0 && maxVal ? Math.round((numOf(r.cells[valIdx]) / maxVal) * 100) : 0;
-            const sub = statusIdx !== 1 && valIdx !== 1 && r.cells[1] != null && r.cells[1] !== r.cells[0] ? r.cells[1] : null;
-            return (
-              <button key={i} type="button" onClick={r.open ? () => onOpen(r.open) : undefined}
-                className={`text-left rounded-[1vh] p-[1.2vh] flex items-center gap-[1.2vh] transition-transform ${r.open ? "hover:-translate-y-[0.3vh]" : ""}`}
-                style={{ background: `linear-gradient(135deg, ${accent}1c, ${P.panel} 60%)`, border: `1px solid ${P.border}`, borderLeft: `0.5vh solid ${accent}`, boxShadow: `0 0.4vh 1.2vh ${accent}1f` }}>
-                <span className="text-[1.5vh] font-bold flex items-center justify-center rounded-full shrink-0"
-                  style={{ width: "2.7vh", height: "2.7vh", background: `${accent}26`, color: accent }}>{i + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-[1vh]">
-                    <span className="text-[1.9vh] font-bold truncate" style={{ color: P.heading }} title={String(r.cells[0])}>{r.cells[0]}</span>
-                    {valIdx >= 0 && <span className="text-[2.1vh] font-black tabular-nums shrink-0" style={{ color: accent }}>{r.cells[valIdx]}</span>}
-                  </div>
-                  {r.ref && <div className="text-[1.5vh] font-semibold truncate" style={{ color: P.dim }} title={`Reference / Old Part No: ${r.ref}`}>Ref: {r.ref}</div>}
-                  {sub && <div className="text-[1.6vh] truncate" style={{ color: P.muted }} title={String(sub)}>{sub}</div>}
-                  <div className="mt-[0.7vh] flex items-center gap-[1vh]">
-                    {showBar && (
-                      <div className="flex-1 h-[1vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
-                        <div className="h-full" style={{ width: `${barPct}%`, background: accent, transition: "width .8s ease" }} />
-                      </div>
-                    )}
-                    {status != null && String(status).trim() !== "" && <span className="shrink-0">{statusPill(status, P)}</span>}
-                  </div>
-                </div>
-                {r.open && <span className="shrink-0 text-[2vh]" style={{ color: P.dim }}>›</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const categoryFrame = (vm, P) => ({
-  title: vm.catTitle || "Stock by Category",
-  custom: (push) => (
-    <CategoryBreakdownView vm={vm} P={P}
-      onSelect={async (openFn) => { const f = await openFn(); if (f) push(f); }} />
-  ),
-  columns: [vm.catTitle === "Stock by Part Type" ? "Part Type" : "Category", "Parts"],
-  rows: (vm.category || []).map((c) => ({
-    cells: [c.name, fmtInt(c.value)],
-    open: () => vm.listFn(c.name, (vm.parts || []).filter((r) => (r[vm.groupKey] || "Uncategorized") === c.name)),
-  })),
-});
-
-// ---- demo fallbacks (overridden by real values where the API answers) ----
-const DEMO_SPARE = {
-  title: "Spare Parts Store", accent: C.blue, catTitle: "Stock by Part Type",
-  parts: [], listFn: spareList, groupKey: "sub_category",
-  kpis: { total: 481 }, real: {},
-  cards: [
-    { label: "Total Parts", value: "481", color: C.blue },
-    { label: "Stock Value", value: "₹ 2.45 Cr", color: C.green },
-    { label: "Today's Consumption", value: "1,256", color: C.purple },
-    { label: "Short Parts", value: "16", color: C.red },
-    { label: "Excess Parts", value: "255", color: C.cyan },
-  ],
-  category: [
-    { name: "Rail Die part", value: 131, color: C.blue }, { name: "Punch", value: 63, color: C.green },
-    { name: "Pin", value: 52, color: C.amber }, { name: "Spring", value: 42, color: C.purple },
-  ],
-  status: { healthy: 210, short: 16, excess: 255 },
-  trend: [],
-  lists: {},
-};
-const DEMO_CHILD = {
-  title: "Child Parts Store", accent: C.green,
-  parts: [], listFn: childList, groupKey: "category",
-  kpis: { total: 1130 }, real: {},
-  cards: [
-    { label: "Total Parts", value: "1,130", color: C.blue },
-    { label: "Stock Value", value: "₹ 6.71 Cr", color: C.green },
-    { label: "Short Parts", value: "40", color: C.red },
-    { label: "Excess Parts", value: "110", color: C.amber },
-    { label: "Today's Consumption", value: "85", color: C.purple },
-    { label: "Pending SRV", value: "0", color: C.cyan },
-    { label: "Pending RGP", value: "—", color: C.indigo, real: true },
-  ],
-  category: [
-    { name: "BOP", value: 620, color: C.blue }, { name: "Import", value: 240, color: C.green },
-    { name: "In-Parts", value: 180, color: C.amber }, { name: "Consumable", value: 90, color: C.purple },
-  ],
-  status: { healthy: 980, short: 40, excess: 110 },
-  supplierPerf: [
-    { name: "On-Time", value: 12, color: C.green }, { name: "Pending Arrival", value: 4, color: C.amber },
-    { name: "Late", value: 3, color: C.red }, { name: "Not Arrived", value: 3, color: "#64748b" },
-  ],
-  windows: [
-    { start: "08:30", end: "10:00", supplier: "SAR Coating LLP", status: "On-Time", arrival: "08:42" },
-    { start: "09:20", end: "11:30", supplier: "Talu Auto Tech", status: "Pending Arrival", arrival: null },
-    { start: "11:30", end: "13:00", supplier: "Lucas TVS", status: "Late", arrival: "13:18" },
-    { start: "13:00", end: "14:30", supplier: "Bosch (Milkrun)", status: "Not Arrived", arrival: null },
-  ],
-};
-
-// ---------------------------------------------------------------- primitives
-function IconBtn({ onClick, title, p, children, badge }) {
-  return (
-    <button type="button" onClick={onClick} title={title}
-      className="relative rounded-full border p-[0.9vh] hover:brightness-125 transition-[filter]"
-      style={{ background: p.panel, borderColor: p.border, color: p.text }}>
+    <div className={`rounded-2xl bg-[var(--dx-card)] border border-[var(--dx-border)] shadow-[0_1px_3px_rgba(15,31,56,0.06),0_6px_20px_rgba(15,31,56,0.05)] ${className}`} style={style}>
       {children}
-      {badge != null && badge > 0 && (
-        <span className="absolute -top-[0.3vh] -right-[0.3vh] rounded-full bg-red-500 text-white text-[1.45vh] px-[0.6vh] font-bold">{badge}</span>
-      )}
-    </button>
+    </div>
   );
 }
 
-function Panel({ title, children, p, onClick, icon }) {
+function PanelHead({ icon: Icon, color, title, action, onAction }) {
   return (
-    <div onClick={onClick}
-      className={`flex flex-col min-h-0 rounded-[0.9vh] border p-[0.9vh] ${onClick ? "cursor-pointer hover:brightness-[1.05] transition-[filter]" : ""}`}
-      style={{ background: `linear-gradient(180deg, ${p.panel}, ${p.panel2})`, borderColor: p.border, boxShadow: "0 0.5vh 1.4vh rgba(0,0,0,0.14)" }}>
-      <h3 className="text-[1.8vh] font-bold mb-[0.6vh] shrink-0 flex items-center justify-between gap-2" style={{ color: p.heading }}>
-        <span className="flex items-center gap-[0.7vh] min-w-0">
-          {icon && (
-            <span className="shrink-0 rounded-[0.6vh] flex items-center justify-center text-[1.9vh] leading-none"
-              style={{ width: "3vh", height: "3vh", background: p.panel2, border: `1px solid ${p.border}` }}>{icon}</span>
-          )}
-          <span className="truncate">{title}</span>
+    <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center gap-2.5">
+        <span className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${color}1a` }}>
+          <Icon size={20} style={{ color }} />
         </span>
-        {onClick && <span className="shrink-0" style={{ color: p.dim }}>›</span>}
-      </h3>
-      <div className="flex-1 min-h-0">{children}</div>
+        <h3 className="text-[1.6vh] font-bold text-[var(--dx-t1)]">{title}</h3>
+      </div>
+      {action && (
+        <button onClick={onAction} className="text-[1.35vh] font-semibold flex items-center gap-1" style={{ color }}>
+          {action} <span>→</span>
+        </button>
+      )}
     </div>
   );
 }
 
-function MiniKpi({ label, value, color, note, onClick, p }) {
-  const icon = KPI_ICON[label];
+function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color, onClick }) {
   return (
-    <button type="button" onClick={onClick}
-      className="flex-1 min-w-0 text-left rounded-[0.9vh] border p-[0.9vh] flex flex-col justify-center transition-transform hover:-translate-y-[0.3vh]"
-      style={{
-        background: `linear-gradient(135deg, ${color}24, ${p.panel} 62%)`,
-        borderColor: p.border, borderLeft: `0.55vh solid ${color}`,
-        boxShadow: `0 0.5vh 1.5vh ${color}26`,
-      }}>
-      <div className="flex items-center justify-between gap-[0.6vh] min-w-0">
-        <p className="text-[1.6vh] font-semibold truncate" style={{ color: p.muted }}>{label}</p>
-        {icon && (
-          <span className="shrink-0 rounded-full flex items-center justify-center text-[1.9vh] leading-none"
-            style={{ width: "3.4vh", height: "3.4vh", background: `${color}30`, boxShadow: `0 0 0.9vh ${color}44` }}>{icon}</span>
+    <Card className="p-[1.6vh] flex flex-col">
+      <div className="flex items-start justify-between">
+        <span className="w-[5.2vh] h-[5.2vh] rounded-full flex items-center justify-center shadow-sm" style={{ background: color }}>
+          <Icon size={26} className="text-white" />
+        </span>
+        <FileBarChart size={20} className="opacity-25" style={{ color }} />
+      </div>
+      <div className="mt-[1vh] text-[1.55vh] font-bold text-[var(--dx-t2)]">{title}</div>
+      <div className="flex items-end gap-[1vh]">
+        <span className="text-[4vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</span>
+        {trend != null && (
+          <span className={`text-[1.5vh] font-bold ${trendUp ? "text-emerald-600" : "text-rose-600"}`}>
+            {trendUp ? "↑" : "↓"} {trend}
+          </span>
         )}
       </div>
-      <p className="text-[3.2vh] font-black leading-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums"
-        style={{ color, textShadow: `0 0 1.4vh ${color}40` }}>{value}</p>
-      {note && <p className="text-[1.4vh] font-medium truncate" style={{ color: note.color || p.dim }}>{note.text}</p>}
-    </button>
+      <div className="text-[1.3vh] text-[var(--dx-t4)] mt-[0.4vh]">{sub}</div>
+      <button onClick={onClick}
+        className="mt-[1.2vh] rounded-lg text-white text-[1.45vh] font-bold py-[1vh] transition hover:brightness-110 active:scale-[0.98]"
+        style={{ background: color }}>
+        <span className="cta-blink">View Details →</span>
+      </button>
+    </Card>
   );
 }
 
-function StatusBar({ healthy, short, excess, p, onSelect, fmt = fmtInt }) {
-  const total = (healthy || 0) + (short || 0) + (excess || 0) || 1;
-  const clickable = !!onSelect;
-  const seg = (v, c, sel) => (v > 0 ? (
-    <div onClick={clickable ? () => onSelect(sel) : undefined} title={clickable ? `${sel} (${fmt(v)})` : undefined}
-      className={clickable ? "cursor-pointer hover:brightness-110 transition-[filter]" : ""}
-      style={{ width: `${(v / total) * 100}%`, background: c }} />
-  ) : null);
-  const Leg = ({ c, t, n, sel }) => (
-    <button type="button" onClick={clickable ? () => onSelect(sel) : undefined}
-      className={`flex items-center gap-[0.5vh] rounded-[0.5vh] px-[0.6vh] py-[0.2vh] ${clickable ? "cursor-pointer hover:bg-[#8080801f]" : ""}`}
-      style={{ color: p.text }}>
-      <span className="rounded-full" style={{ width: "1.1vh", height: "1.1vh", background: c }} />{t} <b style={{ color: p.heading }}>{fmt(n)}</b>
-    </button>
-  );
+function Gauge({ pct, color, label, sub }) {
+  const p = Math.max(0, Math.min(100, pct || 0));
   return (
-    <div className="flex flex-col h-full justify-center gap-[1.2vh]">
-      <div className="flex h-[3.2vh] rounded-[0.5vh] overflow-hidden" style={{ background: p.panel2 }}>
-        {seg(healthy, C.green, "healthy")}{seg(short, C.red, "short")}{seg(excess, C.amber, "excess")}
-      </div>
-      <div className="flex flex-wrap gap-x-[1.6vh] gap-y-[0.5vh] text-[1.8vh]">
-        <Leg c={C.green} t="Healthy" n={healthy} sel="healthy" /><Leg c={C.red} t="Short" n={short} sel="short" /><Leg c={C.amber} t="Excess" n={excess} sel="excess" />
-      </div>
-    </div>
-  );
-}
-
-function Donut({ data, centerTop, centerSub, p, animate }) {
-  const total = data.reduce((s, c) => s + c.value, 0);
-  return (
-    <div className="flex h-full items-center gap-[1vh]">
-      <div className="relative h-full" style={{ width: "42%" }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie data={data} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="92%" paddingAngle={2} stroke="none" isAnimationActive={animate} animationDuration={500}>
-              {data.map((c) => <Cell key={c.name} fill={c.color} />)}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-[2.6vh] font-extrabold" style={{ color: p.heading }}>{centerTop}</span>
-          <span className="text-[1.45vh]" style={{ color: p.muted }}>{centerSub}</span>
+    <div className="flex flex-col items-center">
+      <svg viewBox="0 0 120 68" className="w-[15vh]">
+        <path d="M12 60 A48 48 0 0 1 108 60" fill="none" style={{ stroke: "var(--dx-gauge)" }} strokeWidth="13" strokeLinecap="round" pathLength="100" />
+        <path d="M12 60 A48 48 0 0 1 108 60" fill="none" stroke={color} strokeWidth="13" strokeLinecap="round" pathLength="100" strokeDasharray={`${p} 100`} />
+        <text x="60" y="54" textAnchor="middle" fontSize="26" fontWeight="800" style={{ fill: "var(--dx-t1)" }}>{Math.round(p)}%</text>
+      </svg>
+      <div className="text-center -mt-[0.6vh]">
+        <div className="text-[1.5vh] font-bold flex items-center justify-center gap-1.5" style={{ color }}>
+          <span className="w-[1vh] h-[1vh] rounded-full inline-block" style={{ background: color }} />{label}
         </div>
-      </div>
-      <div className="flex-1 flex flex-col justify-center gap-[0.6vh] min-w-0">
-        {data.slice(0, 4).map((c) => (
-          <div key={c.name} className="flex items-center gap-[0.7vh] text-[1.75vh]">
-            <span className="rounded-full shrink-0" style={{ width: "1.2vh", height: "1.2vh", background: c.color }} />
-            <span className="flex-1 truncate" style={{ color: p.text }}>{c.name}</span>
-            <span className="font-semibold tabular-nums" style={{ color: p.heading }}>{fmtInt(c.value)}</span>
-            <span className="w-[4.5vh] text-right tabular-nums" style={{ color: p.dim }}>{total ? ((c.value / total) * 100).toFixed(0) : 0}%</span>
-          </div>
-        ))}
+        <div className="text-[1.25vh] text-[var(--dx-t3)]">{sub}</div>
       </div>
     </div>
   );
 }
 
-function RackGauge({ pct, p }) {
-  const SEMI = Math.PI * 80;
-  const arc = Math.max(0, Math.min(100, pct));
+function DeptBar({ name, value, pct, color }) {
   return (
-    <svg viewBox="0 0 200 120" className="w-full h-full">
-      <path d="M 20 104 A 80 80 0 0 1 180 104" fill="none" stroke={p.border} strokeWidth="16" strokeLinecap="round" />
-      <path d="M 20 104 A 80 80 0 0 1 180 104" fill="none" stroke={C.amber} strokeWidth="16" strokeLinecap="round"
-        strokeDasharray={`${(arc / 100) * SEMI} ${SEMI * 2}`} />
-      <text x="100" y="92" textAnchor="middle" fontSize="30" fontWeight="800" fill={p.heading}>{Math.round(pct)}%</text>
-      <text x="100" y="112" textAnchor="middle" fontSize="12" fill={p.muted}>Occupied</text>
-    </svg>
-  );
-}
-
-const WIN_META = {
-  "On-Time": { color: C.green, label: (w) => `Arrived ${w.arrival || ""}`.trim() },
-  "Late": { color: "#f97316", label: (w) => `Arrived ${w.arrival || ""} · Late`.trim() },
-  "Pending Arrival": { color: C.amber, label: () => "Upcoming" },
-  "Not Arrived": { color: C.red, label: () => "Not Arrived" },
-};
-const toMin = (t) => { const [h, m] = (t || "0:0").split(":").map(Number); return h * 60 + m; };
-
-// Today's supplier delivery windows as a live timeline: each row is the window
-// span (start ━●━ end) with a coloured marker for how the vehicle did, then the
-// supplier and its arrival status. Child Parts only.
-function VehicleTimeline({ windows, p }) {
-  if (!windows.length) return <div className="h-full flex items-center justify-center text-[1.7vh]" style={{ color: p.dim }}>No windows today</div>;
-  return (
-    <div className="flex flex-col h-full justify-center gap-[1.4vh] overflow-hidden">
-      {windows.slice(0, 4).map((w, i) => {
-        const meta = WIN_META[w.status] || { color: p.dim, label: () => w.status };
-        const s = toMin(w.start), e = toMin(w.end);
-        const frac = w.arrival
-          ? Math.max(0.06, Math.min(0.94, (toMin(w.arrival) - s) / Math.max(1, e - s)))
-          : (w.status === "Not Arrived" ? 0.94 : 0.5);
-        return (
-          <div key={i}>
-            <div className="flex items-center gap-[0.7vh] text-[1.5vh]">
-              <span className="tabular-nums shrink-0" style={{ color: p.muted }}>{w.start}</span>
-              <div className="relative flex-1 rounded-full" style={{ height: "0.35vh", background: p.border }}>
-                <span className="absolute flex items-center justify-center rounded-full p-[0.3vh]" style={{
-                  left: `${frac * 100}%`, top: "50%", transform: "translate(-50%, -50%)",
-                  background: p.panel, boxShadow: `0 0 0 0.25vh ${meta.color}33`,
-                }}>
-                  <Truck style={{ width: "2.6vh", height: "2.6vh", color: meta.color }} />
-                </span>
-              </div>
-              <span className="tabular-nums shrink-0" style={{ color: p.muted }}>{w.end}</span>
-            </div>
-            <div className="mt-[0.3vh] flex items-center gap-[0.6vh] text-[1.5vh]">
-              <span className="font-semibold truncate" style={{ color: p.text }}>{w.supplier}</span>
-              <span style={{ color: p.dim }}>→</span>
-              <span className="font-semibold truncate" style={{ color: meta.color }}>{meta.label(w)}</span>
-            </div>
-          </div>
-        );
-      })}
+    <div className="flex items-center gap-[1vh]">
+      <span className="w-[13vh] text-[1.4vh] font-medium text-[var(--dx-t2)] truncate">{name}</span>
+      <div className="flex-1 h-[1.6vh] rounded-full bg-[var(--dx-track)] overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <span className="w-[5vh] text-right text-[1.45vh] font-bold text-[var(--dx-t1)]">{fmtInt(value)}</span>
+      <span className="w-[4vh] text-right text-[1.35vh] text-[var(--dx-t4)]">{Math.round(pct)}%</span>
     </div>
   );
 }
 
-// One store's compact strip: header + KPI row + a chart row.
-function StoreStrip({ vm, p, animate, onOpen, onSearch, onSupplierPerf, onDateView }) {
-  const total = vm.category.reduce((s, c) => s + c.value, 0);
-  const tone = (real) => ({ text: real ? "live" : "demo", color: real ? C.green : p.dim });
-  const [sq, setSq] = useState("");
-  return (
-    <section className="flex flex-col min-h-0 gap-[0.8vh]" style={{ flex: "1 0 0" }}>
-      <div className="flex items-center gap-[1vh] shrink-0">
-        <span className="rounded-[0.6vh] px-[1.2vh] py-[0.4vh] text-[2vh] font-bold text-white" style={{ background: vm.accent }}>{vm.title}</span>
-        <span className="text-[1.7vh]" style={{ color: p.muted }}>{fmtInt(vm.kpis.total)} parts</span>
-        {onSearch && (
-          <form className="ml-auto flex items-center gap-[0.6vh]" onSubmit={(e) => { e.preventDefault(); onSearch(sq); }}>
-            <div className="flex items-center rounded-[0.7vh] border px-[1vh]" style={{ background: p.panel, borderColor: p.border, height: "3.4vh" }}>
-              <span className="text-[1.7vh]" style={{ color: p.dim }}>🔍</span>
-              <input value={sq} onChange={(e) => setSq(e.target.value)} placeholder="Search part no / ref / name…"
-                className="bg-transparent outline-none ml-[0.7vh] text-[1.6vh]" style={{ color: p.text, width: "19vh" }} />
-              {sq && <button type="button" onClick={() => setSq("")} className="text-[2vh] leading-none px-[0.4vh]" style={{ color: p.dim }}>×</button>}
-            </div>
-            <button type="submit" className="rounded-[0.7vh] px-[1.4vh] text-[1.6vh] font-semibold text-white" style={{ background: vm.accent, height: "3.4vh" }}>Go</button>
-          </form>
-        )}
-      </div>
-
-      <div className="flex gap-[0.8vh] min-h-0" style={{ flex: "38 0 0" }}>
-        {vm.cards.map((c) => (
-          <MiniKpi key={c.label} label={c.label} value={c.value} color={c.color} p={p}
-            note={c.note != null ? c.note : c.viaErp ? { text: "via ERP", color: p.dim } : c.real != null ? tone(c.real) : null} onClick={c.onClick} />
-        ))}
-      </div>
-
-      <div className={`grid ${vm.windows ? "grid-cols-4" : "grid-cols-3"} gap-[0.8vh] min-h-0`} style={{ flex: "62 0 0" }}>
-        <Panel title={vm.catTitle || "Stock by Category"} icon="🍩" p={p} onClick={() => onOpen(categoryFrame(vm, p))}>
-          <Donut data={vm.category} centerTop={fmtInt(total)} centerSub="Parts" p={p} animate={animate} />
-        </Panel>
-        <Panel title="Stock Health" icon="🩺" p={p}>
-          <StatusBar healthy={vm.status.healthy} short={vm.status.short} excess={vm.status.excess} p={p}
-            onSelect={vm.health ? (sel) => vm.health[sel] && onOpen(vm.health[sel]) : undefined} />
-        </Panel>
-        {vm.supplierPerf ? (
-          <Panel title="Supplier Performance (Windows)" icon="🚚" p={p} onClick={() => onSupplierPerf(vm.windows || [])}>
-            <Donut data={vm.supplierPerf} centerTop={fmtInt(vm.supplierPerf.reduce((s, x) => s + x.value, 0))} centerSub="Windows" p={p} animate={animate} />
-          </Panel>
-        ) : vm.third === "rack" ? (
-          <Panel title="Rack Utilization" icon="🗄️" p={p}><RackGauge pct={vm.rackPct} p={p} /></Panel>
-        ) : (
-          <Panel title="Consumption Trend (7 Days)" icon="📉" p={p}>
-            {vm.trend && vm.trend.some((t) => t.qty > 0) ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={vm.trend} margin={{ top: 6, right: 8, left: -22, bottom: -6 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={p.border} vertical={false} />
-                <XAxis dataKey="d" tick={{ fill: p.muted, fontSize: 14 }} tickLine={false} axisLine={{ stroke: p.border }} />
-                <YAxis tick={{ fill: p.muted, fontSize: 14 }} tickLine={false} axisLine={false} width={30} />
-                <Tooltip contentStyle={{ background: p.panel2, border: `1px solid ${p.border}`, borderRadius: 8, fontSize: 12, color: p.text }} />
-                <Line type="monotone" dataKey="qty" stroke={vm.accent} strokeWidth={2.5} dot={{ r: 3, fill: vm.accent }} isAnimationActive={animate} animationDuration={600} />
-              </LineChart>
-            </ResponsiveContainer>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full gap-[0.6vh] text-center" style={{ color: p.dim }}>
-                <span className="text-[2.4vh]">📉</span>
-                <span className="text-[1.8vh]">No consumption data yet</span>
-              </div>
-            )}
-          </Panel>
-        )}
-        {vm.windows && (
-          <Panel title="Today's Vehicle Status" icon="🚛" p={p} onClick={() => onDateView(vm.windows)}>
-            <VehicleTimeline windows={vm.windows} p={p} />
-          </Panel>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------- main
-// One consumption breakdown as a colourful bar list (department / machine /
-// part-type), reused by the Live board's Today's-Consumption drill.
-function ConsumptionBars({ title, subtitle, rows, color, P }) {
-  const max = Math.max(1, ...rows.map((r) => r.value || 0));
-  return (
-    <div className="rounded-[1vh] p-[1.5vh]" style={{ background: `linear-gradient(180deg, ${P.panel}, ${P.panel2})`, border: `1px solid ${P.border}`, boxShadow: "0 0.4vh 1.3vh rgba(0,0,0,0.12)" }}>
-      <div className="text-[2vh] font-bold" style={{ color: P.heading }}>{title}</div>
-      {subtitle && <div className="text-[1.5vh] mb-[1vh]" style={{ color: P.dim }}>{subtitle}</div>}
-      {rows.length === 0 ? (
-        <div className="py-[2vh] text-[1.7vh]" style={{ color: P.dim }}>No consumption yet</div>
-      ) : rows.map((r, i) => (
-        <div key={i} className="mb-[1.1vh]">
-          <div className="flex items-center justify-between gap-[1vh]">
-            <span className="text-[1.8vh] truncate" style={{ color: P.text }} title={r.name}>{r.name}</span>
-            <span className="text-[2vh] font-black tabular-nums shrink-0" style={{ color }}>{fmtInt(r.value)}</span>
-          </div>
-          <div className="mt-[0.5vh] h-[1.2vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
-            <div className="h-full" style={{ width: `${Math.round(((r.value || 0) / max) * 100)}%`, background: color, transition: "width .8s ease" }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ConsumptionView({ data, P }) {
-  // Consumption Trend (the daily line) already lives on the board as its own
-  // panel, so this drill shows the splits + the month/year report, not the line.
-  const toBars = (rows) => (rows || []).map((r) => ({ name: r.period, value: r.qty }));
-  return (
-    <div className="p-[1.5vh] space-y-[1.4vh]">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-[1.4vh]">
-        <ConsumptionBars title="Department-wise" subtitle="Which department drew the spares" rows={data.department || []} color={C.purple} P={P} />
-        <ConsumptionBars title="Machine-wise" subtitle="Which machine eats the most spares" rows={data.machine || []} color={C.green} P={P} />
-        <ConsumptionBars title="Part-type-wise" subtitle="Sensor / Cylinder / Punch / Pin …" rows={data.type || []} color={C.amber} P={P} />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-[1.4vh]">
-        <ConsumptionBars title="Month-wise" subtitle="Total issued per month" rows={toBars(data.month)} color={C.blue} P={P} />
-        <ConsumptionBars title="Year-wise" subtitle="Total issued per year" rows={toBars(data.year)} color={C.cyan} P={P} />
-      </div>
-    </div>
-  );
-}
-
-// Parts bucketed by unit rate — the "Value Bands" view (screenshot spec).
-const VALUE_BANDS = [
-  { key: "u1k", label: "Under ₹1k", color: "#94a3b8", test: (r) => r < 1000 },
-  { key: "1k10k", label: "₹1k – ₹10k", color: C.blue, test: (r) => r >= 1000 && r < 10000 },
-  { key: "10k50k", label: "₹10k – ₹50k", color: C.amber, test: (r) => r >= 10000 && r < 50000 },
-  { key: "50kplus", label: "₹50k and above", color: C.red, test: (r) => r >= 50000 },
-];
-
-function ValueBandsView({ rows, onSelect, P }) {
-  const max = Math.max(1, ...rows.map((b) => b.count));
-  return (
-    <div className="p-[1.6vh]">
-      <div className="text-[2.1vh] font-bold" style={{ color: P.heading }}>Value Bands</div>
-      <div className="text-[1.5vh] mb-[1.8vh]" style={{ color: P.dim }}>Rated parts grouped by unit rate</div>
-      <div className="space-y-[1.8vh]">
-        {rows.map((b) => (
-          <button key={b.key} type="button" onClick={() => b.count && onSelect(b)}
-            className={`block w-full text-left ${b.count ? "cursor-pointer" : "cursor-default"}`}>
-            <div className="flex items-center justify-between text-[1.9vh]">
-              <span style={{ color: P.text }}>{b.label}</span>
-              <span className="font-black tabular-nums" style={{ color: P.heading }}>{fmtInt(b.count)}</span>
-            </div>
-            <div className="mt-[0.6vh] h-[1.4vh] rounded-full overflow-hidden" style={{ background: "#8080802e" }}>
-              <div className="h-full rounded-full" style={{ width: `${Math.round((b.count / max) * 100)}%`, background: b.color, transition: "width .8s ease" }} />
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Stock Value drill: parts grouped into unit-rate bands; a band opens its parts.
-const valueBandsFrame = (rows, P) => {
-  const bands = VALUE_BANDS.map((b) => {
-    const parts = (rows || []).filter((r) => r.unit_price != null && b.test(Number(r.unit_price)));
-    return { ...b, count: parts.length, parts };
-  });
-  return {
-    title: "Value Bands — rated parts by unit rate",
-    custom: (push) => (
-      <ValueBandsView rows={bands} P={P}
-        onSelect={(b) => push(spareList(`${b.label} · ${b.count} parts`,
-          b.parts.slice().sort((a, c) => (c.unit_price || 0) - (a.unit_price || 0))))} />
-    ),
-  };
-};
+// ---- main ------------------------------------------------------------------
 
 export default function TvDashboard() {
-  const navigate = useNavigate();
-  const [spare, setSpare] = useState(DEMO_SPARE);
-  const [child, setChild] = useState(DEMO_CHILD);
+  const [data, setData] = useState({});
   const [now, setNow] = useState(() => new Date());
-  const [stack, setStack] = useState([]); // nested drill: a breadcrumb stack of frames
+  const [sections, setSections] = useState([]);
+  const [sectionId, setSectionId] = useState(null);
   const [isFs, setIsFs] = useState(false);
-  const [dark, setDark] = useState(false); // default to Day (light) on the LED
-  const [animate, setAnimate] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  // The Live board honours stores.is_active: when the Child Parts store is
-  // disabled it drops off the board and Spare goes full-screen. Default FALSE so
-  // a disabled Child never flashes on the board for the moment before the stores
-  // list loads; the fetch below flips it on only if CHILD_PART is actually active.
-  const [childActive, setChildActive] = useState(false);
-  const P = dark ? THEMES.dark : THEMES.light;
+  const [stack, setStack] = useState([]); // Explore-Data drill frames (in-board)
+  const [shiftOverride, setShiftOverride] = useState(null); // null = follow the clock; true = day, false = night
 
-  // Charts animate once on open, then freeze — so the 30s auto-refresh doesn't
-  // replay the donut's "slow open" every time.
-  useEffect(() => {
-    const t = setTimeout(() => setAnimate(false), 1200);
-    return () => clearTimeout(t);
-  }, []);
+  const toggleFs = () => (document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.());
 
-  const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate("/store/MAINTENANCE"));
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
-    else document.exitFullscreen?.();
-  };
-  // Nested drill: openStack starts a fresh window, pushFrame goes a level
-  // deeper, popTo jumps back to a breadcrumb level.
-  const openStack = (frame) => setStack([frame]);
-  const pushFrame = (frame) => setStack((s) => [...s, frame]);
-  const popTo = (i) => setStack((s) => s.slice(0, i + 1));
-  // A flat, single-level drill (no nesting) — rows are plain arrays of cells.
-  const openDrill = (title, columns, rows) => setStack([{ title, columns, rows: rows.map((r) => ({ cells: r })) }]);
-
-  // Per-store part search — each split panel has its own box. Matches part no /
-  // name / old no / new no (case-insensitive), opens a drill of the hits whose
-  // rows go to that part's detail. `field`/`detail` differ per store, the rest
-  // is shared.
-  const runSearch = (query, { rows, title, qtyKey, statusKey, detail }) => {
-    const q = (query || "").trim();
-    if (!q) return;
-    const ql = q.toLowerCase();
-    const hit = (r) => `${r.part_no || ""} ${r.part_name || ""} ${r.old_part_no || ""} ${r.new_part_no || ""}`.toLowerCase().includes(ql);
-    const hits = (rows || []).filter(hit)
-      .map((r) => ({ cells: [r.part_no, r.part_name, fmtInt(r[qtyKey]), r[statusKey] || "—"], ref: r.old_part_no, open: () => detail(r) }));
-    openStack({ title: `${title} — “${q}” · ${hits.length} found`, cards: true, columns: ["Part No", "Description", "In Stock", "Status"], rows: hits });
-  };
-  const searchSpare = (query) => runSearch(query, { rows: spare.rows, title: "Spare search", qtyKey: "qty_on_hand", statusKey: "status", detail: spareDetail });
-  const searchChild = (query) => runSearch(query, { rows: child.crows, title: "Child search", qtyKey: "total_qty", statusKey: "indicator", detail: childDetail });
-
-  // Today's-Consumption drill — the Spare store's department / machine /
-  // part-type consumption breakdown (same figures as the store's Consumption
-  // section), fetched live and shown as colourful bars.
-  const openConsumption = async () => {
-    const grab = (pr) => pr.then((r) => r.data.data).catch(() => []);
-    const [department, machine, type, month, year] = await Promise.all([
-      grab(spareStockService.consumption("MAINTENANCE", "department")),
-      grab(spareStockService.consumption("MAINTENANCE", "machine")),
-      grab(spareStockService.consumption("MAINTENANCE", "type")),
-      grab(spareStockService.consumptionByPeriod("MAINTENANCE", "month")),
-      grab(spareStockService.consumptionByPeriod("MAINTENANCE", "year")),
-    ]);
-    openStack({
-      title: "Consumption — department / machine / part-type / month / year",
-      custom: <ConsumptionView data={{ department, machine, type, month, year }} P={P} />,
-    });
-  };
-
-  // This month's per-supplier performance (how many times late / not-arrived),
-  // fetched from the server. Falls back to today's view if the route isn't up
-  // yet (backend not restarted).
-  const openMonthlyPerf = async (todayWindows) => {
-    const data = await supplierWindowScheduleService.performance().then((r) => r.data.data).catch(() => null);
-    if (data && Array.isArray(data.rows) && data.rows.length) {
-      openStack({
-        title: "Supplier Performance — this month",
-        downloads: [
-          { label: "Excel", href: "/api/v1/supplier-window-schedules/performance/export?format=xlsx" },
-          { label: "PDF", href: "/api/v1/supplier-window-schedules/performance/export?format=pdf" },
-          { label: "Late report · Excel", href: "/api/v1/supplier-window-schedules/late-report/export?format=xlsx" },
-          { label: "Late report · PDF", href: "/api/v1/supplier-window-schedules/late-report/export?format=pdf" },
-          { label: "Window-Time sheet · Excel", href: "/api/v1/supplier-window-schedules/window-time-report" },
-        ],
-        custom: <SupplierPerfView data={data} P={P} />,
-        columns: ["Supplier", "Windows", "On-Time", "Late", "Not Arrived", "On-Time %"],
-        rows: data.rows.map((s) => ({
-          cells: [s.supplier, s.windows, s.on_time, s.late, s.not_arrived, s.on_time_pct != null ? `${s.on_time_pct}%` : "—"],
-        })),
-      });
-    } else {
-      openStack(supplierPerfFrame(todayWindows || []));
-    }
-  };
-
-  // By-date view: a list of the month's days -> click a day -> who came late /
-  // not-arrived that day. Falls back to today's windows if the route isn't up.
-  const openDateView = async (todayWindows) => {
-    const data = await supplierWindowScheduleService.monthDaily().then((r) => r.data.data).catch(() => null);
-    const dayFrame = (dateStr) => async () => {
-      const w = await supplierWindowScheduleService.dayStatus(dateStr).then((r) => r.data.data).catch(() => []);
-      return {
-        title: dateStr,
-        columns: ["Window", "Supplier", "Arrived", "Status"],
-        rows: (w || []).map((x) => ({
-          cells: [`${(x.window_start || "").slice(0, 5)}–${(x.window_end || "").slice(0, 5)}`,
-            x.supplier_name, x.actual_arrival ? x.actual_arrival.slice(11, 16) : "—", x.status],
-        })),
-      };
-    };
-    if (data && Array.isArray(data.rows) && data.rows.length) {
-      openStack({
-        title: "Vehicle Status — by date",
-        columns: ["Date", "Windows", "On-Time", "Late", "Not Arrived"],
-        rows: data.rows.map((d) => ({ cells: [d.date, d.windows, d.on_time, d.late, d.not_arrived], open: dayFrame(d.date) })),
-      });
-    } else {
-      openStack(windowsFrame(todayWindows || []));
-    }
-  };
-
+  // clock
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
@@ -941,289 +157,784 @@ export default function TvDashboard() {
     return () => document.removeEventListener("fullscreenchange", on);
   }, []);
 
-  // Honour stores.is_active: only show the Child half while its store is active.
-  // Re-checked on the data cadence so toggling the flag reflects without a reload.
+  // sections (real + dummy)
   useEffect(() => {
     let alive = true;
     const check = () => storeService.list()
-      .then((r) => { if (alive) setChildActive((r.data.data || []).some((s) => s.code === "CHILD_PART")); })
-      .catch(() => {});
+      .then((r) => {
+        if (!alive) return;
+        const stores = r.data.data || [];
+        const real = (stores.find((s) => s.code === "MAINTENANCE") || {}).sections || [];
+        setSections([...real, ...DUMMY_SECTIONS]);
+      })
+      .catch(() => setSections([...DUMMY_SECTIONS]));
     check();
     const id = setInterval(check, REFRESH_MS);
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  // Spare Parts store — from the spare-stock API.
+  // land on the first section, never a stale id
   useEffect(() => {
+    setSectionId((cur) => {
+      if (sections.length && (cur == null || !sections.some((s) => s.id === cur))) return sections[0].id;
+      return cur;
+    });
+  }, [sections]);
+
+  // Sections change only when someone taps ‹ / › — no auto-rotation.
+  const sectionOpts = useMemo(() => sections.map((s) => s.id), [sections]);
+
+  // Section-scoped data — refetched ONLY when the section changes, kept light (6
+  // calls) so switching sections is snappy. Waits for the first section to be
+  // picked so we don't fire a whole-store load that a section load replaces.
+  useEffect(() => {
+    if (sectionId == null) return undefined;
     let alive = true;
-    const grab = (pr) => pr.then((r) => r.data.data).catch(() => null);
+    const g = (pr) => pr.then((r) => r.data.data).catch(() => null);
     const load = async () => {
-      const [sum, today, ana, list, trend] = await Promise.all([
-        grab(spareStockService.summary("MAINTENANCE")),
-        grab(spareStockService.today("MAINTENANCE")),
-        grab(spareStockService.analytics("MAINTENANCE")),
-        grab(spareStockService.list({ store_code: "MAINTENANCE" })),
-        grab(spareStockService.consumptionTrend("MAINTENANCE", 7)),
+      const sec = sectionId;
+      const [sum, ana, today, list, monthly, dept] = await Promise.all([
+        g(spareStockService.summary("MAINTENANCE", sec)),
+        g(spareStockService.analytics("MAINTENANCE", sec)),
+        g(spareStockService.today("MAINTENANCE", sec)),
+        g(spareStockService.list({ store_code: "MAINTENANCE", section_id: sec })),
+        g(spareStockService.consumptionByPeriod("MAINTENANCE", "month", sec)),
+        g(spareStockService.consumption("MAINTENANCE", "department", sec)),
       ]);
       if (!alive) return;
-      setSpare((prev) => {
-        const next = { ...prev, real: {} };
-        const total = sum?.total_parts;
-        next.kpis = { total: total ?? prev.kpis.total };
-        let short = null, excess = null, healthy = null;
-        if (ana && Array.isArray(ana.status_distribution)) {
-          const by = Object.fromEntries(ana.status_distribution.map((s) => [s.name, s.value]));
-          short = (by["Below Minimum"] || 0) + (by["Zero Stock"] || 0);
-          excess = by["Above Maximum"] || 0;
-          healthy = by["Healthy"] || 0;
-          next.status = { healthy, short, excess };
-        }
-        // Spare parts all carry one blanket category ("Maintenance/Tool Room"),
-        // so grouping on that gives a useless single slice. The Press-Shop
-        // stamping spares are far more telling split by part type (sub_category:
-        // Punch / Pin / Spring / Rail Die part …).
-        if (Array.isArray(list) && list.some((r) => r.sub_category)) next.category = toCatArray(
-          list.reduce((m, r) => { const c = r.sub_category || "Uncategorised"; m[c] = (m[c] || 0) + 1; return m; }, {}));
-        if (Array.isArray(trend)) next.trend = trend.map((t) => ({ d: t.d.slice(0, 2), qty: t.qty }));
-        next.rows = Array.isArray(list) ? list : (prev.rows || []);
-        next.parts = next.rows;
-        // Stock value tied up in the short / excess parts — shown as the ₹ note
-        // under those KPI cards so the money at risk is visible, not just a count.
-        const sumVal = (pred) => next.rows.filter(pred).reduce((s, r) => s + (r.stock_value || 0), 0);
-        const excessValue = sumVal((r) => r.status === "Above Maximum");
-        const shortValue = sumVal((r) => r.status === "Below Minimum" || r.status === "Out of Stock");
-        next.health = {
-          short: spareList("Short — below minimum", next.rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock")),
-          excess: spareList("Excess — above maximum", next.rows.filter((r) => r.status === "Above Maximum")),
-          healthy: spareList("Healthy parts", next.rows.filter((r) => r.status !== "Below Minimum" && r.status !== "Out of Stock" && r.status !== "Above Maximum")),
-        };
-        next.cards = [
-          // Total Parts -> part types -> that type's parts -> a part's detail.
-          // Straight to the full parts list — the part-type split already lives
-          // in the "Stock by Part Type" donut below, so don't repeat it here.
-          { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
-            onClick: () => openStack(spareList("All parts", next.rows)) },
-          { label: "Stock Value", value: fmtMoney(sum?.stock_value), color: C.green, real: sum?.stock_value != null,
-            onClick: () => openStack(valueBandsFrame(next.rows, P)) },
-          { label: "Today's Consumption", value: fmtInt(today?.issued_qty), color: C.purple, real: today?.issued_qty != null,
-            onClick: openConsumption },
-          { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null,
-            note: short ? { text: `${fmtMoney(shortValue)} value`, color: C.red } : null,
-            onClick: () => openStack(spareList("Short — below minimum",
-              next.rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock")
-                .sort((a, b) => (b.min_stock_level - b.qty_on_hand) - (a.min_stock_level - a.qty_on_hand)))) },
-          { label: "Excess Parts", value: fmtInt(excess), color: C.cyan, real: excess != null,
-            note: excess ? { text: `${fmtMoney(excessValue)} value`, color: C.cyan } : null,
-            onClick: () => openStack(spareList("Excess — above maximum",
-              next.rows.filter((r) => r.status === "Above Maximum")
-                .sort((a, b) => (b.qty_on_hand - (b.max_stock_level || 0)) - (a.qty_on_hand - (a.max_stock_level || 0))))) },
-        ];
-        return next;
-      });
-      setLastUpdated(new Date());
+      setData((d) => ({ ...d, sum, ana, today, list: Array.isArray(list) ? list : [], monthly: monthly || [], dept: dept || [] }));
+    };
+    load();
+    const id = setInterval(load, REFRESH_MS);
+    return () => { alive = false; clearInterval(id); };
+  }, [sectionId]);
+
+  // Store-wide data — fetched once (and on the refresh cadence), NOT per section,
+  // so switching sections never re-pulls the heavy ERP list. The ERP match
+  // summary is derived here instead of a second server call.
+  useEffect(() => {
+    let alive = true;
+    const g = (pr) => pr.then((r) => r.data.data).catch(() => null);
+    const load = async () => {
+      const [activity, pending, erpPend, erpGapRaw] = await Promise.all([
+        g(spareStockService.activity("MAINTENANCE", 6)),
+        g(spareStockService.pendingConfirmations("MAINTENANCE")),
+        g(spareStockService.erpPending("MAINTENANCE")),
+        g(spareStockService.erpGap("MAINTENANCE")),
+      ]);
+      if (!alive) return;
+      const erpGap = Array.isArray(erpGapRaw) ? erpGapRaw : [];
+      const reconciled = erpGap.filter((r) => r.gap_qty != null);
+      const matched = reconciled.filter((r) => r.status === "MATCH").length;
+      const erpSum = {
+        total: erpGap.length, matched,
+        short: erpGap.filter((r) => r.status === "SHORT").length,
+        excess: erpGap.filter((r) => r.status === "EXCESS").length,
+        no_physical: erpGap.filter((r) => r.status === "NO_PHYSICAL").length,
+        not_synced: erpGap.filter((r) => r.status === "NOT_SYNCED").length,
+        accuracy_pct: reconciled.length ? Math.round((matched / reconciled.length) * 10000) / 100 : null,
+      };
+      setData((d) => ({ ...d, activity: activity || [], pending: pending || [], erpPend, erpGap, erpSum }));
     };
     load();
     const id = setInterval(load, REFRESH_MS);
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  // Child Parts store — from the store dashboard API.
-  useEffect(() => {
-    let alive = true;
-    const grab = (pr) => pr.then((r) => r.data.data).catch(() => null);
-    const load = async () => {
-      const [sum, win, parts, rgpCount, rgpList] = await Promise.all([
-        grab(storeDashboardService.summary()),
-        grab(supplierWindowScheduleService.todayStatus()),
-        grab(storeDashboardService.partSummary()),
-        grab(rgpService.pendingCount("CHILD_PART")),
-        grab(rgpService.list("CHILD_PART", true)),
-      ]);
-      // Pending RGP — real app data (ERP will feed the same endpoint later).
-      const rgpVal = rgpCount && rgpCount.pending != null ? rgpCount.pending : null;
-      const rgpRows = Array.isArray(rgpList) ? rgpList : [];
-      if (!alive) return;
-      // Inventory value = sum of every part's stock value, the way the child
-      // store's own dashboard computes it.
-      const value = Array.isArray(parts) ? parts.reduce((s, p) => s + (p.total_value || 0), 0) : null;
-      setChild((prev) => {
-        const next = { ...prev };
-        if (sum) {
-          const total = sum.total_parts;
-          const short = sum.low_stock, excess = sum.excess_stock;
-          next.kpis = { total: total ?? prev.kpis.total };
-          next.status = { healthy: Math.max(0, (total || 0) - (short || 0) - (excess || 0)), short: short || 0, excess: excess || 0 };
-          if (sum.category_counts) {
-            next.category = toCatArray(sum.category_counts);
-            // Parts with no category aren't in category_counts, so the donut
-            // summed to less than Total Parts — add the remainder as one slice
-            // so the donut centre matches the Total Parts count.
-            const catSum = next.category.reduce((s, c) => s + c.value, 0);
-            if (total != null && total > catSum) next.category = [...next.category, { name: "Uncategorized", value: total - catSum, color: "#94a3b8" }];
-          }
-          next.crows = Array.isArray(parts) ? parts : (prev.crows || []);
-          next.parts = next.crows;
-          const isShort = (r) => String(r.indicator || "").toLowerCase().includes("short");
-          const isExcess = (r) => String(r.indicator || "").toLowerCase().includes("excess");
-          next.health = {
-            healthy: childList("Healthy parts", next.crows.filter((r) => !isShort(r) && !isExcess(r))),
-            short: childList("Short parts", next.crows.filter(isShort)),
-            excess: childList("Excess parts", next.crows.filter(isExcess)),
-          };
-          next.cards = [
-            // Full parts list — the category split already lives in the donut.
-            { label: "Total Parts", value: fmtInt(total), color: C.blue, real: total != null,
-              onClick: () => openStack(childList("All parts", next.crows)) },
-            { label: "Stock Value", value: value ? fmtMoney(value) : "—", color: C.green, real: value != null,
-              note: value ? null : { text: "no stock qty yet", color: C.amber },
-              onClick: () => openStack({ title: "Stock Value (high → low)", cards: true, columns: ["Part No", "Description", "Stock Value"],
-                rows: next.crows.filter((r) => r.total_value != null).sort((a, b) => b.total_value - a.total_value)
-                  .map((r) => ({ cells: [r.part_no, r.part_name, fmtMoney(r.total_value)], open: () => childDetail(r) })) }) },
-            { label: "Short Parts", value: fmtInt(short), color: C.red, real: short != null,
-              onClick: () => openStack(childList("Short parts", next.crows.filter(isShort))) },
-            { label: "Excess Parts", value: fmtInt(excess), color: C.amber, real: excess != null,
-              onClick: () => openStack(childList("Excess parts", next.crows.filter(isExcess))) },
-            { label: "Today's Consumption", value: fmtInt(sum.todays_issue), color: C.purple, real: sum.todays_issue != null,
-              onClick: () => openDrill("Today's Movement", ["Metric", "Count"], [["Issued today", fmtInt(sum.todays_issue)], ["Put-away today", fmtInt(sum.todays_put_away)], ["Receipts (SRV) today", fmtInt(sum.todays_srv)]]) },
-            { label: "Pending SRV", value: fmtInt(sum.pending_srv), color: C.cyan, real: sum.pending_srv != null,
-              onClick: () => openDrill("Pending — receiving pipeline", ["Stage", "Count"], [["Pending SRV", fmtInt(sum.pending_srv)], ["Pending Put-Away", fmtInt(sum.pending_put_away)], ["Pending RQC (Inspection)", fmtInt(sum.pending_rqc)]]) },
-            { label: "Pending RGP", value: rgpVal != null ? fmtInt(rgpVal) : "—", color: C.indigo, real: true,
-              onClick: () => openStack({
-                title: "Pending RGP",
-                columns: ["Challan No", "Vendor", "Item", "Balance Qty", "Pend Days", "Target Dt"],
-                rows: rgpRows.map((r) => ({
-                  cells: [r.challan_no || "—", r.ven_name || r.ven_cd || "—", r.item_desc || r.item_cd || "—",
-                    fmtInt(r.balance_qty), r.pend_days ?? "—", r.target_dt || "—"],
-                })),
-              }) },
-          ];
-        }
-        // Today's supplier delivery windows (Child Parts only) + the window-wise
-        // supplier-performance breakdown built from the same statuses.
-        if (Array.isArray(win)) {
-          next.windows = win.map((w) => ({
-            supplier: w.supplier_name,
-            start: (w.window_start || "").slice(0, 5),
-            end: (w.window_end || "").slice(0, 5),
-            arrival: w.actual_arrival ? w.actual_arrival.slice(11, 16) : null,
-            status: w.status,
-          }));
-          const cc = {};
-          next.windows.forEach((w) => { cc[w.status] = (cc[w.status] || 0) + 1; });
-          const order = [["On-Time", C.green], ["Pending Arrival", C.amber], ["Late", C.red], ["Not Arrived", "#64748b"]];
-          next.supplierPerf = order.filter(([s]) => cc[s]).map(([name, color]) => ({ name, value: cc[name], color }));
-        }
-        return next;
-      });
-      setLastUpdated(new Date());
-    };
-    load();
-    const id = setInterval(load, REFRESH_MS);
-    return () => { alive = false; clearInterval(id); };
-  }, []);
+  const P = data;
+  const rows = P.list || [];
+  const dist = useMemo(() => Object.fromEntries((P.ana?.status_distribution || []).map((s) => [s.name, s.value])), [P.ana]);
+  const healthy = dist["Healthy"] || 0;
+  const short = (dist["Below Minimum"] || 0) + (dist["Zero Stock"] || 0);
+  const excess = dist["Above Maximum"] || 0;
+  const counted = healthy + short + excess || 1;
+  const total = P.sum?.total_parts ?? rows.length;
 
-  const clock = useMemo(() => {
-    const date = now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-    const time = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-    return `${date} | ${time}`;
-  }, [now]);
+  const cats = useMemo(() => {
+    const by = {};
+    rows.forEach((r) => { const c = r.sub_category || "Others"; by[c] = (by[c] || 0) + 1; });
+    const arr = Object.entries(by).sort((a, b) => b[1] - a[1]);
+    const top = arr.slice(0, 5).map(([name, value], i) => ({ name, value, color: PIE[i % PIE.length] }));
+    const rest = arr.slice(5).reduce((s, [, v]) => s + v, 0);
+    if (rest > 0) top.push({ name: "Others", value: rest, color: "#94a3b8" });
+    return top;
+  }, [rows]);
+
+  const monthlyData = useMemo(
+    () => (P.monthly || []).slice(-6).map((m) => ({ name: monthLabel(m.period), qty: Math.round(m.qty || 0) })),
+    [P.monthly],
+  );
+
+  const deptData = useMemo(() => {
+    const all = P.dept || [];
+    // Denominator is the WHOLE month's issuance, not just the top-5 subtotal, so
+    // each department's % is its real share of consumption.
+    const totAll = all.reduce((s, d) => s + (d.value || 0), 0) || 1;
+    return all.slice().sort((a, b) => b.value - a.value).slice(0, 5)
+      .map((d, i) => ({ name: d.name, value: Math.round(d.value || 0), pct: ((d.value || 0) / totAll) * 100, color: PIE[i % PIE.length] }));
+  }, [P.dept]);
+
+  const topShort = useMemo(
+    () => rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock")
+      .sort((a, b) => ((b.min_stock_level || 0) - (b.qty_on_hand || 0)) - ((a.min_stock_level || 0) - (a.qty_on_hand || 0)))
+      .slice(0, 5),
+    [rows],
+  );
+
+  // ERP current stock (store-wide) + its match against the store's physical count.
+  const erpRows = P.erpGap || [];
+  const erpTotal = erpRows.reduce((s, r) => s + (r.erp_qty || 0), 0);
+  const physTotal = erpRows.reduce((s, r) => s + (r.physical_qty || 0), 0);
+  const erpGapCount = (P.erpSum?.short || 0) + (P.erpSum?.excess || 0);
+  const erpSyncedAt = erpRows.find((r) => r.erp_synced_at)?.erp_synced_at;
+
+  const activeSection = sections.find((s) => s.id === sectionId);
+  const activeName = activeSection?.name || sections[0]?.name || "—";
+
+  // Live Alerts — derived from the board's own real spare figures (there is no
+  // spare notification feed yet), so the panel always shows what needs eyes.
+  const pendingCount = (P.pending || []).length;
+  const outOfStock = dist["Zero Stock"] || 0;
+  const belowMin = dist["Below Minimum"] || 0;
+  const liveAlerts = [];
+  if (outOfStock) liveAlerts.push({ color: C.red, text: `${outOfStock} part${outOfStock > 1 ? "s" : ""} OUT OF STOCK`,
+    onClick: () => openStack({ kind: "partList", title: "Out of Stock", rows: rows.filter((r) => r.status === "Out of Stock"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand }) });
+  if (belowMin) liveAlerts.push({ color: C.red, text: `${belowMin} part${belowMin > 1 ? "s" : ""} below minimum`,
+    onClick: () => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)) }) });
+  if (excess) liveAlerts.push({ color: C.amber, text: `${excess} part${excess > 1 ? "s" : ""} above maximum (excess)`,
+    onClick: () => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess by", valueOf: (r) => Math.max(0, (r.qty_on_hand || 0) - (r.max_stock_level || 0)) }) });
+  if (pendingCount) liveAlerts.push({ color: C.purple, text: `${pendingCount} issue${pendingCount > 1 ? "s" : ""} awaiting user confirmation` });
+  if (erpGapCount) liveAlerts.push({ color: C.cyan, text: `${erpGapCount} part${erpGapCount > 1 ? "s" : ""} differ from ERP`, onClick: () => openErpGap() });
+  const cycle = (dir) => {
+    setSectionId((cur) => {
+      const i = Math.max(0, sectionOpts.findIndex((o) => o === cur));
+      return sectionOpts[(i + dir + sectionOpts.length) % sectionOpts.length];
+    });
+  };
+
+  // In-board drill: Explore Data opens a full-screen view WITHIN the board
+  // (it never leaves the dashboard) — a parts list with a chart, and each part
+  // drills into its own stock-history charts + movement ledger.
+  const openStack = (frame) => setStack([frame]);
+  const pushFrame = (frame) => setStack((s) => [...s, frame]);
+  const popTo = (i) => setStack((s) => s.slice(0, i + 1));
+  const openHistory = async (part) => {
+    const h = await spareStockService.history(part.part_id, 100).then((r) => r.data.data).catch(() => []);
+    pushFrame({ kind: "partHistory", title: part.part_no, part, history: Array.isArray(h) ? h : [] });
+  };
+  // A transaction feed drill (for Today's Issue / Pending ERP) — off the ledger.
+  const openTxns = async (title, opts = {}) => {
+    const a = await spareStockService.activity("MAINTENANCE", 60).then((r) => r.data.data).catch(() => []);
+    let list = Array.isArray(a) ? a : [];
+    if (opts.filter) list = list.filter(opts.filter);
+    openStack({ kind: "txnList", title, rows: list, note: opts.note, deptData: opts.deptData });
+  };
+  const openErpGap = () => openStack({ kind: "erpGap", title: "Current Stock — ERP vs Physical", rows: erpRows, summary: P.erpSum });
+
+  const clock = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const dayNum = now.toLocaleDateString("en-GB", { day: "2-digit" });
+  const monthShort = now.toLocaleDateString("en-GB", { month: "short" }).toUpperCase();
+  const weekday = now.toLocaleDateString("en-GB", { weekday: "short" });
+  const yearNum = now.getFullYear();
+  const autoDay = now.getHours() >= 8 && now.getHours() < 20;
+  const isDay = shiftOverride == null ? autoDay : shiftOverride;
+  // Whole-board theme, flipped by the day/night button. Every surface/text below
+  // reads these CSS variables, so one switch re-themes the entire dashboard.
+  const themeVars = isDay
+    ? { "--dx-bg": "#eef2f7", "--dx-card": "#ffffff", "--dx-border": "rgba(226,232,240,0.85)", "--dx-t1": "#0f172a", "--dx-t2": "#334155", "--dx-t3": "#64748b", "--dx-t4": "#94a3b8", "--dx-track": "#f1f5f9", "--dx-divide": "#eef2f7", "--dx-gauge": "#e5e7eb" }
+    : { "--dx-bg": "#0a1424", "--dx-card": "#111c30", "--dx-border": "rgba(148,163,184,0.16)", "--dx-t1": "#f1f5f9", "--dx-t2": "#cbd5e1", "--dx-t3": "#94a3b8", "--dx-t4": "#7c8aa0", "--dx-track": "#1b2740", "--dx-divide": "rgba(148,163,184,0.12)", "--dx-gauge": "#334155" };
+  // recharts axis/grid become SVG attributes and can't read CSS vars, so keep JS
+  // twins of the theme for chart ticks and gridlines (readable in both modes).
+  const axisColor = isDay ? "#64748b" : "#94a3b8";
+  const gridColor = isDay ? "#e2e8f0" : "rgba(148,163,184,0.18)";
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col p-[1vh] gap-[1vh]"
-      style={{ background: P.bg, color: P.text }}>
+    <div className="min-h-screen w-full flex flex-col gap-[1.4vh] p-[1.4vh] bg-[var(--dx-bg)] text-[var(--dx-t2)] transition-colors duration-300" style={themeVars}>
 
-      <header className="shrink-0 flex items-center justify-between gap-[1.5vh]" style={{ height: "7vh" }}>
-        <div className="flex items-center gap-[1.2vh] min-w-0">
-          <IconBtn onClick={goBack} title="Back to app" p={P}><ArrowLeft style={{ width: "2.2vh", height: "2.2vh" }} /></IconBtn>
-          <div className="flex items-center gap-[1vh] min-w-0">
-            <Layers style={{ width: "2.8vh", height: "2.8vh", color: C.blue }} />
-            <div className="min-w-0">
-              <h1 className="text-[3.1vh] font-extrabold leading-tight" style={{ color: P.heading }}>Part Store — Live Dashboard</h1>
-              <p className="text-[1.7vh]" style={{ color: P.muted }}>{childActive ? "Spare Parts & Child Parts" : "Spare Parts"} · real-time</p>
+      {/* ---------- header ---------- */}
+      <div className="rounded-2xl px-[2vh] py-[1.4vh] flex items-center gap-[2vh] text-white"
+        style={{ background: "linear-gradient(120deg,#0a2a4f 0%,#0d3a6b 55%,#0a2a4f 100%)" }}>
+        <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-[5.4vh] w-auto bg-white/95 rounded-lg p-[0.5vh] shrink-0" draggable={false} />
+        <div className="hidden xl:block leading-tight shrink-0">
+          <div className="text-[1.6vh] font-bold">Toyota Boshoku</div>
+          <div className="text-[1.2vh] text-white/60">Device India Pvt. Ltd.</div>
+        </div>
+
+        <div className="flex-1 text-center min-w-0">
+          <div className="text-[3.4vh] font-extrabold leading-none">Spare Parts Store</div>
+          <div className="text-[1.5vh] font-semibold tracking-[0.4em] text-white/70 mt-[0.3vh]">LIVE DASHBOARD</div>
+          {sections.length > 0 && (
+            <div className="mt-[0.9vh] flex items-center justify-center gap-[1.2vh]">
+              <button onClick={() => cycle(-1)} title="Previous section" className="text-white/50 hover:text-white text-[2.6vh] leading-none">‹</button>
+              <div className="flex items-center gap-[0.7vh]">
+                <span key={String(sectionId)} className="animate-rise text-[2.3vh] font-extrabold text-white tracking-wide uppercase">{activeName}</span>
+                {activeSection?.dummy && <span className="text-[1vh] font-bold px-[0.6vh] py-[0.1vh] rounded bg-amber-300 text-amber-900">dummy</span>}
+              </div>
+              <button onClick={() => cycle(1)} title="Next section" className="text-white/50 hover:text-white text-[2.6vh] leading-none">›</button>
+            </div>
+          )}
+        </div>
+
+        {/* modern date · clock · shift toggle */}
+        <div className="shrink-0 flex items-center gap-[1.5vh] rounded-2xl px-[1.6vh] py-[1.1vh]"
+          style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)" }}>
+          <div className="flex items-center gap-[1vh]">
+            <div className="w-[5vh] h-[5vh] rounded-xl bg-white flex flex-col items-center justify-center leading-none shrink-0 shadow-md">
+              <span className="text-[1vh] font-extrabold text-rose-500 uppercase tracking-widest">{monthShort}</span>
+              <span className="text-[2.4vh] font-extrabold text-[#0f172a]">{dayNum}</span>
+            </div>
+            <div className="text-left leading-tight">
+              <div className="text-[1.55vh] font-bold text-white">{weekday}</div>
+              <div className="text-[1.15vh] text-white/50">{yearNum}</div>
+            </div>
+          </div>
+          <div className="w-px h-[4.6vh] bg-white/15" />
+          <div className="text-center leading-tight">
+            <div className="text-[3.3vh] font-extrabold tabular-nums leading-none">{clock}</div>
+            <button onClick={() => setShiftOverride(!isDay)}
+              title={isDay ? "Day shift — click to switch to night" : "Night shift — click to switch to day"}
+              className="mt-[0.7vh] inline-flex items-center justify-center rounded-full w-[3.6vh] h-[3.6vh] text-white shadow-md transition hover:brightness-110 active:scale-90"
+              style={{ background: isDay ? "#10b981" : "#6366f1" }}>
+              {isDay ? <Sun size={19} /> : <Moon size={19} />}
+            </button>
+          </div>
+        </div>
+
+        <div className="shrink-0">
+          <button onClick={toggleFs} title={isFs ? "Exit fullscreen" : "Fullscreen"} className="text-white/60 hover:text-white">{isFs ? <Minimize size={16} /> : <Maximize size={16} />}</button>
+        </div>
+      </div>
+
+      {/* ---------- live alert ticker (below the heading) ---------- */}
+      {liveAlerts.length > 0 && (
+        <div className="shrink-0 flex items-center gap-[1.2vh] overflow-hidden rounded-xl px-[1.2vh] py-[0.8vh] text-white"
+          style={{ background: "linear-gradient(90deg,#0a2a4f,#0d3a6b)" }}>
+          <span className="shrink-0 flex items-center gap-[0.6vh] rounded-md px-[1.1vh] py-[0.35vh] text-[1.35vh] font-extrabold tracking-wide" style={{ background: "#dc2626" }}>
+            <span className="h-[1vh] w-[1vh] rounded-full bg-white animate-pulse" /> LIVE ALERTS
+          </span>
+          <div className="relative flex-1 overflow-hidden">
+            <div className="ticker-track-x flex w-max items-center gap-[3.5vh] whitespace-nowrap"
+              style={{ "--ticker-duration": `${Math.max(20, liveAlerts.length * 9)}s` }}>
+              {[...liveAlerts, ...liveAlerts].map((a, i) => (
+                <span key={i} className="flex items-center gap-[0.8vh] text-[1.55vh] font-semibold">
+                  <span className="h-[1.1vh] w-[1.1vh] shrink-0 rounded-full" style={{ background: a.color, boxShadow: `0 0 0.7vh ${a.color}` }} />
+                  {a.text}
+                </span>
+              ))}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-[0.9vh]">
-          <div className="hidden lg:flex flex-col items-end leading-tight">
-            <span className="text-[1.5vh]" style={{ color: P.muted }}>Last Updated: {lastUpdated ? lastUpdated.toLocaleTimeString("en-GB") : "—:—:—"}</span>
-            <span className="text-[1.35vh]" style={{ color: P.dim }}>Auto-refresh · 30 sec</span>
-          </div>
-          <div className="hidden md:flex items-center rounded-[0.7vh] border px-[1.2vh] py-[0.9vh]" style={{ background: P.panel, borderColor: P.border }}>
-            <span className="text-[1.9vh] tabular-nums" style={{ color: P.text }}>{clock}</span>
-          </div>
-          <IconBtn onClick={() => openStack({ title: "Alerts", columns: ["Alert", "Parts"], rows: [
-            ...(spare.status.short ? [{ cells: [childActive ? "Spare — short parts" : "Short parts", fmtInt(spare.status.short)], open: spare.health ? () => spare.health.short : undefined }] : []),
-            ...(spare.status.excess ? [{ cells: [childActive ? "Spare — excess parts" : "Excess parts", fmtInt(spare.status.excess)], open: spare.health ? () => spare.health.excess : undefined }] : []),
-            ...(childActive && child.status.short ? [{ cells: ["Child — short parts", fmtInt(child.status.short)], open: child.health ? () => child.health.short : undefined }] : []),
-            ...(childActive && child.status.excess ? [{ cells: ["Child — excess parts", fmtInt(child.status.excess)], open: child.health ? () => child.health.excess : undefined }] : []),
-          ] })} title="Alerts" p={P} badge={
-            (spare.status.short > 0 ? 1 : 0) + (spare.status.excess > 0 ? 1 : 0)
-            + (childActive ? (child.status.short > 0 ? 1 : 0) + (child.status.excess > 0 ? 1 : 0) : 0)
-          }>
-            <Bell style={{ width: "2.2vh", height: "2.2vh" }} />
-          </IconBtn>
-          <IconBtn onClick={() => setDark((d) => !d)} title={dark ? "Switch to light" : "Switch to dark"} p={P}>
-            {dark ? <Sun style={{ width: "2.2vh", height: "2.2vh" }} /> : <Moon style={{ width: "2.2vh", height: "2.2vh" }} />}
-          </IconBtn>
-          <IconBtn onClick={toggleFullscreen} title={isFs ? "Exit fullscreen" : "Fullscreen"} p={P}>
-            {isFs ? <Minimize style={{ width: "2.2vh", height: "2.2vh" }} /> : <Maximize style={{ width: "2.2vh", height: "2.2vh" }} />}
-          </IconBtn>
-        </div>
-      </header>
-
-      <StoreStrip vm={spare} p={P} animate={animate} onOpen={openStack} onSearch={searchSpare} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
-      {childActive && (
-        <>
-          <div className="shrink-0 border-t" style={{ borderColor: P.border }} />
-          <StoreStrip vm={child} p={P} animate={animate} onOpen={openStack} onSearch={searchChild} onSupplierPerf={openMonthlyPerf} onDateView={openDateView} />
-        </>
       )}
 
-      {/* Nested drill as a FULL-SCREEN view — same theme as the board, a
-          breadcrumb to walk back up, and clickable rows that go a level deeper. */}
-      {stack.length > 0 && (
-        <div className="fixed inset-0 z-50 flex flex-col p-[1.2vh] gap-[1.2vh]" style={{ background: P.bg, color: P.text }}>
-          <header className="shrink-0 flex items-center justify-between gap-[1.5vh]" style={{ height: "7vh" }}>
-            <div className="flex items-center gap-[1.2vh] min-w-0">
-              <IconBtn onClick={() => setStack((s) => (s.length > 1 ? s.slice(0, -1) : []))} title="Back" p={P}>
-                <ArrowLeft style={{ width: "2.2vh", height: "2.2vh" }} />
-              </IconBtn>
-              <div className="flex items-center gap-[0.8vh] flex-wrap text-[2.2vh] min-w-0">
-                {stack.map((f, i) => (
-                  <React.Fragment key={i}>
-                    {i > 0 && <span style={{ color: P.dim }}>›</span>}
-                    <button type="button" onClick={() => popTo(i)} className="truncate max-w-[40vw]"
-                      style={{ color: i === stack.length - 1 ? P.heading : P.muted, fontWeight: i === stack.length - 1 ? 800 : 500 }}>
-                      {f.title}
-                    </button>
-                  </React.Fragment>
-                ))}
+      {/* ---------- KPI cards ---------- */}
+      <div className="grid grid-cols-3 gap-[1.4vh]">
+        <Kpi icon={Box} title="Total Parts" value={fmtInt(total)} trend={P.today?.received_lines ? `+${P.today.received_lines}` : null}
+          sub="Active parts in store" color={C.blue}
+          onClick={() => openStack({ kind: "partList", title: "All Parts", rows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand, chart: "byType" })} />
+        <Kpi icon={Database} title="Stock Value" value={fmtMoney(P.sum?.stock_value)} sub="As per ERP (Live)" color={C.green}
+          onClick={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney })} />
+        <Kpi icon={AlertTriangle} title="Short Parts" value={fmtInt(short)} sub="Below minimum stock" color={C.red}
+          onClick={() => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)) })} />
+        <Kpi icon={Boxes} title="Excess Parts" value={fmtInt(excess)} sub="Above maximum stock" color={C.amber}
+          onClick={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess by", valueOf: (r) => Math.max(0, (r.qty_on_hand || 0) - (r.max_stock_level || 0)) })} />
+        <Kpi icon={ClipboardList} title="Pending ERP" value={fmtInt(P.erpPend?.pending ?? 0)} sub="Movements pending in ERP" color={C.purple}
+          onClick={() => openTxns("Pending ERP", { note: `${fmtInt(P.erpPend?.pending ?? 0)} stock movement(s) queued to push to ERP — every move waits here while the ERP write is off. Tap a row for that part's history.` })} />
+        <Kpi icon={ShoppingCart} title="Today's Issue" value={fmtInt(P.today?.issued_qty)} trend={P.today?.issued_lines ? `${P.today.issued_lines} lines` : null}
+          sub="Parts issued this shift" color={C.blue}
+          onClick={() => openTxns("Today's Issue", { filter: (r) => r.txn_type === "ISSUE", deptData })} />
+      </div>
+
+      {/* ---------- charts ---------- */}
+      <div className="grid grid-cols-2 gap-[1.4vh]">
+        <Card className="p-[1.6vh]">
+          <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
+          <div className="flex items-center gap-[1vh]">
+            <div className="w-[24vh] h-[24vh] relative shrink-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={cats.length ? cats : [{ name: "—", value: 1, color: "#e2e8f0" }]} dataKey="value" nameKey="name"
+                    innerRadius="62%" outerRadius="92%" paddingAngle={2} stroke="none">
+                    {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={c.color} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-[3vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtInt(total)}</span>
+                <span className="text-[1.3vh] text-[var(--dx-t4)]">Total Parts</span>
               </div>
             </div>
-            <div className="flex items-center gap-[0.8vh] shrink-0">
-              {stack[stack.length - 1].downloads?.map((d) => (
-                <a key={d.label} href={d.href} download
-                  className="rounded-[0.7vh] border px-[1.4vh] py-[0.9vh] text-[1.6vh] font-semibold hover:brightness-110 transition-[filter]"
-                  style={{ background: P.panel, borderColor: P.border, color: P.text }}>⬇ {d.label}</a>
+            <div className="flex-1 space-y-[0.9vh]">
+              {(cats.length ? cats : []).map((c) => (
+                <div key={c.name} className="flex items-center gap-[1vh] text-[1.5vh]">
+                  <span className="w-[1.4vh] h-[1.4vh] rounded-sm" style={{ background: c.color }} />
+                  <span className="flex-1 text-[var(--dx-t2)] truncate">{c.name}</span>
+                  <span className="font-bold text-[var(--dx-t1)]">{fmtInt(c.value)}</span>
+                  <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (total || 1)) * 100)}%</span>
+                </div>
               ))}
-              <IconBtn onClick={() => setStack([])} title="Close" p={P}><X style={{ width: "2.2vh", height: "2.2vh" }} /></IconBtn>
+              {!cats.length && <div className="text-[1.5vh] text-[var(--dx-t4)]">No parts in this section</div>}
             </div>
-          </header>
-          <div className="flex-1 min-h-0 overflow-auto rounded-[0.8vh] border" style={{ background: P.panel, borderColor: P.border }}>
-            {stack[stack.length - 1].custom ? (
-              typeof stack[stack.length - 1].custom === "function"
-                ? stack[stack.length - 1].custom(pushFrame)
-                : stack[stack.length - 1].custom
-            ) : stack[stack.length - 1].cards ? (
-              <CardListView frame={stack[stack.length - 1]} P={P}
-                onOpen={async (openFn) => { const f = await openFn(); if (f) pushFrame(f); }} />
+          </div>
+        </Card>
+
+        <Card className="p-[1.6vh]">
+          <PanelHead icon={FileBarChart} color={C.green} title="Monthly Consumption / Issue" />
+          <div className="h-[24vh]">
+            {monthlyData.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={monthlyData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+                  <XAxis dataKey="name" tick={{ fontSize: 13, fill: axisColor }} axisLine={{ stroke: gridColor }} tickLine={false} />
+                  <YAxis tick={{ fontSize: 13, fill: axisColor }} axisLine={false} tickLine={false} width={40} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="qty" name="Issued Qty" fill={C.blue} radius={[4, 4, 0, 0]} barSize={26} />
+                  <Line type="monotone" dataKey="qty" name="Trend" stroke={C.green} strokeWidth={2.5} dot={{ r: 3, fill: C.green }} />
+                </ComposedChart>
+              </ResponsiveContainer>
             ) : (
-            <TableDrill frame={stack[stack.length - 1]} P={P}
-              onOpen={async (openFn) => { const f = await openFn(); if (f) pushFrame(f); }} />
+              <div className="h-full flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No consumption data yet</div>
             )}
+          </div>
+        </Card>
+      </div>
+
+      {/* ---------- health + dept ---------- */}
+      <div className="grid grid-cols-2 gap-[1.4vh]">
+        <Card className="p-[1.6vh]">
+          <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
+          <div className="flex items-center justify-around pt-[1vh]">
+            <Gauge pct={(healthy / counted) * 100} color={C.green} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
+            <Gauge pct={(excess / counted) * 100} color={C.amber} label="Excess" sub={`${fmtInt(excess)} Parts`} />
+            <Gauge pct={(short / counted) * 100} color={C.red} label="Short" sub={`${fmtInt(short)} Parts`} />
+          </div>
+        </Card>
+
+        <Card className="p-[1.6vh]">
+          <PanelHead icon={FileBarChart} color={C.purple} title="Department-wise Issue (This Month)" />
+          <div className="space-y-[1.1vh] pt-[0.6vh]">
+            {deptData.length ? deptData.map((d) => <DeptBar key={d.name} {...d} />)
+              : <div className="text-[1.5vh] text-[var(--dx-t4)] py-[3vh] text-center">No issues this month</div>}
+          </div>
+        </Card>
+      </div>
+
+      {/* ---------- ERP current stock ---------- */}
+      <Card className="p-[1.6vh]">
+        <PanelHead icon={Database} color={C.cyan} title="Current Stock — ERP vs Physical" action="View Details" onAction={openErpGap} />
+        <div className="grid grid-cols-4 gap-[1.4vh]">
+          {[
+            { label: "ERP Stock", value: fmtInt(Math.round(erpTotal)), sub: "units · from ERP", color: C.cyan },
+            { label: "Physical Stock", value: fmtInt(Math.round(physTotal)), sub: "units · store count", color: C.blue },
+            { label: "Match Accuracy", value: P.erpSum?.accuracy_pct != null ? `${P.erpSum.accuracy_pct}%` : "—", sub: "ERP = physical", color: C.green },
+            { label: "With Gap", value: fmtInt(erpGapCount), sub: "short / excess vs ERP", color: C.amber },
+          ].map((s) => (
+            <div key={s.label} className="rounded-xl p-[1.3vh]" style={{ background: "var(--dx-track)" }}>
+              <div className="text-[1.3vh] text-[var(--dx-t3)]">{s.label}</div>
+              <div className="mt-[0.4vh] text-[2.7vh] font-extrabold leading-none" style={{ color: s.color }}>{s.value}</div>
+              <div className="mt-[0.3vh] text-[1.15vh] text-[var(--dx-t4)]">{s.sub}</div>
+            </div>
+          ))}
+        </div>
+        {erpSyncedAt && (
+          <div className="mt-[1vh] text-[1.25vh] text-[var(--dx-t4)]">
+            ERP snapshot: {new Date(erpSyncedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} · updates live once ERP starts pushing spare stock
+          </div>
+        )}
+      </Card>
+
+      {/* ---------- top short parts ---------- */}
+      <Card className="p-[1.6vh]">
+        <PanelHead icon={AlertTriangle} color={C.red} title="Top Short Parts (Below Minimum)" />
+        <table className="w-full text-[1.45vh]">
+          <thead>
+            <tr className="text-left text-[1.25vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
+              <th className="py-[0.8vh] pr-[1vh]">#</th><th className="pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
+              <th className="pr-[1vh] text-center">Stock</th><th className="pr-[1vh] text-center">Min</th>
+              <th className="pr-[1vh] text-center">Short By</th><th className="pr-[1vh]">Location</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--dx-divide)]">
+            {topShort.length ? topShort.map((r, i) => (
+              <tr key={r.part_id}>
+                <td className="py-[0.9vh] pr-[1vh] text-[var(--dx-t4)]">{i + 1}</td>
+                <td className="pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
+                <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[26vh]">{r.part_name}</td>
+                <td className="pr-[1vh] text-center font-bold text-rose-600">{fmtInt(r.qty_on_hand)}</td>
+                <td className="pr-[1vh] text-center text-[var(--dx-t3)]">{fmtInt(r.min_stock_level)}</td>
+                <td className="pr-[1vh] text-center">
+                  <span className="inline-block rounded-full bg-rose-50 text-rose-600 font-bold px-[1.2vh] py-[0.3vh]">
+                    {fmtInt(Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)))}
+                  </span>
+                </td>
+                <td className="pr-[1vh] text-[var(--dx-t3)]">{r.location || "—"}</td>
+              </tr>
+            )) : (
+              <tr><td colSpan={7} className="py-[3vh] text-center text-[1.5vh] text-emerald-600 font-semibold">✓ No parts below minimum</td></tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+
+      {/* ---------- recent transactions (Live Alerts now runs in the top ticker) ---------- */}
+      <Card className="p-[1.6vh]">
+        <PanelHead icon={PackagePlus} color={C.green} title="Recent Transactions" />
+        <table className="w-full text-[1.4vh]">
+          <thead>
+            <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
+              <th className="py-[0.7vh] pr-[1vh]">Time</th><th className="pr-[1vh]">Type</th><th className="pr-[1vh]">Part No.</th>
+              <th className="pr-[1vh] text-center">Qty</th><th className="pr-[1vh]">Dept.</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--dx-divide)]">
+            {(P.activity || []).slice(0, 6).map((r, i) => {
+              const issue = r.txn_type === "ISSUE";
+              return (
+                <tr key={i}>
+                  <td className="py-[0.8vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{timeOf(r.at || r.created_at)}</td>
+                  <td className="pr-[1vh]">
+                    <span className={`rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold ${issue ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"}`}>{r.txn_type}</span>
+                  </td>
+                  <td className="pr-[1vh] font-semibold text-[var(--dx-t1)]">{r.part_no}</td>
+                  <td className="pr-[1vh] text-center font-bold">{fmtInt(Math.abs(r.qty_delta ?? r.qty ?? 0))}</td>
+                  <td className="pr-[1vh] text-[var(--dx-t3)] truncate max-w-[14vh]">{r.department || "—"}</td>
+                </tr>
+              );
+            })}
+            {!(P.activity || []).length && <tr><td colSpan={5} className="py-[2.5vh] text-center text-[var(--dx-t4)] text-[1.5vh]">No recent activity</td></tr>}
+          </tbody>
+        </table>
+      </Card>
+
+      {/* ---------- footer ---------- */}
+      <div className="rounded-2xl px-[2vh] py-[1.2vh] flex items-center justify-between text-white text-[1.35vh]"
+        style={{ background: "linear-gradient(120deg,#0a2a4f,#0d3a6b)" }}>
+        <div><span className="font-extrabold text-[1.7vh]">DX Store</span><span className="text-white/60 ml-[1vh]">Digitize · Simplify · Improve</span></div>
+        <div className="italic text-white/80 font-semibold">"Right Parts | Right Time | For Smooth Production"</div>
+        <div className="text-white/60">Toyota Boshoku Device India Pvt. Ltd.</div>
+      </div>
+
+      {/* ---------- Explore-Data drill (opens WITHIN the board) ---------- */}
+      {stack.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-[var(--dx-bg)] text-[var(--dx-t2)] flex flex-col p-[1.6vh] gap-[1.4vh] overflow-auto" style={themeVars}>
+          <div className="rounded-2xl px-[2vh] py-[1.3vh] flex items-center gap-[1.5vh] text-white shrink-0"
+            style={{ background: "linear-gradient(120deg,#0a2a4f,#0d3a6b)" }}>
+            <button onClick={() => setStack((s) => s.slice(0, -1))} title="Back"
+              className="w-[4.4vh] h-[4.4vh] rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center"><ArrowLeft size={22} /></button>
+            <div className="flex-1 flex items-center gap-[1vh] text-[2.1vh] font-bold min-w-0 flex-wrap">
+              {stack.map((f, i) => (
+                <React.Fragment key={i}>
+                  {i > 0 && <span className="text-white/40">›</span>}
+                  <button onClick={() => popTo(i)} className={i === stack.length - 1 ? "text-white" : "text-white/60"}>{f.title}</button>
+                </React.Fragment>
+              ))}
+            </div>
+            <button onClick={() => setStack([])} title="Close"
+              className="w-[4.4vh] h-[4.4vh] rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-[2.4vh] leading-none">✕</button>
+          </div>
+          <div className="flex-1 min-h-0">
+            {stack[stack.length - 1].kind === "partHistory"
+              ? <PartHistoryView frame={stack[stack.length - 1]} axis={axisColor} grid={gridColor} />
+              : stack[stack.length - 1].kind === "txnList"
+                ? <TxnListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
+                : stack[stack.length - 1].kind === "erpGap"
+                  ? <ErpGapView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
+                  : <PartListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />}
           </div>
         </div>
       )}
     </div>
   );
+}
+
+// ---- Explore-Data drill views ---------------------------------------------
+
+function typeStyle(t) {
+  if (t === "ISSUE") return { background: "#fee2e2", color: "#b91c1c" };
+  if (t === "RECEIPT") return { background: "#d1fae5", color: "#047857" };
+  if (t === "RETURN") return { background: "#dbeafe", color: "#1d4ed8" };
+  return { background: "#f1f5f9", color: "#475569" };
+}
+function StatusPill({ status }) {
+  const red = status === "Below Minimum" || status === "Out of Stock";
+  const amber = status === "Above Maximum";
+  const c = red ? { background: "#fee2e2", color: "#b91c1c" }
+    : amber ? { background: "#fef3c7", color: "#b45309" }
+      : { background: "#d1fae5", color: "#047857" };
+  return <span className="rounded-full px-[1vh] py-[0.2vh] text-[1.2vh] font-bold whitespace-nowrap" style={c}>{status || "—"}</span>;
+}
+function Stat({ label, value }) {
+  return (
+    <div className="text-center">
+      <div className="text-[1.2vh] text-[var(--dx-t4)]">{label}</div>
+      <div className="text-[1.9vh] font-bold text-[var(--dx-t1)]">{value}</div>
+    </div>
+  );
+}
+
+function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
+  const rows = frame.rows || [];
+  const valueOf = frame.valueOf || ((r) => r.qty_on_hand || 0);
+  const fmtV = frame.valueFmt || fmtInt;
+  const top = rows.slice().sort((a, b) => (valueOf(b) || 0) - (valueOf(a) || 0)).slice(0, 10)
+    .map((r) => ({ name: r.part_no, value: Math.round(valueOf(r) || 0) }));
+  const byType = (() => {
+    const by = {};
+    rows.forEach((r) => { const c = r.sub_category || "Others"; by[c] = (by[c] || 0) + 1; });
+    return Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, value]) => ({ name, value }));
+  })();
+  const chartData = frame.chart === "byType" ? byType : top;
+  const chartTitle = frame.chart === "byType" ? "Parts by type" : `Top 10 by ${frame.valueLabel || "Stock"}`;
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh] h-full">
+      <Card className="p-[1.6vh] flex flex-col">
+        <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{chartTitle}</h3>
+        <div className="flex-1 min-h-[36vh]">
+          {chartData.length ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart layout="vertical" data={chartData} margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={grid} />
+                <XAxis type="number" tick={{ fontSize: 12, fill: axis }} />
+                <YAxis type="category" dataKey="name" width={92} tick={{ fontSize: 12, fill: axis }} />
+                <Tooltip />
+                <Bar dataKey="value" fill="#2563eb" radius={[0, 4, 4, 0]} barSize={16} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No parts</div>}
+        </div>
+      </Card>
+      <Card className="p-[1.6vh] overflow-auto">
+        <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{rows.length} parts · tap a row for its history</h3>
+        <table className="w-full text-[1.45vh]">
+          <thead>
+            <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
+              <th className="py-[0.7vh] pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
+              <th className="pr-[1vh] text-center">Stock</th><th className="pr-[1vh] text-center">{frame.valueLabel || "Value"}</th>
+              <th className="pr-[1vh]">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--dx-divide)]">
+            {rows.map((r) => (
+              <tr key={r.part_id} onClick={() => onOpen(r)} className="cursor-pointer hover:bg-blue-50/60 transition-colors">
+                <td className="py-[0.9vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
+                <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[24vh]">{r.part_name}</td>
+                <td className="pr-[1vh] text-center">{fmtInt(r.qty_on_hand)}</td>
+                <td className="pr-[1vh] text-center font-semibold text-[var(--dx-t1)]">{fmtV(valueOf(r))}</td>
+                <td className="pr-[1vh]"><StatusPill status={r.status} /></td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan={5} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">No parts in this section</td></tr>}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
+  const part = frame.part || {};
+  const hist = frame.history || [];
+  const chart = hist.slice().reverse().map((h) => ({ d: (h.at || h.created_at || "").slice(5, 10), bal: Number(h.balance_after ?? 0) }));
+  return (
+    <div className="flex flex-col gap-[1.4vh]">
+      <Card className="p-[1.6vh]">
+        <div className="flex items-center gap-[2vh] flex-wrap">
+          <div>
+            <div className="text-[1.3vh] text-[var(--dx-t4)]">Part No.</div>
+            <div className="text-[2.4vh] font-extrabold text-[var(--dx-t1)] leading-none">{part.part_no}</div>
+          </div>
+          <div className="text-[1.7vh] text-[var(--dx-t2)]">{part.part_name}</div>
+          <div className="ml-auto flex items-center gap-[2.2vh]">
+            <Stat label="In Stock" value={fmtInt(part.qty_on_hand)} />
+            <Stat label="Min" value={fmtInt(part.min_stock_level)} />
+            <Stat label="Max" value={fmtInt(part.max_stock_level)} />
+            <Stat label="Value" value={fmtMoney(part.stock_value)} />
+            <Stat label="Location" value={part.location || "—"} />
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-[1.6vh]">
+        <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Stock Level History</h3>
+        <div className="h-[32vh]">
+          {chart.length ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chart} margin={{ top: 8, right: 14, left: -12, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
+                <XAxis dataKey="d" tick={{ fontSize: 12, fill: axis }} />
+                <YAxis tick={{ fontSize: 12, fill: axis }} width={42} />
+                <Tooltip />
+                <Line type="monotone" dataKey="bal" name="Balance" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 2, fill: "#2563eb" }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No movement history yet</div>}
+        </div>
+      </Card>
+
+      <Card className="p-[1.6vh] overflow-auto">
+        <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Movements ({hist.length})</h3>
+        <table className="w-full text-[1.4vh]">
+          <thead>
+            <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
+              <th className="py-[0.7vh] pr-[1vh]">Date</th><th className="pr-[1vh]">Type</th>
+              <th className="pr-[1vh] text-center">Qty</th><th className="pr-[1vh] text-center">Balance</th>
+              <th className="pr-[1vh]">Dept</th><th className="pr-[1vh]">Machine</th><th className="pr-[1vh]">By</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--dx-divide)]">
+            {hist.map((h, i) => (
+              <tr key={i}>
+                <td className="py-[0.7vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{(h.at || h.created_at || "").slice(0, 10)}</td>
+                <td className="pr-[1vh]"><span className="rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold" style={typeStyle(h.txn_type)}>{h.txn_type}</span></td>
+                <td className="pr-[1vh] text-center font-semibold">{fmtInt(h.qty_delta)}</td>
+                <td className="pr-[1vh] text-center">{fmtInt(h.balance_after)}</td>
+                <td className="pr-[1vh] text-[var(--dx-t3)]">{h.department || "—"}</td>
+                <td className="pr-[1vh] text-[var(--dx-t3)]">{h.machine || "—"}</td>
+                <td className="pr-[1vh] text-[var(--dx-t3)]">{h.created_by || h.confirmed_by || "—"}</td>
+              </tr>
+            ))}
+            {!hist.length && <tr><td colSpan={7} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">No movements recorded</td></tr>}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+function TxnListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
+  const rows = frame.rows || [];
+  const dept = frame.deptData || [];
+  return (
+    <div className="flex flex-col gap-[1.4vh] h-full">
+      {frame.note && (
+        <Card className="p-[1.5vh] text-[1.55vh] font-medium text-[var(--dx-t2)] border-l-4" style={{ borderLeftColor: "#7c3aed" }}>{frame.note}</Card>
+      )}
+      {dept.length > 0 && (
+        <Card className="p-[1.6vh]">
+          <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Issued qty by department (this month)</h3>
+          <div className="h-[22vh]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dept} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: axis }} />
+                <YAxis tick={{ fontSize: 12, fill: axis }} width={40} />
+                <Tooltip />
+                <Bar dataKey="value" fill="#7c3aed" radius={[4, 4, 0, 0]} barSize={26} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
+      <Card className="p-[1.6vh] overflow-auto flex-1">
+        <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{rows.length} movement(s) · tap a row for that part's history</h3>
+        <table className="w-full text-[1.45vh]">
+          <thead>
+            <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
+              <th className="py-[0.7vh] pr-[1vh]">Date</th><th className="pr-[1vh]">Type</th><th className="pr-[1vh]">Part No.</th>
+              <th className="pr-[1vh]">Description</th><th className="pr-[1vh] text-center">Qty</th><th className="pr-[1vh] text-center">Balance</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--dx-divide)]">
+            {rows.map((r, i) => (
+              <tr key={i} onClick={() => r.part_id && onOpen({ part_id: r.part_id, part_no: r.part_no, part_name: r.part_name })}
+                className="cursor-pointer hover:bg-blue-50/60 transition-colors">
+                <td className="py-[0.8vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{(r.at || "").slice(0, 10)}</td>
+                <td className="pr-[1vh]"><span className="rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold" style={typeStyle(r.txn_type)}>{r.txn_type}</span></td>
+                <td className="pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
+                <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[22vh]">{r.part_name}</td>
+                <td className="pr-[1vh] text-center font-semibold">{fmtInt(r.qty_delta)}</td>
+                <td className="pr-[1vh] text-center">{fmtInt(r.balance_after)}</td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan={6} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">No movements</td></tr>}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
+  const rows = frame.rows || [];
+  const s = frame.summary || {};
+  const top = rows.filter((r) => r.gap_qty != null && r.gap_qty !== 0)
+    .slice(0, 10).map((r) => ({ name: r.part_no, value: Math.round(Math.abs(r.gap_qty)) }));
+  const chips = [
+    { k: "matched", label: "Matched", color: "#059669" },
+    { k: "short", label: "Short vs ERP", color: "#dc2626" },
+    { k: "excess", label: "Excess vs ERP", color: "#d97706" },
+    { k: "no_physical", label: "Not counted", color: "#64748b" },
+    { k: "not_synced", label: "Not in ERP", color: "#64748b" },
+  ];
+  const statusStyle = (st) =>
+    st === "MATCH" ? { background: "#d1fae5", color: "#047857" }
+      : st === "SHORT" ? { background: "#fee2e2", color: "#b91c1c" }
+        : st === "EXCESS" ? { background: "#fef3c7", color: "#b45309" }
+          : { background: "#f1f5f9", color: "#475569" };
+  return (
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh] h-full">
+      <Card className="p-[1.6vh] flex flex-col">
+        <h3 className="mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">Biggest ERP ↔ Physical gaps</h3>
+        <div className="min-h-[30vh] flex-1">
+          {top.length ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart layout="vertical" data={top} margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={grid} />
+                <XAxis type="number" tick={{ fontSize: 12, fill: axis }} />
+                <YAxis type="category" dataKey="name" width={92} tick={{ fontSize: 12, fill: axis }} />
+                <Tooltip />
+                <Bar dataKey="value" fill="#0891b2" radius={[0, 4, 4, 0]} barSize={16} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <div className="flex h-full items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No gaps — ERP matches physical</div>}
+        </div>
+        <div className="mt-[1vh] flex flex-wrap gap-[0.8vh]">
+          {chips.map((ch) => (
+            <span key={ch.k} className="rounded-full px-[1.2vh] py-[0.3vh] text-[1.3vh] font-bold" style={{ background: `${ch.color}1a`, color: ch.color }}>
+              {ch.label}: {fmtInt(s[ch.k] ?? 0)}
+            </span>
+          ))}
+          {s.accuracy_pct != null && (
+            <span className="rounded-full px-[1.2vh] py-[0.3vh] text-[1.3vh] font-bold" style={{ background: "#05966922", color: "#047857" }}>Accuracy: {s.accuracy_pct}%</span>
+          )}
+        </div>
+      </Card>
+      <Card className="p-[1.6vh] overflow-auto">
+        <h3 className="mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">{rows.length} parts · tap a row for its history</h3>
+        <table className="w-full text-[1.45vh]">
+          <thead>
+            <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
+              <th className="py-[0.7vh] pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
+              <th className="pr-[1vh] text-center">ERP</th><th className="pr-[1vh] text-center">Physical</th>
+              <th className="pr-[1vh] text-center">Gap</th><th className="pr-[1vh]">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--dx-divide)]">
+            {rows.map((r) => (
+              <tr key={r.part_id} onClick={() => onOpen({ part_id: r.part_id, part_no: r.part_no, part_name: r.part_name, location: r.location })}
+                className="cursor-pointer transition-colors hover:bg-blue-50/60">
+                <td className="py-[0.9vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
+                <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[22vh]">{r.part_name}</td>
+                <td className="pr-[1vh] text-center">{r.erp_qty == null ? "—" : fmtInt(r.erp_qty)}</td>
+                <td className="pr-[1vh] text-center">{r.physical_qty == null ? "—" : fmtInt(r.physical_qty)}</td>
+                <td className="pr-[1vh] text-center font-semibold" style={{ color: r.gap_qty > 0 ? "#d97706" : r.gap_qty < 0 ? "#dc2626" : "#059669" }}>
+                  {r.gap_qty == null ? "—" : `${r.gap_qty > 0 ? "+" : ""}${fmtInt(r.gap_qty)}`}
+                </td>
+                <td className="pr-[1vh]"><span className="rounded-full px-[1vh] py-[0.2vh] text-[1.2vh] font-bold" style={statusStyle(r.status)}>{r.status}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+// tiny inline icons used in a couple of panel heads (kept local to avoid more imports)
+function PieChartMini(props) {
+  return <svg viewBox="0 0 24 24" width={props.size || 20} height={props.size || 20} fill="none" stroke={props.style?.color || "currentColor"} strokeWidth="2"><path d="M12 2v10l7 3A10 10 0 1 0 12 2z" /><path d="M12 2a10 10 0 0 1 9 6" /></svg>;
+}
+function HeartMini(props) {
+  return <svg viewBox="0 0 24 24" width={props.size || 20} height={props.size || 20} fill="none" stroke={props.style?.color || "currentColor"} strokeWidth="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>;
 }
