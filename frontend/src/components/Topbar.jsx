@@ -206,7 +206,7 @@ export default function Topbar({ onMenuClick, title, showMenu = false }) {
   };
 
   return (
-    <header className="h-16 bg-white dark:bg-navy-900 border-b border-slate-200 dark:border-navy-800 flex items-center gap-4 px-4 lg:px-6 sticky top-0 z-20">
+    <header className="h-16 bg-gradient-to-b from-white/95 to-white/85 dark:from-navy-900/95 dark:to-navy-900/75 backdrop-blur-sm border-b border-slate-200/80 dark:border-navy-800 shadow-[0_6px_18px_rgba(15,31,56,0.05)] dark:shadow-[0_6px_18px_rgba(0,0,0,0.35)] flex items-center gap-4 px-4 lg:px-6 sticky top-0 z-20">
       <div className="flex items-center gap-3 shrink-0 min-w-0">
         {/* Always on small screens (the drawer's only handle); on desktop only
             once the rail is hidden, so it isn't a button that does nothing. */}
@@ -221,7 +221,7 @@ export default function Topbar({ onMenuClick, title, showMenu = false }) {
             looking at and whose plant it is, which is what makes a screenshot
             of it stand on its own in a meeting. */}
         <div className="min-w-0">
-          <h1 className="text-lg font-bold text-slate-800 dark:text-white leading-tight truncate">{title}</h1>
+          <h1 className="dx-radiant text-lg font-bold text-slate-800 dark:text-white leading-tight truncate">{title}</h1>
           <p className="text-[11px] text-slate-400 leading-tight truncate">Toyota Boshoku Device India</p>
         </div>
       </div>
@@ -351,8 +351,8 @@ export default function Topbar({ onMenuClick, title, showMenu = false }) {
         </div>
         <Link
           to="/reports"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-toyotared px-3 py-1.5 text-xs font-semibold
-            text-white hover:brightness-110 transition shrink-0"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-[#ff2a3c] to-toyotared px-3 py-1.5 text-xs font-semibold
+            text-white shadow-[0_6px_16px_rgba(235,10,30,0.35)] hover:brightness-110 transition shrink-0"
           title="Reports"
         >
           <FileDown size={14} /> <span className="hidden sm:inline">Report</span>

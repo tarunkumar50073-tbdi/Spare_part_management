@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, BarChart, Bar, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, BarChart, Bar, Line, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
 } from "recharts";
 import {
   Box, Database, AlertTriangle, Boxes, ClipboardList, ShoppingCart,
@@ -21,6 +21,22 @@ const C = {
   purple: "#7c3aed", cyan: "#0891b2", slate: "#334155",
 };
 const PIE = [C.blue, C.green, C.amber, C.purple, C.cyan, "#ec4899", C.red];
+
+// Premium look: a soft two-stop gradient per accent, for 3D icon tiles, gradient
+// buttons, donut segments and gauges. Falls back to the solid colour if unknown.
+const GRAD = {
+  "#2563eb": ["#3b82f6", "#2563eb"],
+  "#059669": ["#34d399", "#059669"],
+  "#dc2626": ["#f43f5e", "#dc2626"],
+  "#d97706": ["#f59e0b", "#d97706"],
+  "#7c3aed": ["#8b5cf6", "#7c3aed"],
+  "#0891b2": ["#22d3ee", "#0891b2"],
+  "#ec4899": ["#f472b6", "#ec4899"],
+};
+const gradCss = (c, deg = 140) => {
+  const g = GRAD[c];
+  return g ? `linear-gradient(${deg}deg,${g[0]},${g[1]})` : c;
+};
 
 // Demo-only sections so the switcher can be shown before the real section
 // master is filled in. Delete once real sections exist in the store master.
@@ -44,12 +60,24 @@ const monthLabel = (period) => {
   return m ? names[Number(m)] || period : (y || period);
 };
 const timeOf = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—");
+// "2026-08-10…" -> "10 Aug" (day-month, clearer than the ambiguous "08-10").
+const fmtDay = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? String(iso).slice(5, 10) : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+};
 
 // ---- small building blocks -------------------------------------------------
 
 function Card({ children, className = "", style }) {
+  // Glassmorphism: a translucent gradient pane with a soft inner highlight and a
+  // deep drop shadow. The glass tokens flip with the day/night theme. NOTE: no
+  // backdrop-blur — on a wallboard with ~15 cards at 4K it made every frame
+  // expensive to composite (charts opened slowly); the translucent gradient alone
+  // reads as glass and stays fast.
   return (
-    <div className={`rounded-2xl bg-[var(--dx-card)] border border-[var(--dx-border)] shadow-[0_1px_3px_rgba(15,31,56,0.06),0_6px_20px_rgba(15,31,56,0.05)] ${className}`} style={style}>
+    <div className={`rounded-2xl border ${className}`}
+      style={{ background: "var(--dx-glass)", borderColor: "var(--dx-glass-brd)", boxShadow: "var(--dx-glass-shadow)", ...style }}>
       {children}
     </div>
   );
@@ -59,10 +87,10 @@ function PanelHead({ icon: Icon, color, title, action, onAction }) {
   return (
     <div className="flex items-center justify-between mb-3">
       <div className="flex items-center gap-2.5">
-        <span className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${color}1a` }}>
+        <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${color}22`, boxShadow: `inset 0 0 0 1px ${color}22` }}>
           <Icon size={20} style={{ color }} />
         </span>
-        <h3 className="text-[1.6vh] font-bold text-[var(--dx-t1)]">{title}</h3>
+        <h3 className="dx-radiant text-[1.6vh] font-bold text-[var(--dx-t1)]">{title}</h3>
       </div>
       {action && (
         <button onClick={onAction} className="text-[1.35vh] font-semibold flex items-center gap-1" style={{ color }}>
@@ -75,27 +103,27 @@ function PanelHead({ icon: Icon, color, title, action, onAction }) {
 
 function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color, onClick }) {
   return (
-    <Card className="p-[1.6vh] flex flex-col">
-      <div className="flex items-start justify-between">
-        <span className="w-[5.2vh] h-[5.2vh] rounded-full flex items-center justify-center shadow-sm" style={{ background: color }}>
-          <Icon size={26} className="text-white" />
+    <Card className="p-[1vh] flex flex-col"
+      style={{ borderColor: `${color}55`, boxShadow: `var(--dx-glass-shadow), 0 0 26px ${color}30, inset 0 0 22px ${color}12` }}>
+      <div className="flex items-center gap-[1vh]">
+        <span className="w-[3.4vh] h-[3.4vh] rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: gradCss(color), boxShadow: `0 6px 14px ${color}66, inset 0 2px 3px rgba(255,255,255,0.45), inset 0 -3px 5px rgba(0,0,0,0.18)` }}>
+          <Icon size={17} className="text-white" />
         </span>
-        <FileBarChart size={20} className="opacity-25" style={{ color }} />
-      </div>
-      <div className="mt-[1vh] text-[1.55vh] font-bold text-[var(--dx-t2)]">{title}</div>
-      <div className="flex items-end gap-[1vh]">
-        <span className="text-[4vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</span>
+        <span className="text-[1.4vh] font-bold text-[var(--dx-t2)] flex-1 truncate">{title}</span>
         {trend != null && (
-          <span className={`text-[1.5vh] font-bold ${trendUp ? "text-emerald-600" : "text-rose-600"}`}>
+          <span className={`shrink-0 text-[1.2vh] font-bold ${trendUp ? "text-emerald-600" : "text-rose-600"}`}>
             {trendUp ? "↑" : "↓"} {trend}
           </span>
         )}
       </div>
-      <div className="text-[1.3vh] text-[var(--dx-t4)] mt-[0.4vh]">{sub}</div>
+      <div className="dx-radiant mt-[0.4vh] text-[2.9vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</div>
+      <div className="text-[1.05vh] text-[var(--dx-t4)] mt-[0.2vh]">{sub}</div>
       <button onClick={onClick}
-        className="mt-[1.2vh] rounded-lg text-white text-[1.45vh] font-bold py-[1vh] transition hover:brightness-110 active:scale-[0.98]"
-        style={{ background: color }}>
+        className="relative mt-[0.6vh] rounded-xl text-white text-[1.2vh] font-bold py-[0.65vh] transition hover:brightness-110 active:scale-[0.98]"
+        style={{ background: gradCss(color), boxShadow: `0 6px 14px ${color}44` }}>
         <span className="cta-blink">View Details →</span>
+        <span className="absolute right-[0.7vh] top-1/2 -translate-y-1/2 w-[2.2vh] h-[2.2vh] rounded-full bg-white/25 flex items-center justify-center text-[1.4vh] leading-none">›</span>
       </button>
     </Card>
   );
@@ -103,18 +131,25 @@ function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color, onCl
 
 function Gauge({ pct, color, label, sub }) {
   const p = Math.max(0, Math.min(100, pct || 0));
+  const gid = `gg-${color.replace("#", "")}`;
+  const g = GRAD[color] || [color, color];
   return (
     <div className="flex flex-col items-center">
-      <svg viewBox="0 0 120 68" className="w-[15vh]">
+      <svg viewBox="0 0 120 68" className="w-[13vh]">
+        <defs>
+          <linearGradient id={gid} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} />
+          </linearGradient>
+        </defs>
         <path d="M12 60 A48 48 0 0 1 108 60" fill="none" style={{ stroke: "var(--dx-gauge)" }} strokeWidth="13" strokeLinecap="round" pathLength="100" />
-        <path d="M12 60 A48 48 0 0 1 108 60" fill="none" stroke={color} strokeWidth="13" strokeLinecap="round" pathLength="100" strokeDasharray={`${p} 100`} />
+        <path d="M12 60 A48 48 0 0 1 108 60" fill="none" stroke={`url(#${gid})`} strokeWidth="13" strokeLinecap="round" pathLength="100" strokeDasharray={`${p} 100`} style={{ filter: `drop-shadow(0 2px 4px ${color}66)` }} />
         <text x="60" y="54" textAnchor="middle" fontSize="26" fontWeight="800" style={{ fill: "var(--dx-t1)" }}>{Math.round(p)}%</text>
       </svg>
       <div className="text-center -mt-[0.6vh]">
-        <div className="text-[1.5vh] font-bold flex items-center justify-center gap-1.5" style={{ color }}>
+        <div className="text-[1.4vh] font-bold flex items-center justify-center gap-1.5" style={{ color }}>
           <span className="w-[1vh] h-[1vh] rounded-full inline-block" style={{ background: color }} />{label}
         </div>
-        <div className="text-[1.25vh] text-[var(--dx-t3)]">{sub}</div>
+        <div className="text-[1.2vh] text-[var(--dx-t3)]">{sub}</div>
       </div>
     </div>
   );
@@ -123,12 +158,52 @@ function Gauge({ pct, color, label, sub }) {
 function DeptBar({ name, value, pct, color }) {
   return (
     <div className="flex items-center gap-[1vh]">
-      <span className="w-[13vh] text-[1.4vh] font-medium text-[var(--dx-t2)] truncate">{name}</span>
-      <div className="flex-1 h-[1.6vh] rounded-full bg-[var(--dx-track)] overflow-hidden">
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+      <span className="w-[13vh] text-[1.35vh] font-medium text-[var(--dx-t2)] truncate">{name}</span>
+      <div className="flex-1 h-[1.5vh] rounded-full bg-[var(--dx-track)] overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: gradCss(color, 90), boxShadow: `0 1px 4px ${color}55` }} />
       </div>
-      <span className="w-[5vh] text-right text-[1.45vh] font-bold text-[var(--dx-t1)]">{fmtInt(value)}</span>
-      <span className="w-[4vh] text-right text-[1.35vh] text-[var(--dx-t4)]">{Math.round(pct)}%</span>
+      <span className="w-[5vh] text-right text-[1.4vh] font-bold text-[var(--dx-t1)]">{fmtInt(value)}</span>
+      <span className="w-[4vh] text-right text-[1.3vh] text-[var(--dx-t4)]">{Math.round(pct)}%</span>
+    </div>
+  );
+}
+
+// The live clock ticks once a second. It lives in its own component so that tick
+// re-renders ONLY the clock, never the whole board (and its heavy charts).
+function HeaderClock({ isDay, onToggle }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const clock = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const dayNum = now.toLocaleDateString("en-GB", { day: "2-digit" });
+  const monthShort = now.toLocaleDateString("en-GB", { month: "short" }).toUpperCase();
+  const weekday = now.toLocaleDateString("en-GB", { weekday: "short" });
+  const yearNum = now.getFullYear();
+  return (
+    <div className="shrink-0 flex items-center gap-[1.2vh] rounded-2xl px-[1.3vh] py-[0.7vh]"
+      style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)" }}>
+      <div className="flex items-center gap-[0.9vh]">
+        <div className="w-[4.2vh] h-[4.2vh] rounded-xl bg-white flex flex-col items-center justify-center leading-none shrink-0 shadow-md">
+          <span className="text-[0.9vh] font-extrabold text-rose-500 uppercase tracking-widest">{monthShort}</span>
+          <span className="text-[2vh] font-extrabold text-[#0f172a]">{dayNum}</span>
+        </div>
+        <div className="text-left leading-tight">
+          <div className="text-[1.4vh] font-bold text-white">{weekday}</div>
+          <div className="text-[1.05vh] text-white/50">{yearNum}</div>
+        </div>
+      </div>
+      <div className="w-px h-[3.8vh] bg-white/15" />
+      <div className="text-center leading-tight">
+        <div className="text-[2.6vh] font-extrabold tabular-nums leading-none">{clock}</div>
+        <button onClick={onToggle}
+          title={isDay ? "Day shift — click to switch to night" : "Night shift — click to switch to day"}
+          className="mt-[0.4vh] inline-flex items-center justify-center rounded-full w-[3vh] h-[3vh] text-white shadow-md transition hover:brightness-110 active:scale-90"
+          style={{ background: isDay ? "#10b981" : "#6366f1" }}>
+          {isDay ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
+      </div>
     </div>
   );
 }
@@ -137,7 +212,7 @@ function DeptBar({ name, value, pct, color }) {
 
 export default function TvDashboard() {
   const [data, setData] = useState({});
-  const [now, setNow] = useState(() => new Date());
+  const [hour, setHour] = useState(() => new Date().getHours()); // only for day/night auto — the ticking clock lives in <HeaderClock/> so it doesn't re-render the charts every second
   const [sections, setSections] = useState([]);
   const [sectionId, setSectionId] = useState(null);
   const [isFs, setIsFs] = useState(false);
@@ -146,9 +221,10 @@ export default function TvDashboard() {
 
   const toggleFs = () => (document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.());
 
-  // clock
+  // Only track the hour (for day/night auto), updated once a minute — the parent
+  // must NOT re-render every second or every chart re-renders with it.
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
+    const id = setInterval(() => setHour(new Date().getHours()), 60000);
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
@@ -331,74 +407,79 @@ export default function TvDashboard() {
   };
   const openErpGap = () => openStack({ kind: "erpGap", title: "Current Stock — ERP vs Physical", rows: erpRows, summary: P.erpSum });
 
-  const clock = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  const dayNum = now.toLocaleDateString("en-GB", { day: "2-digit" });
-  const monthShort = now.toLocaleDateString("en-GB", { month: "short" }).toUpperCase();
-  const weekday = now.toLocaleDateString("en-GB", { weekday: "short" });
-  const yearNum = now.getFullYear();
-  const autoDay = now.getHours() >= 8 && now.getHours() < 20;
+  const autoDay = hour >= 8 && hour < 20;
   const isDay = shiftOverride == null ? autoDay : shiftOverride;
   // Whole-board theme, flipped by the day/night button. Every surface/text below
   // reads these CSS variables, so one switch re-themes the entire dashboard.
   const themeVars = isDay
-    ? { "--dx-bg": "#eef2f7", "--dx-card": "#ffffff", "--dx-border": "rgba(226,232,240,0.85)", "--dx-t1": "#0f172a", "--dx-t2": "#334155", "--dx-t3": "#64748b", "--dx-t4": "#94a3b8", "--dx-track": "#f1f5f9", "--dx-divide": "#eef2f7", "--dx-gauge": "#e5e7eb" }
-    : { "--dx-bg": "#0a1424", "--dx-card": "#111c30", "--dx-border": "rgba(148,163,184,0.16)", "--dx-t1": "#f1f5f9", "--dx-t2": "#cbd5e1", "--dx-t3": "#94a3b8", "--dx-t4": "#7c8aa0", "--dx-track": "#1b2740", "--dx-divide": "rgba(148,163,184,0.12)", "--dx-gauge": "#334155" };
+    ? {
+        "--dx-bg": "#eef2f7", "--dx-card": "#ffffff", "--dx-border": "rgba(226,232,240,0.85)", "--dx-t1": "#0f172a", "--dx-t2": "#334155", "--dx-t3": "#64748b", "--dx-t4": "#94a3b8", "--dx-track": "#eef3fb", "--dx-divide": "#eef2f7", "--dx-gauge": "#e5e7eb",
+        "--dx-glass": "linear-gradient(160deg,rgba(255,255,255,0.9),rgba(237,244,255,0.78))",
+        "--dx-t1-grad": "linear-gradient(160deg,#0f172a 0%,#33507e 100%)",
+        "--pill-red": "#e11d48", "--pill-green": "#047857", "--pill-amber": "#b45309", "--pill-blue": "#1d4ed8", "--pill-slate": "#475569",
+        "--dx-glass-brd": "rgba(255,255,255,0.85)",
+        "--dx-glass-shadow": "0 10px 30px rgba(29,63,120,0.13), inset 0 1px 0 rgba(255,255,255,0.9)",
+        "--dx-board": "radial-gradient(1200px 620px at 12% -6%, rgba(96,165,250,0.30), transparent 60%), radial-gradient(950px 520px at 96% -2%, rgba(45,212,191,0.20), transparent 55%), radial-gradient(1050px 720px at 50% 112%, rgba(129,140,248,0.20), transparent 60%), linear-gradient(160deg,#e9f0ff 0%,#eef4fb 42%,#f3f0fb 100%)",
+      }
+    : {
+        "--dx-bg": "#070d1a", "--dx-card": "#0e1a30", "--dx-border": "rgba(94,165,235,0.22)", "--dx-t1": "#b4c5e0", "--dx-t2": "#8a9dbe", "--dx-t3": "#6f82a0", "--dx-t4": "#586a8c", "--dx-track": "rgba(30,48,84,0.6)", "--dx-divide": "rgba(94,165,235,0.12)", "--dx-gauge": "#243350",
+        "--dx-glass": "linear-gradient(160deg,rgba(24,40,74,0.9),rgba(11,20,40,0.82))",
+        "--dx-t1-grad": "linear-gradient(160deg,#cfe0f6 0%,#7ea3d2 100%)",
+        "--pill-red": "#fb7185", "--pill-green": "#34d399", "--pill-amber": "#fbbf24", "--pill-blue": "#60a5fa", "--pill-slate": "#94a3b8",
+        "--dx-glass-brd": "rgba(94,165,235,0.28)",
+        "--dx-glass-shadow": "0 14px 38px rgba(0,0,0,0.55), 0 0 22px rgba(37,99,235,0.10), inset 0 1px 0 rgba(255,255,255,0.08)",
+        "--dx-board": "radial-gradient(1100px 560px at 50% -8%, rgba(56,189,248,0.28), transparent 62%), radial-gradient(900px 520px at 96% 0%, rgba(13,148,136,0.20), transparent 55%), radial-gradient(1000px 700px at 8% 108%, rgba(124,58,237,0.22), transparent 60%), radial-gradient(1200px 800px at 50% 50%, rgba(9,20,40,0.4), rgba(4,9,20,0.75) 80%), linear-gradient(160deg,#050a16 0%,#081324 46%,#060c1a 100%)",
+      };
   // recharts axis/grid become SVG attributes and can't read CSS vars, so keep JS
   // twins of the theme for chart ticks and gridlines (readable in both modes).
   const axisColor = isDay ? "#64748b" : "#94a3b8";
   const gridColor = isDay ? "#e2e8f0" : "rgba(148,163,184,0.18)";
 
   return (
-    <div className="min-h-screen w-full flex flex-col gap-[1.4vh] p-[1.4vh] bg-[var(--dx-bg)] text-[var(--dx-t2)] transition-colors duration-300" style={themeVars}>
+    <div className="min-h-screen w-full flex flex-col gap-[1.2vh] p-[1.2vh] text-[var(--dx-t2)] transition-colors duration-300" style={{ ...themeVars, background: "var(--dx-board)" }}>
 
       {/* ---------- header ---------- */}
-      <div className="rounded-2xl px-[2vh] py-[1.4vh] flex items-center gap-[2vh] text-white"
-        style={{ background: "linear-gradient(120deg,#0a2a4f 0%,#0d3a6b 55%,#0a2a4f 100%)" }}>
-        <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-[5.4vh] w-auto bg-white/95 rounded-lg p-[0.5vh] shrink-0" draggable={false} />
+      <div className="shrink-0 rounded-2xl px-[2vh] py-[0.8vh] flex items-center gap-[1.6vh] text-white overflow-hidden relative"
+        style={{
+          background: "radial-gradient(720px 300px at 82% -50%, rgba(56,189,248,0.42), transparent 62%), radial-gradient(520px 240px at 10% 150%, rgba(37,99,235,0.32), transparent 60%), linear-gradient(120deg,#0a2340 0%,#123a6b 48%,#0a2038 100%)",
+          boxShadow: "0 14px 40px rgba(10,32,70,0.40), inset 0 1px 0 rgba(255,255,255,0.08)",
+        }}>
+        <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-[4.6vh] w-auto bg-white/95 rounded-lg p-[0.5vh] shrink-0" draggable={false} />
         <div className="hidden xl:block leading-tight shrink-0">
           <div className="text-[1.6vh] font-bold">Toyota Boshoku</div>
           <div className="text-[1.2vh] text-white/60">Device India Pvt. Ltd.</div>
         </div>
 
         <div className="flex-1 text-center min-w-0">
-          <div className="text-[3.4vh] font-extrabold leading-none">Spare Parts Store</div>
-          <div className="text-[1.5vh] font-semibold tracking-[0.4em] text-white/70 mt-[0.3vh]">LIVE DASHBOARD</div>
+          <div className="text-[2.9vh] font-extrabold leading-none tracking-wide"
+            style={{ backgroundImage: "linear-gradient(180deg,#ffffff 0%,#bcd6ff 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent", filter: "drop-shadow(0 2px 12px rgba(120,180,255,0.55))" }}>
+            Spare Parts Store
+          </div>
+          <div className="mt-[0.45vh] flex items-center justify-center gap-[1vh]">
+            <span className="h-px w-[3.2vh]" style={{ background: "linear-gradient(90deg,transparent,rgba(56,189,248,0.75))" }} />
+            <span className="flex items-center gap-[0.7vh] text-[1.25vh] font-bold tracking-[0.42em] text-cyan-100/90">
+              <span className="w-[0.9vh] h-[0.9vh] rounded-full bg-emerald-400 animate-pulse" style={{ boxShadow: "0 0 8px #34d399" }} />
+              LIVE DASHBOARD
+            </span>
+            <span className="h-px w-[3.2vh]" style={{ background: "linear-gradient(90deg,rgba(56,189,248,0.75),transparent)" }} />
+          </div>
           {sections.length > 0 && (
-            <div className="mt-[0.9vh] flex items-center justify-center gap-[1.2vh]">
-              <button onClick={() => cycle(-1)} title="Previous section" className="text-white/50 hover:text-white text-[2.6vh] leading-none">‹</button>
-              <div className="flex items-center gap-[0.7vh]">
-                <span key={String(sectionId)} className="animate-rise text-[2.3vh] font-extrabold text-white tracking-wide uppercase">{activeName}</span>
-                {activeSection?.dummy && <span className="text-[1vh] font-bold px-[0.6vh] py-[0.1vh] rounded bg-amber-300 text-amber-900">dummy</span>}
+            <div className="mt-[0.6vh] flex justify-center">
+              <div className="inline-flex items-center gap-[1vh] rounded-full px-[1.6vh] py-[0.4vh]"
+                style={{ background: "linear-gradient(120deg,rgba(56,189,248,0.22),rgba(37,99,235,0.16))", border: "1px solid rgba(125,195,255,0.5)", boxShadow: "0 0 22px rgba(56,189,248,0.32), inset 0 1px 0 rgba(255,255,255,0.18)" }}>
+                <button onClick={() => cycle(-1)} title="Previous section" className="text-cyan-200/70 hover:text-white text-[2vh] leading-none">‹</button>
+                <div className="flex items-center gap-[0.7vh]">
+                  <span key={String(sectionId)} className="animate-rise text-[1.8vh] font-extrabold text-white tracking-[0.15em] uppercase">{activeName}</span>
+                  {activeSection?.dummy && <span className="text-[1vh] font-bold px-[0.6vh] py-[0.1vh] rounded bg-amber-300 text-amber-900">dummy</span>}
+                </div>
+                <button onClick={() => cycle(1)} title="Next section" className="text-cyan-200/70 hover:text-white text-[2vh] leading-none">›</button>
               </div>
-              <button onClick={() => cycle(1)} title="Next section" className="text-white/50 hover:text-white text-[2.6vh] leading-none">›</button>
             </div>
           )}
         </div>
 
         {/* modern date · clock · shift toggle */}
-        <div className="shrink-0 flex items-center gap-[1.5vh] rounded-2xl px-[1.6vh] py-[1.1vh]"
-          style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)" }}>
-          <div className="flex items-center gap-[1vh]">
-            <div className="w-[5vh] h-[5vh] rounded-xl bg-white flex flex-col items-center justify-center leading-none shrink-0 shadow-md">
-              <span className="text-[1vh] font-extrabold text-rose-500 uppercase tracking-widest">{monthShort}</span>
-              <span className="text-[2.4vh] font-extrabold text-[#0f172a]">{dayNum}</span>
-            </div>
-            <div className="text-left leading-tight">
-              <div className="text-[1.55vh] font-bold text-white">{weekday}</div>
-              <div className="text-[1.15vh] text-white/50">{yearNum}</div>
-            </div>
-          </div>
-          <div className="w-px h-[4.6vh] bg-white/15" />
-          <div className="text-center leading-tight">
-            <div className="text-[3.3vh] font-extrabold tabular-nums leading-none">{clock}</div>
-            <button onClick={() => setShiftOverride(!isDay)}
-              title={isDay ? "Day shift — click to switch to night" : "Night shift — click to switch to day"}
-              className="mt-[0.7vh] inline-flex items-center justify-center rounded-full w-[3.6vh] h-[3.6vh] text-white shadow-md transition hover:brightness-110 active:scale-90"
-              style={{ background: isDay ? "#10b981" : "#6366f1" }}>
-              {isDay ? <Sun size={19} /> : <Moon size={19} />}
-            </button>
-          </div>
-        </div>
+        <HeaderClock isDay={isDay} onToggle={() => setShiftOverride(!isDay)} />
 
         <div className="shrink-0">
           <button onClick={toggleFs} title={isFs ? "Exit fullscreen" : "Fullscreen"} className="text-white/60 hover:text-white">{isFs ? <Minimize size={16} /> : <Maximize size={16} />}</button>
@@ -407,16 +488,16 @@ export default function TvDashboard() {
 
       {/* ---------- live alert ticker (below the heading) ---------- */}
       {liveAlerts.length > 0 && (
-        <div className="shrink-0 flex items-center gap-[1.2vh] overflow-hidden rounded-xl px-[1.2vh] py-[0.8vh] text-white"
+        <div className="shrink-0 flex items-center gap-[1.2vh] overflow-hidden rounded-xl px-[1.2vh] py-[0.6vh] text-white"
           style={{ background: "linear-gradient(90deg,#0a2a4f,#0d3a6b)" }}>
-          <span className="shrink-0 flex items-center gap-[0.6vh] rounded-md px-[1.1vh] py-[0.35vh] text-[1.35vh] font-extrabold tracking-wide" style={{ background: "#dc2626" }}>
+          <span className="shrink-0 flex items-center gap-[0.6vh] rounded-md px-[1.1vh] py-[0.3vh] text-[1.3vh] font-extrabold tracking-wide" style={{ background: "linear-gradient(120deg,#ef4444,#dc2626)", boxShadow: "0 0 16px rgba(239,68,68,0.55)" }}>
             <span className="h-[1vh] w-[1vh] rounded-full bg-white animate-pulse" /> LIVE ALERTS
           </span>
           <div className="relative flex-1 overflow-hidden">
             <div className="ticker-track-x flex w-max items-center gap-[3.5vh] whitespace-nowrap"
               style={{ "--ticker-duration": `${Math.max(20, liveAlerts.length * 9)}s` }}>
               {[...liveAlerts, ...liveAlerts].map((a, i) => (
-                <span key={i} className="flex items-center gap-[0.8vh] text-[1.55vh] font-semibold">
+                <span key={i} className="flex items-center gap-[0.8vh] text-[1.45vh] font-semibold">
                   <span className="h-[1.1vh] w-[1.1vh] shrink-0 rounded-full" style={{ background: a.color, boxShadow: `0 0 0.7vh ${a.color}` }} />
                   {a.text}
                 </span>
@@ -427,7 +508,7 @@ export default function TvDashboard() {
       )}
 
       {/* ---------- KPI cards ---------- */}
-      <div className="grid grid-cols-3 gap-[1.4vh]">
+      <div className="grid grid-cols-3 gap-[1.2vh]">
         <Kpi icon={Box} title="Total Parts" value={fmtInt(total)} trend={P.today?.received_lines ? `+${P.today.received_lines}` : null}
           sub="Active parts in store" color={C.blue}
           onClick={() => openStack({ kind: "partList", title: "All Parts", rows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand, chart: "byType" })} />
@@ -445,31 +526,41 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- charts ---------- */}
-      <div className="grid grid-cols-2 gap-[1.4vh]">
-        <Card className="p-[1.6vh]">
+      <div className="grid grid-cols-2 gap-[1.2vh]">
+        <Card className="p-[1.4vh]">
           <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[24vh] h-[24vh] relative shrink-0">
+            <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
+                  <defs>
+                    {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => {
+                      const g = GRAD[c.color] || [c.color, c.color];
+                      return (
+                        <linearGradient key={i} id={`pieg-${i}`} x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} />
+                        </linearGradient>
+                      );
+                    })}
+                  </defs>
                   <Pie data={cats.length ? cats : [{ name: "—", value: 1, color: "#e2e8f0" }]} dataKey="value" nameKey="name"
-                    innerRadius="62%" outerRadius="92%" paddingAngle={2} stroke="none">
-                    {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={c.color} />)}
+                    innerRadius="60%" outerRadius="92%" paddingAngle={2} stroke="none" isAnimationActive={false}>
+                    {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} />)}
                   </Pie>
                   <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-[3vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtInt(total)}</span>
+                <span className="dx-radiant text-[3vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtInt(total)}</span>
                 <span className="text-[1.3vh] text-[var(--dx-t4)]">Total Parts</span>
               </div>
             </div>
             <div className="flex-1 space-y-[0.9vh]">
               {(cats.length ? cats : []).map((c) => (
                 <div key={c.name} className="flex items-center gap-[1vh] text-[1.5vh]">
-                  <span className="w-[1.4vh] h-[1.4vh] rounded-sm" style={{ background: c.color }} />
+                  <span className="w-[1.4vh] h-[1.4vh] rounded-full" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
                   <span className="flex-1 text-[var(--dx-t2)] truncate">{c.name}</span>
-                  <span className="font-bold text-[var(--dx-t1)]">{fmtInt(c.value)}</span>
+                  <span className="dx-radiant font-bold text-[var(--dx-t1)]">{fmtInt(c.value)}</span>
                   <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (total || 1)) * 100)}%</span>
                 </div>
               ))}
@@ -478,19 +569,24 @@ export default function TvDashboard() {
           </div>
         </Card>
 
-        <Card className="p-[1.6vh]">
+        <Card className="p-[1.4vh]">
           <PanelHead icon={FileBarChart} color={C.green} title="Monthly Consumption / Issue" />
           <div className="h-[24vh]">
             {monthlyData.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={monthlyData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0" stopColor="#60a5fa" /><stop offset="1" stopColor="#2563eb" />
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
                   <XAxis dataKey="name" tick={{ fontSize: 13, fill: axisColor }} axisLine={{ stroke: gridColor }} tickLine={false} />
                   <YAxis tick={{ fontSize: 13, fill: axisColor }} axisLine={false} tickLine={false} width={40} />
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="qty" name="Issued Qty" fill={C.blue} radius={[4, 4, 0, 0]} barSize={26} />
-                  <Line type="monotone" dataKey="qty" name="Trend" stroke={C.green} strokeWidth={2.5} dot={{ r: 3, fill: C.green }} />
+                  <Bar dataKey="qty" name="Issued Qty" fill="url(#barGrad)" radius={[5, 5, 0, 0]} barSize={26} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="qty" name="Trend" stroke={C.green} strokeWidth={2.5} dot={{ r: 3, fill: C.green }} isAnimationActive={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             ) : (
@@ -501,8 +597,8 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- health + dept ---------- */}
-      <div className="grid grid-cols-2 gap-[1.4vh]">
-        <Card className="p-[1.6vh]">
+      <div className="grid grid-cols-2 gap-[1.2vh]">
+        <Card className="p-[1.4vh]">
           <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
           <div className="flex items-center justify-around pt-[1vh]">
             <Gauge pct={(healthy / counted) * 100} color={C.green} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
@@ -511,7 +607,7 @@ export default function TvDashboard() {
           </div>
         </Card>
 
-        <Card className="p-[1.6vh]">
+        <Card className="p-[1.4vh]">
           <PanelHead icon={FileBarChart} color={C.purple} title="Department-wise Issue (This Month)" />
           <div className="space-y-[1.1vh] pt-[0.6vh]">
             {deptData.length ? deptData.map((d) => <DeptBar key={d.name} {...d} />)
@@ -521,9 +617,9 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- ERP current stock ---------- */}
-      <Card className="p-[1.6vh]">
+      <Card className="p-[1.4vh]">
         <PanelHead icon={Database} color={C.cyan} title="Current Stock — ERP vs Physical" action="View Details" onAction={openErpGap} />
-        <div className="grid grid-cols-4 gap-[1.4vh]">
+        <div className="grid grid-cols-4 gap-[1.2vh]">
           {[
             { label: "ERP Stock", value: fmtInt(Math.round(erpTotal)), sub: "units · from ERP", color: C.cyan },
             { label: "Physical Stock", value: fmtInt(Math.round(physTotal)), sub: "units · store count", color: C.blue },
@@ -545,8 +641,9 @@ export default function TvDashboard() {
       </Card>
 
       {/* ---------- top short parts ---------- */}
-      <Card className="p-[1.6vh]">
+      <Card className="p-[1.4vh]">
         <PanelHead icon={AlertTriangle} color={C.red} title="Top Short Parts (Below Minimum)" />
+        <div>
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.25vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
@@ -564,7 +661,7 @@ export default function TvDashboard() {
                 <td className="pr-[1vh] text-center font-bold text-rose-600">{fmtInt(r.qty_on_hand)}</td>
                 <td className="pr-[1vh] text-center text-[var(--dx-t3)]">{fmtInt(r.min_stock_level)}</td>
                 <td className="pr-[1vh] text-center">
-                  <span className="inline-block rounded-full bg-rose-50 text-rose-600 font-bold px-[1.2vh] py-[0.3vh]">
+                  <span className="inline-block rounded-full font-bold px-[1.2vh] py-[0.3vh]" style={{ background: "rgba(244,63,94,0.16)", color: "var(--pill-red)" }}>
                     {fmtInt(Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)))}
                   </span>
                 </td>
@@ -575,11 +672,13 @@ export default function TvDashboard() {
             )}
           </tbody>
         </table>
+        </div>
       </Card>
 
       {/* ---------- recent transactions (Live Alerts now runs in the top ticker) ---------- */}
-      <Card className="p-[1.6vh]">
+      <Card className="p-[1.4vh]">
         <PanelHead icon={PackagePlus} color={C.green} title="Recent Transactions" />
+        <div>
         <table className="w-full text-[1.4vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
@@ -594,7 +693,7 @@ export default function TvDashboard() {
                 <tr key={i}>
                   <td className="py-[0.8vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{timeOf(r.at || r.created_at)}</td>
                   <td className="pr-[1vh]">
-                    <span className={`rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold ${issue ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"}`}>{r.txn_type}</span>
+                    <span className="rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold" style={issue ? { background: "rgba(244,63,94,0.16)", color: "var(--pill-red)" } : { background: "rgba(16,185,129,0.18)", color: "var(--pill-green)" }}>{r.txn_type}</span>
                   </td>
                   <td className="pr-[1vh] font-semibold text-[var(--dx-t1)]">{r.part_no}</td>
                   <td className="pr-[1vh] text-center font-bold">{fmtInt(Math.abs(r.qty_delta ?? r.qty ?? 0))}</td>
@@ -605,21 +704,22 @@ export default function TvDashboard() {
             {!(P.activity || []).length && <tr><td colSpan={5} className="py-[2.5vh] text-center text-[var(--dx-t4)] text-[1.5vh]">No recent activity</td></tr>}
           </tbody>
         </table>
+        </div>
       </Card>
 
       {/* ---------- footer ---------- */}
-      <div className="rounded-2xl px-[2vh] py-[1.2vh] flex items-center justify-between text-white text-[1.35vh]"
+      <div className="rounded-2xl px-[2vh] py-[1vh] flex items-center justify-between text-white text-[1.35vh]"
         style={{ background: "linear-gradient(120deg,#0a2a4f,#0d3a6b)" }}>
-        <div><span className="font-extrabold text-[1.7vh]">DX Store</span><span className="text-white/60 ml-[1vh]">Digitize · Simplify · Improve</span></div>
+        <div className="font-semibold text-white/80">Digitize · Simplify · Improve</div>
         <div className="italic text-white/80 font-semibold">"Right Parts | Right Time | For Smooth Production"</div>
         <div className="text-white/60">Toyota Boshoku Device India Pvt. Ltd.</div>
       </div>
 
       {/* ---------- Explore-Data drill (opens WITHIN the board) ---------- */}
       {stack.length > 0 && (
-        <div className="fixed inset-0 z-50 bg-[var(--dx-bg)] text-[var(--dx-t2)] flex flex-col p-[1.6vh] gap-[1.4vh] overflow-auto" style={themeVars}>
-          <div className="rounded-2xl px-[2vh] py-[1.3vh] flex items-center gap-[1.5vh] text-white shrink-0"
-            style={{ background: "linear-gradient(120deg,#0a2a4f,#0d3a6b)" }}>
+        <div className="fixed inset-0 z-50 text-[var(--dx-t2)] flex flex-col p-[1.6vh] gap-[1.4vh] overflow-auto" style={{ ...themeVars, background: "var(--dx-board)" }}>
+          <div className="rounded-2xl px-[2vh] py-[1.3vh] flex items-center gap-[1.5vh] text-white shrink-0 overflow-hidden"
+            style={{ background: "radial-gradient(640px 260px at 88% -50%, rgba(56,189,248,0.38), transparent 62%), linear-gradient(120deg,#0a2340 0%,#123a6b 50%,#0a2038 100%)", boxShadow: "0 12px 34px rgba(10,32,70,0.38), inset 0 1px 0 rgba(255,255,255,0.08)" }}>
             <button onClick={() => setStack((s) => s.slice(0, -1))} title="Back"
               className="w-[4.4vh] h-[4.4vh] rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center"><ArrowLeft size={22} /></button>
             <div className="flex-1 flex items-center gap-[1vh] text-[2.1vh] font-bold min-w-0 flex-wrap">
@@ -651,17 +751,17 @@ export default function TvDashboard() {
 // ---- Explore-Data drill views ---------------------------------------------
 
 function typeStyle(t) {
-  if (t === "ISSUE") return { background: "#fee2e2", color: "#b91c1c" };
-  if (t === "RECEIPT") return { background: "#d1fae5", color: "#047857" };
-  if (t === "RETURN") return { background: "#dbeafe", color: "#1d4ed8" };
-  return { background: "#f1f5f9", color: "#475569" };
+  if (t === "ISSUE") return { background: "rgba(244,63,94,0.16)", color: "var(--pill-red)" };
+  if (t === "RECEIPT") return { background: "rgba(16,185,129,0.18)", color: "var(--pill-green)" };
+  if (t === "RETURN") return { background: "rgba(59,130,246,0.18)", color: "var(--pill-blue)" };
+  return { background: "rgba(148,163,184,0.18)", color: "var(--pill-slate)" };
 }
 function StatusPill({ status }) {
   const red = status === "Below Minimum" || status === "Out of Stock";
   const amber = status === "Above Maximum";
-  const c = red ? { background: "#fee2e2", color: "#b91c1c" }
-    : amber ? { background: "#fef3c7", color: "#b45309" }
-      : { background: "#d1fae5", color: "#047857" };
+  const c = red ? { background: "rgba(244,63,94,0.16)", color: "var(--pill-red)" }
+    : amber ? { background: "rgba(245,158,11,0.18)", color: "var(--pill-amber)" }
+      : { background: "rgba(16,185,129,0.18)", color: "var(--pill-green)" };
   return <span className="rounded-full px-[1vh] py-[0.2vh] text-[1.2vh] font-bold whitespace-nowrap" style={c}>{status || "—"}</span>;
 }
 function Stat({ label, value }) {
@@ -689,23 +789,26 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh] h-full">
       <Card className="p-[1.6vh] flex flex-col">
-        <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{chartTitle}</h3>
+        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{chartTitle}</h3>
         <div className="flex-1 min-h-[36vh]">
           {chartData.length ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart layout="vertical" data={chartData} margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+                <defs>
+                  <linearGradient id="dg-hblue" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#60a5fa" /><stop offset="1" stopColor="#2563eb" /></linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={grid} />
                 <XAxis type="number" tick={{ fontSize: 12, fill: axis }} />
                 <YAxis type="category" dataKey="name" width={92} tick={{ fontSize: 12, fill: axis }} />
                 <Tooltip />
-                <Bar dataKey="value" fill="#2563eb" radius={[0, 4, 4, 0]} barSize={16} />
+                <Bar dataKey="value" fill="url(#dg-hblue)" radius={[0, 6, 6, 0]} barSize={16} />
               </BarChart>
             </ResponsiveContainer>
           ) : <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No parts</div>}
         </div>
       </Card>
       <Card className="p-[1.6vh] overflow-auto">
-        <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{rows.length} parts · tap a row for its history</h3>
+        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{rows.length} parts · tap a row for its history</h3>
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
@@ -716,7 +819,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
           </thead>
           <tbody className="divide-y divide-[var(--dx-divide)]">
             {rows.map((r) => (
-              <tr key={r.part_id} onClick={() => onOpen(r)} className="cursor-pointer hover:bg-blue-50/60 transition-colors">
+              <tr key={r.part_id} onClick={() => onOpen(r)} className="cursor-pointer hover:bg-[var(--dx-track)] transition-colors">
                 <td className="py-[0.9vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[24vh]">{r.part_name}</td>
                 <td className="pr-[1vh] text-center">{fmtInt(r.qty_on_hand)}</td>
@@ -735,14 +838,14 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
 function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
   const part = frame.part || {};
   const hist = frame.history || [];
-  const chart = hist.slice().reverse().map((h) => ({ d: (h.at || h.created_at || "").slice(5, 10), bal: Number(h.balance_after ?? 0) }));
+  const chart = hist.slice().reverse().map((h) => ({ d: fmtDay(h.at || h.created_at), bal: Number(h.balance_after ?? 0) }));
   return (
     <div className="flex flex-col gap-[1.4vh]">
       <Card className="p-[1.6vh]">
         <div className="flex items-center gap-[2vh] flex-wrap">
           <div>
             <div className="text-[1.3vh] text-[var(--dx-t4)]">Part No.</div>
-            <div className="text-[2.4vh] font-extrabold text-[var(--dx-t1)] leading-none">{part.part_no}</div>
+            <div className="dx-radiant text-[2.4vh] font-extrabold text-[var(--dx-t1)] leading-none">{part.part_no}</div>
           </div>
           <div className="text-[1.7vh] text-[var(--dx-t2)]">{part.part_name}</div>
           <div className="ml-auto flex items-center gap-[2.2vh]">
@@ -756,16 +859,24 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
       </Card>
 
       <Card className="p-[1.6vh]">
-        <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Stock Level History</h3>
+        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Stock Level History</h3>
         <div className="h-[32vh]">
           {chart.length ? (
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chart} margin={{ top: 8, right: 14, left: -12, bottom: 0 }}>
+              <ComposedChart data={chart} margin={{ top: 8, right: 54, left: -12, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="dg-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#2563eb" stopOpacity="0.35" /><stop offset="1" stopColor="#2563eb" stopOpacity="0" /></linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
                 <XAxis dataKey="d" tick={{ fontSize: 12, fill: axis }} />
                 <YAxis tick={{ fontSize: 12, fill: axis }} width={42} />
                 <Tooltip />
-                <Line type="monotone" dataKey="bal" name="Balance" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 2, fill: "#2563eb" }} />
+                {part.max_stock_level != null && (
+                  <ReferenceLine y={part.max_stock_level} stroke="#d97706" strokeDasharray="6 4" ifOverflow="extendDomain"
+                    label={{ value: `Max ${part.max_stock_level}`, position: "right", fill: "#d97706", fontSize: 11, fontWeight: 700 }} />
+                )}
+                <Area type="monotone" dataKey="bal" stroke="none" fill="url(#dg-area)" />
+                <Line type="monotone" dataKey="bal" name="Balance" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3, fill: "#2563eb" }} />
               </ComposedChart>
             </ResponsiveContainer>
           ) : <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No movement history yet</div>}
@@ -773,7 +884,7 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
       </Card>
 
       <Card className="p-[1.6vh] overflow-auto">
-        <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Movements ({hist.length})</h3>
+        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Movements ({hist.length})</h3>
         <table className="w-full text-[1.4vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
@@ -785,7 +896,7 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
           <tbody className="divide-y divide-[var(--dx-divide)]">
             {hist.map((h, i) => (
               <tr key={i}>
-                <td className="py-[0.7vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{(h.at || h.created_at || "").slice(0, 10)}</td>
+                <td className="py-[0.7vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{fmtDay(h.at || h.created_at)}</td>
                 <td className="pr-[1vh]"><span className="rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold" style={typeStyle(h.txn_type)}>{h.txn_type}</span></td>
                 <td className="pr-[1vh] text-center font-semibold">{fmtInt(h.qty_delta)}</td>
                 <td className="pr-[1vh] text-center">{fmtInt(h.balance_after)}</td>
@@ -812,22 +923,25 @@ function TxnListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
       )}
       {dept.length > 0 && (
         <Card className="p-[1.6vh]">
-          <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Issued qty by department (this month)</h3>
+          <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Issued qty by department (this month)</h3>
           <div className="h-[22vh]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={dept} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="dg-vpurple" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#a78bfa" /><stop offset="1" stopColor="#7c3aed" /></linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
                 <XAxis dataKey="name" tick={{ fontSize: 12, fill: axis }} />
                 <YAxis tick={{ fontSize: 12, fill: axis }} width={40} />
                 <Tooltip />
-                <Bar dataKey="value" fill="#7c3aed" radius={[4, 4, 0, 0]} barSize={26} />
+                <Bar dataKey="value" fill="url(#dg-vpurple)" radius={[5, 5, 0, 0]} barSize={26} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </Card>
       )}
       <Card className="p-[1.6vh] overflow-auto flex-1">
-        <h3 className="text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{rows.length} movement(s) · tap a row for that part's history</h3>
+        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{rows.length} movement(s) · tap a row for that part's history</h3>
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
@@ -838,7 +952,7 @@ function TxnListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
           <tbody className="divide-y divide-[var(--dx-divide)]">
             {rows.map((r, i) => (
               <tr key={i} onClick={() => r.part_id && onOpen({ part_id: r.part_id, part_no: r.part_no, part_name: r.part_name })}
-                className="cursor-pointer hover:bg-blue-50/60 transition-colors">
+                className="cursor-pointer hover:bg-[var(--dx-track)] transition-colors">
                 <td className="py-[0.8vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{(r.at || "").slice(0, 10)}</td>
                 <td className="pr-[1vh]"><span className="rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold" style={typeStyle(r.txn_type)}>{r.txn_type}</span></td>
                 <td className="pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
@@ -868,23 +982,26 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
     { k: "not_synced", label: "Not in ERP", color: "#64748b" },
   ];
   const statusStyle = (st) =>
-    st === "MATCH" ? { background: "#d1fae5", color: "#047857" }
-      : st === "SHORT" ? { background: "#fee2e2", color: "#b91c1c" }
-        : st === "EXCESS" ? { background: "#fef3c7", color: "#b45309" }
-          : { background: "#f1f5f9", color: "#475569" };
+    st === "MATCH" ? { background: "rgba(16,185,129,0.18)", color: "var(--pill-green)" }
+      : st === "SHORT" ? { background: "rgba(244,63,94,0.16)", color: "var(--pill-red)" }
+        : st === "EXCESS" ? { background: "rgba(245,158,11,0.18)", color: "var(--pill-amber)" }
+          : { background: "rgba(148,163,184,0.18)", color: "var(--pill-slate)" };
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh] h-full">
       <Card className="p-[1.6vh] flex flex-col">
-        <h3 className="mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">Biggest ERP ↔ Physical gaps</h3>
+        <h3 className="dx-radiant mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">Biggest ERP ↔ Physical gaps</h3>
         <div className="min-h-[30vh] flex-1">
           {top.length ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart layout="vertical" data={top} margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+                <defs>
+                  <linearGradient id="dg-hcyan" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#22d3ee" /><stop offset="1" stopColor="#0891b2" /></linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={grid} />
                 <XAxis type="number" tick={{ fontSize: 12, fill: axis }} />
                 <YAxis type="category" dataKey="name" width={92} tick={{ fontSize: 12, fill: axis }} />
                 <Tooltip />
-                <Bar dataKey="value" fill="#0891b2" radius={[0, 4, 4, 0]} barSize={16} />
+                <Bar dataKey="value" fill="url(#dg-hcyan)" radius={[0, 6, 6, 0]} barSize={16} />
               </BarChart>
             </ResponsiveContainer>
           ) : <div className="flex h-full items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No gaps — ERP matches physical</div>}
@@ -901,7 +1018,7 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
         </div>
       </Card>
       <Card className="p-[1.6vh] overflow-auto">
-        <h3 className="mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">{rows.length} parts · tap a row for its history</h3>
+        <h3 className="dx-radiant mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">{rows.length} parts · tap a row for its history</h3>
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
@@ -913,7 +1030,7 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
           <tbody className="divide-y divide-[var(--dx-divide)]">
             {rows.map((r) => (
               <tr key={r.part_id} onClick={() => onOpen({ part_id: r.part_id, part_no: r.part_no, part_name: r.part_name, location: r.location })}
-                className="cursor-pointer transition-colors hover:bg-blue-50/60">
+                className="cursor-pointer transition-colors hover:bg-[var(--dx-track)]">
                 <td className="py-[0.9vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[22vh]">{r.part_name}</td>
                 <td className="pr-[1vh] text-center">{r.erp_qty == null ? "—" : fmtInt(r.erp_qty)}</td>

@@ -154,7 +154,7 @@ const sectionGroup = (store) => {
 const navClass = ({ isActive }) =>
   `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 ${
     isActive
-      ? "bg-toyotared text-white shadow-sm"
+      ? "bg-gradient-to-b from-[#ff2a3c] to-toyotared text-white shadow-[0_4px_12px_rgba(235,10,30,0.35)]"
       : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-navy-800 hover:text-slate-900 dark:hover:text-white"
   }`;
 
@@ -202,7 +202,8 @@ export default function Sidebar({ open, onClose, collapsed = false, onToggleColl
           fold, reachable only by scrolling the whole page. */}
       <aside
         className={`fixed lg:sticky z-40 top-0 left-0 h-full lg:h-screen w-64 shrink-0 flex flex-col
-        bg-white dark:bg-navy-950 border-r border-slate-200 dark:border-navy-800
+        bg-gradient-to-b from-white to-slate-50/70 dark:from-navy-950 dark:to-navy-900/60
+        border-r border-slate-200/80 dark:border-navy-800 shadow-[2px_0_24px_rgba(15,31,56,0.05)]
         transform transition-transform duration-200 ${open ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0
         ${collapsed ? "lg:hidden" : ""}`}
       >

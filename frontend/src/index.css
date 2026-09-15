@@ -48,6 +48,16 @@
   animation: cta-blink 1.4s ease-in-out infinite;
 }
 
+/* Radiant text — a soft gradient sheen on prominent numbers/headings so they read
+   as premium "glass" instead of flat white (theme-aware via --dx-t1-grad). */
+.dx-radiant {
+  background-image: var(--dx-t1-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
 /* Anyone who has asked their OS to reduce motion gets none of it. */
 @media (prefers-reduced-motion: reduce) {
   .animate-rise,
@@ -61,13 +71,30 @@
   html {
     @apply scroll-smooth;
   }
+  /* Premium page ground: a soft gradient with a faint Toyota-red glow top-right
+     and a navy glow bottom-left, so white cards read as raised glass rather than
+     sitting on flat paint. Fixed so it stays put while a long page scrolls. */
+  :root { --dx-t1-grad: linear-gradient(160deg, #0f172a 0%, #334e73 100%); }
+  .dark { --dx-t1-grad: linear-gradient(160deg, #e6eefb 0%, #9fb6d8 100%); }
   body {
-    @apply bg-canvas dark:bg-navy-950 text-slate-800 dark:text-slate-100 antialiased m-0;
+    @apply text-slate-800 dark:text-slate-100 antialiased m-0;
     /* Slightly tightened tracking and grayscale smoothing — what makes Inter
        read crisp on a plant monitor rather than soft and wide. */
     letter-spacing: -0.011em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background:
+      radial-gradient(820px 380px at 100% -8%, rgba(235,10,30,0.05), transparent 62%),
+      radial-gradient(760px 460px at -6% 112%, rgba(15,31,56,0.05), transparent 60%),
+      linear-gradient(160deg, #f6f8fc 0%, #eef2f8 55%, #f3f1f6 100%);
+    background-attachment: fixed;
+  }
+  .dark body {
+    background:
+      radial-gradient(900px 420px at 100% -8%, rgba(235,10,30,0.10), transparent 62%),
+      radial-gradient(800px 500px at -6% 112%, rgba(37,99,235,0.12), transparent 60%),
+      linear-gradient(160deg, #0a1220 0%, #0c1830 55%, #0a1424 100%);
+    background-attachment: fixed;
   }
   /* Tabular figures so a counter ticking up doesn't jitter its own width,
      and columns of numbers line up on the decimal. */
@@ -80,8 +107,16 @@
   /* A hairline border under the shadow. On a light canvas the shadow alone
      leaves card edges vague; the border defines them without looking boxy. */
   .card {
-    @apply bg-white dark:bg-navy-900 rounded-xl2 border border-slate-200/70 dark:border-navy-800
-           shadow-card transition-all duration-200 ease-enterprise p-5;
+    @apply rounded-xl2 border border-slate-200/70 dark:border-navy-800
+           transition-all duration-200 ease-enterprise p-5;
+    /* Glassy: a faint top-to-bottom gradient + inner highlight so the surface
+       catches light like glass, over a refined low-spread shadow. */
+    background: linear-gradient(162deg, rgba(255,255,255,0.95), rgba(246,249,253,0.86));
+    box-shadow: 0 1px 2px rgba(15,31,56,0.04), 0 10px 24px rgba(15,31,56,0.06), inset 0 1px 0 rgba(255,255,255,0.6);
+  }
+  .dark .card {
+    background: linear-gradient(162deg, rgba(23,40,68,0.9), rgba(14,24,44,0.86));
+    box-shadow: 0 1px 2px rgba(0,0,0,0.25), 0 14px 30px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.05);
   }
   /* Only cards you can actually click should lift. A static card that rises
      under the cursor promises something it won't do. */
@@ -118,18 +153,24 @@
     @apply text-xs text-slate-500 dark:text-slate-400;
   }
   .btn-primary {
-    @apply inline-flex items-center gap-2 bg-navy-900 hover:bg-navy-800 active:bg-navy-950 active:scale-[0.97]
-           text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-150
+    @apply inline-flex items-center gap-2 active:scale-[0.97]
+           text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-150 hover:brightness-[1.08]
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/50 focus-visible:ring-offset-1;
+    background: linear-gradient(160deg, #1d4368, #0f1f38);
+    box-shadow: 0 6px 15px rgba(15,31,56,0.22);
   }
   .btn-secondary {
-    @apply inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 active:scale-[0.97]
-           dark:bg-navy-800 dark:hover:bg-navy-700 dark:active:bg-navy-900
-           text-slate-700 dark:text-slate-100 text-sm font-medium px-4 py-2 rounded-lg transition-all duration-150
+    @apply inline-flex items-center gap-2 active:scale-[0.97] border border-slate-200 dark:border-navy-700
+           text-slate-700 dark:text-slate-100 text-sm font-medium px-4 py-2 rounded-lg transition-all duration-150 hover:brightness-[0.98]
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/40;
+    background: linear-gradient(160deg, #ffffff, #f1f5f9);
+    box-shadow: 0 2px 6px rgba(15,31,56,0.06);
+  }
+  .dark .btn-secondary {
+    background: linear-gradient(160deg, rgba(30,50,84,0.92), rgba(20,34,60,0.92));
   }
   .input-field {
-    @apply w-full rounded-lg border border-slate-300 dark:border-navy-700 bg-white dark:bg-navy-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-toyotared/50 focus:border-toyotared transition;
+    @apply w-full rounded-lg border border-slate-300 dark:border-navy-700 bg-white/90 dark:bg-navy-800/80 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-toyotared/50 focus:border-toyotared transition;
   }
   .badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;

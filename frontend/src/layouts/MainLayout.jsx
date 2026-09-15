@@ -50,7 +50,7 @@ export default function MainLayout() {
       : TITLES[location.pathname] || "Part Store";
 
   return (
-    <div className="min-h-screen flex bg-canvas dark:bg-navy-950">
+    <div className="min-h-screen flex">
       <Sidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
