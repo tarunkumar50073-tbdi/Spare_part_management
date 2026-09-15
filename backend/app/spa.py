@@ -53,5 +53,17 @@ def register_spa(app):
         if path:
             candidate = os.path.join(dist, path)
             if os.path.isfile(candidate):
-                return send_from_directory(dist, path)
-        return send_from_directory(dist, "index.html")
+                resp = send_from_directory(dist, path)
+                # Vite fingerprints its bundles (index-<hash>.js / .css), so the
+                # content behind a given URL never changes — cache them hard.
+                if path.startswith("assets/"):
+                    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return resp
+        # index.html points at the CURRENT bundle hashes, so it must NEVER be
+        # cached — otherwise the browser keeps loading an old build after a new
+        # `npm run build` and the UI looks stale until a manual hard-refresh.
+        resp = send_from_directory(dist, "index.html")
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
