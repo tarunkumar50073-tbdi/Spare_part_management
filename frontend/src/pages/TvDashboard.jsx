@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, BarChart, Bar, Line, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
@@ -209,6 +209,9 @@ export default function TvDashboard() {
   const [hour, setHour] = useState(() => new Date().getHours()); // only for day/night auto — the ticking clock lives in <HeaderClock/> so it doesn't re-render the charts every second
   const [sections, setSections] = useState([]);
   const [sectionId, setSectionId] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+  const menuAnchor = useRef(null);
   const [isFs, setIsFs] = useState(false);
   const [stack, setStack] = useState([]); // Explore-Data drill frames (in-board)
   const [shiftOverride, setShiftOverride] = useState(null); // null = follow the clock; true = day, false = night
@@ -358,7 +361,16 @@ export default function TvDashboard() {
   const erpSyncedAt = erpRows.find((r) => r.erp_synced_at)?.erp_synced_at;
 
   const activeSection = sections.find((s) => s.id === sectionId);
-  const activeName = sectionId === ALL_SECTIONS ? "All Sections" : (activeSection?.name || "—");
+  const nameOf = (id) => (id === ALL_SECTIONS ? "All Sections" : (sections.find((s) => s.id === id)?.name || "—"));
+  const activeName = nameOf(sectionId);
+  // The section list drops from a fixed layer (the header clips overflow), so it
+  // is anchored to the switcher's on-screen position when opened.
+  const toggleSectionMenu = () => {
+    if (menuOpen) { setMenuOpen(false); return; }
+    const r = menuAnchor.current?.getBoundingClientRect();
+    if (r) setMenuPos({ top: r.bottom + 8, left: r.left + r.width / 2 });
+    setMenuOpen(true);
+  };
 
   // Live Alerts — derived from the board's own real spare figures (there is no
   // spare notification feed yet), so the panel always shows what needs eyes.
@@ -458,15 +470,42 @@ export default function TvDashboard() {
           </div>
           {sections.length > 0 && (
             <div className="mt-[0.6vh] flex justify-center">
-              <div className="inline-flex items-center gap-[1vh] rounded-full px-[1.6vh] py-[0.4vh]"
+              <div ref={menuAnchor} className="inline-flex items-center gap-[1vh] rounded-full px-[1.6vh] py-[0.4vh]"
                 style={{ background: "linear-gradient(120deg,rgba(56,189,248,0.22),rgba(37,99,235,0.16))", border: "1px solid rgba(125,195,255,0.5)", boxShadow: "0 0 22px rgba(56,189,248,0.32), inset 0 1px 0 rgba(255,255,255,0.18)" }}>
                 <button onClick={() => cycle(-1)} title="Previous section" className="text-cyan-200/70 hover:text-white text-[2vh] leading-none">‹</button>
-                <div className="flex items-center gap-[0.7vh]">
-                  <span key={String(sectionId)} className="animate-rise text-[1.8vh] font-extrabold text-white tracking-[0.15em] uppercase">{activeName}</span>
-                </div>
+                {/* Tap the name for the full section list; ‹ › still step through. */}
+                <button onClick={toggleSectionMenu} title="Pick a section"
+                  className="flex items-center gap-[0.6vh] animate-rise">
+                  <span key={String(sectionId)} className="text-[1.8vh] font-extrabold text-white tracking-[0.15em] uppercase">{activeName}</span>
+                  <span className={`text-cyan-200/80 text-[1.2vh] leading-none transition-transform ${menuOpen ? "rotate-180" : ""}`}>▾</span>
+                </button>
                 <button onClick={() => cycle(1)} title="Next section" className="text-cyan-200/70 hover:text-white text-[2vh] leading-none">›</button>
               </div>
             </div>
+          )}
+
+          {/* Section list — a fixed layer so the header's overflow can't clip it. */}
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-[60]" onClick={() => setMenuOpen(false)} />
+              <div className="fixed z-[61] -translate-x-1/2 min-w-[26vh] max-h-[70vh] overflow-auto py-[0.6vh] rounded-[1.4vh]"
+                style={{ top: menuPos.top, left: menuPos.left, background: "linear-gradient(135deg,rgba(12,24,48,0.98),rgba(8,16,34,0.98))", border: "1px solid rgba(125,195,255,0.45)", boxShadow: "0 14px 44px rgba(0,0,0,0.55), 0 0 22px rgba(56,189,248,0.28)", backdropFilter: "blur(14px)" }}>
+                {sectionOpts.map((id) => {
+                  const on = id === sectionId;
+                  return (
+                    <button key={String(id)} onClick={() => { setSectionId(id); setMenuOpen(false); }}
+                      className={`w-full text-left px-[1.6vh] py-[0.75vh] text-[1.5vh] font-bold tracking-wide uppercase transition-colors flex items-center gap-[1vh]
+                        ${on ? "text-white" : "text-cyan-100/70 hover:text-white hover:bg-white/10"}`}
+                      style={on ? { background: "linear-gradient(90deg,rgba(56,189,248,0.28),transparent)" } : undefined}>
+                      <span className={`w-[0.8vh] h-[0.8vh] rounded-full shrink-0 ${on ? "bg-emerald-400" : "border border-cyan-200/40"}`}
+                        style={on ? { boxShadow: "0 0 8px #34d399" } : undefined} />
+                      <span className="truncate">{nameOf(id)}</span>
+                      {id === ALL_SECTIONS && <span className="ml-auto text-[1.05vh] text-cyan-200/50 normal-case tracking-normal">combined</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
 
