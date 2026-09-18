@@ -13,6 +13,7 @@ look identical on a screen and mean opposite things.
 """
 from app.extensions import db
 from app.models.gate_entry import GateEntry
+from app.models.receiving_register import ReceivingRegister
 from app.models.srv import SRV
 from app.models.supplier import Supplier
 from app.repositories.part_repository import PartRepository
@@ -204,28 +205,72 @@ class SpareFlowService:
                            reverse=True)
         return arrivals, suppliers
 
-    def _unify_ledger(self, movements, gate_arrivals):
+    def _grn_events(self, part_no):
+        """The GRN / material-received events from the ERP receiving register —
+        what was formally received into stores and how much was accepted vs
+        rejected. Keyed on item_cd = part_no, newest first."""
+        if not part_no:
+            return []
+        rows = (ReceivingRegister.query
+                .filter(db.func.upper(ReceivingRegister.item_cd) == part_no.upper())
+                .order_by(ReceivingRegister.grn_date.desc(), ReceivingRegister.id.desc())
+                .all())
+        out = []
+        for r in rows:
+            accept = r.accept_qty if r.accept_qty is not None else r.receipt_qty
+            reject = float(r.reject_qty) if r.reject_qty is not None else 0.0
+            out.append({
+                "ts": r.grn_date.isoformat() if r.grn_date else None,
+                "grn_no": r.grn_no, "challan_no": r.challan_no, "po_no": r.po_no,
+                "ven_cd": r.ven_cd, "ven_name": (r.ven_name or r.ven_cd),
+                "accept_qty": float(accept) if accept is not None else None,
+                "reject_qty": reject,
+            })
+        return out
+
+    def _unify_ledger(self, movements, gate_arrivals, grn_events):
         """One chronological ledger for the part — every event on one timeline:
-        material arriving from a supplier (ERP gate entry), the opening count,
-        each issue (to which department / person / machine / line), returns and
-        corrections. Newest first. Merges the ERP gate feed with the store's own
-        stock ledger so nothing about the part's life is on a separate screen."""
+        material arriving at the gate, being received into stores (GRN, with
+        accept/reject), the opening count, each issue (to which department /
+        person / machine / line), returns and corrections. Newest first. Merges
+        the ERP gate + GRN feeds with the store's own stock ledger so nothing
+        about the part's life is on a separate screen.
+
+        Gate entry and GRN are two stages of the SAME receipt, so counting both
+        as stock-in would double the received total: where a GRN exists it is the
+        counted "Received", and the gate row is shown only as an "Arrival" marker
+        (direction 'arrival', not summed). A part with no GRN keeps its gate
+        arrivals as the counted inflow, so nothing is lost."""
         sup_ids = {m.supplier_id for m in movements if getattr(m, "supplier_id", None)}
         sup_map = {}
         if sup_ids:
             for s in Supplier.query.filter(Supplier.id.in_(sup_ids)).all():
                 sup_map[s.id] = {"name": s.supplier_name, "code": s.vendor_code}
 
+        has_grn = bool(grn_events)
         entries = []
         for a in gate_arrivals:
             entries.append({
-                "ts": a["gate_entry_dt"], "kind": "GATE_ARRIVAL", "direction": "in",
+                "ts": a["gate_entry_dt"], "kind": "GATE_ARRIVAL",
+                "direction": "arrival" if has_grn else "in",
                 "qty": a["qty"], "balance_after": None,
                 "supplier_name": a["ven_name"], "supplier_code": a["ven_cd"],
                 "reference": a["gate_entry_no"], "po_no": a["po_no"],
                 "invoice_no": a["bill_no"],
                 "department": None, "issued_to": None, "machine": None, "line": None,
                 "remarks": None, "by": None, "status": None,
+            })
+        for g in grn_events:
+            rej = g["reject_qty"]
+            entries.append({
+                "ts": g["ts"], "kind": "RECEIVED", "direction": "in",
+                "qty": g["accept_qty"], "balance_after": None,
+                "supplier_name": g["ven_name"], "supplier_code": g["ven_cd"],
+                "reference": g["grn_no"], "po_no": g["po_no"],
+                "invoice_no": g["challan_no"],
+                "department": None, "issued_to": None, "machine": None, "line": None,
+                "remarks": (f"{int(rej) if rej == int(rej) else rej} rejected" if rej else None),
+                "by": None, "status": None,
             })
         for m in movements:
             delta = float(m.qty_delta)
@@ -271,6 +316,7 @@ class SpareFlowService:
         stock = self.stock_repo.get_by_part(part_id)
         moves = self.ledger_repo.list_for_part(part_id, 25)
         gate_arrivals, gate_suppliers = self._gate_history(part.part_no)
+        grn_events = self._grn_events(part.part_no)
 
         return {
             "part": {
@@ -289,9 +335,10 @@ class SpareFlowService:
             # The full arrival log: when this part came and from whom, each gate
             # entry a row, newest first. Answers "kab-kab, kis-kis se aaya".
             "gate_arrivals": gate_arrivals,
-            # The whole part ledger on one timeline — arrivals + opening + issues
-            # (to dept/person/machine) + returns + corrections, newest first.
-            "ledger": self._unify_ledger(moves, gate_arrivals),
+            # The whole part ledger on one timeline — arrivals + GRN receipts +
+            # opening + issues (to dept/person/machine) + returns + corrections,
+            # newest first.
+            "ledger": self._unify_ledger(moves, gate_arrivals, grn_events),
             "receipts": [{
                 "srv_no": s.srv_no,
                 "supplier_name": s.supplier_name or s.vendor_code,

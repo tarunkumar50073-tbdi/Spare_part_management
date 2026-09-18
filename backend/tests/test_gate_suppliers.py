@@ -109,3 +109,33 @@ def test_part_ledger_merges_arrivals_opening_and_issue():
 
     opening = next(e for e in led if e["kind"] == "OPENING")
     assert opening["direction"] == "count"
+
+
+def test_ledger_grn_received_and_gate_becomes_arrival():
+    """GRN and gate entry are the same receipt at two stages. Where a GRN exists
+    it is the counted "Received" (accept qty, with reject noted) and the gate row
+    is demoted to a non-counted "Arrival", so the received total is not doubled."""
+    from app.models.receiving_register import ReceivingRegister
+    p = _part("GSUP-0006")
+    _gate("GSUP-0006", "VD-0002", "D.S TOOLS & MILL STORE", date(2026, 6, 16), 50)
+    db.session.add(ReceivingRegister(
+        store_code="MAINTENANCE", item_cd="GSUP-0006", grn_no="IN-TEST-1",
+        grn_date=date(2026, 6, 16), ven_cd="VD-0002", ven_name="D.S TOOLS & MILL STORE",
+        receipt_qty=50, accept_qty=48, reject_qty=2))
+    db.session.commit()
+
+    led = SpareFlowService().traceability(p.id)["ledger"]
+    grn = next(e for e in led if e["kind"] == "RECEIVED")
+    assert grn["direction"] == "in"
+    assert grn["qty"] == 48.0
+    assert grn["reference"] == "IN-TEST-1"
+    assert "reject" in (grn["remarks"] or "").lower()
+    arr = next(e for e in led if e["kind"] == "GATE_ARRIVAL")
+    assert arr["direction"] == "arrival"          # demoted — GRN carries the count
+
+
+def test_ledger_gate_counts_when_no_grn():
+    p = _part("GSUP-0007")
+    _gate("GSUP-0007", "VG-0005", "GROWTECH ENGINEERS", date(2026, 7, 1), 5)
+    arr = next(e for e in SpareFlowService().traceability(p.id)["ledger"] if e["kind"] == "GATE_ARRIVAL")
+    assert arr["direction"] == "in"               # no GRN, so the gate arrival is the inflow
