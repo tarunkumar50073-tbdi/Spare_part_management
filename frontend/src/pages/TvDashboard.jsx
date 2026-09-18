@@ -813,6 +813,9 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const rows = frame.rows || [];
   const valueOf = frame.valueOf || ((r) => r.qty_on_hand || 0);
   const fmtV = frame.valueFmt || fmtInt;
+  // The table always shows Stock; a 2nd value column only when the frame carries
+  // a DIFFERENT measure (Value ₹, Short by, Excess by), never a duplicate "Stock".
+  const showValue = Boolean(frame.valueLabel) && frame.valueLabel !== "Stock";
   // Tap a "Parts by type" bar to filter the list to that type (how many die
   // parts, how many sensors…). Cleared whenever the data reloads.
   const [pick, setPick] = useState(null);
@@ -880,7 +883,8 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
               <th className="py-[0.7vh] pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
-              <th className="pr-[1vh] text-center">Stock</th><th className="pr-[1vh] text-center">{frame.valueLabel || "Value"}</th>
+              <th className="pr-[1vh] text-center">Stock</th>
+              {showValue && <th className="pr-[1vh] text-center">{frame.valueLabel}</th>}
               <th className="pr-[1vh]">Status</th>
             </tr>
           </thead>
@@ -890,11 +894,11 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <td className="py-[0.9vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[24vh]">{r.part_name}</td>
                 <td className="pr-[1vh] text-center">{fmtInt(r.qty_on_hand)}</td>
-                <td className="pr-[1vh] text-center font-semibold text-[var(--dx-t1)]">{fmtV(valueOf(r))}</td>
+                {showValue && <td className="pr-[1vh] text-center font-semibold text-[var(--dx-t1)]">{fmtV(valueOf(r))}</td>}
                 <td className="pr-[1vh]"><StatusPill status={r.status} /></td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={5} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{pick ? `No ${pick} parts` : "No parts in this section"}</td></tr>}
+            {!shown.length && <tr><td colSpan={showValue ? 5 : 4} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{pick ? `No ${pick} parts` : "No parts in this section"}</td></tr>}
           </tbody>
         </table>
       </Card>
