@@ -839,7 +839,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
         <div className="flex-1 min-h-[36vh]">
           {chartData.length ? (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart layout="vertical" data={chartData} margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+              <BarChart layout="vertical" data={chartData} margin={{ left: 8, right: 24, top: 4, bottom: 4 }} accessibilityLayer={false}>
                 <defs>
                   <linearGradient id="dg-hblue" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#60a5fa" /><stop offset="1" stopColor="#2563eb" /></linearGradient>
                 </defs>

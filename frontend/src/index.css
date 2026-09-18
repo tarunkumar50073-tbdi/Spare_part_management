@@ -101,17 +101,19 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
-  /* Clicking a chart bar focuses the SVG surface, and the browser then draws a
-     box around the whole plot area. The selection is already shown by colour,
-     so suppress that stray outline on any Recharts chart. */
-  .recharts-wrapper:focus,
-  .recharts-wrapper:focus-visible,
-  .recharts-surface:focus,
-  .recharts-surface:focus-visible,
-  .recharts-surface *:focus,
-  .recharts-surface *:focus-visible {
-    outline: none;
-  }
+}
+
+/* Unlayered so it beats any layered rule: clicking a chart bar focuses the
+   Recharts SVG (v3's accessibility layer makes it focusable) and the browser
+   draws a box around the whole plot area. The selection reads from colour, so
+   kill that outline on every Recharts chart. */
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-wrapper :focus,
+.recharts-wrapper :focus-visible,
+.recharts-surface:focus,
+.recharts-surface:focus-visible {
+  outline: none !important;
 }
 
 @layer components {
