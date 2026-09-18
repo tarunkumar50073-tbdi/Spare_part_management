@@ -15,6 +15,8 @@ import { storeService } from "../services/storeService.js";
 // single-store (Spare) board. Real figures come from the spare-stock API; the
 // header switches between the store's sections (auto-rotating on the wall).
 const REFRESH_MS = 30000;
+// Sentinel section: the combined view over the whole store (no section filter).
+const ALL_SECTIONS = "ALL";
 
 const C = {
   blue: "#2563eb", green: "#059669", red: "#dc2626", amber: "#d97706",
@@ -241,16 +243,14 @@ export default function TvDashboard() {
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  // land on the first section, never a stale id
+  // Land on the combined "All Sections" view, and never hold a stale section id.
   useEffect(() => {
-    setSectionId((cur) => {
-      if (sections.length && (cur == null || !sections.some((s) => s.id === cur))) return sections[0].id;
-      return cur;
-    });
+    setSectionId((cur) => (cur === ALL_SECTIONS || sections.some((s) => s.id === cur)) ? cur : ALL_SECTIONS);
   }, [sections]);
 
-  // Sections change only when someone taps ‹ / › — no auto-rotation.
-  const sectionOpts = useMemo(() => sections.map((s) => s.id), [sections]);
+  // Sections change only when someone taps ‹ / › — no auto-rotation. "All
+  // Sections" leads, so the wall shows the whole store first, then each section.
+  const sectionOpts = useMemo(() => [ALL_SECTIONS, ...sections.map((s) => s.id)], [sections]);
 
   // Section-scoped data — refetched ONLY when the section changes, kept light (6
   // calls) so switching sections is snappy. Waits for the first section to be
@@ -260,7 +260,8 @@ export default function TvDashboard() {
     let alive = true;
     const g = (pr) => pr.then((r) => r.data.data).catch(() => null);
     const load = async () => {
-      const sec = sectionId;
+      // Combined view: no section filter, so every call returns the whole store.
+      const sec = sectionId === ALL_SECTIONS ? undefined : sectionId;
       const [sum, ana, today, list, monthly, dept] = await Promise.all([
         g(spareStockService.summary("MAINTENANCE", sec)),
         g(spareStockService.analytics("MAINTENANCE", sec)),
@@ -357,7 +358,7 @@ export default function TvDashboard() {
   const erpSyncedAt = erpRows.find((r) => r.erp_synced_at)?.erp_synced_at;
 
   const activeSection = sections.find((s) => s.id === sectionId);
-  const activeName = activeSection?.name || sections[0]?.name || "—";
+  const activeName = sectionId === ALL_SECTIONS ? "All Sections" : (activeSection?.name || "—");
 
   // Live Alerts — derived from the board's own real spare figures (there is no
   // spare notification feed yet), so the panel always shows what needs eyes.
