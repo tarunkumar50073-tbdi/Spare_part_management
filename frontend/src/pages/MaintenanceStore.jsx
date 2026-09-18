@@ -662,6 +662,14 @@ const fmtStamp = (iso) => {
   });
 };
 
+// Date-only (gate-entry date carries no time), so fmtStamp's 00:00 is dropped.
+const fmtDate = (iso) => {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+  });
+};
+
 const ACTIVITY_COLUMNS = [
   { key: "at", label: "Time", sortable: true, render: (r) => <span className="tabular">{fmtStamp(r.at)}</span> },
   {
@@ -765,10 +773,35 @@ function Traceability({ part, onClose }) {
         <p className="text-sm text-slate-400">Could not load this part&apos;s history.</p>
       ) : (
         <ol className="pt-1">
-          <TraceStep emoji="🏭" label="Supplier" done={Boolean(receipt?.supplier_name || data.part.supplier_id)}>
-            {receipt?.supplier_name || (data.part.supplier_id
-              ? `Supplier #${data.part.supplier_id}`
-              : <span className="text-slate-400">No supplier mapped to this part yet</span>)}
+          <TraceStep emoji="🏭" label="Supplier"
+            done={(data.gate_suppliers?.length > 0) || Boolean(receipt?.supplier_name || data.part.supplier_id)}>
+            {data.gate_suppliers?.length > 0 ? (
+              <div className="space-y-1">
+                {data.gate_suppliers.map((s, i) => (
+                  <div key={i} className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      {s.ven_name || s.ven_cd}
+                    </span>
+                    {s.ven_cd && <span className="text-slate-400 tabular">{s.ven_cd}</span>}
+                    <span className="text-slate-400">
+                      · {s.arrivals} arrival{s.arrivals === 1 ? "" : "s"}
+                      {s.last_dt ? ` · last ${fmtDate(s.last_dt)}` : ""}
+                    </span>
+                  </div>
+                ))}
+                <p className="text-[10px] text-slate-400">
+                  {data.gate_suppliers.length > 1
+                    ? "Multiple suppliers — read live from ERP gate entries (item_code)"
+                    : "From ERP gate entries (item_code) — a part can come from several suppliers"}
+                </p>
+              </div>
+            ) : receipt?.supplier_name ? (
+              receipt.supplier_name
+            ) : data.part.supplier_id ? (
+              `Supplier #${data.part.supplier_id}`
+            ) : (
+              <span className="text-slate-400">No gate entry recorded for this part yet</span>
+            )}
           </TraceStep>
           <TraceStep emoji="🧾" label="Invoice" done={Boolean(receipt?.invoice_no)}>
             {receipt?.invoice_no || none}

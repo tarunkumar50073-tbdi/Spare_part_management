@@ -11,6 +11,8 @@ be: see NOT_CAPTURED. Nothing here invents a count to fill a gap — a stage wit
 no source reports that it has none, because a fabricated zero and a real zero
 look identical on a screen and mean opposite things.
 """
+from app.extensions import db
+from app.models.gate_entry import GateEntry
 from app.models.srv import SRV
 from app.repositories.part_repository import PartRepository
 from app.repositories.spare_stock_repository import (
@@ -149,6 +151,43 @@ class SpareFlowService:
             "status": s.status,
         } for s in self.srv_repo.list_for_store_by_statuses(store_code, statuses, limit)]
 
+    def _gate_suppliers(self, part_no):
+        """Who has actually supplied this part, read live from ERP gate entries.
+
+        A part is not tied to one supplier — the same item_code arrives from
+        several vendors over time (e.g. a taper pin from three traders). Its
+        identity is the part_no (= ERP item_code); the suppliers are whoever the
+        gate entries say brought it. So this is derived, never stored: match on
+        item_code and group by vendor, newest arrival first."""
+        if not part_no:
+            return []
+        rows = (GateEntry.query
+                .filter(db.func.upper(GateEntry.item_code) == part_no.upper())
+                .order_by(GateEntry.gate_entry_dt.desc(), GateEntry.id.desc())
+                .all())
+        agg = {}
+        for r in rows:
+            key = (r.ven_cd or r.ven_name or "").strip() or "—"
+            a = agg.get(key)
+            if a is None:
+                a = agg[key] = {
+                    "ven_cd": r.ven_cd, "ven_name": (r.ven_name or r.ven_cd),
+                    "arrivals": 0, "total_qty": 0.0,
+                    "first_dt": None, "last_dt": None,
+                }
+            a["arrivals"] += 1
+            if r.qty is not None:
+                a["total_qty"] += float(r.qty)
+            dt = r.gate_entry_dt.isoformat() if r.gate_entry_dt else None
+            if dt:
+                if a["last_dt"] is None or dt > a["last_dt"]:
+                    a["last_dt"] = dt
+                if a["first_dt"] is None or dt < a["first_dt"]:
+                    a["first_dt"] = dt
+        return sorted(agg.values(),
+                      key=lambda x: (x["last_dt"] or "", x["arrivals"]),
+                      reverse=True)
+
     def traceability(self, part_id):
         """One part's chain, end to end. Each step says whether it has data —
         an empty step is shown as "nothing recorded", never skipped, because a
@@ -168,10 +207,13 @@ class SpareFlowService:
                 "min_stock_level": float(part.min_stock_level or 0),
                 "max_stock_level": float(part.max_stock_level) if part.max_stock_level is not None else None,
                 "unit_price": float(part.unit_price) if part.unit_price is not None else None,
-                # Every spare is currently unmapped to a supplier, so this is
-                # usually None. Said plainly rather than left blank.
+                # A part is not tied to one supplier — see gate_suppliers below,
+                # which is the live list. This stays only as an optional default.
                 "supplier_id": part.supplier_id,
             },
+            # Suppliers derived live from ERP gate entries (item_code match) —
+            # a part can have several, so this is a list, newest arrival first.
+            "gate_suppliers": self._gate_suppliers(part.part_no),
             "receipts": [{
                 "srv_no": s.srv_no,
                 "supplier_name": s.supplier_name or s.vendor_code,
