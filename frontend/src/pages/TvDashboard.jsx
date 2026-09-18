@@ -768,6 +768,10 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const rows = frame.rows || [];
   const valueOf = frame.valueOf || ((r) => r.qty_on_hand || 0);
   const fmtV = frame.valueFmt || fmtInt;
+  // Tap a "Parts by type" bar to filter the list to that type (how many die
+  // parts, how many sensors…). Cleared whenever the data reloads.
+  const [pick, setPick] = useState(null);
+  useEffect(() => { setPick(null); }, [rows]);
   const top = rows.slice().sort((a, b) => (valueOf(b) || 0) - (valueOf(a) || 0)).slice(0, 10)
     .map((r) => ({ name: r.part_no, value: Math.round(valueOf(r) || 0) }));
   const byType = (() => {
@@ -775,8 +779,19 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
     rows.forEach((r) => { const c = r.sub_category || "Others"; by[c] = (by[c] || 0) + 1; });
     return Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, value]) => ({ name, value }));
   })();
-  const chartData = frame.chart === "byType" ? byType : top;
-  const chartTitle = frame.chart === "byType" ? "Parts by type" : `Top 10 by ${frame.valueLabel || "Stock"}`;
+  const isByType = frame.chart === "byType";
+  const chartData = isByType ? byType : top;
+  const chartTitle = isByType ? "Parts by type" : `Top 10 by ${frame.valueLabel || "Stock"}`;
+  // The bar is a COUNT of parts on the by-type chart, a stock figure on the
+  // top-10 — so the tooltip says which, instead of a bare "value".
+  const unit = isByType ? "Parts" : (frame.valueLabel || "Qty");
+  const shown = pick ? rows.filter((r) => (r.sub_category || "Others") === pick) : rows;
+  const onBarClick = (d) => {
+    const name = d && (d.name ?? d.payload?.name);
+    if (!name) return;
+    if (isByType) setPick((p) => (p === name ? null : name));
+    else { const r = rows.find((x) => x.part_no === name); if (r) onOpen(r); }
+  };
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh] h-full">
       <Card className="p-[1.6vh] flex flex-col">
@@ -789,17 +804,33 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                   <linearGradient id="dg-hblue" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#60a5fa" /><stop offset="1" stopColor="#2563eb" /></linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={grid} />
-                <XAxis type="number" tick={{ fontSize: 12, fill: axis }} />
+                <XAxis type="number" tick={{ fontSize: 12, fill: axis }} allowDecimals={false} />
                 <YAxis type="category" dataKey="name" width={92} tick={{ fontSize: 12, fill: axis }} />
-                <Tooltip />
-                <Bar dataKey="value" fill="url(#dg-hblue)" radius={[0, 6, 6, 0]} barSize={16} />
+                <Tooltip formatter={(v) => [fmtInt(v), unit]} cursor={{ fill: "var(--dx-track)" }} />
+                <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={16} cursor="pointer" onClick={onBarClick}>
+                  {chartData.map((d, i) => (
+                    <Cell key={i} fill={pick && d.name === pick ? "#1e3a8a" : "url(#dg-hblue)"} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           ) : <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No parts</div>}
         </div>
       </Card>
       <Card className="p-[1.6vh] overflow-auto">
-        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{rows.length} parts · tap a row for its history</h3>
+        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh] flex items-center gap-[1vh] flex-wrap">
+          {pick ? (
+            <>
+              <span>{shown.length} × {pick}</span>
+              <button onClick={() => setPick(null)}
+                className="text-[1.2vh] px-[1vh] py-[0.3vh] rounded-full bg-[var(--dx-track)] text-[var(--dx-t4)] hover:text-[var(--dx-t1)] transition-colors">
+                ✕ clear
+              </button>
+            </>
+          ) : (
+            <span>{rows.length} parts · tap a bar to filter · tap a row for history</span>
+          )}
+        </h3>
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
@@ -809,7 +840,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--dx-divide)]">
-            {rows.map((r) => (
+            {shown.map((r) => (
               <tr key={r.part_id} onClick={() => onOpen(r)} className="cursor-pointer hover:bg-[var(--dx-track)] transition-colors">
                 <td className="py-[0.9vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[24vh]">{r.part_name}</td>
@@ -818,7 +849,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <td className="pr-[1vh]"><StatusPill status={r.status} /></td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={5} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">No parts in this section</td></tr>}
+            {!shown.length && <tr><td colSpan={5} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{pick ? `No ${pick} parts` : "No parts in this section"}</td></tr>}
           </tbody>
         </table>
       </Card>
