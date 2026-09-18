@@ -212,6 +212,11 @@ def _patch_schema():
             db.session.execute(text(f"ALTER TABLE parts ADD COLUMN {col} NUMERIC(14, 2)"))
             db.session.commit()
 
+    # Spare reorder point (part-master REORDER column) — order when stock hits it.
+    if "reorder_level" not in part_cols:
+        db.session.execute(text("ALTER TABLE parts ADD COLUMN reorder_level NUMERIC(12, 2)"))
+        db.session.commit()
+
     srv_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(srvs)")).fetchall()]
     if srv_cols and "gate_out_time" not in srv_cols:
         db.session.execute(text("ALTER TABLE srvs ADD COLUMN gate_out_time DATETIME"))

@@ -253,6 +253,7 @@ function SparePartDetail({ part, onClose, onTrace }) {
                   : null}
               />
               <DetailRow label="Minimum Stock" value={num(part.min_stock_level)} />
+              <DetailRow label="Reorder Level" value={part.reorder_level == null ? null : num(part.reorder_level)} />
               <DetailRow label="Maximum Stock" value={part.max_stock_level == null ? null : num(part.max_stock_level)} />
               <DetailRow label="Rate" value={part.unit_price == null ? null : money(part.unit_price)} />
               <DetailRow label="UOM" value={part.uom} />
@@ -436,6 +437,7 @@ function useSpareOps(enabled = true) {
 const STOCK_STATUS_TONE = {
   "Out of Stock": "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
   "Below Minimum": "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
+  "Reorder": "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300",
   "Above Maximum": "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
   "Healthy": "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
   "Not Counted": "bg-slate-100 text-slate-500 dark:bg-navy-800 dark:text-slate-400",
@@ -471,6 +473,7 @@ const BELOW_MIN_COLUMNS = [
 const ACTION_TONE = {
   red: "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300",
   amber: "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-300",
+  orange: "bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/30 text-orange-700 dark:text-orange-300",
   blue: "bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30 text-blue-700 dark:text-blue-300",
   violet: "bg-violet-50 dark:bg-violet-500/10 border-violet-200 dark:border-violet-500/30 text-violet-700 dark:text-violet-300",
   slate: "bg-slate-50 dark:bg-navy-800 border-slate-200 dark:border-navy-700 text-slate-600 dark:text-slate-300",
@@ -511,6 +514,7 @@ function MinMaxBar({ row }) {
   const fill = {
     "Out of Stock": "bg-rose-500",
     "Below Minimum": "bg-amber-500",
+    "Reorder": "bg-orange-500",
     "Above Maximum": "bg-blue-500",
   }[row.status] || "bg-emerald-500";
 
@@ -1228,7 +1232,7 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
   }, [ops]);
 
   const bandRows = useMemo(() => {
-    const severity = { "Out of Stock": 0, "Below Minimum": 1, "Above Maximum": 2, "Healthy": 3 };
+    const severity = { "Out of Stock": 0, "Below Minimum": 1, "Reorder": 2, "Above Maximum": 3, "Healthy": 4 };
     return [...counted]
       .sort((a, b) => (severity[a.status] ?? 9) - (severity[b.status] ?? 9)
         || (b.unit_price || 0) - (a.unit_price || 0))
@@ -1354,15 +1358,19 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
               </div>
             </div>
           ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
             <ActionTile tone="red" emoji="🚨" label="Zero Stock" value={stock.out_of_stock}
               hint="Counted and found empty"
               onClick={() => setDrill(stockDrill("Zero Stock", "Counted, and nothing on the shelf",
                 byStatus("Out of Stock"), "spares_zero_stock"))} />
             <ActionTile tone="amber" emoji="⚠️" label="Below Minimum" value={stock.below_minimum}
-              hint="Reorder before they run out"
+              hint="Under the minimum — order now"
               onClick={() => setDrill(stockDrill("Below Minimum", "In stock has fallen under the minimum",
                 byStatus("Below Minimum"), "spares_below_minimum"))} />
+            <ActionTile tone="orange" emoji="🛒" label="Reorder" value={stock.reorder}
+              hint="At/below reorder level"
+              onClick={() => setDrill(stockDrill("Reorder", "At or below the reorder level — time to order",
+                byStatus("Reorder"), "spares_reorder"))} />
             <ActionTile tone="blue" emoji="📈" label="Excess Parts" value={ops.excess.length}
               hint="Money tied up on the shelf"
               onClick={() => setDrill({
@@ -1424,7 +1432,7 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
               <DonutChart
                 data={ops.analytics.status_distribution}
                 colors={{
-                  "Healthy": "#10b981", "Below Minimum": "#f59e0b",
+                  "Healthy": "#10b981", "Below Minimum": "#f59e0b", "Reorder": "#f97316",
                   "Above Maximum": "#3b82f6", "Zero Stock": "#f43f5e",
                 }}
                 size={128}

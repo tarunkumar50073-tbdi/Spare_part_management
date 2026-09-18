@@ -24,6 +24,9 @@ class Part(BaseModel):
 
     min_stock_level = db.Column(db.Numeric(12, 2), nullable=False, default=0)
     max_stock_level = db.Column(db.Numeric(12, 2), nullable=True)
+    # The reorder point — order when stock reaches this, between min and max.
+    # Nullable: a part may have no reorder trigger set.
+    reorder_level = db.Column(db.Numeric(12, 2), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
 
     # COV (Cover Days) planning — Short/Excess is judged against these.

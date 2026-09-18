@@ -190,6 +190,41 @@ def test_reorder_list_suggests_qty_up_to_max():
     assert mine[0]["status"] == "Below Minimum"
 
 
+def test_reorder_level_triggers_reorder_status_above_minimum():
+    """At/below the reorder level but still above minimum -> a "Reorder" status
+    (a step short of critical), and it enters the reorder feed refilling to max."""
+    svc = SpareStockService()
+    _seq["n"] += 1
+    p = Part(part_no=f"ROL-{_seq['n']}", part_name="Reorder Level Part", uom="NO",
+             part_type="OTHER", store_code="MAINTENANCE",
+             min_stock_level=10, reorder_level=20, max_stock_level=30)
+    db.session.add(p); db.session.commit()
+    _set_physical(p.id, 15)  # above min (10), at/below reorder level (20)
+
+    mine = next(r for r in svc.list_stock("MAINTENANCE") if r["part_no"] == p.part_no)
+    assert mine["status"] == "Reorder"
+    assert mine["reorder_level"] == 20
+
+    item = next(r for r in svc.reorder_list("MAINTENANCE")["items"] if r["part_no"] == p.part_no)
+    assert item["reorder_qty"] == 15  # 30 - 15
+
+    summ = svc.get_summary("MAINTENANCE")
+    assert summ["reorder"] >= 1 and summ["needs_reordering"] >= 1
+
+
+def test_below_minimum_beats_reorder_when_under_min():
+    """Precedence: under the minimum stays Below Minimum even with a reorder level set."""
+    svc = SpareStockService()
+    _seq["n"] += 1
+    p = Part(part_no=f"ROL2-{_seq['n']}", part_name="Critical Part", uom="NO",
+             part_type="OTHER", store_code="MAINTENANCE",
+             min_stock_level=10, reorder_level=20, max_stock_level=30)
+    db.session.add(p); db.session.commit()
+    _set_physical(p.id, 8)  # under the minimum
+    mine = next(r for r in svc.list_stock("MAINTENANCE") if r["part_no"] == p.part_no)
+    assert mine["status"] == "Below Minimum"
+
+
 def test_consumption_trend_has_a_point_per_day_and_counts_issue():
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 50)

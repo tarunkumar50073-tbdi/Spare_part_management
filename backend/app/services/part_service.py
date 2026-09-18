@@ -18,6 +18,7 @@ FIELD_ALIASES = {
     "barcode": {"barcode", "qrcode", "scancode"},
     "part_type": {"parttype", "routing", "materialrouting"},
     "min_stock_level": {"minstocklevel", "minstock", "min"},
+    "reorder_level": {"reorder", "reorderlevel", "reorderpoint", "reorderqty", "reoder", "reoderlevel"},
     "max_stock_level": {"maxstocklevel", "maxstock", "max"},
     "category": {"category"},
     "sub_category": {"subcategory"},
@@ -37,7 +38,7 @@ FIELD_ALIASES = {
 REQUIRED_FIELDS = ["part_no", "part_name"]
 
 TEMPLATE_COLUMNS = [
-    "Part No", "Part Name", "UOM", "Barcode", "Part Type (DOL/OTHER)", "Min Stock Level", "Max Stock Level",
+    "Part No", "Part Name", "UOM", "Barcode", "Part Type (DOL/OTHER)", "Min Stock Level", "Reorder Level", "Max Stock Level",
     "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "New Part No", "Old Part No", "Package Standard",
     "Supplier Code", "Daily Consumption", "Unit Price", "Location", "Rework Location",
 ]
@@ -45,7 +46,7 @@ TEMPLATE_COLUMNS = [
 EXPORT_COLUMNS = [
     ("Part No", "part_no"), ("Part Name", "part_name"), ("UOM", "uom"), ("Barcode", "barcode"),
     ("Part Type", "part_type"), ("Min Stock Level", "min_stock_level"),
-    ("Max Stock Level", "max_stock_level"), ("Status", "status_label"),
+    ("Reorder Level", "reorder_level"), ("Max Stock Level", "max_stock_level"), ("Status", "status_label"),
     ("Category", "category"), ("Sub Category", "sub_category"),
     ("New Part No", "new_part_no"), ("Old Part No", "old_part_no"), ("Package Standard", "package_standard"),
     ("Supplier Code", "supplier_code"), ("Daily Consumption", "daily_consumption"), ("Unit Price", "unit_price"),
@@ -177,6 +178,7 @@ class PartService:
                 "uom": to_text(raw_row.get("uom"), "PCS") or "PCS",
                 "barcode": to_text(raw_row.get("barcode"), "") or None,
                 "min_stock_level": to_number(raw_row.get("min_stock_level"), None),
+                "reorder_level": to_number(raw_row.get("reorder_level"), None),
                 "max_stock_level": to_number(raw_row.get("max_stock_level"), None),
                 "category": category,
                 "sub_category": to_text(raw_row.get("sub_category"), "") or None,
@@ -313,6 +315,7 @@ class PartService:
                 "barcode": part.barcode or "",
                 "part_type": part.part_type,
                 "min_stock_level": float(part.min_stock_level or 0),
+                "reorder_level": float(part.reorder_level) if part.reorder_level is not None else "",
                 "max_stock_level": float(part.max_stock_level) if part.max_stock_level is not None else "",
                 "status_label": "Active" if part.is_active else "Inactive",
                 "category": part.category or "", "sub_category": part.sub_category or "",

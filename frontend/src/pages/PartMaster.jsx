@@ -18,7 +18,7 @@ import { downloadFile } from "../utils/download.js";
 
 const EMPTY_FORM = {
   part_no: "", part_name: "", uom: "PCS", barcode: "", part_type: "OTHER",
-  min_stock_level: 0, max_stock_level: "", is_active: true,
+  min_stock_level: 0, reorder_level: "", max_stock_level: "", is_active: true,
   category: "", sub_category: "", new_part_no: "", old_part_no: "",
   package_standard: "", supplier_id: "", daily_consumption: "", unit_price: "",
   // Without these two the create form could not say which store a part
@@ -144,6 +144,7 @@ export default function PartMaster() {
       barcode: row.barcode ?? "",
       part_type: row.part_type,
       min_stock_level: row.min_stock_level,
+      reorder_level: row.reorder_level ?? "",
       max_stock_level: row.max_stock_level ?? "",
       is_active: row.is_active,
       category: row.category ?? "",
@@ -167,6 +168,7 @@ export default function PartMaster() {
       ...form,
       barcode: form.barcode.trim() === "" ? null : form.barcode.trim(),
       min_stock_level: Number(form.min_stock_level) || 0,
+      reorder_level: form.reorder_level === "" ? null : Number(form.reorder_level),
       max_stock_level: form.max_stock_level === "" ? null : Number(form.max_stock_level),
       category: form.category || null,
       sub_category: form.sub_category.trim() === "" ? null : form.sub_category.trim(),
@@ -588,7 +590,7 @@ export default function PartMaster() {
               <option value="TOOL_ROOM">Tool Room</option>
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-medium text-slate-500">Min Stock Level</label>
               <input
@@ -596,6 +598,16 @@ export default function PartMaster() {
                 className="input-field mt-1"
                 value={form.min_stock_level}
                 onChange={(e) => setForm({ ...form, min_stock_level: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500">Reorder Level</label>
+              <input
+                type="number" step="0.01"
+                className="input-field mt-1"
+                value={form.reorder_level}
+                placeholder="Order at"
+                onChange={(e) => setForm({ ...form, reorder_level: e.target.value })}
               />
             </div>
             <div>

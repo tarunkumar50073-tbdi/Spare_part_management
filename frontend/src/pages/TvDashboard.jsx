@@ -382,6 +382,9 @@ export default function TvDashboard() {
     onClick: () => openStack({ kind: "partList", title: "Out of Stock", rows: rows.filter((r) => r.status === "Out of Stock"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand }) });
   if (belowMin) liveAlerts.push({ color: C.red, text: `${belowMin} part${belowMin > 1 ? "s" : ""} below minimum`,
     onClick: () => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)) }) });
+  const reorderN = dist["Reorder"] || 0;
+  if (reorderN) liveAlerts.push({ color: "#f97316", text: `${reorderN} part${reorderN > 1 ? "s" : ""} at reorder level`,
+    onClick: () => openStack({ kind: "partList", title: "Reorder", rows: rows.filter((r) => r.status === "Reorder"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand }) });
   if (excess) liveAlerts.push({ color: C.amber, text: `${excess} part${excess > 1 ? "s" : ""} above maximum (excess)`,
     onClick: () => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess by", valueOf: (r) => Math.max(0, (r.qty_on_hand || 0) - (r.max_stock_level || 0)) }) });
   if (pendingCount) liveAlerts.push({ color: C.purple, text: `${pendingCount} issue${pendingCount > 1 ? "s" : ""} awaiting user confirmation` });
@@ -789,10 +792,12 @@ function typeStyle(t) {
 }
 function StatusPill({ status }) {
   const red = status === "Below Minimum" || status === "Out of Stock";
+  const reorder = status === "Reorder";
   const amber = status === "Above Maximum";
   const c = red ? { background: "rgba(244,63,94,0.16)", color: "var(--pill-red)" }
-    : amber ? { background: "rgba(245,158,11,0.18)", color: "var(--pill-amber)" }
-      : { background: "rgba(16,185,129,0.18)", color: "var(--pill-green)" };
+    : reorder ? { background: "rgba(249,115,22,0.18)", color: "#fb923c" }
+      : amber ? { background: "rgba(245,158,11,0.18)", color: "var(--pill-amber)" }
+        : { background: "rgba(16,185,129,0.18)", color: "var(--pill-green)" };
   return <span className="rounded-full px-[1vh] py-[0.2vh] text-[1.2vh] font-bold whitespace-nowrap" style={c}>{status || "—"}</span>;
 }
 function Stat({ label, value }) {

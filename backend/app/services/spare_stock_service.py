@@ -37,7 +37,8 @@ TEMPLATE_COLUMNS = ["Part No", "Part Name", "Qty On Hand"]
 
 EXPORT_COLUMNS = [
     ("Part No", "part_no"), ("Part Name", "part_name"), ("Location", "location"),
-    ("Qty On Hand", "qty_on_hand"), ("Min", "min_stock_level"), ("Max", "max_stock_level"),
+    ("Qty On Hand", "qty_on_hand"), ("Min", "min_stock_level"),
+    ("Reorder Level", "reorder_level"), ("Max", "max_stock_level"),
     ("Shortfall", "shortfall"), ("Rate", "unit_price"), ("Stock Value", "stock_value"),
     ("Status", "status"), ("Last Counted", "last_counted_at"),
 ]
@@ -344,6 +345,7 @@ class SpareStockService:
         qty = float(stock.qty_on_hand) if stock and stock.qty_on_hand is not None else None
         minimum = float(part.min_stock_level or 0)
         maximum = float(part.max_stock_level) if part.max_stock_level is not None else None
+        reorder = float(part.reorder_level) if part.reorder_level is not None else None
         rate = float(part.unit_price) if part.unit_price is not None else None
 
         if qty is None:
@@ -352,6 +354,10 @@ class SpareStockService:
             status = "Out of Stock"
         elif minimum > 0 and qty < minimum:
             status = "Below Minimum"
+        # Reorder point sits between min and max: at/below it (but still above the
+        # minimum) means "time to order", a step short of critical.
+        elif reorder is not None and reorder > 0 and qty <= reorder:
+            status = "Reorder"
         elif maximum and qty > maximum:
             status = "Above Maximum"
         else:
@@ -370,6 +376,7 @@ class SpareStockService:
             "category": part.category, "sub_category": part.sub_category,
             "qty_on_hand": qty,
             "min_stock_level": minimum,
+            "reorder_level": reorder,
             "max_stock_level": maximum,
             # What it would take to get back to the maximum — the reorder
             # quantity, once anyone wants to raise one.
@@ -451,15 +458,26 @@ class SpareStockService:
             "valued_parts": len(valued),
             "out_of_stock": sum(1 for r in counted if r["status"] == "Out of Stock"),
             "below_minimum": sum(1 for r in counted if r["status"] == "Below Minimum"),
+            "reorder": sum(1 for r in counted if r["status"] == "Reorder"),
             "above_maximum": sum(1 for r in counted if r["status"] == "Above Maximum"),
             "healthy": sum(1 for r in counted if r["status"] == "Healthy"),
+            # Everything that needs a purchase order raised — the single "to order" figure.
+            "needs_reordering": sum(1 for r in counted
+                                    if r["status"] in ("Out of Stock", "Below Minimum", "Reorder")),
         }
 
     def list_below_minimum(self, store_code, limit=None, section_id=None):
+        # The reorder feed: empty and below minimum are critical, and a part at or
+        # below its reorder level is due for a PO even while still above minimum.
+        order = {"Out of Stock": 0, "Below Minimum": 1, "Reorder": 2}
         rows = [r for r in self.list_stock(store_code, section_id)
-                if r["status"] in ("Out of Stock", "Below Minimum")]
-        # Worst first: out of stock before merely low, then by how far short.
-        rows.sort(key=lambda r: (r["status"] != "Out of Stock", -(r["min_stock_level"] - r["qty_on_hand"])))
+                if r["status"] in order]
+        # Worst first: out of stock, then below minimum, then reorder; within each
+        # by how far short of the level that flags it.
+        def gap(r):
+            level = r["min_stock_level"] if r["status"] != "Reorder" else (r["reorder_level"] or 0)
+            return -(level - r["qty_on_hand"])
+        rows.sort(key=lambda r: (order[r["status"]], gap(r)))
         return rows[:limit] if limit else rows
 
     def reorder_list(self, store_code):
@@ -583,7 +601,10 @@ class SpareStockService:
 
         healthy, below, above = by("Healthy"), by("Below Minimum"), by("Above Maximum")
         zero = by("Out of Stock")
-        critical = below + zero
+        reorder = by("Reorder")
+        # Anything needing a PO raised is "critical" for the gauge — empty, below
+        # minimum, or down to its reorder point.
+        critical = below + zero + reorder
 
         # Utilisation is on-hand against the planned maximum — how full the
         # store is against what it decided to hold, which is the only capacity
@@ -600,7 +621,7 @@ class SpareStockService:
         valued = [r for r in counted if r["stock_value"] is not None]
         value_bands = {"Normal Stock": 0.0, "Critical Stock": 0.0, "Excess Stock": 0.0}
         for r in valued:
-            if r["status"] in ("Out of Stock", "Below Minimum"):
+            if r["status"] in ("Out of Stock", "Below Minimum", "Reorder"):
                 value_bands["Critical Stock"] += r["stock_value"]
             elif r["status"] == "Above Maximum":
                 value_bands["Excess Stock"] += r["stock_value"]
@@ -645,6 +666,7 @@ class SpareStockService:
             "status_distribution": [
                 {"name": "Healthy", "value": healthy},
                 {"name": "Below Minimum", "value": below},
+                {"name": "Reorder", "value": reorder},
                 {"name": "Above Maximum", "value": above},
                 {"name": "Zero Stock", "value": zero},
             ],
