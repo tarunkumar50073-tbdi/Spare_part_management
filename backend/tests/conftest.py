@@ -32,7 +32,12 @@ Config.SQLALCHEMY_ENGINE_OPTIONS = {"connect_args": {"check_same_thread": False,
 @pytest.fixture(scope="session")
 def app():
     from app import create_app
-    return create_app("development")
+    app = create_app("development")
+    # Tests create parts/stock directly and read back within the same second, so
+    # the short-lived stock-list cache would hand one test the previous test's
+    # rows. Off in tests; the cache is a runtime-only optimisation.
+    app.config["SPARE_STOCK_CACHE_TTL"] = 0
+    return app
 
 
 @pytest.fixture(autouse=True)

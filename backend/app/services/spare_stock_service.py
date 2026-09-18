@@ -5,6 +5,7 @@ that a part should never fall below 2, with nothing anywhere to say how many
 were actually on the shelf. Everything here is scoped to a store, so the
 Child Parts screens are untouched.
 """
+import time
 from datetime import datetime, timedelta
 
 from app.extensions import db
@@ -28,6 +29,15 @@ FIELD_ALIASES = {
                     "physicalstock", "physicalqty", "stock", "closingstock", "totalqty"},
 }
 REQUIRED_FIELDS = ["part_no", "qty_on_hand"]
+
+# A short-lived cache for the whole-store stock list. One dashboard refresh fires
+# list + summary + analytics, which each rebuild list_stock over every part; the
+# combined "all sections" view makes that ~4,800 rows built three times. Caching
+# the built rows for a few seconds means one build serves all three. It is cleared
+# on every stock write (see _write), so an issue / receipt / count still shows at
+# once; the TTL only bounds staleness if a write path ever bypasses _write.
+_STOCK_CACHE = {}
+_STOCK_CACHE_TTL = 5.0
 
 # Shop-floor departments that draw spares — the split behind Department-wise
 # Consumption. Recorded on every ISSUE.
@@ -79,6 +89,8 @@ class SpareStockService:
                 returnable=returnable, return_of_id=return_of_id,
                 **(extra or {}),
             )
+        # Stock just changed — drop the cached lists so the next read is fresh.
+        _STOCK_CACHE.clear()
         return row, delta
 
     def set_quantity(self, part_id, qty, txn_type="ADJUSTMENT", reference=None,
@@ -436,8 +448,20 @@ class SpareStockService:
         return self._row_dict(part, self.repo.get_by_part(part_id))
 
     def list_stock(self, store_code, section_id=None):
-        return [self._row_dict(part, stock)
+        from flask import current_app
+        ttl = current_app.config.get("SPARE_STOCK_CACHE_TTL", _STOCK_CACHE_TTL)
+        key = (store_code, section_id)
+        if ttl and ttl > 0:
+            hit = _STOCK_CACHE.get(key)
+            if hit is not None and hit[0] > time.time():
+                # A fresh list each call so an in-place sort by a caller (reorder /
+                # by-status) never reorders the cached copy.
+                return list(hit[1])
+        rows = [self._row_dict(part, stock)
                 for part, stock in self.repo.list_for_store(store_code, section_id)]
+        if ttl and ttl > 0:
+            _STOCK_CACHE[key] = (time.time() + ttl, rows)
+        return list(rows)
 
     def get_summary(self, store_code, section_id=None):
         """The figures the store dashboard asks for. Counted separately from
