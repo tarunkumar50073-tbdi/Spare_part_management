@@ -670,6 +670,20 @@ const fmtDate = (iso) => {
   });
 };
 
+// The ledger mixes ERP gate dates (date-only) with store events (timestamped);
+// show each at its own precision.
+const fmtWhen = (ts) => (!ts ? "—" : ts.length <= 10 ? fmtDate(ts) : fmtStamp(ts));
+
+// One label per ledger event, said the way the store says it.
+const LEDGER_EVENT = {
+  GATE_ARRIVAL: { label: "Arrival", emoji: "🚚", tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
+  RECEIPT: { label: "Received", emoji: "📥", tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
+  OPENING: { label: "Opening", emoji: "📋", tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" },
+  ISSUE: { label: "Issued", emoji: "📤", tone: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300" },
+  RETURN: { label: "Returned", emoji: "↩️", tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
+  ADJUSTMENT: { label: "Corrected", emoji: "✏️", tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
+};
+
 const ACTIVITY_COLUMNS = [
   { key: "at", label: "Time", sortable: true, render: (r) => <span className="tabular">{fmtStamp(r.at)}</span> },
   {
@@ -772,6 +786,7 @@ function Traceability({ part, onClose }) {
       ) : !data ? (
         <p className="text-sm text-slate-400">Could not load this part&apos;s history.</p>
       ) : (
+        <>
         <ol className="pt-1">
           <TraceStep emoji="🏭" label="Supplier"
             done={(data.gate_suppliers?.length > 0) || Boolean(receipt?.supplier_name || data.part.supplier_id)}>
@@ -842,6 +857,68 @@ function Traceability({ part, onClose }) {
             {receipt?.consumed_at ? fmtStamp(receipt.consumed_at) : none}
           </TraceStep>
         </ol>
+
+        {/* The whole life of the part on one timeline — "kab-kab aaya, kis-kis
+            se aaya, kahan issue hua" — arrivals + opening + issues + returns. */}
+        <div className="mt-7 pt-5 border-t border-slate-200 dark:border-navy-700">
+          <div className="mb-2.5">
+            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Part Ledger</h4>
+            <p className="text-[11px] text-slate-400">
+              {data.ledger?.length > 0
+                ? `Every movement of ${data.part.part_no} — arrivals, opening count, issues and returns · ${data.ledger.length} entr${data.ledger.length === 1 ? "y" : "ies"}, newest first`
+                : `No movement recorded for ${data.part.part_no} yet`}
+            </p>
+          </div>
+          {data.ledger?.length > 0 && (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-navy-700">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 dark:bg-navy-800/60 text-slate-500 dark:text-slate-400">
+                  <tr>
+                    <th className="text-left font-semibold px-3 py-2 whitespace-nowrap">Date</th>
+                    <th className="text-left font-semibold px-3 py-2">Event</th>
+                    <th className="text-right font-semibold px-3 py-2 whitespace-nowrap">In / Out</th>
+                    <th className="text-left font-semibold px-3 py-2">From / To</th>
+                    <th className="text-left font-semibold px-3 py-2 whitespace-nowrap">Reference</th>
+                    <th className="text-right font-semibold px-3 py-2 whitespace-nowrap">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.ledger.map((e, i) => {
+                    const ev = LEDGER_EVENT[e.kind] || { label: e.kind, emoji: "•", tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" };
+                    const fromTo = e.direction === "out"
+                      ? [e.department, e.issued_to, e.machine, e.line].filter(Boolean).join(" · ")
+                      : [e.supplier_name, e.supplier_code].filter(Boolean).join("  ");
+                    const ref = [e.reference, e.invoice_no, e.po_no].filter(Boolean).join(" · ");
+                    const q = e.qty == null ? null : Math.abs(e.qty);
+                    return (
+                      <tr key={i} className="border-t border-slate-100 dark:border-navy-800 align-top">
+                        <td className="px-3 py-2 whitespace-nowrap tabular text-slate-600 dark:text-slate-300">{fmtWhen(e.ts)}</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${ev.tone}`}>
+                            <span aria-hidden="true">{ev.emoji}</span>{ev.label}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-right tabular font-semibold whitespace-nowrap">
+                          {q == null ? <span className="text-slate-400">—</span>
+                            : e.direction === "in" ? <span className="text-emerald-600 dark:text-emerald-400">+{num(q)}</span>
+                            : e.direction === "out" ? <span className="text-rose-600 dark:text-rose-400">−{num(q)}</span>
+                            : <span className="text-slate-500 dark:text-slate-300">{num(q)}</span>}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
+                          {fromTo || <span className="text-slate-400">—</span>}
+                          {e.remarks && <span className="block text-[10px] text-slate-400">{e.remarks}</span>}
+                        </td>
+                        <td className="px-3 py-2 tabular text-slate-500 dark:text-slate-400">{ref || "—"}</td>
+                        <td className="px-3 py-2 text-right tabular text-slate-500 dark:text-slate-400">{e.balance_after == null ? "—" : num(e.balance_after)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        </>
       )}
     </Modal>
   );

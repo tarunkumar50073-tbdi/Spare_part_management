@@ -31,13 +31,21 @@ def test_gate_suppliers_lists_every_vendor_newest_first():
     _gate("GSUP-0001", "VG-0001", "G R TRADERS", date(2026, 6, 19), 500)
     _gate("GSUP-0001", "VJ-0020", "JMD TRADERS", date(2026, 6, 19), 50)
 
-    sup = SpareFlowService().traceability(p.id)["gate_suppliers"]
+    trace = SpareFlowService().traceability(p.id)
+    sup = trace["gate_suppliers"]
 
     # every distinct vendor surfaces — a part is not tied to one supplier
     assert {s["ven_cd"] for s in sup} == {"VD-0002", "VG-0001", "VJ-0020"}
     # newest arrival first, so the 16th (D.S Tools) sorts last
     assert sup[-1]["ven_cd"] == "VD-0002"
     assert all(s["arrivals"] == 1 for s in sup)
+
+    # the arrival log: every gate entry, when + from whom, newest first
+    arr = trace["gate_arrivals"]
+    assert len(arr) == 3
+    assert arr[-1]["ven_cd"] == "VD-0002"          # 16 Jun sorts last
+    assert arr[-1]["gate_entry_dt"] == "2026-06-16"
+    assert arr[-1]["qty"] == 50.0
 
 
 def test_gate_suppliers_aggregates_repeat_arrivals():
@@ -57,9 +65,11 @@ def test_gate_suppliers_aggregates_repeat_arrivals():
     assert sup[0]["ven_cd"] == "VG-0005"
 
 
-def test_gate_suppliers_empty_when_no_gate_entry():
+def test_gate_history_empty_when_no_gate_entry():
     p = _part("GSUP-0003")
-    assert SpareFlowService().traceability(p.id)["gate_suppliers"] == []
+    trace = SpareFlowService().traceability(p.id)
+    assert trace["gate_suppliers"] == []
+    assert trace["gate_arrivals"] == []
 
 
 def test_gate_suppliers_match_is_case_insensitive():
@@ -68,3 +78,34 @@ def test_gate_suppliers_match_is_case_insensitive():
     _gate("gsup-0004", "VU-0001", "UNIQUE INDUSTRIAL CORPORATION", date(2026, 7, 1), 10)
     sup = SpareFlowService().traceability(p.id)["gate_suppliers"]
     assert [s["ven_cd"] for s in sup] == ["VU-0001"]
+
+
+def test_part_ledger_merges_arrivals_opening_and_issue():
+    """The unified ledger is the part's whole life on one timeline: it arrived
+    from a supplier (gate), was counted in (opening), and was issued to a
+    department / person / machine — each event shown with its own details."""
+    from app.models.spare_stock import SpareStockLedger
+    p = _part("GSUP-0005")
+    _gate("GSUP-0005", "VG-0005", "GROWTECH ENGINEERS", date(2026, 5, 1), 20)
+    db.session.add(SpareStockLedger(part_id=p.id, txn_type="OPENING", qty_delta=20, balance_after=20))
+    db.session.add(SpareStockLedger(part_id=p.id, txn_type="ISSUE", qty_delta=-3, balance_after=17,
+                                    department="Press Shop", issued_to="ANKIT", machine="OP-30 Press"))
+    db.session.commit()
+
+    led = SpareFlowService().traceability(p.id)["ledger"]
+    kinds = {e["kind"] for e in led}
+    assert {"GATE_ARRIVAL", "OPENING", "ISSUE"} <= kinds
+
+    issue = next(e for e in led if e["kind"] == "ISSUE")
+    assert issue["direction"] == "out"
+    assert issue["qty"] == -3.0
+    assert issue["department"] == "Press Shop"
+    assert issue["issued_to"] == "ANKIT"
+    assert issue["machine"] == "OP-30 Press"
+
+    arrival = next(e for e in led if e["kind"] == "GATE_ARRIVAL")
+    assert arrival["direction"] == "in"
+    assert arrival["supplier_name"] == "GROWTECH ENGINEERS"
+
+    opening = next(e for e in led if e["kind"] == "OPENING")
+    assert opening["direction"] == "count"

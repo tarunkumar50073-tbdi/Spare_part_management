@@ -14,6 +14,7 @@ look identical on a screen and mean opposite things.
 from app.extensions import db
 from app.models.gate_entry import GateEntry
 from app.models.srv import SRV
+from app.models.supplier import Supplier
 from app.repositories.part_repository import PartRepository
 from app.repositories.spare_stock_repository import (
     SpareStockLedgerRepository, SpareStockRepository,
@@ -151,22 +152,37 @@ class SpareFlowService:
             "status": s.status,
         } for s in self.srv_repo.list_for_store_by_statuses(store_code, statuses, limit)]
 
-    def _gate_suppliers(self, part_no):
-        """Who has actually supplied this part, read live from ERP gate entries.
+    def _gate_history(self, part_no):
+        """This part's arrival history, read live from ERP gate entries.
 
         A part is not tied to one supplier — the same item_code arrives from
         several vendors over time (e.g. a taper pin from three traders). Its
         identity is the part_no (= ERP item_code); the suppliers are whoever the
-        gate entries say brought it. So this is derived, never stored: match on
-        item_code and group by vendor, newest arrival first."""
+        gate entries say brought it. So this is derived, never stored.
+
+        Returns (arrivals, suppliers): `arrivals` is every gate entry — when it
+        came and from whom, newest first; `suppliers` rolls those up per vendor.
+        One query feeds both."""
         if not part_no:
-            return []
+            return [], []
         rows = (GateEntry.query
                 .filter(db.func.upper(GateEntry.item_code) == part_no.upper())
                 .order_by(GateEntry.gate_entry_dt.desc(), GateEntry.id.desc())
                 .all())
+        arrivals = []
         agg = {}
         for r in rows:
+            dt = r.gate_entry_dt.isoformat() if r.gate_entry_dt else None
+            qty = float(r.qty) if r.qty is not None else None
+            arrivals.append({
+                "gate_entry_dt": dt,
+                "gate_entry_no": r.gate_entry_no,
+                "ven_cd": r.ven_cd,
+                "ven_name": (r.ven_name or r.ven_cd),
+                "qty": qty,
+                "bill_no": r.bill_no,
+                "po_no": r.po_no,
+            })
             key = (r.ven_cd or r.ven_name or "").strip() or "—"
             a = agg.get(key)
             if a is None:
@@ -176,17 +192,72 @@ class SpareFlowService:
                     "first_dt": None, "last_dt": None,
                 }
             a["arrivals"] += 1
-            if r.qty is not None:
-                a["total_qty"] += float(r.qty)
-            dt = r.gate_entry_dt.isoformat() if r.gate_entry_dt else None
+            if qty is not None:
+                a["total_qty"] += qty
             if dt:
                 if a["last_dt"] is None or dt > a["last_dt"]:
                     a["last_dt"] = dt
                 if a["first_dt"] is None or dt < a["first_dt"]:
                     a["first_dt"] = dt
-        return sorted(agg.values(),
-                      key=lambda x: (x["last_dt"] or "", x["arrivals"]),
-                      reverse=True)
+        suppliers = sorted(agg.values(),
+                           key=lambda x: (x["last_dt"] or "", x["arrivals"]),
+                           reverse=True)
+        return arrivals, suppliers
+
+    def _unify_ledger(self, movements, gate_arrivals):
+        """One chronological ledger for the part — every event on one timeline:
+        material arriving from a supplier (ERP gate entry), the opening count,
+        each issue (to which department / person / machine / line), returns and
+        corrections. Newest first. Merges the ERP gate feed with the store's own
+        stock ledger so nothing about the part's life is on a separate screen."""
+        sup_ids = {m.supplier_id for m in movements if getattr(m, "supplier_id", None)}
+        sup_map = {}
+        if sup_ids:
+            for s in Supplier.query.filter(Supplier.id.in_(sup_ids)).all():
+                sup_map[s.id] = {"name": s.supplier_name, "code": s.vendor_code}
+
+        entries = []
+        for a in gate_arrivals:
+            entries.append({
+                "ts": a["gate_entry_dt"], "kind": "GATE_ARRIVAL", "direction": "in",
+                "qty": a["qty"], "balance_after": None,
+                "supplier_name": a["ven_name"], "supplier_code": a["ven_cd"],
+                "reference": a["gate_entry_no"], "po_no": a["po_no"],
+                "invoice_no": a["bill_no"],
+                "department": None, "issued_to": None, "machine": None, "line": None,
+                "remarks": None, "by": None, "status": None,
+            })
+        for m in movements:
+            delta = float(m.qty_delta)
+            if m.txn_type == "OPENING":
+                direction = "count"
+            elif delta > 0:
+                direction = "in"
+            elif delta < 0:
+                direction = "out"
+            else:
+                direction = "count"
+            ln, lno = getattr(m, "line_name", None), getattr(m, "line_no", None)
+            line = " ".join(str(x) for x in (ln, lno) if x) or None
+            sup = sup_map.get(getattr(m, "supplier_id", None))
+            entries.append({
+                "ts": m.created_at.isoformat() if m.created_at else None,
+                "kind": m.txn_type, "direction": direction,
+                "qty": delta,
+                "balance_after": float(m.balance_after) if m.balance_after is not None else None,
+                "supplier_name": sup["name"] if sup else None,
+                "supplier_code": sup["code"] if sup else None,
+                "reference": m.reference, "po_no": None,
+                "invoice_no": getattr(m, "invoice_no", None),
+                "department": getattr(m, "department", None),
+                "issued_to": getattr(m, "issued_to", None),
+                "machine": getattr(m, "machine", None),
+                "line": line,
+                "remarks": m.remarks, "by": m.created_by,
+                "status": getattr(m, "status", None),
+            })
+        entries.sort(key=lambda e: (e["ts"] or ""), reverse=True)
+        return entries
 
     def traceability(self, part_id):
         """One part's chain, end to end. Each step says whether it has data —
@@ -199,6 +270,7 @@ class SpareFlowService:
         receipts = self.srv_repo.search(part_id=part_id).limit(25).all()
         stock = self.stock_repo.get_by_part(part_id)
         moves = self.ledger_repo.list_for_part(part_id, 25)
+        gate_arrivals, gate_suppliers = self._gate_history(part.part_no)
 
         return {
             "part": {
@@ -213,7 +285,13 @@ class SpareFlowService:
             },
             # Suppliers derived live from ERP gate entries (item_code match) —
             # a part can have several, so this is a list, newest arrival first.
-            "gate_suppliers": self._gate_suppliers(part.part_no),
+            "gate_suppliers": gate_suppliers,
+            # The full arrival log: when this part came and from whom, each gate
+            # entry a row, newest first. Answers "kab-kab, kis-kis se aaya".
+            "gate_arrivals": gate_arrivals,
+            # The whole part ledger on one timeline — arrivals + opening + issues
+            # (to dept/person/machine) + returns + corrections, newest first.
+            "ledger": self._unify_ledger(moves, gate_arrivals),
             "receipts": [{
                 "srv_no": s.srv_no,
                 "supplier_name": s.supplier_name or s.vendor_code,
