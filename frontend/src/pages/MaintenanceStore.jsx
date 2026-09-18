@@ -22,7 +22,11 @@ const STORE_CODE = "MAINTENANCE";
 // gets one without a code change. Emoji rather than an icon set, to stay with
 // the vocabulary the sidebar and the KPI cards already use.
 const SECTION_EMOJI = [
-  [/press/i, "🔨"],
+  [/press|stamp|misumi|die/i, "🔨"],
+  [/nut|bolt|fasten/i, "🔩"],
+  [/thin|recliner|rec\b/i, "💺"],
+  [/bin|wash/i, "🚿"],
+  [/maint/i, "🔧"],
   [/tool/i, "🛠️"],
   [/seat|slider/i, "💺"],
   [/weld/i, "🔥"],
@@ -859,7 +863,7 @@ function DrillDown({ drill, onClose }) {
 // A stock row is not a part row — it carries part_id, and the detail modal
 // needs the part itself. The parent already holds the list, so it resolves.
 function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, stock, belowMin,
-  parts = [], stockRows = [], ops = null, onTrace }) {
+  parts = [], stockRows = [], ops = null, onTrace, reorderPlanned = true }) {
   const [pendingOpen, setPendingOpen] = useState(false);
   const [pendingRows, setPendingRows] = useState([]);
 
@@ -1245,7 +1249,7 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
         </section>
       )}
 
-      {belowMin && belowMin.length > 0 && (
+      {reorderPlanned && belowMin && belowMin.length > 0 && (
         <section>
           <div className="mb-3">
             <h3 className="section-title">Needs Reordering</h3>
@@ -1636,6 +1640,10 @@ function SectionDetail({ section, onBack }) {
 
   const stats = useStoreStats(rows);
   const { stock, belowMin, stockRows } = useSpareStock(section.id);
+  // Bin Washing M/C spares are ordered as the machine needs them, not planned
+  // to a min/max, so the reorder panel is noise there even though the rows
+  // carry limits. Other sections plan against their maximum as usual.
+  const reorderPlanned = !/bin\s*wash/i.test(section.name || "");
 
   return (
     <div className="space-y-8">
@@ -1671,6 +1679,7 @@ function SectionDetail({ section, onBack }) {
         belowMin={belowMin}
         parts={rows}
         stockRows={stockRows}
+        reorderPlanned={reorderPlanned}
       />
 
       <section>

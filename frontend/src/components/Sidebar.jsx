@@ -123,7 +123,11 @@ const navFor = (code) => NAV_BY_STORE[code] || SHARED_GROUPS;
 // Same glyph rule the Spare Parts Store page uses, so a section reads the same
 // in the rail as it does on its own card.
 const SECTION_EMOJI = [
-  [/press/i, "🔨"],
+  [/press|stamp/i, "🔨"],
+  [/nut|bolt/i, "🔩"],
+  [/thin|recliner/i, "💺"],
+  [/bin|wash/i, "🚿"],
+  [/maint/i, "🔧"],
   [/tool/i, "🛠️"],
   [/seat|slider/i, "💺"],
   [/weld/i, "🔥"],

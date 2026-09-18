@@ -38,14 +38,6 @@ const gradCss = (c, deg = 140) => {
   return g ? `linear-gradient(${deg}deg,${g[0]},${g[1]})` : c;
 };
 
-// Demo-only sections so the switcher can be shown before the real section
-// master is filled in. Delete once real sections exist in the store master.
-const DUMMY_SECTIONS = [
-  { id: -101, name: "Maintenance", dummy: true },
-  { id: -102, name: "Sensor", dummy: true },
-  { id: -103, name: "Cylinder", dummy: true },
-];
-
 const fmtInt = (n) => (n == null ? "—" : Number(n).toLocaleString("en-IN"));
 const fmtMoney = (v) => {
   if (v == null) return "—";
@@ -233,7 +225,7 @@ export default function TvDashboard() {
     return () => document.removeEventListener("fullscreenchange", on);
   }, []);
 
-  // sections (real + dummy)
+  // sections — the real Spare-store sections from the store master
   useEffect(() => {
     let alive = true;
     const check = () => storeService.list()
@@ -241,9 +233,9 @@ export default function TvDashboard() {
         if (!alive) return;
         const stores = r.data.data || [];
         const real = (stores.find((s) => s.code === "MAINTENANCE") || {}).sections || [];
-        setSections([...real, ...DUMMY_SECTIONS]);
+        setSections(real);
       })
-      .catch(() => setSections([...DUMMY_SECTIONS]));
+      .catch(() => setSections([]));
     check();
     const id = setInterval(check, REFRESH_MS);
     return () => { alive = false; clearInterval(id); };
@@ -470,7 +462,6 @@ export default function TvDashboard() {
                 <button onClick={() => cycle(-1)} title="Previous section" className="text-cyan-200/70 hover:text-white text-[2vh] leading-none">‹</button>
                 <div className="flex items-center gap-[0.7vh]">
                   <span key={String(sectionId)} className="animate-rise text-[1.8vh] font-extrabold text-white tracking-[0.15em] uppercase">{activeName}</span>
-                  {activeSection?.dummy && <span className="text-[1vh] font-bold px-[0.6vh] py-[0.1vh] rounded bg-amber-300 text-amber-900">dummy</span>}
                 </div>
                 <button onClick={() => cycle(1)} title="Next section" className="text-cyan-200/70 hover:text-white text-[2vh] leading-none">›</button>
               </div>
