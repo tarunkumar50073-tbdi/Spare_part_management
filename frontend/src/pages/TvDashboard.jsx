@@ -1073,7 +1073,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
             </ResponsiveContainer>
           ) : isBySection ? (
             <div className="h-full flex items-center gap-[1.5vh]">
-              <div className="h-full aspect-square relative shrink-0" style={{ maxWidth: "36vh" }}>
+              <div className="h-full aspect-square relative shrink-0" style={{ maxWidth: "30vh" }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <defs>
@@ -1108,7 +1108,8 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
               </div>
             </div>
           ) : (
-            <div className="h-full relative">
+            <div className="h-full flex items-center justify-center">
+              <div className="relative w-[32vh] h-[32vh] max-w-full max-h-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -1132,6 +1133,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span className="dx-radiant text-[2.6vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtV(chartTotal)}</span>
                 <span className="text-[1.4vh] text-[var(--dx-t4)]">Top {chartData.length} total</span>
+              </div>
               </div>
             </div>
           )}
