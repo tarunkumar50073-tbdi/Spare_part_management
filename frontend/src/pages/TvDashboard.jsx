@@ -1057,22 +1057,25 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
           {!chartData.length ? (
             <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No parts</div>
           ) : isByType ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart layout="vertical" data={chartData} margin={{ left: 8, right: 24, top: 4, bottom: 4 }} accessibilityLayer={false}>
-                <defs>
-                  <linearGradient id="dg-hblue" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#60a5fa" /><stop offset="1" stopColor="#2563eb" /></linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={grid} />
-                <XAxis type="number" tick={{ fontSize: 12, fill: axis }} allowDecimals={false} />
-                <YAxis type="category" dataKey="name" width={92} tick={{ fontSize: 12, fill: axis }} />
-                <Tooltip formatter={(v) => [fmtInt(v), unit]} cursor={{ fill: "var(--dx-track)" }} />
-                <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={16} cursor="pointer" onClick={onBarClick}>
-                  {chartData.map((d, i) => (
-                    <Cell key={i} fill={pick && d.name === pick ? "#1e3a8a" : "url(#dg-hblue)"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="h-full relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <defs>
+                    {chartData.map((c, i) => {
+                      const col = PIE[i % PIE.length];
+                      const g = GRAD[col] || [col, col];
+                      return <linearGradient key={i} id={`byt-${i}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} /></linearGradient>;
+                    })}
+                  </defs>
+                  <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="88%"
+                    paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
+                    {chartData.map((c, i) => <Cell key={i} fill={`url(#byt-${i})`} cursor="pointer" opacity={pick && pick !== c.name ? 0.35 : 1} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => [fmtInt(v), unit]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <DonutHub value={fmtInt(pick ? (chartData.find((c) => c.name === pick)?.value || 0) : chartData.reduce((s, d) => s + d.value, 0))} label={pick || "Parts by type"} size="3.6vh" />
+            </div>
           ) : isBySection ? (
             <div className="h-full flex items-center gap-[1.5vh]">
               <div className="h-full aspect-square relative shrink-0" style={{ maxWidth: "36vh" }}>
@@ -1091,7 +1094,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                     <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
                   </PieChart>
                 </ResponsiveContainer>
-                <DonutHub value={fmtV(chartTotal)} label="Total value" size="2.6vh" />
+                <DonutHub value={fmtV(chartTotal)} label="Total value" size="3.4vh" />
               </div>
               <div className="flex-1 min-w-0 space-y-[0.5vh]">
                 {chartData.map((c) => (
@@ -1128,7 +1131,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                   <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
                 </PieChart>
               </ResponsiveContainer>
-              <DonutHub value={fmtV(chartTotal)} label={`Top ${chartData.length} total`} size="2.8vh" />
+              <DonutHub value={fmtV(chartTotal)} label={`Top ${chartData.length} total`} size="4vh" />
             </div>
           )}
         </div>
