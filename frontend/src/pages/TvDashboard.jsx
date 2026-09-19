@@ -621,7 +621,7 @@ export default function TvDashboard() {
                     })}
                   </defs>
                   <Pie data={cats.length ? cats : [{ name: "—", value: 1, color: "#e2e8f0" }]} dataKey="value" nameKey="name"
-                    innerRadius="60%" outerRadius="92%" paddingAngle={2} stroke="none" isAnimationActive={false}>
+                    innerRadius="48%" outerRadius="92%" paddingAngle={2} stroke="none" isAnimationActive={false}>
                     {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} />)}
                   </Pie>
                   <Tooltip />
@@ -712,7 +712,7 @@ export default function TvDashboard() {
                       );
                     })}
                   </defs>
-                  <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="92%"
+                  <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="48%" outerRadius="92%"
                     paddingAngle={2} stroke="none" isAnimationActive={false}
                     onClick={(s) => openExcessSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {excessSections.map((c, i) => <Cell key={i} fill={`url(#exg-${i})`} cursor="pointer" />)}
