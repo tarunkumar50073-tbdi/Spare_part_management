@@ -664,7 +664,7 @@ export default function TvDashboard() {
                     })}
                   </defs>
                   <Pie data={cats.length ? cats : [{ name: "—", value: 1, color: "#e2e8f0" }]} dataKey="value" nameKey="name"
-                    innerRadius="48%" outerRadius="92%" paddingAngle={2} stroke="none" isAnimationActive={false}
+                    innerRadius="48%" outerRadius="92%" paddingAngle={1} stroke="none" isAnimationActive={false}
                     onClick={(s) => cats.length && openCat(s && (s.name ?? (s.payload && s.payload.name)))}>
                     {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} cursor={cats.length ? "pointer" : "default"} />)}
                   </Pie>
@@ -758,7 +758,7 @@ export default function TvDashboard() {
                     })}
                   </defs>
                   <Pie data={valueBySection} dataKey="value" nameKey="name" innerRadius="48%" outerRadius="92%"
-                    paddingAngle={2} stroke="none" isAnimationActive={false}
+                    paddingAngle={1} stroke="none" isAnimationActive={false}
                     onClick={(s) => openValueSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {valueBySection.map((c, i) => <Cell key={i} fill={`url(#vsg-${i})`} cursor="pointer" />)}
                   </Pie>
@@ -811,7 +811,7 @@ export default function TvDashboard() {
                     })}
                   </defs>
                   <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="48%" outerRadius="92%"
-                    paddingAngle={2} stroke="none" isAnimationActive={false}
+                    paddingAngle={1} stroke="none" isAnimationActive={false}
                     onClick={(s) => openExcessSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {excessSections.map((c, i) => <Cell key={i} fill={`url(#exg-${i})`} cursor="pointer" />)}
                   </Pie>
@@ -1073,7 +1073,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
             </ResponsiveContainer>
           ) : isBySection ? (
             <div className="h-full flex items-center gap-[1.5vh]">
-              <div className="h-full aspect-square relative shrink-0" style={{ maxWidth: "30vh" }}>
+              <div className="h-full aspect-square relative shrink-0" style={{ maxWidth: "36vh" }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <defs>
@@ -1083,7 +1083,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                       })}
                     </defs>
                     <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="52%" outerRadius="88%"
-                      paddingAngle={2} stroke="none" isAnimationActive={false} onClick={onBarClick}>
+                      paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
                       {chartData.map((c, i) => <Cell key={i} fill={`url(#sg-${i})`} cursor="pointer" />)}
                     </Pie>
                     <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
@@ -1108,8 +1108,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
               </div>
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center">
-              <div className="relative w-[32vh] h-[32vh] max-w-full max-h-full">
+            <div className="h-full relative">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -1124,7 +1123,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                     })}
                   </defs>
                   <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="52%" outerRadius="88%"
-                    paddingAngle={2} stroke="none" isAnimationActive={false} onClick={onBarClick}>
+                    paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
                     {chartData.map((c, i) => <Cell key={i} fill={`url(#tg-${i})`} cursor="pointer" />)}
                   </Pie>
                   <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
@@ -1133,7 +1132,6 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span className="dx-radiant text-[2.6vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtV(chartTotal)}</span>
                 <span className="text-[1.4vh] text-[var(--dx-t4)]">Top {chartData.length} total</span>
-              </div>
               </div>
             </div>
           )}
