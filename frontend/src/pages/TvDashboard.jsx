@@ -375,6 +375,23 @@ export default function TvDashboard() {
     openStack({ kind: "partList", title: `Excess — ${sectionName[sid] || "Section"}`, rows: secRows, valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney });
   };
 
+  // Total stock value grouped by section — for the main-screen "Stock Value by
+  // Section" donut. A slice drills to that section's parts, by value.
+  const valueBySection = useMemo(() => {
+    const by = {};
+    rows.forEach((r) => { if (r.section_id != null && r.stock_value != null) by[r.section_id] = (by[r.section_id] || 0) + r.stock_value; });
+    return Object.entries(by)
+      .map(([sid, value]) => ({ sid: Number(sid), name: sectionName[sid] || "—", value: Math.round(value) }))
+      .sort((a, b) => b.value - a.value)
+      .map((it, i) => ({ ...it, color: PIE[i % PIE.length] }));
+  }, [rows, sectionName]);
+  const totalStockValue = useMemo(() => valueBySection.reduce((s, c) => s + c.value, 0), [valueBySection]);
+  const openValueSection = (sid) => {
+    if (sid == null) return;
+    const secRows = rows.filter((r) => r.section_id === sid && r.stock_value != null);
+    openStack({ kind: "partList", title: `Stock Value — ${sectionName[sid] || "Section"}`, rows: secRows, valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney });
+  };
+
   const cats = useMemo(() => {
     const by = {};
     rows.forEach((r) => { const c = r.sub_category || "Others"; by[c] = (by[c] || 0) + 1; });
@@ -720,6 +737,59 @@ export default function TvDashboard() {
           </div>
         </Card>
       </div>
+
+      {/* ---------- stock value by section ---------- */}
+      <Card className="p-[1.4vh]">
+        <PanelHead icon={Database} color={C.green} title="Stock Value by Section"
+          action="View Details" onAction={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, chart: "bySection", sectionNames: sectionName })} />
+        {valueBySection.length ? (
+          <div className="flex items-center gap-[1vh]">
+            <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <defs>
+                    {valueBySection.map((c, i) => {
+                      const g = GRAD[c.color] || [c.color, c.color];
+                      return (
+                        <linearGradient key={i} id={`vsg-${i}`} x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} />
+                        </linearGradient>
+                      );
+                    })}
+                  </defs>
+                  <Pie data={valueBySection} dataKey="value" nameKey="name" innerRadius="48%" outerRadius="92%"
+                    paddingAngle={2} stroke="none" isAnimationActive={false}
+                    onClick={(s) => openValueSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
+                    {valueBySection.map((c, i) => <Cell key={i} fill={`url(#vsg-${i})`} cursor="pointer" />)}
+                  </Pie>
+                  <Tooltip content={<PartValTip fmt={fmtMoney} label="Value" />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="dx-radiant text-[2.1vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtMoney(totalStockValue)}</span>
+                <span className="text-[1.3vh] text-[var(--dx-t4)]">Total value</span>
+              </div>
+            </div>
+            <div className="flex-1 min-w-0 space-y-[0.5vh]">
+              {valueBySection.map((c) => (
+                <button key={c.sid} onClick={() => openValueSection(c.sid)}
+                  className="w-full flex items-center gap-[1.2vh] text-[1.6vh] rounded-md px-[0.6vh] py-[0.55vh] hover:bg-[var(--dx-track)] transition-colors">
+                  <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
+                  <span className="w-[18vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
+                  <span className="flex-1 h-[1.3vh] rounded-full overflow-hidden bg-[var(--dx-track)]">
+                    <span className="block h-full rounded-full" style={{ width: `${Math.max(3, (c.value / (valueBySection[0].value || 1)) * 100)}%`, background: gradCss(c.color, 90) }} />
+                  </span>
+                  <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap w-[12vh] text-right">{fmtMoney(c.value)}</span>
+                  <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (totalStockValue || 1)) * 100)}%</span>
+                </button>
+              ))}
+              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section for its parts</div>
+            </div>
+          </div>
+        ) : (
+          <div className="h-[24vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No stock value yet</div>
+        )}
+      </Card>
 
       {/* ---------- excess stock value ---------- */}
       <Card className="p-[1.4vh]">
