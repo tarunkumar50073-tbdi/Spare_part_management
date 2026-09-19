@@ -712,7 +712,7 @@ export default function TvDashboard() {
                       );
                     })}
                   </defs>
-                  <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="92%"
+                  <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="48%" outerRadius="95%"
                     paddingAngle={2} stroke="none" isAnimationActive={false}
                     onClick={(s) => openExcessSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {excessSections.map((c, i) => <Cell key={i} fill={`url(#exg-${i})`} cursor="pointer" />)}
