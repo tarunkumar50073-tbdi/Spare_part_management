@@ -120,7 +120,7 @@ function PanelHead({ icon: Icon, color, title, action, onAction }) {
   );
 }
 
-function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color, onClick }) {
+function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color }) {
   return (
     <Card className="p-[1vh] flex flex-col"
       style={{ borderColor: `${color}55`, boxShadow: `var(--dx-glass-shadow), 0 0 26px ${color}30, inset 0 0 22px ${color}12` }}>
@@ -138,12 +138,6 @@ function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color, onCl
       </div>
       <div className="dx-radiant mt-[0.4vh] text-[2.9vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</div>
       <div className="text-[1.05vh] text-[var(--dx-t4)] mt-[0.2vh]">{sub}</div>
-      <button onClick={onClick}
-        className="relative mt-[0.6vh] rounded-xl text-white text-[1.2vh] font-bold py-[0.65vh] transition hover:brightness-110 active:scale-[0.98]"
-        style={{ background: gradCss(color), boxShadow: `0 6px 14px ${color}44` }}>
-        <span className="cta-blink">View Details →</span>
-        <span className="absolute right-[0.7vh] top-1/2 -translate-y-1/2 w-[2.2vh] h-[2.2vh] rounded-full bg-white/25 flex items-center justify-center text-[1.4vh] leading-none">›</span>
-      </button>
     </Card>
   );
 }
