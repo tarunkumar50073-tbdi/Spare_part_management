@@ -634,7 +634,7 @@ export default function TvDashboard() {
                     })}
                   </defs>
                   <Pie data={cats.length ? cats : [{ name: "—", value: 1, color: "#e2e8f0" }]} dataKey="value" nameKey="name"
-                    innerRadius="48%" outerRadius="92%" paddingAngle={2} stroke="none" isAnimationActive={false}>
+                    innerRadius="48%" outerRadius="92%" paddingAngle={3} cornerRadius={9} stroke="none" isAnimationActive={false}>
                     {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} />)}
                   </Pie>
                   <Tooltip />
@@ -726,7 +726,7 @@ export default function TvDashboard() {
                     })}
                   </defs>
                   <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="48%" outerRadius="92%"
-                    paddingAngle={2} stroke="none" isAnimationActive={false}
+                    paddingAngle={3} cornerRadius={9} stroke="none" isAnimationActive={false}
                     onClick={(s) => openExcessSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {excessSections.map((c, i) => <Cell key={i} fill={`url(#exg-${i})`} cursor="pointer" />)}
                   </Pie>
@@ -990,7 +990,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                     })}
                   </defs>
                   <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="52%" outerRadius="88%"
-                    paddingAngle={2} stroke="none" isAnimationActive={false} onClick={onBarClick}>
+                    paddingAngle={3} cornerRadius={9} stroke="none" isAnimationActive={false} onClick={onBarClick}>
                     {chartData.map((c, i) => <Cell key={i} fill={`url(#tg-${i})`} cursor="pointer" />)}
                   </Pie>
                   <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
