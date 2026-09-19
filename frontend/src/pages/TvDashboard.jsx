@@ -735,6 +735,8 @@ export default function TvDashboard() {
         </Card>
       </div>
 
+      {/* ---------- value + excess, side by side ---------- */}
+      <div className="grid grid-cols-2 gap-[1.2vh]">
       {/* ---------- stock value by section ---------- */}
       <Card className="p-[1.4vh]">
         <PanelHead icon={Database} color={C.green} title="Stock Value by Section"
@@ -769,7 +771,7 @@ export default function TvDashboard() {
                 <button key={c.sid} onClick={() => openValueSection(c.sid)}
                   className="w-full flex items-center gap-[1.2vh] text-[1.6vh] rounded-md px-[0.6vh] py-[0.55vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
-                  <span className="w-[18vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
+                  <span className="w-[12vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
                   <span className="flex-1 h-[1.3vh] rounded-full overflow-hidden bg-[var(--dx-track)]">
                     <span className="block h-full rounded-full" style={{ width: `${Math.max(3, (c.value / (valueBySection[0].value || 1)) * 100)}%`, background: gradCss(c.color, 90) }} />
                   </span>
@@ -819,7 +821,7 @@ export default function TvDashboard() {
                 <button key={c.sid} onClick={() => openExcessSection(c.sid)}
                   className="w-full flex items-center gap-[1.2vh] text-[1.6vh] rounded-md px-[0.6vh] py-[0.55vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
-                  <span className="w-[18vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
+                  <span className="w-[12vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
                   <span className="flex-1 h-[1.3vh] rounded-full overflow-hidden bg-[var(--dx-track)]">
                     <span className="block h-full rounded-full" style={{ width: `${Math.max(3, (c.value / (excessSections[0].value || 1)) * 100)}%`, background: gradCss(c.color, 90) }} />
                   </span>
@@ -834,6 +836,7 @@ export default function TvDashboard() {
           <div className="h-[24vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No excess stock — nothing above its maximum</div>
         )}
       </Card>
+      </div>
 
       {/* ---------- ERP current stock ---------- */}
       <Card className="p-[1.4vh]">
@@ -1069,7 +1072,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                   </defs>
                   <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="88%"
                     paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
-                    {chartData.map((c, i) => <Cell key={i} fill={`url(#byt-${i})`} cursor="pointer" opacity={pick && pick !== c.name ? 0.35 : 1} />)}
+                    {chartData.map((c, i) => <Cell key={i} fill={`url(#byt-${i})`} cursor="pointer" />)}
                   </Pie>
                   <Tooltip formatter={(v) => [fmtInt(v), unit]} />
                 </PieChart>
