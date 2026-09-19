@@ -387,6 +387,19 @@ export default function TvDashboard() {
     if (rest > 0) top.push({ name: "Others", value: rest, color: "#94a3b8" });
     return top;
   }, [rows]);
+  const catTopNamed = useMemo(() => new Set(cats.filter((c) => c.name !== "Others").map((c) => c.name)), [cats]);
+  const openCat = (cat) => {
+    if (!cat) return;
+    const catRows = rows.filter((r) => {
+      const c = r.sub_category || "Others";
+      return cat === "Others" ? !catTopNamed.has(c) : c === cat;
+    });
+    // "Others" holds many types, so its drill charts them by type (what's inside);
+    // a single type charts its parts by stock.
+    openStack(cat === "Others"
+      ? { kind: "partList", title: "Others — by type", rows: catRows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand || 0, chart: "byType" }
+      : { kind: "partList", title: `${cat} parts`, rows: catRows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand || 0 });
+  };
 
   const monthlyData = useMemo(
     () => (P.monthly || []).slice(-6).map((m) => ({ name: monthLabel(m.period), qty: Math.round(m.qty || 0) })),
@@ -634,8 +647,9 @@ export default function TvDashboard() {
                     })}
                   </defs>
                   <Pie data={cats.length ? cats : [{ name: "—", value: 1, color: "#e2e8f0" }]} dataKey="value" nameKey="name"
-                    innerRadius="48%" outerRadius="92%" paddingAngle={2} stroke="none" isAnimationActive={false}>
-                    {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} />)}
+                    innerRadius="48%" outerRadius="92%" paddingAngle={2} stroke="none" isAnimationActive={false}
+                    onClick={(s) => cats.length && openCat(s && (s.name ?? (s.payload && s.payload.name)))}>
+                    {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} cursor={cats.length ? "pointer" : "default"} />)}
                   </Pie>
                   <Tooltip />
                 </PieChart>
@@ -647,12 +661,13 @@ export default function TvDashboard() {
             </div>
             <div className="flex-1 space-y-[0.9vh]">
               {(cats.length ? cats : []).map((c) => (
-                <div key={c.name} className="flex items-center gap-[1vh] text-[1.5vh]">
-                  <span className="w-[1.4vh] h-[1.4vh] rounded-full" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
-                  <span className="flex-1 text-[var(--dx-t2)] truncate">{c.name}</span>
+                <button key={c.name} onClick={() => openCat(c.name)}
+                  className="w-full flex items-center gap-[1vh] text-[1.5vh] rounded-md px-[0.5vh] py-[0.25vh] hover:bg-[var(--dx-track)] transition-colors">
+                  <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
+                  <span className="flex-1 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
                   <span className="dx-radiant font-bold text-[var(--dx-t1)]">{fmtInt(c.value)}</span>
                   <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (total || 1)) * 100)}%</span>
-                </div>
+                </button>
               ))}
               {!cats.length && <div className="text-[1.5vh] text-[var(--dx-t4)]">No parts in this section</div>}
             </div>
