@@ -1,45 +1,58 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import MainLayout from "./layouts/MainLayout.jsx";
-import StoreDashboard from "./pages/StoreDashboard.jsx";
-import GateEntry from "./pages/GateEntry.jsx";
-import SRVWorkflow from "./pages/SRVWorkflow.jsx";
-import StoreStock from "./pages/StoreStock.jsx";
-import PutAway from "./pages/PutAway.jsx";
-import HoldingArea from "./pages/HoldingArea.jsx";
-import AuditTrail from "./pages/AuditTrail.jsx";
-import Reports from "./pages/Reports.jsx";
-import PartMaster from "./pages/PartMaster.jsx";
-import SpareStock from "./pages/SpareStock.jsx";
-import ScanPart from "./pages/ScanPart.jsx";
-import SupplierBarcodeMapping from "./pages/SupplierBarcodeMapping.jsx";
-import ScanAudit from "./pages/ScanAudit.jsx";
-import SparePartHistory from "./pages/SparePartHistory.jsx";
-import SupplierMaster from "./pages/SupplierMaster.jsx";
-import StockCount from "./pages/StockCount.jsx";
-import RackBinMaster from "./pages/RackBinMaster.jsx";
-import LiveStock from "./pages/LiveStock.jsx";
-import ShortParts from "./pages/ShortParts.jsx";
-import ExcessParts from "./pages/ExcessParts.jsx";
-import QuarterlyInventory from "./pages/QuarterlyInventory.jsx";
-import ERPGap from "./pages/ERPGap.jsx";
-import SpareErpGap from "./pages/SpareErpGap.jsx";
-import ERPLedgerImport from "./pages/ERPLedgerImport.jsx";
-import InventoryOverview from "./pages/InventoryOverview.jsx";
-import SupplierVehicleManagement from "./pages/SupplierVehicleManagement.jsx";
 import Login from "./pages/Login.jsx";
-import MaintenanceStore from "./pages/MaintenanceStore.jsx";
-import DepartmentMaster from "./pages/DepartmentMaster.jsx";
-import ReportRecipientMaster from "./pages/ReportRecipientMaster.jsx";
-import PartHistory from "./pages/PartHistory.jsx";
-import VehicleInOut from "./pages/VehicleInOut.jsx";
-import CurrentStock from "./pages/CurrentStock.jsx";
-import WindowTimeBoard from "./pages/WindowTimeBoard.jsx";
-import TvDashboard from "./pages/TvDashboard.jsx";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { StoreProvider, storeHome, useStores } from "./context/StoreContext.jsx";
+
+// Route pages are code-split: each loads its own chunk on demand, so opening the
+// app no longer downloads all ~35 screens (plus recharts / xlsx / zxing) up
+// front. MainLayout and Login stay eager — the shell and the pre-auth screen.
+const StoreDashboard = React.lazy(() => import("./pages/StoreDashboard.jsx"));
+const GateEntry = React.lazy(() => import("./pages/GateEntry.jsx"));
+const SRVWorkflow = React.lazy(() => import("./pages/SRVWorkflow.jsx"));
+const StoreStock = React.lazy(() => import("./pages/StoreStock.jsx"));
+const PutAway = React.lazy(() => import("./pages/PutAway.jsx"));
+const HoldingArea = React.lazy(() => import("./pages/HoldingArea.jsx"));
+const AuditTrail = React.lazy(() => import("./pages/AuditTrail.jsx"));
+const Reports = React.lazy(() => import("./pages/Reports.jsx"));
+const PartMaster = React.lazy(() => import("./pages/PartMaster.jsx"));
+const SpareStock = React.lazy(() => import("./pages/SpareStock.jsx"));
+const ScanPart = React.lazy(() => import("./pages/ScanPart.jsx"));
+const SupplierBarcodeMapping = React.lazy(() => import("./pages/SupplierBarcodeMapping.jsx"));
+const ScanAudit = React.lazy(() => import("./pages/ScanAudit.jsx"));
+const SparePartHistory = React.lazy(() => import("./pages/SparePartHistory.jsx"));
+const SupplierMaster = React.lazy(() => import("./pages/SupplierMaster.jsx"));
+const StockCount = React.lazy(() => import("./pages/StockCount.jsx"));
+const RackBinMaster = React.lazy(() => import("./pages/RackBinMaster.jsx"));
+const LiveStock = React.lazy(() => import("./pages/LiveStock.jsx"));
+const ShortParts = React.lazy(() => import("./pages/ShortParts.jsx"));
+const ExcessParts = React.lazy(() => import("./pages/ExcessParts.jsx"));
+const QuarterlyInventory = React.lazy(() => import("./pages/QuarterlyInventory.jsx"));
+const ERPGap = React.lazy(() => import("./pages/ERPGap.jsx"));
+const SpareErpGap = React.lazy(() => import("./pages/SpareErpGap.jsx"));
+const ERPLedgerImport = React.lazy(() => import("./pages/ERPLedgerImport.jsx"));
+const InventoryOverview = React.lazy(() => import("./pages/InventoryOverview.jsx"));
+const SupplierVehicleManagement = React.lazy(() => import("./pages/SupplierVehicleManagement.jsx"));
+const MaintenanceStore = React.lazy(() => import("./pages/MaintenanceStore.jsx"));
+const DepartmentMaster = React.lazy(() => import("./pages/DepartmentMaster.jsx"));
+const ReportRecipientMaster = React.lazy(() => import("./pages/ReportRecipientMaster.jsx"));
+const PartHistory = React.lazy(() => import("./pages/PartHistory.jsx"));
+const VehicleInOut = React.lazy(() => import("./pages/VehicleInOut.jsx"));
+const CurrentStock = React.lazy(() => import("./pages/CurrentStock.jsx"));
+const WindowTimeBoard = React.lazy(() => import("./pages/WindowTimeBoard.jsx"));
+const TvDashboard = React.lazy(() => import("./pages/TvDashboard.jsx"));
+
+// Shown while a route's chunk loads — brief, since chunks are small and cached.
+function PageFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-navy-950">
+      <div className="skeleton h-10 w-40 rounded-xl2" />
+    </div>
+  );
+}
 
 // Nothing behind the login is even mounted until we know who is asking — so
 // no screen can fire its data calls, and hit a wall of 401s, before then.
@@ -58,6 +71,7 @@ function AuthenticatedApp() {
 
   return (
     <StoreProvider>
+      <Suspense fallback={<PageFallback />}>
       <Routes>
         {/* The 53" LED "Live Dashboard": behind login, but deliberately OUTSIDE
             MainLayout — no sidebar, no top bar, it owns the whole screen. */}
@@ -109,6 +123,7 @@ function AuthenticatedApp() {
           <Route path="/supplier-window-schedule" element={<Navigate to="/supplier-vehicles" replace />} />
         </Route>
       </Routes>
+      </Suspense>
     </StoreProvider>
   );
 }
