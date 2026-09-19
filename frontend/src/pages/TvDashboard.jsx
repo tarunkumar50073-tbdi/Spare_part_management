@@ -1082,7 +1082,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                         return <linearGradient key={i} id={`sg-${i}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} /></linearGradient>;
                       })}
                     </defs>
-                    <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="52%" outerRadius="88%"
+                    <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="88%"
                       paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
                       {chartData.map((c, i) => <Cell key={i} fill={`url(#sg-${i})`} cursor="pointer" />)}
                     </Pie>
@@ -1122,7 +1122,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                       );
                     })}
                   </defs>
-                  <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="52%" outerRadius="88%"
+                  <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="88%"
                     paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
                     {chartData.map((c, i) => <Cell key={i} fill={`url(#tg-${i})`} cursor="pointer" />)}
                   </Pie>
