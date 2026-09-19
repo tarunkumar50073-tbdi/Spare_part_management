@@ -341,14 +341,26 @@ export default function TvDashboard() {
   );
   // Top excess parts by the money tied up above their maximum — the main-screen
   // "Excess Stock Value" chart.
-  const excessChart = useMemo(
-    () => rows.filter((r) => r.status === "Above Maximum")
-      .map((r) => ({ name: r.part_no, desc: r.part_name, value: Math.round(excessOf(r)) }))
-      .filter((r) => r.value > 0)
+  // Excess value grouped by SECTION — which of the store's sections hold the most
+  // money above max. A slice drills to that section's excess parts, by value.
+  const sectionName = useMemo(() => Object.fromEntries((sections || []).map((s) => [s.id, s.name])), [sections]);
+  const excessSections = useMemo(() => {
+    const by = {};
+    rows.forEach((r) => {
+      if (r.status !== "Above Maximum") return;
+      const v = excessOf(r);
+      if (v > 0 && r.section_id != null) by[r.section_id] = (by[r.section_id] || 0) + v;
+    });
+    return Object.entries(by)
+      .map(([sid, value]) => ({ sid: Number(sid), name: sectionName[sid] || "—", value: Math.round(value) }))
       .sort((a, b) => b.value - a.value)
-      .slice(0, 8),
-    [rows],
-  );
+      .map((it, i) => ({ ...it, color: PIE[i % PIE.length] }));
+  }, [rows, sectionName]);
+  const openExcessSection = (sid) => {
+    if (sid == null) return;
+    const secRows = rows.filter((r) => r.status === "Above Maximum" && excessOf(r) > 0 && r.section_id === sid);
+    openStack({ kind: "partList", title: `Excess — ${sectionName[sid] || "Section"}`, rows: secRows, valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney });
+  };
 
   const cats = useMemo(() => {
     const by = {};
@@ -683,26 +695,52 @@ export default function TvDashboard() {
 
       {/* ---------- excess stock value ---------- */}
       <Card className="p-[1.4vh]">
-        <PanelHead icon={Boxes} color={C.amber} title={`Excess Stock Value — ${fmtMoney(excessValue)} tied up`}
+        <PanelHead icon={Boxes} color={C.amber} title="Excess Stock Value"
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
-        <div className="h-[24vh]">
-          {excessChart.length ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart layout="vertical" data={excessChart} margin={{ left: 8, right: 48, top: 4, bottom: 4 }} accessibilityLayer={false}>
-                <defs>
-                  <linearGradient id="excessGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#fbbf24" /><stop offset="1" stopColor="#d97706" /></linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={gridColor} />
-                <XAxis type="number" tick={{ fontSize: 12, fill: axisColor }} tickFormatter={(v) => fmtMoney(v)} />
-                <YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 12, fill: axisColor }} />
-                <Tooltip content={<ExcessTip />} cursor={{ fill: "var(--dx-track)" }} />
-                <Bar dataKey="value" fill="url(#excessGrad)" radius={[0, 6, 6, 0]} barSize={16} isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-full flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No excess stock — nothing above its maximum</div>
-          )}
-        </div>
+        {excessSections.length ? (
+          <div className="flex items-center gap-[1vh]">
+            <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <defs>
+                    {excessSections.map((c, i) => {
+                      const g = GRAD[c.color] || [c.color, c.color];
+                      return (
+                        <linearGradient key={i} id={`exg-${i}`} x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} />
+                        </linearGradient>
+                      );
+                    })}
+                  </defs>
+                  <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="92%"
+                    paddingAngle={2} stroke="none" isAnimationActive={false}
+                    onClick={(s) => openExcessSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
+                    {excessSections.map((c, i) => <Cell key={i} fill={`url(#exg-${i})`} cursor="pointer" />)}
+                  </Pie>
+                  <Tooltip content={<ExcessTip />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="dx-radiant text-[2.1vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtMoney(excessValue)}</span>
+                <span className="text-[1.3vh] text-[var(--dx-t4)]">Excess Value</span>
+              </div>
+            </div>
+            <div className="flex-1 min-w-0 space-y-[0.5vh]">
+              {excessSections.map((c) => (
+                <button key={c.sid} onClick={() => openExcessSection(c.sid)}
+                  className="w-full flex items-center gap-[1vh] text-[1.6vh] rounded-md px-[0.6vh] py-[0.5vh] hover:bg-[var(--dx-track)] transition-colors">
+                  <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
+                  <span className="flex-1 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
+                  <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap">{fmtMoney(c.value)}</span>
+                  <span className="w-[4.5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (excessValue || 1)) * 100)}%</span>
+                </button>
+              ))}
+              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section for its excess parts</div>
+            </div>
+          </div>
+        ) : (
+          <div className="h-[24vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No excess stock — nothing above its maximum</div>
+        )}
       </Card>
 
       {/* ---------- ERP current stock ---------- */}
@@ -965,6 +1003,13 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
   const part = frame.part || {};
   const hist = frame.history || [];
   const chart = hist.slice().reverse().map((h) => ({ d: fmtDay(h.at || h.created_at), bal: Number(h.balance_after ?? 0) }));
+  // "Kab se pada" — how long it has sat unused: since the last issue if any, else
+  // since its earliest recorded movement / count.
+  const lastIssue = hist.find((h) => h.txn_type === "ISSUE");
+  const sinceAt = (lastIssue && (lastIssue.at || lastIssue.created_at))
+    || (hist.length && (hist[hist.length - 1].at || hist[hist.length - 1].created_at))
+    || part.last_counted_at || null;
+  const lyingDays = sinceAt ? Math.max(0, Math.floor((Date.now() - new Date(sinceAt).getTime()) / 86400000)) : null;
   return (
     <div className="flex flex-col gap-[1.4vh]">
       <Card className="p-[1.6vh]">
@@ -980,6 +1025,8 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
             <Stat label="Max" value={fmtInt(part.max_stock_level)} />
             <Stat label="Value" value={fmtMoney(part.stock_value)} />
             <Stat label="Location" value={part.location || "—"} />
+            <Stat label={lastIssue ? "Not issued since" : "In stock since"}
+              value={sinceAt ? `${fmtDay(sinceAt)}${lyingDays != null ? ` · ${lyingDays}d` : ""}` : "—"} />
           </div>
         </div>
       </Card>
