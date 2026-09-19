@@ -53,10 +53,10 @@ const compactMoney = (v) => {
 };
 
 // The whole store in one list, so every figure on this page is counted from
-// the same rows the table shows. per_page is capped at 200 server-side, so
-// asking for 1000 silently returned 200 of the 485 press-shop parts and the
-// screen looked complete while a third of the list was missing.
-const PER_PAGE = 200;
+// the same rows the table shows. The server now caps per_page at 5000, so the
+// ~4.8k-part store comes back in ONE request; the paging loop below stays as a
+// fallback if the list ever grows past a page.
+const PER_PAGE = 5000;
 
 async function fetchAllParts(params) {
   const first = await partService.list({ ...params, page: 1, per_page: PER_PAGE });
