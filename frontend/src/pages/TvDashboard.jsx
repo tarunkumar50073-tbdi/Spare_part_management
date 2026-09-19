@@ -321,13 +321,32 @@ export default function TvDashboard() {
   const excess = dist["Above Maximum"] || 0;
   const counted = healthy + short + excess || 1;
   const total = P.sum?.total_parts ?? rows.length;
+  // Money tied up above the maximum — (on-hand − max) × rate for each excess part.
+  const excessOf = (r) => Math.max(0, (r.qty_on_hand || 0) - (r.max_stock_level || 0)) * (r.unit_price || 0);
+  const excessValue = useMemo(
+    () => rows.reduce((s, r) => (r.status === "Above Maximum" ? s + excessOf(r) : s), 0),
+    [rows],
+  );
+  // Top excess parts by the money tied up above their maximum — the main-screen
+  // "Excess Stock Value" chart.
+  const excessChart = useMemo(
+    () => rows.filter((r) => r.status === "Above Maximum")
+      .map((r) => ({ name: r.part_no, value: Math.round(excessOf(r)) }))
+      .filter((r) => r.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8),
+    [rows],
+  );
 
   const cats = useMemo(() => {
     const by = {};
     rows.forEach((r) => { const c = r.sub_category || "Others"; by[c] = (by[c] || 0) + 1; });
-    const arr = Object.entries(by).sort((a, b) => b[1] - a[1]);
-    const top = arr.slice(0, 5).map(([name, value], i) => ({ name, value, color: PIE[i % PIE.length] }));
-    const rest = arr.slice(5).reduce((s, [, v]) => s + v, 0);
+    // "Others" (uncategorised parts) is folded into the single trailing slice, so
+    // it never both wins a top-5 seat AND labels the remainder — which showed
+    // "Others" twice in the legend.
+    const named = Object.entries(by).filter(([name]) => name !== "Others").sort((a, b) => b[1] - a[1]);
+    const top = named.slice(0, 5).map(([name, value], i) => ({ name, value, color: PIE[i % PIE.length] }));
+    const rest = named.slice(5).reduce((s, [, v]) => s + v, 0) + (by["Others"] || 0);
     if (rest > 0) top.push({ name: "Others", value: rest, color: "#94a3b8" });
     return top;
   }, [rows]);
@@ -385,8 +404,8 @@ export default function TvDashboard() {
   const reorderN = dist["Reorder"] || 0;
   if (reorderN) liveAlerts.push({ color: "#f97316", text: `${reorderN} part${reorderN > 1 ? "s" : ""} at reorder level`,
     onClick: () => openStack({ kind: "partList", title: "Reorder", rows: rows.filter((r) => r.status === "Reorder"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand }) });
-  if (excess) liveAlerts.push({ color: C.amber, text: `${excess} part${excess > 1 ? "s" : ""} above maximum (excess)`,
-    onClick: () => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess by", valueOf: (r) => Math.max(0, (r.qty_on_hand || 0) - (r.max_stock_level || 0)) }) });
+  if (excess) liveAlerts.push({ color: C.amber, text: `${excess} part${excess > 1 ? "s" : ""} above maximum · ${fmtMoney(excessValue)} tied up`,
+    onClick: () => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney }) });
   if (pendingCount) liveAlerts.push({ color: C.purple, text: `${pendingCount} issue${pendingCount > 1 ? "s" : ""} awaiting user confirmation` });
   if (erpGapCount) liveAlerts.push({ color: C.cyan, text: `${erpGapCount} part${erpGapCount > 1 ? "s" : ""} differ from ERP`, onClick: () => openErpGap() });
   const cycle = (dir) => {
@@ -550,8 +569,8 @@ export default function TvDashboard() {
           onClick={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney })} />
         <Kpi icon={AlertTriangle} title="Short Parts" value={fmtInt(short)} sub="Below minimum stock" color={C.red}
           onClick={() => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)) })} />
-        <Kpi icon={Boxes} title="Excess Parts" value={fmtInt(excess)} sub="Above maximum stock" color={C.amber}
-          onClick={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess by", valueOf: (r) => Math.max(0, (r.qty_on_hand || 0) - (r.max_stock_level || 0)) })} />
+        <Kpi icon={Boxes} title="Excess Parts" value={fmtInt(excess)} sub={`${fmtMoney(excessValue)} over max`} color={C.amber}
+          onClick={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
         <Kpi icon={ClipboardList} title="Pending ERP" value={fmtInt(P.erpPend?.pending ?? 0)} sub="Movements pending in ERP" color={C.purple}
           onClick={() => openTxns("Pending ERP", { note: `${fmtInt(P.erpPend?.pending ?? 0)} stock movement(s) queued to push to ERP — every move waits here while the ERP write is off. Tap a row for that part's history.` })} />
         <Kpi icon={ShoppingCart} title="Today's Issue" value={fmtInt(P.today?.issued_qty)} trend={P.today?.issued_lines ? `${P.today.issued_lines} lines` : null}
@@ -649,6 +668,30 @@ export default function TvDashboard() {
           </div>
         </Card>
       </div>
+
+      {/* ---------- excess stock value ---------- */}
+      <Card className="p-[1.4vh]">
+        <PanelHead icon={Boxes} color={C.amber} title={`Excess Stock Value — ${fmtMoney(excessValue)} tied up`}
+          action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
+        <div className="h-[24vh]">
+          {excessChart.length ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart layout="vertical" data={excessChart} margin={{ left: 8, right: 48, top: 4, bottom: 4 }} accessibilityLayer={false}>
+                <defs>
+                  <linearGradient id="excessGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#fbbf24" /><stop offset="1" stopColor="#d97706" /></linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={gridColor} />
+                <XAxis type="number" tick={{ fontSize: 12, fill: axisColor }} tickFormatter={(v) => fmtMoney(v)} />
+                <YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 12, fill: axisColor }} />
+                <Tooltip formatter={(v) => [fmtMoney(v), "Excess value"]} cursor={{ fill: "var(--dx-track)" }} />
+                <Bar dataKey="value" fill="url(#excessGrad)" radius={[0, 6, 6, 0]} barSize={16} isAnimationActive={false} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No excess stock — nothing above its maximum</div>
+          )}
+        </div>
+      </Card>
 
       {/* ---------- ERP current stock ---------- */}
       <Card className="p-[1.4vh]">
