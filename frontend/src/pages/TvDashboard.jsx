@@ -616,7 +616,7 @@ export default function TvDashboard() {
           sub="Active parts in store" color={C.blue}
           onClick={() => openStack({ kind: "partList", title: "All Parts", rows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand, chart: "byType" })} />
         <Kpi icon={Database} title="Stock Value" value={fmtMoney(P.sum?.stock_value)} sub="As per ERP (Live)" color={C.green}
-          onClick={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney })} />
+          onClick={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, chart: "bySection", sectionNames: sectionName })} />
         <Kpi icon={AlertTriangle} title="Short Parts" value={fmtInt(short)} sub="Below minimum stock" color={C.red}
           onClick={() => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)) })} />
         <Kpi icon={Boxes} title="Excess Parts" value={fmtInt(excess)} sub={`${fmtMoney(excessValue)} over max`} color={C.amber}
@@ -943,7 +943,9 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   // Tap a "Parts by type" bar to filter the list to that type (how many die
   // parts, how many sensors…). Cleared whenever the data reloads.
   const [pick, setPick] = useState(null);
-  useEffect(() => { setPick(null); }, [rows]);
+  const [secPick, setSecPick] = useState(null);
+  useEffect(() => { setPick(null); setSecPick(null); }, [rows]);
+  const sectionNames = frame.sectionNames || {};
   const top = rows.slice().sort((a, b) => (valueOf(b) || 0) - (valueOf(a) || 0)).slice(0, 10)
     .map((r) => ({ name: r.part_no, desc: r.part_name, value: Math.round(valueOf(r) || 0) }));
   const byType = (() => {
@@ -951,19 +953,29 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
     rows.forEach((r) => { const c = r.sub_category || "Others"; by[c] = (by[c] || 0) + 1; });
     return Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, value]) => ({ name, value }));
   })();
+  const bySection = (() => {
+    const by = {};
+    rows.forEach((r) => { if (r.section_id != null) by[r.section_id] = (by[r.section_id] || 0) + (valueOf(r) || 0); });
+    return Object.entries(by).map(([sid, value]) => ({ sid: Number(sid), name: sectionNames[sid] || "—", value: Math.round(value) }))
+      .sort((a, b) => b.value - a.value).map((it, i) => ({ ...it, color: PIE[i % PIE.length] }));
+  })();
   const isByType = frame.chart === "byType";
-  const chartData = isByType ? byType : top;
+  const isBySection = frame.chart === "bySection";
+  const chartData = isByType ? byType : isBySection ? bySection : top;
   const chartTotal = chartData.reduce((s, d) => s + (d.value || 0), 0);
-  const chartTitle = isByType ? "Parts by type" : `Top ${top.length} by ${frame.valueLabel || "Stock"}`;
+  const chartTitle = isByType ? "Parts by type"
+    : isBySection ? `${frame.valueLabel || "Value"} by section`
+      : `Top ${top.length} by ${frame.valueLabel || "Stock"}`;
   // The bar is a COUNT of parts on the by-type chart, a stock figure on the
   // top-10 — so the tooltip says which, instead of a bare "value".
   const unit = isByType ? "Parts" : (frame.valueLabel || "Qty");
-  const shown = pick ? rows.filter((r) => (r.sub_category || "Others") === pick) : rows;
+  const shown = secPick != null ? rows.filter((r) => r.section_id === secPick)
+    : pick ? rows.filter((r) => (r.sub_category || "Others") === pick) : rows;
   const onBarClick = (d) => {
     const name = d && (d.name ?? d.payload?.name);
-    if (!name) return;
-    if (isByType) setPick((p) => (p === name ? null : name));
-    else { const r = rows.find((x) => x.part_no === name); if (r) onOpen(r); }
+    if (isByType) { if (name) setPick((p) => (p === name ? null : name)); return; }
+    if (isBySection) { const sid = d && (d.sid ?? d.payload?.sid); if (sid != null) setSecPick((p) => (p === sid ? null : sid)); return; }
+    const r = name && rows.find((x) => x.part_no === name); if (r) onOpen(r);
   };
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh] h-full">
@@ -989,6 +1001,42 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+          ) : isBySection ? (
+            <div className="h-full flex items-center gap-[1.5vh]">
+              <div className="h-full aspect-square relative shrink-0" style={{ maxWidth: "36vh" }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <defs>
+                      {chartData.map((c, i) => {
+                        const g = GRAD[c.color] || [c.color, c.color];
+                        return <linearGradient key={i} id={`sg-${i}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} /></linearGradient>;
+                      })}
+                    </defs>
+                    <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="52%" outerRadius="88%"
+                      paddingAngle={2} stroke="none" isAnimationActive={false} onClick={onBarClick}>
+                      {chartData.map((c, i) => <Cell key={i} fill={`url(#sg-${i})`} cursor="pointer" />)}
+                    </Pie>
+                    <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="dx-radiant text-[2.4vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtV(chartTotal)}</span>
+                  <span className="text-[1.3vh] text-[var(--dx-t4)]">Total value</span>
+                </div>
+              </div>
+              <div className="flex-1 min-w-0 space-y-[0.5vh]">
+                {chartData.map((c) => (
+                  <button key={c.sid} onClick={() => setSecPick((p) => (p === c.sid ? null : c.sid))}
+                    className={`w-full flex items-center gap-[1vh] text-[1.6vh] rounded-md px-[0.6vh] py-[0.5vh] transition-colors ${secPick === c.sid ? "bg-[var(--dx-track)]" : "hover:bg-[var(--dx-track)]"}`}>
+                    <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
+                    <span className="flex-1 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
+                    <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap">{fmtV(c.value)}</span>
+                    <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (chartTotal || 1)) * 100)}%</span>
+                  </button>
+                ))}
+                <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section to filter the list</div>
+              </div>
+            </div>
           ) : (
             <div className="h-full relative">
               <ResponsiveContainer width="100%" height="100%">
@@ -1021,7 +1069,15 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
       </Card>
       <Card className="p-[1.6vh] overflow-auto">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh] flex items-center gap-[1vh] flex-wrap">
-          {pick ? (
+          {secPick != null ? (
+            <>
+              <span>{shown.length} × {sectionNames[secPick] || "Section"}</span>
+              <button onClick={() => setSecPick(null)}
+                className="text-[1.2vh] px-[1vh] py-[0.3vh] rounded-full bg-[var(--dx-track)] text-[var(--dx-t4)] hover:text-[var(--dx-t1)] transition-colors">
+                ✕ clear
+              </button>
+            </>
+          ) : pick ? (
             <>
               <span>{shown.length} × {pick}</span>
               <button onClick={() => setPick(null)}
