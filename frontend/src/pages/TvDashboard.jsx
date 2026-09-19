@@ -47,6 +47,18 @@ const fmtMoney = (v) => {
   if (v >= 1e5) return `₹ ${(v / 1e5).toFixed(2)} L`;
   return `₹ ${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 };
+// Excess-value chart tooltip: the part code, its description, and the money tied up.
+function ExcessTip({ active, payload }) {
+  if (!active || !payload || !payload.length) return null;
+  const d = payload[0].payload || {};
+  return (
+    <div style={{ background: "rgba(10,20,40,0.96)", border: "1px solid rgba(125,195,255,0.4)", borderRadius: 8, padding: "8px 11px", maxWidth: 340, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
+      <div style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>{d.name}</div>
+      {d.desc ? <div style={{ color: "#b4c5e0", fontSize: 12, marginTop: 2, lineHeight: 1.35 }}>{d.desc}</div> : null}
+      <div style={{ color: "#fbbf24", fontWeight: 700, fontSize: 13, marginTop: 5 }}>Excess value: {fmtMoney(d.value)}</div>
+    </div>
+  );
+}
 const monthLabel = (period) => {
   // "2026-09" -> "Sep"
   const [y, m] = (period || "").split("-");
@@ -331,7 +343,7 @@ export default function TvDashboard() {
   // "Excess Stock Value" chart.
   const excessChart = useMemo(
     () => rows.filter((r) => r.status === "Above Maximum")
-      .map((r) => ({ name: r.part_no, value: Math.round(excessOf(r)) }))
+      .map((r) => ({ name: r.part_no, desc: r.part_name, value: Math.round(excessOf(r)) }))
       .filter((r) => r.value > 0)
       .sort((a, b) => b.value - a.value)
       .slice(0, 8),
@@ -683,7 +695,7 @@ export default function TvDashboard() {
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={gridColor} />
                 <XAxis type="number" tick={{ fontSize: 12, fill: axisColor }} tickFormatter={(v) => fmtMoney(v)} />
                 <YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 12, fill: axisColor }} />
-                <Tooltip formatter={(v) => [fmtMoney(v), "Excess value"]} cursor={{ fill: "var(--dx-track)" }} />
+                <Tooltip content={<ExcessTip />} cursor={{ fill: "var(--dx-track)" }} />
                 <Bar dataKey="value" fill="url(#excessGrad)" radius={[0, 6, 6, 0]} barSize={16} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
