@@ -671,10 +671,7 @@ export default function TvDashboard() {
                   <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="dx-radiant text-[3vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtInt(total)}</span>
-                <span className="text-[1.3vh] text-[var(--dx-t4)]">Total Parts</span>
-              </div>
+              <DonutHub value={fmtInt(total)} label="Total Parts" size="3vh" />
             </div>
             <div className="flex-1 space-y-[0.9vh]">
               {(cats.length ? cats : []).map((c) => (
@@ -765,10 +762,7 @@ export default function TvDashboard() {
                   <Tooltip content={<PartValTip fmt={fmtMoney} label="Value" />} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="dx-radiant text-[2.1vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtMoney(totalStockValue)}</span>
-                <span className="text-[1.3vh] text-[var(--dx-t4)]">Total value</span>
-              </div>
+              <DonutHub value={fmtMoney(totalStockValue)} label="Total value" size="2.4vh" />
             </div>
             <div className="flex-1 min-w-0 space-y-[0.5vh]">
               {valueBySection.map((c) => (
@@ -818,10 +812,7 @@ export default function TvDashboard() {
                   <Tooltip content={<ExcessTip />} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="dx-radiant text-[2.1vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtMoney(excessValue)}</span>
-                <span className="text-[1.3vh] text-[var(--dx-t4)]">Excess Value</span>
-              </div>
+              <DonutHub value={fmtMoney(excessValue)} label="Excess Value" size="2.4vh" />
             </div>
             <div className="flex-1 min-w-0 space-y-[0.5vh]">
               {excessSections.map((c) => (
@@ -1002,6 +993,17 @@ function Stat({ label, value }) {
     </div>
   );
 }
+// The centre of a donut — a bold gradient number with a soft glow and a small
+// uppercase caption. One style for every donut on the board.
+function DonutHub({ value, label, size = "2.5vh" }) {
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-[1.5vh] text-center">
+      <span className="dx-radiant font-black tabular-nums leading-none tracking-tight"
+        style={{ fontSize: size, filter: "drop-shadow(0 2px 10px rgba(90,130,230,0.30))" }}>{value}</span>
+      <span className="mt-[0.5vh] text-[1.05vh] font-semibold uppercase tracking-[0.16em] text-[var(--dx-t4)]">{label}</span>
+    </div>
+  );
+}
 
 function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const rows = frame.rows || [];
@@ -1089,10 +1091,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                     <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="dx-radiant text-[2.4vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtV(chartTotal)}</span>
-                  <span className="text-[1.3vh] text-[var(--dx-t4)]">Total value</span>
-                </div>
+                <DonutHub value={fmtV(chartTotal)} label="Total value" size="2.6vh" />
               </div>
               <div className="flex-1 min-w-0 space-y-[0.5vh]">
                 {chartData.map((c) => (
@@ -1129,10 +1128,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                   <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="dx-radiant text-[2.6vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtV(chartTotal)}</span>
-                <span className="text-[1.4vh] text-[var(--dx-t4)]">Top {chartData.length} total</span>
-              </div>
+              <DonutHub value={fmtV(chartTotal)} label={`Top ${chartData.length} total`} size="2.8vh" />
             </div>
           )}
         </div>
