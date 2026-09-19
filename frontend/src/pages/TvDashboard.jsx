@@ -59,6 +59,19 @@ function ExcessTip({ active, payload }) {
     </div>
   );
 }
+// Generic tooltip for the drill donut: a part's code, description and its value.
+function PartValTip({ active, payload, fmt, label }) {
+  if (!active || !payload || !payload.length) return null;
+  const d = payload[0].payload || {};
+  const f = fmt || fmtInt;
+  return (
+    <div style={{ background: "rgba(10,20,40,0.96)", border: "1px solid rgba(125,195,255,0.4)", borderRadius: 8, padding: "8px 11px", maxWidth: 340, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
+      <div style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>{d.name}</div>
+      {d.desc ? <div style={{ color: "#b4c5e0", fontSize: 12, marginTop: 2, lineHeight: 1.35 }}>{d.desc}</div> : null}
+      <div style={{ color: "#60a5fa", fontWeight: 700, fontSize: 13, marginTop: 5 }}>{label || "Value"}: {f(d.value)}</div>
+    </div>
+  );
+}
 const monthLabel = (period) => {
   // "2026-09" -> "Sep"
   const [y, m] = (period || "").split("-");
@@ -917,7 +930,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const [pick, setPick] = useState(null);
   useEffect(() => { setPick(null); }, [rows]);
   const top = rows.slice().sort((a, b) => (valueOf(b) || 0) - (valueOf(a) || 0)).slice(0, 10)
-    .map((r) => ({ name: r.part_no, value: Math.round(valueOf(r) || 0) }));
+    .map((r) => ({ name: r.part_no, desc: r.part_name, value: Math.round(valueOf(r) || 0) }));
   const byType = (() => {
     const by = {};
     rows.forEach((r) => { const c = r.sub_category || "Others"; by[c] = (by[c] || 0) + 1; });
@@ -925,7 +938,8 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   })();
   const isByType = frame.chart === "byType";
   const chartData = isByType ? byType : top;
-  const chartTitle = isByType ? "Parts by type" : `Top 10 by ${frame.valueLabel || "Stock"}`;
+  const chartTotal = chartData.reduce((s, d) => s + (d.value || 0), 0);
+  const chartTitle = isByType ? "Parts by type" : `Top ${top.length} by ${frame.valueLabel || "Stock"}`;
   // The bar is a COUNT of parts on the by-type chart, a stock figure on the
   // top-10 — so the tooltip says which, instead of a bare "value".
   const unit = isByType ? "Parts" : (frame.valueLabel || "Qty");
@@ -941,7 +955,9 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
       <Card className="p-[1.6vh] flex flex-col">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{chartTitle}</h3>
         <div className="flex-1 min-h-[36vh]">
-          {chartData.length ? (
+          {!chartData.length ? (
+            <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No parts</div>
+          ) : isByType ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart layout="vertical" data={chartData} margin={{ left: 8, right: 24, top: 4, bottom: 4 }} accessibilityLayer={false}>
                 <defs>
@@ -958,7 +974,34 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          ) : <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No parts</div>}
+          ) : (
+            <div className="h-full relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <defs>
+                    {chartData.map((c, i) => {
+                      const col = PIE[i % PIE.length];
+                      const g = GRAD[col] || [col, col];
+                      return (
+                        <linearGradient key={i} id={`tg-${i}`} x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} />
+                        </linearGradient>
+                      );
+                    })}
+                  </defs>
+                  <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="52%" outerRadius="88%"
+                    paddingAngle={2} stroke="none" isAnimationActive={false} onClick={onBarClick}>
+                    {chartData.map((c, i) => <Cell key={i} fill={`url(#tg-${i})`} cursor="pointer" />)}
+                  </Pie>
+                  <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="dx-radiant text-[2.6vh] font-extrabold text-[var(--dx-t1)] leading-none">{fmtV(chartTotal)}</span>
+                <span className="text-[1.4vh] text-[var(--dx-t4)]">Top {chartData.length} total</span>
+              </div>
+            </div>
+          )}
         </div>
       </Card>
       <Card className="p-[1.6vh] overflow-auto">
