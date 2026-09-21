@@ -13,12 +13,17 @@ const MODES = [
   { key: "LOOKUP", label: "Lookup", emoji: "🔎" },
   { key: "ISSUE", label: "Issue", emoji: "📤" },
   { key: "RECEIVE", label: "Receive", emoji: "📥" },
+  { key: "RETURN", label: "Return", emoji: "↩️" },
   { key: "UPDATE_LOCATION", label: "Location", emoji: "📍" },
   { key: "CONFIRM", label: "Confirm", emoji: "✅" },
   { key: "HISTORY", label: "History", emoji: "📜" },
 ];
 const CHECK_RESULTS = ["OK", "SHORT", "EXCESS", "DAMAGED"];
-const scanModeFor = (mode) => (mode === "CONFIRM" ? "ISSUE" : mode);
+// Why a department sent an issued part back (matches the backend RETURN_REASONS).
+const RETURN_REASONS = ["Did not fit", "Wrong part", "Damaged / defective", "Excess — not required", "Other"];
+// RETURN acts on an existing issue; audit its scan as a plain LOOKUP (a valid
+// scan mode) rather than inventing a new one.
+const scanModeFor = (mode) => (mode === "CONFIRM" ? "ISSUE" : mode === "RETURN" ? "LOOKUP" : mode);
 const fmt = (v) => (v == null || v === "" ? "—" : v);
 
 function Field({ label, children }) {
@@ -82,6 +87,10 @@ export default function ScanPart() {
         const p = await spareStockService.partPendingConfirmations(data.part_id);
         setPending(p.data.data || []);
       }
+      if (mode === "RETURN") {
+        const p = await spareStockService.returnableIssues(data.part_id);
+        setPending(p.data.data || []);
+      }
       if (mode === "HISTORY") {
         const h = await spareStockService.history(data.part_id, 200);
         setHistory(h.data.data || []);
@@ -99,6 +108,7 @@ export default function ScanPart() {
     if (m === "RECEIVE") return { qty: "", supplier_id: "", invoice_no: "", invoice_date: "", check_result: "OK", department: "", remarks: "" };
     if (m === "UPDATE_LOCATION") return { new_location: "", reason: "" };
     if (m === "CONFIRM") return { ledger_id: "", line_name: "", line_no: "", machine: "", actual_qty: "" };
+    if (m === "RETURN") return { ledger_id: "", qty: "", reason: "", returned_by: "", note: "" };
     return {};
   };
 
@@ -159,6 +169,35 @@ export default function ScanPart() {
     }));
   };
 
+  // The issue picked in RETURN mode — its outstanding qty caps the return.
+  const returnIssue = useMemo(
+    () => pending.find((p) => String(p.id) === String(form.ledger_id)) || null,
+    [pending, form.ledger_id]);
+
+  const doReturn = async () => {
+    if (busy) return;
+    if (!form.ledger_id) return toast.error("Select the issue being returned");
+    if (!form.reason) return toast.error("Choose a reason");
+    const outstanding = Number(returnIssue?.outstanding_qty ?? 0);
+    const qty = form.qty === "" ? outstanding : Number(form.qty);
+    if (!(qty > 0)) return toast.error("Enter a quantity to return");
+    if (qty > outstanding) return toast.error(`Only ${outstanding} still out on this issue`);
+    setBusy(true);
+    try {
+      const res = await spareStockService.returnItem(form.ledger_id, {
+        qty, reason: form.reason,
+        note: form.note || undefined, returned_by: form.returned_by || undefined,
+      });
+      const slip = res?.data?.data?.return_no;
+      toast.success(slip ? `Returned to store · slip ${slip}` : "Returned to store");
+      reset();
+    } catch {
+      /* interceptor toasts */
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const clock = useMemo(() =>
     `${now.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })} ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`,
   [now]);
@@ -181,7 +220,7 @@ export default function ScanPart() {
       </div>
 
       {/* mode tabs */}
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
         {MODES.map((m) => (
           <button key={m.key} type="button" onClick={() => changeMode(m.key)} disabled={busy}
             className={`rounded-lg py-3 text-sm font-semibold ${
@@ -192,7 +231,9 @@ export default function ScanPart() {
       </div>
 
       <ScanPanel onCode={handleCode} busy={busy}
-        hint={mode === "CONFIRM" ? "Re-scan the issued part to confirm" : "Scan or enter Part No., then Enter"} />
+        hint={mode === "CONFIRM" ? "Re-scan the issued part to confirm"
+          : mode === "RETURN" ? "Scan the part the department is sending back"
+          : "Scan or enter Part No., then Enter"} />
 
       {part && (
         <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
@@ -336,6 +377,58 @@ export default function ScanPart() {
                         <input type="number" min={0} value={form.actual_qty} onChange={(e) => set("actual_qty", e.target.value)} className="input-field mt-1 w-full" /></label>
                     </div>
                     <button type="button" onClick={doConfirm} disabled={busy} className="btn-primary w-full py-3 text-lg">Confirm installation</button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {mode === "RETURN" && (
+              <div className="space-y-3">
+                {pending.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    No issued stock of this part is out on the floor — nothing to take back.
+                  </p>
+                ) : (
+                  <>
+                    <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Which issue is coming back *</span>
+                      <select value={form.ledger_id}
+                        onChange={(e) => { const id = e.target.value; const it = pending.find((p) => String(p.id) === String(id)); setForm((f) => ({ ...f, ledger_id: id, qty: it ? String(it.outstanding_qty) : "" })); }}
+                        className="input-field mt-1 w-full">
+                        <option value="">Select the issue…</option>
+                        {pending.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {new Date(p.issued_at).toLocaleDateString("en-GB")} · {p.outstanding_qty} out · {p.department}{p.issued_to ? ` · ${p.issued_to}` : ""}{p.returnable ? " · tool/die" : ""}
+                          </option>
+                        ))}
+                      </select></label>
+                    {returnIssue && (
+                      <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-navy-800 dark:text-slate-400">
+                        Issued {returnIssue.issued_qty}{returnIssue.consumed_qty ? ` · ${returnIssue.consumed_qty} fitted` : ""}{returnIssue.returned_qty ? ` · ${returnIssue.returned_qty} already back` : ""} · <span className="font-semibold text-slate-700 dark:text-slate-200">{returnIssue.outstanding_qty} still out</span>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Return qty *</span>
+                        <input type="number" min={0} step="any" max={Number(returnIssue?.outstanding_qty ?? 0)}
+                          value={form.qty} onChange={(e) => set("qty", e.target.value)}
+                          className={`input-field mt-1 w-full text-lg ${form.qty !== "" && returnIssue && Number(form.qty) > Number(returnIssue.outstanding_qty) ? "border-rose-400" : ""}`} />
+                        {form.qty !== "" && returnIssue && Number(form.qty) > Number(returnIssue.outstanding_qty) && (
+                          <span className="mt-1 block text-[11px] font-semibold text-rose-600 dark:text-rose-400">Only {returnIssue.outstanding_qty} still out on this issue.</span>
+                        )}
+                      </label>
+                      <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Reason *</span>
+                        <select value={form.reason} onChange={(e) => set("reason", e.target.value)} className="input-field mt-1 w-full">
+                          <option value="">Select…</option>
+                          {RETURN_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                        </select></label>
+                      <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Returned by (person)</span>
+                        <input value={form.returned_by} onChange={(e) => set("returned_by", e.target.value)} className="input-field mt-1 w-full" /></label>
+                      <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Note</span>
+                        <input value={form.note} onChange={(e) => set("note", e.target.value)} placeholder={form.reason === "Other" ? "Describe the reason" : "Optional"} className="input-field mt-1 w-full" /></label>
+                    </div>
+                    <p className="text-xs text-slate-400">A store return slip (RET-…) is raised and stock is added back. Anything already fitted can't be taken back.</p>
+                    <button type="button" onClick={doReturn}
+                      disabled={busy || !form.ledger_id || !form.reason || (returnIssue && Number(form.qty) > Number(returnIssue.outstanding_qty))}
+                      className="btn-primary w-full py-3 text-lg">Take back on return slip</button>
                   </>
                 )}
               </div>

@@ -197,8 +197,9 @@ export default function SpareStock() {
   const handleReturn = async (ledgerId, partNo) => {
     if (!window.confirm(`Return ${partNo} to store?`)) return;
     try {
-      await spareStockService.returnItem(ledgerId);
-      toast.success(`${partNo} returned to store`);
+      const res = await spareStockService.returnItem(ledgerId, { reason: "Returnable tool/die returned" });
+      const slip = res?.data?.data?.return_no;
+      toast.success(slip ? `${partNo} returned · slip ${slip}` : `${partNo} returned to store`);
       load();
     } catch (err) {
       toast.error(err?.response?.data?.message || "Could not return");

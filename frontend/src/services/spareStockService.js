@@ -57,14 +57,29 @@ export const spareStockService = {
   consumptionTrend: (storeCode, days = 7, sectionId) =>
     api.get("/spare-stock/consumption-trend",
       { params: { store_code: storeCode, days, section_id: sectionId } }),
+  // Excess-value and short-value per day (money tied up above max / short below
+  // min over time) — for the trend line charts.
+  valueTrend: (storeCode, days = 30, sectionId) =>
+    api.get("/spare-stock/value-trend",
+      { params: { store_code: storeCode, days, section_id: sectionId } }),
   topConsumed: (storeCode, limit = 5, days = 30) =>
     api.get("/spare-stock/top-consumed", { params: { store_code: storeCode, limit, days } }),
   scan: (storeCode, code) => api.get("/spare-stock/scan", { params: { store_code: storeCode, code } }),
   returnables: (storeCode) => api.get("/spare-stock/returnables", { params: { store_code: storeCode } }),
   reorder: (storeCode) => api.get("/spare-stock/reorder", { params: { store_code: storeCode } }),
   erpPending: (storeCode) => api.get("/spare-stock/erp-sync/pending", { params: { store_code: storeCode } }),
+  // The actual movements behind the Pending-ERP count (drill list): data = { pending, rows, ...write status }.
+  erpPendingList: (storeCode, limit) =>
+    api.get("/spare-stock/erp-sync/pending/list", { params: { store_code: storeCode, limit } }),
   erpSync: (storeCode) => api.post("/spare-stock/erp-sync", null, { params: { store_code: storeCode } }),
-  returnItem: (ledgerId) => api.post(`/spare-stock/issues/${ledgerId}/return`),
+  // The ISSUE rows since shift start — the drill behind Today's Issue.
+  todayIssues: (storeCode, sectionId) =>
+    api.get("/spare-stock/today/issues", { params: { store_code: storeCode, section_id: sectionId } }),
+  // Store return slip — take an issued part back. payload: { qty?, reason, note?,
+  // returned_by? }. Omitting the body returns the whole outstanding quantity.
+  returnItem: (ledgerId, payload) => api.post(`/spare-stock/issues/${ledgerId}/return`, payload || {}),
+  // Issues of a part still out on the floor — the pick-list for a return.
+  returnableIssues: (partId) => api.get(`/spare-stock/parts/${partId}/returnable-issues`),
   import: (file, storeCode) => {
     const formData = new FormData();
     formData.append("file", file);

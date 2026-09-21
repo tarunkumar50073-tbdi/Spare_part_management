@@ -47,18 +47,6 @@ const fmtMoney = (v) => {
   if (v >= 1e5) return `₹ ${(v / 1e5).toFixed(2)} L`;
   return `₹ ${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 };
-// Excess-value chart tooltip: the part code, its description, and the money tied up.
-function ExcessTip({ active, payload }) {
-  if (!active || !payload || !payload.length) return null;
-  const d = payload[0].payload || {};
-  return (
-    <div style={{ background: "rgba(10,20,40,0.96)", border: "1px solid rgba(125,195,255,0.4)", borderRadius: 8, padding: "8px 11px", maxWidth: 340, boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
-      <div style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>{d.name}</div>
-      {d.desc ? <div style={{ color: "#b4c5e0", fontSize: 12, marginTop: 2, lineHeight: 1.35 }}>{d.desc}</div> : null}
-      <div style={{ color: "#fbbf24", fontWeight: 700, fontSize: 13, marginTop: 5 }}>Excess value: {fmtMoney(d.value)}</div>
-    </div>
-  );
-}
 // Generic tooltip for the drill donut: a part's code, description and its value.
 function PartValTip({ active, payload, fmt, label }) {
   if (!active || !payload || !payload.length) return null;
@@ -459,16 +447,38 @@ export default function TvDashboard() {
   const belowMin = dist["Below Minimum"] || 0;
   const liveAlerts = [];
   if (outOfStock) liveAlerts.push({ color: C.red, text: `${outOfStock} part${outOfStock > 1 ? "s" : ""} OUT OF STOCK`,
-    onClick: () => openStack({ kind: "partList", title: "Out of Stock", rows: rows.filter((r) => r.status === "Out of Stock"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand }) });
+    onClick: () => openStack({ kind: "partList", title: "Out of Stock", rows: rows.filter((r) => r.status === "Out of Stock"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand, trend: "short" }) });
   if (belowMin) liveAlerts.push({ color: C.red, text: `${belowMin} part${belowMin > 1 ? "s" : ""} below minimum`,
-    onClick: () => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)) }) });
+    onClick: () => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)), trend: "short" }) });
   const reorderN = dist["Reorder"] || 0;
   if (reorderN) liveAlerts.push({ color: "#f97316", text: `${reorderN} part${reorderN > 1 ? "s" : ""} at reorder level`,
     onClick: () => openStack({ kind: "partList", title: "Reorder", rows: rows.filter((r) => r.status === "Reorder"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand }) });
   if (excess) liveAlerts.push({ color: C.amber, text: `${excess} part${excess > 1 ? "s" : ""} above maximum · ${fmtMoney(excessValue)} tied up`,
-    onClick: () => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney }) });
-  if (pendingCount) liveAlerts.push({ color: C.purple, text: `${pendingCount} issue${pendingCount > 1 ? "s" : ""} awaiting user confirmation` });
+    onClick: () => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney, trend: "excess" }) });
+  if (pendingCount) liveAlerts.push({ color: C.purple, text: `${pendingCount} issue${pendingCount > 1 ? "s" : ""} awaiting user confirmation`,
+    onClick: () => openStack({ kind: "txnList", title: "Awaiting user confirmation",
+      rows: (P.pending || []).map((r) => ({
+        id: r.id, at: r.issued_at, part_id: r.part_id, part_no: r.part_no, part_name: r.part_name,
+        txn_type: "ISSUE", qty_delta: -(r.qty || 0), balance_after: null,
+        department: r.department, machine: r.machine,
+      })),
+      note: `${pendingCount} issue(s) the store has handed out but nobody has confirmed fitted yet — Stage 2 of the two-stage issue. The person who installs the part re-scans it (Scan Part → Confirm) to record the line/machine and mark it installed. Tap a row for that part's history.`,
+    }) });
   if (erpGapCount) liveAlerts.push({ color: C.cyan, text: `${erpGapCount} part${erpGapCount > 1 ? "s" : ""} differ from ERP`, onClick: () => openErpGap() });
+  // The three KPIs with no chart of their own are reachable here instead: click
+  // the alert to drill into its exact rows.
+  const pendingErp = P.erpPend?.pending ?? 0;
+  if (pendingErp) liveAlerts.push({ color: C.purple, text: `${pendingErp} movement${pendingErp > 1 ? "s" : ""} pending ERP sync`,
+    onClick: () => openTxns("Pending ERP", {
+      fetch: () => spareStockService.erpPendingList("MAINTENANCE").then((r) => r.data.data?.rows || []),
+      note: `${fmtInt(pendingErp)} stock movement(s) queued to push to ERP — each waits here while the ERP write is off. Tap a row for that part's history.`,
+    }) });
+  const issuedLines = P.today?.issued_lines ?? 0;
+  if (issuedLines) liveAlerts.push({ color: C.blue, text: `${fmtInt(P.today?.issued_qty ?? 0)} issued this shift · ${issuedLines} line${issuedLines > 1 ? "s" : ""}`,
+    onClick: () => openTxns("Today's Issue", {
+      fetch: () => spareStockService.todayIssues("MAINTENANCE").then((r) => r.data.data || []),
+      deptData,
+    }) });
   const cycle = (dir) => {
     setSectionId((cur) => {
       const i = Math.max(0, sectionOpts.findIndex((o) => o === cur));
@@ -487,8 +497,12 @@ export default function TvDashboard() {
     pushFrame({ kind: "partHistory", title: part.part_no, part, history: Array.isArray(h) ? h : [] });
   };
   // A transaction feed drill (for Today's Issue / Pending ERP) — off the ledger.
+  // opts.fetch lets a caller supply an exact list (e.g. only the pending-ERP
+  // movements, or only this shift's issues) so the drill ties out to its KPI;
+  // without it, the generic recent-activity feed is shown.
   const openTxns = async (title, opts = {}) => {
-    const a = await spareStockService.activity("MAINTENANCE", 60).then((r) => r.data.data).catch(() => []);
+    const fetcher = opts.fetch || (() => spareStockService.activity("MAINTENANCE", 60).then((r) => r.data.data));
+    const a = await fetcher().catch(() => []);
     let list = Array.isArray(a) ? a : [];
     if (opts.filter) list = list.filter(opts.filter);
     openStack({ kind: "txnList", title, rows: list, note: opts.note, deptData: opts.deptData });
@@ -607,14 +621,26 @@ export default function TvDashboard() {
           <span className="shrink-0 flex items-center gap-[0.6vh] rounded-md px-[1.1vh] py-[0.3vh] text-[1.3vh] font-extrabold tracking-wide" style={{ background: "linear-gradient(120deg,#ef4444,#dc2626)", boxShadow: "0 0 16px rgba(239,68,68,0.55)" }}>
             <span className="h-[1vh] w-[1vh] rounded-full bg-white animate-pulse" /> LIVE ALERTS
           </span>
+          {/* Hovering the track pauses the marquee (see .ticker-track-x:hover in
+              index.css) so a moving alert can be clicked; clickable alerts drill
+              into their rows, the rest stay plain text. */}
           <div className="relative flex-1 overflow-hidden">
             <div className="ticker-track-x flex w-max items-center gap-[3.5vh] whitespace-nowrap"
               style={{ "--ticker-duration": `${Math.max(20, liveAlerts.length * 9)}s` }}>
               {[...liveAlerts, ...liveAlerts].map((a, i) => (
-                <span key={i} className="flex items-center gap-[0.8vh] text-[1.45vh] font-semibold">
-                  <span className="h-[1.1vh] w-[1.1vh] shrink-0 rounded-full" style={{ background: a.color, boxShadow: `0 0 0.7vh ${a.color}` }} />
-                  {a.text}
-                </span>
+                a.onClick ? (
+                  <button key={i} type="button" onClick={a.onClick}
+                    className="flex items-center gap-[0.8vh] text-[1.45vh] font-semibold text-white cursor-pointer hover:underline focus:outline-none">
+                    <span className="h-[1.1vh] w-[1.1vh] shrink-0 rounded-full" style={{ background: a.color, boxShadow: `0 0 0.7vh ${a.color}` }} />
+                    {a.text}
+                    <span className="text-[1.15vh] opacity-70">›</span>
+                  </button>
+                ) : (
+                  <span key={i} className="flex items-center gap-[0.8vh] text-[1.45vh] font-semibold">
+                    <span className="h-[1.1vh] w-[1.1vh] shrink-0 rounded-full" style={{ background: a.color, boxShadow: `0 0 0.7vh ${a.color}` }} />
+                    {a.text}
+                  </span>
+                )
               ))}
             </div>
           </div>
@@ -623,20 +649,18 @@ export default function TvDashboard() {
 
       {/* ---------- KPI cards ---------- */}
       <div className="grid grid-cols-3 gap-[1.2vh]">
+        {/* The six KPI cards are read-only. Their detail opens from the charts
+            below (Total / Stock Value / Excess) or from the Live Alerts panel,
+            which carries the clickable drills for Short Parts, Pending ERP and
+            Today's Issue. */}
         <Kpi icon={Box} title="Total Parts" value={fmtInt(total)} trend={P.today?.received_lines ? `+${P.today.received_lines}` : null}
-          sub="Active parts in store" color={C.blue}
-          onClick={() => openStack({ kind: "partList", title: "All Parts", rows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand, chart: "byType" })} />
-        <Kpi icon={Database} title="Stock Value" value={fmtMoney(P.sum?.stock_value)} sub="As per ERP (Live)" color={C.green}
-          onClick={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney })} />
-        <Kpi icon={AlertTriangle} title="Short Parts" value={fmtInt(short)} sub="Below minimum stock" color={C.red}
-          onClick={() => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)) })} />
-        <Kpi icon={Boxes} title="Excess Parts" value={fmtInt(excess)} sub={`${fmtMoney(excessValue)} over max`} color={C.amber}
-          onClick={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
-        <Kpi icon={ClipboardList} title="Pending ERP" value={fmtInt(P.erpPend?.pending ?? 0)} sub="Movements pending in ERP" color={C.purple}
-          onClick={() => openTxns("Pending ERP", { note: `${fmtInt(P.erpPend?.pending ?? 0)} stock movement(s) queued to push to ERP — every move waits here while the ERP write is off. Tap a row for that part's history.` })} />
+          sub="Active parts in store" color={C.blue} />
+        <Kpi icon={Database} title="Stock Value" value={fmtMoney(P.sum?.stock_value)} sub="As per ERP (Live)" color={C.green} />
+        <Kpi icon={AlertTriangle} title="Short Parts" value={fmtInt(short)} sub="Below minimum stock" color={C.red} />
+        <Kpi icon={Boxes} title="Excess Parts" value={fmtInt(excess)} sub={`${fmtMoney(excessValue)} over max`} color={C.amber} />
+        <Kpi icon={ClipboardList} title="Pending ERP" value={fmtInt(P.erpPend?.pending ?? 0)} sub="Movements pending in ERP" color={C.purple} />
         <Kpi icon={ShoppingCart} title="Today's Issue" value={fmtInt(P.today?.issued_qty)} trend={P.today?.issued_lines ? `${P.today.issued_lines} lines` : null}
-          sub="Parts issued this shift" color={C.blue}
-          onClick={() => openTxns("Today's Issue", { filter: (r) => r.txn_type === "ISSUE", deptData })} />
+          sub="Parts issued this shift" color={C.blue} />
       </div>
 
       {/* ---------- charts ---------- */}
@@ -662,7 +686,6 @@ export default function TvDashboard() {
                     onClick={(s) => cats.length && openCat(s && (s.name ?? (s.payload && s.payload.name)))}>
                     {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} cursor={cats.length ? "pointer" : "default"} />)}
                   </Pie>
-                  <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
               <DonutHub value={fmtInt(total)} label="Total Parts" size="3vh" />
@@ -755,7 +778,6 @@ export default function TvDashboard() {
                     onClick={(s) => openValueSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {valueBySection.map((c, i) => <Cell key={i} fill={`url(#vsg-${i})`} cursor="pointer" />)}
                   </Pie>
-                  <Tooltip content={<PartValTip fmt={fmtMoney} label="Value" />} />
                 </PieChart>
               </ResponsiveContainer>
               <DonutHub value={fmtMoney(totalStockValue)} label="Total value" size="2.4vh" />
@@ -784,7 +806,7 @@ export default function TvDashboard() {
       {/* ---------- excess stock value ---------- */}
       <Card className="p-[1.4vh]">
         <PanelHead icon={Boxes} color={C.amber} title="Excess Stock Value"
-          action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
+          action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney, trend: "excess" })} />
         {excessSections.length ? (
           <div className="flex items-center gap-[1vh]">
             <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
@@ -805,7 +827,6 @@ export default function TvDashboard() {
                     onClick={(s) => openExcessSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {excessSections.map((c, i) => <Cell key={i} fill={`url(#exg-${i})`} cursor="pointer" />)}
                   </Pie>
-                  <Tooltip content={<ExcessTip />} />
                 </PieChart>
               </ResponsiveContainer>
               <DonutHub value={fmtMoney(excessValue)} label="Excess Value" size="2.4vh" />
@@ -949,14 +970,21 @@ export default function TvDashboard() {
             <button onClick={() => setStack([])} title="Close"
               className="w-[4.4vh] h-[4.4vh] rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-[2.4vh] leading-none">✕</button>
           </div>
-          <div className="flex-1 min-h-0">
-            {stack[stack.length - 1].kind === "partHistory"
-              ? <PartHistoryView frame={stack[stack.length - 1]} axis={axisColor} grid={gridColor} />
-              : stack[stack.length - 1].kind === "txnList"
-                ? <TxnListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
-                : stack[stack.length - 1].kind === "erpGap"
-                  ? <ErpGapView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
-                  : <PartListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />}
+          <div className="flex-1 min-h-0 flex flex-col gap-[1.4vh]">
+            <div className="flex-1 min-h-[50vh]">
+              {stack[stack.length - 1].kind === "partHistory"
+                ? <PartHistoryView frame={stack[stack.length - 1]} axis={axisColor} grid={gridColor} />
+                : stack[stack.length - 1].kind === "txnList"
+                  ? <TxnListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
+                  : stack[stack.length - 1].kind === "erpGap"
+                    ? <ErpGapView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
+                    : <PartListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />}
+            </div>
+            {/* A separate time-trend line under every parts drill — the frame's
+                own metric where it has one (Excess / Short), otherwise both. */}
+            {stack[stack.length - 1].kind === "partList" && (
+              <ValueTrendCard metric={stack[stack.length - 1].trend || "both"} axis={axisColor} grid={gridColor} />
+            )}
           </div>
         </div>
       )}
@@ -1002,6 +1030,99 @@ function DonutHub({ value, label, size = "2.5vh" }) {
   );
 }
 
+// A separate time-trend line under an Excess / Short drill: how the money tied
+// up above max (or short below min) has moved day by day. Real stock history
+// from the ledger, valued at current rates — see the backend value_trend.
+const TREND_RANGES = [
+  { label: "1W", days: 7 }, { label: "1M", days: 30 }, { label: "3M", days: 90 },
+  { label: "6M", days: 180 }, { label: "1Y", days: 365 },
+];
+function ValueTrendCard({ metric = "both", axis = "#64748b", grid = "#e2e8f0" }) {
+  const [days, setDays] = useState(30);
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    spareStockService.valueTrend("MAINTENANCE", days)
+      .then((r) => { if (alive) setData(Array.isArray(r.data.data) ? r.data.data : []); })
+      .catch(() => { if (alive) setData([]); });
+    return () => { alive = false; };
+  }, [days]);
+  // Which line(s) to draw: an Excess drill shows the excess line, a Short drill
+  // the short line, and every other drill shows both so it still carries a trend.
+  const EXC = { key: "excess_value", color: "#f59e0b", name: "Excess" };
+  const SHT = { key: "short_value", color: "#ef4444", name: "Short" };
+  const series = metric === "excess" ? [EXC] : metric === "short" ? [SHT] : [EXC, SHT];
+  const title = metric === "excess" ? "Excess value trend — money tied up above max"
+    : metric === "short" ? "Short value trend — money short below min"
+      : "Excess & Short value trend — money above max / below min";
+  const hasData = Array.isArray(data) && data.some((d) => series.some((s) => (d[s.key] || 0) > 0));
+  // ~10 evenly-spaced date ticks whatever the range (7 → all, 365 → every ~37th).
+  const tickInterval = data && data.length ? Math.max(0, Math.ceil(data.length / 10) - 1) : 0;
+  return (
+    <Card className="p-[1.6vh] shrink-0" style={{ height: "30vh" }}>
+      <div className="flex items-center justify-between gap-[1vh] mb-[1vh] flex-wrap">
+        <div className="flex items-center gap-[1.4vh] flex-wrap">
+          <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)]">{title}</h3>
+          {series.length > 1 && (
+            <div className="flex items-center gap-[1.2vh]">
+              {series.map((s) => (
+                <span key={s.key} className="flex items-center gap-[0.5vh] text-[1.25vh] font-semibold text-[var(--dx-t3)]">
+                  <span className="w-[1.2vh] h-[1.2vh] rounded-full" style={{ background: s.color }} />{s.name}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex gap-[0.5vh]">
+          {TREND_RANGES.map((r) => (
+            <button key={r.days} type="button" onClick={() => setDays(r.days)}
+              className="px-[1.1vh] py-[0.4vh] rounded-md text-[1.25vh] font-bold transition-colors"
+              style={days === r.days
+                ? { background: "#2563eb", color: "#fff" }
+                : { background: "var(--dx-track)", color: "var(--dx-t3)" }}>
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="h-[20vh]">
+        {data == null ? (
+          <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.5vh]">Loading trend…</div>
+        ) : !hasData ? (
+          <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.5vh] text-center px-[2vh]">
+            No value recorded in this window yet — the line fills in as stock moves day by day.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} margin={{ top: 6, right: 14, left: 2, bottom: 2 }}>
+              <defs>
+                {series.map((s) => (
+                  <linearGradient key={s.key} id={`vt-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stopColor={s.color} stopOpacity={0.32} /><stop offset="1" stopColor={s.color} stopOpacity={0} />
+                  </linearGradient>
+                ))}
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+              {/* Fixed interval → evenly-spaced date ticks (recharts' auto mode
+                  hides overlaps unevenly, which looked irregular). */}
+              <XAxis dataKey="d" tick={{ fontSize: 10, fill: axis }} interval={tickInterval} />
+              <YAxis tickFormatter={fmtMoney} width={58} tick={{ fontSize: 11, fill: axis }} />
+              <Tooltip formatter={(v, n) => [fmtMoney(v), n === "excess_value" ? "Excess" : n === "short_value" ? "Short" : n]} />
+              {series.map((s) => (
+                <Area key={`a-${s.key}`} type="monotone" dataKey={s.key} stroke="none" fill={`url(#vt-${s.key})`} isAnimationActive={false} />
+              ))}
+              {series.map((s) => (
+                <Line key={`l-${s.key}`} type="monotone" dataKey={s.key} stroke={s.color} strokeWidth={2.5} dot={false} isAnimationActive={false} />
+              ))}
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const rows = frame.rows || [];
   const valueOf = frame.valueOf || ((r) => r.qty_on_hand || 0);
@@ -1035,9 +1156,6 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const chartTitle = isByType ? "Parts by type"
     : isBySection ? `${frame.valueLabel || "Value"} by section`
       : `Top ${top.length} by ${frame.valueLabel || "Stock"}`;
-  // The bar is a COUNT of parts on the by-type chart, a stock figure on the
-  // top-10 — so the tooltip says which, instead of a bare "value".
-  const unit = isByType ? "Parts" : (frame.valueLabel || "Qty");
   const shown = secPick != null ? rows.filter((r) => r.section_id === secPick)
     : pick ? rows.filter((r) => (r.sub_category || "Others") === pick) : rows;
   const onBarClick = (d) => {
@@ -1068,7 +1186,6 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                     paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
                     {chartData.map((c, i) => <Cell key={i} fill={`url(#byt-${i})`} cursor="pointer" />)}
                   </Pie>
-                  <Tooltip formatter={(v) => [fmtInt(v), unit]} />
                 </PieChart>
               </ResponsiveContainer>
               <DonutHub value={fmtInt(pick ? (chartData.find((c) => c.name === pick)?.value || 0) : chartData.reduce((s, d) => s + d.value, 0))} label={pick || "Parts by type"} size="3.6vh" />
@@ -1088,7 +1205,6 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                       paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
                       {chartData.map((c, i) => <Cell key={i} fill={`url(#sg-${i})`} cursor="pointer" />)}
                     </Pie>
-                    <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
                   </PieChart>
                 </ResponsiveContainer>
                 <DonutHub value={fmtV(chartTotal)} label="Total value" size="3.4vh" />
@@ -1107,28 +1223,28 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
               </div>
             </div>
           ) : (
-            <div className="h-full relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <defs>
-                    {chartData.map((c, i) => {
-                      const col = PIE[i % PIE.length];
-                      const g = GRAD[col] || [col, col];
-                      return (
-                        <linearGradient key={i} id={`tg-${i}`} x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} />
-                        </linearGradient>
-                      );
-                    })}
-                  </defs>
-                  <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="88%"
-                    paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
-                    {chartData.map((c, i) => <Cell key={i} fill={`url(#tg-${i})`} cursor="pointer" />)}
-                  </Pie>
-                  <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} />
-                </PieChart>
-              </ResponsiveContainer>
-              <DonutHub value={fmtV(chartTotal)} label={`Top ${chartData.length} total`} size="4vh" />
+            // Top-N is a plain ranked bar chart — ten parts of similar value read
+            // as ten identical donut slices, but as bars each part's value is
+            // legible. The trend over time is a separate line chart below.
+            <div className="h-full flex flex-col">
+              <div className="flex-1 min-h-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={top} margin={{ top: 8, right: 8, left: -4, bottom: 30 }}>
+                    <defs>
+                      <linearGradient id="dg-vblue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#60a5fa" /><stop offset="1" stopColor="#2563eb" /></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+                    <XAxis dataKey="name" interval={0} angle={-32} textAnchor="end" height={40} tick={{ fontSize: 10, fill: axis }} />
+                    <YAxis tickFormatter={fmtV} width={54} tick={{ fontSize: 11, fill: axis }} />
+                    <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} cursor={{ fill: "var(--dx-track)" }} />
+                    <Bar dataKey="value" fill="url(#dg-vblue)" radius={[5, 5, 0, 0]} barSize={20} cursor="pointer" onClick={onBarClick} isAnimationActive={false} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mt-[0.4vh] flex items-center justify-between border-t border-[var(--dx-border)] pt-[0.7vh] px-[0.4vh]">
+                <span className="text-[1.25vh] font-semibold uppercase tracking-wide text-[var(--dx-t4)]">Top {top.length} total</span>
+                <span className="dx-radiant text-[2.2vh] font-extrabold text-[var(--dx-t1)]">{fmtV(chartTotal)}</span>
+              </div>
             </div>
           )}
         </div>
