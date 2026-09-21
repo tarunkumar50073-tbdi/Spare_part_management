@@ -284,39 +284,164 @@ class SpareStockService:
             "moved_by": r.moved_by, "at": r.created_at.isoformat() if r.created_at else None,
         } for r in rows]
 
-    def return_item(self, ledger_id, user=None):
-        """Bring a returnable tool/die back to the shelf — a RETURN that adds the
-        quantity back and closes out the ISSUE it came from. Rejects anything
-        that isn't a still-outstanding returnable issue."""
+    @staticmethod
+    def _consumed_qty(issue_row):
+        """How much of an ISSUE has been physically consumed (fitted) and so can
+        never come back. A confirmed installation records actual_qty; an
+        INSTALLED row with no figure is taken as fully used. Anything not yet
+        confirmed has consumed nothing."""
+        issued = abs(float(issue_row.qty_delta))
+        if issue_row.status in ("INSTALLED", "PARTIALLY_USED") and issue_row.actual_qty is not None:
+            return min(float(issue_row.actual_qty), issued)
+        if issue_row.status == "INSTALLED":
+            return issued
+        return 0.0
+
+    def _returned_qty(self, ledger_id):
+        """Quantity already returned against one ISSUE — the sum of its RETURN
+        rows, so a second slip only credits what is still out."""
+        from sqlalchemy import func
+        from app.models.spare_stock import SpareStockLedger
+        total = (
+            db.session.query(func.coalesce(func.sum(func.abs(SpareStockLedger.qty_delta)), 0))
+            .filter(SpareStockLedger.return_of_id == ledger_id,
+                    SpareStockLedger.txn_type == "RETURN")
+            .scalar()
+        )
+        return round(float(total or 0), 2)
+
+    def _next_return_no(self):
+        """A human-readable slip number, RET-YYYYMMDD-NNN, sequential within the
+        day. Derived from the highest slip already raised today so a restart
+        never reuses a number."""
+        from app.models.spare_stock import SpareStockLedger
+        stamp = datetime.now().strftime("%Y%m%d")
+        prefix = f"RET-{stamp}-"
+        last = (
+            db.session.query(SpareStockLedger.return_no)
+            .filter(SpareStockLedger.return_no.like(f"{prefix}%"))
+            .order_by(SpareStockLedger.return_no.desc())
+            .first()
+        )
+        seq = 1
+        if last and last[0]:
+            try:
+                seq = int(last[0].rsplit("-", 1)[1]) + 1
+            except (ValueError, IndexError):
+                seq = 1
+        return f"{prefix}{seq:03d}"
+
+    def return_item(self, ledger_id, qty=None, reason=None, note=None,
+                    returned_by=None, user=None):
+        """Take an issued part back on a store return slip. Works for ANY issue,
+        not just a returnable tool/die: a part the user department could not fit
+        and sent back is the main case. Adds the returned quantity to on-hand,
+        writes a RETURN ledger row carrying the slip number + reason + who
+        returned it, and closes (or partly closes) the ISSUE it came from.
+
+        Partial returns are allowed — several slips can draw down one issue — and
+        nothing already fitted (consumed) or already returned can be credited
+        again, so stock is never invented."""
         from app.models.spare_stock import SpareStockLedger
         issue_row = self.ledger_repo.get_by_id(ledger_id)
-        if not issue_row or issue_row.txn_type != "ISSUE" or not issue_row.returnable:
-            raise BadRequestError("That is not a returnable issue")
-        # A part already fitted (INSTALLED/PARTIALLY_USED), cancelled, or already
-        # brought back (RETURNED) can't be returned to the shelf — its quantity
-        # would be credited for stock that never physically came back.
-        if issue_row.status in ("INSTALLED", "PARTIALLY_USED", "CANCELLED", "RETURNED"):
-            raise BadRequestError(
-                f"This issue is {issue_row.status.lower().replace('_', ' ')} and cannot be returned")
+        if not issue_row or issue_row.txn_type != "ISSUE":
+            raise BadRequestError("That is not an issue that can be returned")
+        if issue_row.status == "CANCELLED":
+            raise BadRequestError("This issue was cancelled and cannot be returned")
         part = issue_row.part
-        qty_back = abs(float(issue_row.qty_delta))
+        issued_qty = abs(float(issue_row.qty_delta))
+        consumed = self._consumed_qty(issue_row)
+        outstanding = round(issued_qty - consumed - self._returned_qty(ledger_id), 2)
+        if outstanding <= 0:
+            raise BadRequestError("Nothing left to return on this issue")
+
+        qty_back = outstanding if qty is None else round(float(qty), 2)
+        if qty_back <= 0:
+            raise BadRequestError("Return quantity must be greater than zero")
+        if qty_back > outstanding:
+            raise BadRequestError(f"Cannot return {qty_back:g}: only {outstanding:g} still out")
+
+        reason = (reason or "").strip() or "Returned to store"
+        returned_by = (returned_by or "").strip() or None
+        remarks = (note or "").strip() or reason
         with atomic():
-            # Re-checked inside the transaction so two concurrent returns can't
-            # both pass the guard and credit the same issue twice.
-            if SpareStockLedger.query.filter_by(return_of_id=ledger_id).first():
-                raise BadRequestError("This issue has already been returned")
+            # Re-check outstanding inside the transaction so two concurrent slips
+            # can't both credit the same quantity.
+            outstanding = round(issued_qty - consumed - self._returned_qty(ledger_id), 2)
+            if qty_back > outstanding:
+                raise BadRequestError(f"Cannot return {qty_back:g}: only {outstanding:g} still out")
+            return_no = self._next_return_no()
             row = self.repo.get_or_create(issue_row.part_id)
             new_qty = round(float(row.qty_on_hand or 0) + qty_back, 2)
             row, _ = self._write(
                 issue_row.part_id, new_qty, "RETURN",
-                reference=issue_row.reference, remarks="Returned to store", user=user,
+                reference=issue_row.reference, remarks=remarks, user=user,
                 department=issue_row.department, machine=issue_row.machine,
                 return_of_id=ledger_id,
+                extra={"return_no": return_no, "return_reason": reason,
+                       "returned_by": returned_by},
             )
-            # Close the ISSUE out: mark it RETURNED so it drops from the Stage-2
-            # confirmation queue and can no longer be confirmed as installed.
-            self.ledger_repo.update(issue_row, status="RETURNED")
-        return self._row_dict(part, row)
+            # Fully back (nothing outstanding left) closes the issue out as
+            # RETURNED so it drops off the Stage-2 confirmation queue; a partial
+            # return marks it PARTIALLY_RETURNED and leaves the remainder out.
+            new_status = "RETURNED" if qty_back >= outstanding else "PARTIALLY_RETURNED"
+            self.ledger_repo.update(issue_row, status=new_status)
+        result = self._row_dict(part, row)
+        result.update({"return_no": return_no, "returned_qty": qty_back,
+                       "issue_id": ledger_id, "issue_status": new_status})
+        return result
+
+    def returnable_issues_for_part(self, part_id):
+        """Issues of this part that still have stock out on the floor — what the
+        store picks from when a department brings a part back. Every ISSUE with a
+        positive outstanding quantity (issued, minus what was fitted, minus what
+        has already been returned), newest first. Covers ordinary issues, not
+        only returnable tools."""
+        from app.models.spare_stock import SpareStockLedger
+        issues = (
+            SpareStockLedger.query.filter(
+                SpareStockLedger.part_id == part_id,
+                SpareStockLedger.txn_type == "ISSUE",
+            ).order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc()).all()
+        )
+        # One pass over this part's RETURN rows, summed per issue, so the list
+        # doesn't fire a query per issue.
+        returned_by_issue = {}
+        for r in (SpareStockLedger.query.filter(
+                SpareStockLedger.part_id == part_id,
+                SpareStockLedger.txn_type == "RETURN",
+                SpareStockLedger.return_of_id.isnot(None)).all()):
+            returned_by_issue[r.return_of_id] = returned_by_issue.get(r.return_of_id, 0.0) + abs(float(r.qty_delta))
+
+        out = []
+        for i in issues:
+            if i.status == "CANCELLED":
+                continue
+            issued_qty = abs(float(i.qty_delta))
+            consumed = self._consumed_qty(i)
+            already = round(returned_by_issue.get(i.id, 0.0), 2)
+            outstanding = round(issued_qty - consumed - already, 2)
+            if outstanding <= 0:
+                continue
+            out.append({
+                "id": i.id,
+                "part_id": i.part_id,
+                "part_no": i.part.part_no if i.part else None,
+                "part_name": i.part.part_name if i.part else None,
+                "issued_qty": issued_qty,
+                "consumed_qty": round(consumed, 2),
+                "returned_qty": already,
+                "outstanding_qty": outstanding,
+                "department": i.department,
+                "issued_to": i.issued_to,
+                "machine": i.machine,
+                "returnable": bool(i.returnable),
+                "status": i.status,
+                "reference": i.reference,
+                "issued_by": i.created_by,
+                "issued_at": i.created_at.isoformat() if i.created_at else None,
+            })
+        return out
 
     def outstanding_returnables(self, store_code):
         """Returnable tools/dies still out on the floor — every returnable ISSUE
@@ -581,28 +706,29 @@ class SpareStockService:
         out["issued_qty"] = round(out["issued_qty"], 2)
         return out
 
-    def today_movements(self, store_code, section_id=None):
-        """Since the shift started, not since midnight — the plant's day runs
-        08:30 to about 03:20 the next morning, so a midnight cut would split
-        one night shift's receipts across two days.
-
-        The shift boundary is a plant wall-clock time but created_at is stored
-        in UTC, so the boundary is converted before it is compared. Reading one
-        against the other is what once put every vehicle window 5.5 hours out.
-        The offset is measured rather than hardcoded, so this holds wherever
-        the server is set.
-        """
+    def _today_shift_start(self):
+        """The shift-start boundary today's figures are measured from — returned
+        both as the UTC instant to compare created_at against and the plant-clock
+        ISO to report. The plant's day runs 08:30 to about 03:20 the next
+        morning, so a midnight cut would split one night shift across two days.
+        created_at is stored in UTC, so the local boundary is converted before it
+        is compared — reading one against the other is what once put every
+        vehicle window 5.5 hours out. The offset is measured, not hardcoded, so
+        this holds wherever the server clock is set."""
         now_local = datetime.now()
         offset = now_local - datetime.utcnow()
-
         start_local = now_local.replace(hour=SHIFT_START.hour, minute=SHIFT_START.minute,
                                         second=0, microsecond=0)
         if now_local < start_local:
             start_local -= timedelta(days=1)
+        return start_local - offset, start_local.isoformat()
 
-        summary = self.movements_between(store_code, start_local - offset, section_id=section_id)
+    def today_movements(self, store_code, section_id=None):
+        """Movement totals since the shift started (see _today_shift_start)."""
+        since_utc, since_local_iso = self._today_shift_start()
+        summary = self.movements_between(store_code, since_utc, section_id=section_id)
         # Reported as the plant clock, which is the shift anyone is thinking of.
-        summary["since"] = start_local.isoformat()
+        summary["since"] = since_local_iso
         return summary
 
     @staticmethod
@@ -855,6 +981,74 @@ class SpareStockService:
             out.append({"d": d.strftime("%d %b"), "qty": round(by_day.get(d.isoformat(), 0.0), 2)})
         return out
 
+    def value_trend(self, store_code, days=30, section_id=None):
+        """Excess-value and short-value on each of the last `days` days — the
+        money tied up above maximum, and the money short below minimum, over
+        time. Rebuilt from the ledger: a part's stock at the end of a day is its
+        last recorded balance on or before that day, valued at its current rate
+        against its current max/min. So the STOCK is real history (balance_after
+        as it actually stood) while the thresholds/rate are today's — those move
+        rarely, so the shape is a genuine trend of how the excess/short money has
+        risen or fallen. A day before a part was ever counted contributes nothing
+        (there was no figure to value), never a false zero-excess."""
+        from datetime import date, timedelta
+        from collections import defaultdict
+        from app.models.spare_stock import SpareStockLedger
+        days = max(1, min(int(days or 30), 730))  # 1 day .. ~2 years
+        today = date.today()
+        day_list = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
+        excess_by_day = [0.0] * days
+        short_by_day = [0.0] * days
+
+        meta = {}
+        for p in self.part_repo.get_active(store_code):
+            if section_id and p.section_id != section_id:
+                continue
+            price = float(p.unit_price) if p.unit_price is not None else None
+            if price is None:
+                continue
+            meta[p.id] = (
+                float(p.max_stock_level) if p.max_stock_level is not None else None,
+                float(p.min_stock_level or 0),
+                price,
+            )
+        if meta:
+            # Every balance point for the store's parts, oldest first: (date, balance).
+            timeline = defaultdict(list)
+            for pid, created_at, bal in (
+                db.session.query(SpareStockLedger.part_id, SpareStockLedger.created_at,
+                                 SpareStockLedger.balance_after)
+                .join(Part, Part.id == SpareStockLedger.part_id)
+                .filter(Part.store_code == store_code)
+                .order_by(SpareStockLedger.created_at.asc(), SpareStockLedger.id.asc())
+                .all()
+            ):
+                if pid in meta and created_at is not None:
+                    timeline[pid].append((created_at.date(), float(bal)))
+
+            # One forward pass per part alongside the day list (both sorted
+            # oldest-first), so the cost is parts x (rows + days), not per day.
+            for pid, (mx, mn, price) in meta.items():
+                tl = timeline.get(pid)
+                if not tl:
+                    continue
+                idx = 0
+                stock = None
+                for di, d in enumerate(day_list):
+                    while idx < len(tl) and tl[idx][0] <= d:
+                        stock = tl[idx][1]
+                        idx += 1
+                    if stock is None:
+                        continue  # part not yet counted on this day
+                    if mx is not None and stock > mx:
+                        excess_by_day[di] += (stock - mx) * price
+                    if mn > 0 and stock < mn:
+                        short_by_day[di] += (mn - stock) * price
+
+        return [{"d": day_list[i].strftime("%d %b"),
+                 "excess_value": round(excess_by_day[i], 2),
+                 "short_value": round(short_by_day[i], 2)} for i in range(days)]
+
     def top_consumed(self, store_code, limit=5, days=30):
         """The most-issued parts over the last `days` days — the Top-5 Consumed
         table. Ranked by total issued quantity."""
@@ -1037,10 +1231,12 @@ class SpareStockService:
         return {"configured": True, "write_enabled": True, "pushed": pushed,
                 "failed": failed, "pending": len(rows) - pushed}
 
-    def recent_activity(self, store_code, limit=20):
-        """The store's own event feed, off the ledger. Every row is something
-        that actually happened to stock — no synthesised "system" events."""
-        return [{
+    @staticmethod
+    def _activity_row(e):
+        """One ledger movement as the dashboard/feed reads it — the shape the
+        Live Dashboard's transaction drill (Today's Issue / Pending ERP) and the
+        activity feed both render, so all three stay identical."""
+        return {
             "id": e.id,
             "at": e.created_at.isoformat() if e.created_at else None,
             "part_id": e.part_id,
@@ -1053,8 +1249,45 @@ class SpareStockService:
             "balance_after": float(e.balance_after),
             "reference": e.reference,
             "remarks": e.remarks,
+            "department": e.department,
+            "machine": e.machine,
             "created_by": e.created_by,
-        } for e in self.ledger_repo.recent_for_store(store_code, limit)]
+        }
+
+    def recent_activity(self, store_code, limit=20):
+        """The store's own event feed, off the ledger. Every row is something
+        that actually happened to stock — no synthesised "system" events."""
+        return [self._activity_row(e)
+                for e in self.ledger_repo.recent_for_store(store_code, limit)]
+
+    def pending_erp_movements(self, store_code, limit=None):
+        """The individual stock movements still waiting to push to ERP — the rows
+        behind the 'Pending ERP' count, oldest first (the order they'd sync in).
+        Same filter as pending_erp_count, so the list length equals that count."""
+        from app.models.spare_stock import SpareStockLedger
+        q = (
+            db.session.query(SpareStockLedger)
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code,
+                    SpareStockLedger.txn_type.in_(("ISSUE", "RECEIPT", "RETURN")),
+                    SpareStockLedger.erp_pushed_at.is_(None))
+            .order_by(SpareStockLedger.id.asc())
+        )
+        if limit:
+            q = q.limit(limit)
+        return [self._activity_row(e) for e in q.all()]
+
+    def today_issues(self, store_code, section_id=None):
+        """The ISSUE rows since the shift started — the rows behind 'Today's
+        Issue'. Uses the SAME shift-start boundary as today_movements, so the
+        list ties out to the card (row count == issued_lines, qty == issued_qty).
+        Newest first."""
+        since_utc, _ = self._today_shift_start()
+        rows = [e for e in self.ledger_repo.list_for_store_between(store_code, since_utc)
+                if e.txn_type == "ISSUE"
+                and (not section_id or (e.part and e.part.section_id == section_id))]
+        rows.sort(key=lambda e: e.id, reverse=True)
+        return [self._activity_row(e) for e in rows]
 
     def history_for_part(self, part_id, limit=25, txn_type=None, department=None,
                          machine=None, since=None, until=None):
@@ -1096,6 +1329,9 @@ class SpareStockService:
             "invoice_date": e.invoice_date.isoformat() if e.invoice_date else None,
             "check_result": e.check_result,
             "supplier": e.supplier.supplier_name if e.supplier else None,
+            "return_no": e.return_no,
+            "return_reason": e.return_reason,
+            "returned_by": e.returned_by,
             "created_by": e.created_by,
             "confirmed_by": e.confirmed_by,
             "confirmed_at": e.confirmed_at.isoformat() if e.confirmed_at else None,

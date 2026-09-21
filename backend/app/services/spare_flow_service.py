@@ -292,13 +292,19 @@ class SpareFlowService:
                 "balance_after": float(m.balance_after) if m.balance_after is not None else None,
                 "supplier_name": sup["name"] if sup else None,
                 "supplier_code": sup["code"] if sup else None,
-                "reference": m.reference, "po_no": None,
+                # The store return slip (RET-…) shows in place of the reference on
+                # a RETURN row; every other row keeps its own reference.
+                "reference": (getattr(m, "return_no", None) or m.reference) if m.txn_type == "RETURN" else m.reference,
+                "po_no": None,
                 "invoice_no": getattr(m, "invoice_no", None),
                 "department": getattr(m, "department", None),
-                "issued_to": getattr(m, "issued_to", None),
+                # On a RETURN row, issued_to carries the person who returned it so
+                # the ledger reads "back from <name>" without a new column here.
+                "issued_to": getattr(m, "returned_by", None) if m.txn_type == "RETURN" else getattr(m, "issued_to", None),
                 "machine": getattr(m, "machine", None),
                 "line": line,
-                "remarks": m.remarks, "by": m.created_by,
+                "remarks": (getattr(m, "return_reason", None) or m.remarks) if m.txn_type == "RETURN" else m.remarks,
+                "by": m.created_by,
                 "status": getattr(m, "status", None),
             })
         entries.sort(key=lambda e: (e["ts"] or ""), reverse=True)

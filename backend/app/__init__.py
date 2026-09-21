@@ -253,6 +253,9 @@ def _patch_schema():
         "confirmed_at": "DATETIME", "supplier_id": "INTEGER",
         "invoice_no": "VARCHAR(60)", "invoice_date": "DATE",
         "check_result": "VARCHAR(20)",
+        # Store return slip (a department sending an issued part back).
+        "return_no": "VARCHAR(40)", "return_reason": "VARCHAR(60)",
+        "returned_by": "VARCHAR(80)",
     }
     for _col, _type in _ledger_adds.items():
         if ledger_cols and _col not in ledger_cols:
@@ -260,6 +263,9 @@ def _patch_schema():
             db.session.commit()
     if ledger_cols and "status" not in ledger_cols:
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_status ON spare_stock_ledger (status)"))
+        db.session.commit()
+    if ledger_cols and "return_no" not in ledger_cols:
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_return_no ON spare_stock_ledger (return_no)"))
         db.session.commit()
 
     # `rgps` was first created with an earlier schema; the RGP model since moved

@@ -78,3 +78,18 @@ class SpareLocationSchema(Schema):
     new_location = fields.String(required=True, validate=validate.Length(min=1, max=40))
     reason = fields.String(required=True, validate=validate.Length(min=1, max=255))
     qty = fields.Decimal(allow_none=True, places=2, validate=validate.Range(min=0))
+
+
+class SpareReturnSchema(Schema):
+    """A store return slip: a department sending an issued part back. qty is
+    optional (omitted returns the whole outstanding quantity); reason is the slip
+    reason (a RETURN_REASONS label or free text); note is any extra remark;
+    returned_by is the person who handed it over. reason stays optional so the
+    legacy one-click return of a returnable tool still works."""
+    class Meta:
+        unknown = EXCLUDE
+
+    qty = fields.Decimal(allow_none=True, places=2, validate=validate.Range(min=0, min_inclusive=False))
+    reason = fields.String(allow_none=True, validate=validate.Length(max=60))
+    note = fields.String(allow_none=True, validate=validate.Length(max=255))
+    returned_by = fields.String(allow_none=True, validate=validate.Length(max=80))

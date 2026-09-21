@@ -17,15 +17,25 @@ from app.models.base import BaseModel
 
 # Why a quantity changed. OPENING is the first load from a physical count;
 # ADJUSTMENT is a correction to that; RECEIPT adds new stock; ISSUE draws it to
-# a department/machine; RETURN brings a returnable tool/die back to the shelf.
+# a department/machine; RETURN brings stock back to the shelf — a returnable
+# tool/die, or a part the user department could not fit and sent back on a
+# store return slip.
 TXN_TYPES = ("OPENING", "RECEIPT", "ISSUE", "RETURN", "ADJUSTMENT")
 
 # Two-stage issue lifecycle: the store issues to a department + person (Stage 1,
 # no machine known yet), then the user who fits the part confirms the line +
-# machine + installation by re-scanning (Stage 2).
+# machine + installation by re-scanning (Stage 2). RETURNED / PARTIALLY_RETURNED
+# close (or partly close) an issue when the department sends the part back.
 ISSUE_STATUSES = (
     "ISSUED_BY_STORE", "PENDING_USER_CONFIRMATION", "PARTIALLY_USED",
-    "INSTALLED", "RETURNED", "CANCELLED",
+    "INSTALLED", "RETURNED", "PARTIALLY_RETURNED", "CANCELLED",
+)
+# Why a department sent an issued part back to the store — recorded on the
+# RETURN slip. Free text is still allowed (e.g. "Other"), so this is a
+# suggestion list for the UI, not a hard constraint.
+RETURN_REASONS = (
+    "Did not fit", "Wrong part", "Damaged / defective",
+    "Excess — not required", "Other",
 )
 # Spare receiving lifecycle — deliberately no RQC and no Pending-Put-Away.
 RECEIVE_STATUSES = (
@@ -90,6 +100,15 @@ class SpareStockLedger(BaseModel):
 
     # On a RETURN row: the ISSUE ledger row it closes out.
     return_of_id = db.Column(db.Integer, db.ForeignKey("spare_stock_ledger.id"), nullable=True, index=True)
+
+    # ---- store return slip (RETURN rows) ----
+    # The slip number the store raises when a department sends a part back
+    # (RET-YYYYMMDD-NNN). Reason is why it came back (RETURN_REASONS); returned_by
+    # is the person from the department who handed it over. created_by stays the
+    # store user who processed the slip. All NULL on non-RETURN rows.
+    return_no = db.Column(db.String(40), nullable=True, index=True)
+    return_reason = db.Column(db.String(60), nullable=True)
+    returned_by = db.Column(db.String(80), nullable=True)
 
     # When this movement was pushed to ERP. NULL = pending — it waits here until
     # the ERP endpoint is live and a sync runs. Once ERP_API_BASE_URL is set,

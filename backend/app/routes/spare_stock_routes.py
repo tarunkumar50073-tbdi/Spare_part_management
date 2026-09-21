@@ -11,7 +11,7 @@ from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_stock_service import SpareStockService
 from app.schemas.spare_stock_schema import (
     SpareStockSetSchema, SpareIssueSchema, SpareReceiveSchema,
-    SpareConfirmSchema, SpareLocationSchema,
+    SpareConfirmSchema, SpareLocationSchema, SpareReturnSchema,
 )
 from app.utils.authz import require_store_access
 from app.utils.exceptions import BadRequestError, NotFoundError
@@ -140,6 +140,15 @@ def consumption_trend():
     ))
 
 
+@bp.route("/value-trend", methods=["GET"])
+def value_trend():
+    """Excess-value and short-value per day over the last `days` days — the money
+    tied up above max / short below min over time, for the trend line charts."""
+    return success_response(service.value_trend(
+        _store_code(), days=request.args.get("days", default=30, type=int),
+        section_id=_section()))
+
+
 @bp.route("/top-consumed", methods=["GET"])
 def top_consumed():
     return success_response(service.top_consumed(
@@ -167,6 +176,17 @@ def erp_sync_pending():
     })
 
 
+@bp.route("/erp-sync/pending/list", methods=["GET"])
+def erp_sync_pending_list():
+    """The individual movements behind the Pending-ERP count — the drill list."""
+    store = _store_code()
+    return success_response({
+        "pending": service.pending_erp_count(store),
+        "rows": service.pending_erp_movements(store, limit=request.args.get("limit", type=int)),
+        **service.erp_write_status(),
+    })
+
+
 @bp.route("/erp-sync", methods=["POST"])
 def erp_sync():
     return success_response(service.sync_pending_to_erp(_store_code()))
@@ -174,12 +194,28 @@ def erp_sync():
 
 @bp.route("/issues/<int:ledger_id>/return", methods=["POST"])
 def return_issue(ledger_id):
+    """Take an issued part back on a store return slip. Body is optional — the
+    legacy one-click return of a returnable tool sends none (whole quantity, no
+    reason); the return-slip form sends qty + reason + who returned it."""
     row = service.ledger_repo.get_by_id(ledger_id)
     if not row or not row.part:
         raise NotFoundError(f"Issue {ledger_id} not found")
     require_store_access(row.part.store_code)
-    result = service.return_item(ledger_id, user=_username())
-    return success_response(result, "Returned to store")
+    data = validate_payload(SpareReturnSchema(), request.get_json(force=True, silent=True) or {})
+    result = service.return_item(
+        ledger_id,
+        qty=(float(data["qty"]) if data.get("qty") is not None else None),
+        reason=data.get("reason"), note=data.get("note"),
+        returned_by=data.get("returned_by"), user=_username(),
+    )
+    return success_response(result, f"Returned to store · slip {result.get('return_no')}")
+
+
+@bp.route("/parts/<int:part_id>/returnable-issues", methods=["GET"])
+def returnable_issues(part_id):
+    """Issues of this part still out on the floor — the pick-list for a return."""
+    _require_part_store(part_id)
+    return success_response(service.returnable_issues_for_part(part_id))
 
 
 @bp.route("/by-status", methods=["GET"])
@@ -204,6 +240,12 @@ def excess():
 @bp.route("/today", methods=["GET"])
 def today():
     return success_response(service.today_movements(_store_code(), section_id=_section()))
+
+
+@bp.route("/today/issues", methods=["GET"])
+def today_issues():
+    """The ISSUE rows since shift start — the drill behind Today's Issue."""
+    return success_response(service.today_issues(_store_code(), section_id=_section()))
 
 
 @bp.route("/activity", methods=["GET"])

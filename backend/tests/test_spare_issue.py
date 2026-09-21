@@ -138,6 +138,118 @@ def test_non_returnable_issue_is_not_outstanding():
     assert not any(r["part_no"] == p.part_no for r in svc.outstanding_returnables("MAINTENANCE"))
 
 
+def _last_issue_id(part_id):
+    row = (SpareStockLedger.query
+           .filter_by(part_id=part_id, txn_type="ISSUE")
+           .order_by(SpareStockLedger.id.desc()).first())
+    return row.id
+
+
+# ---- store return slip (a department sending an issued part back) ----
+
+def test_return_slip_returns_a_normal_non_returnable_issue():
+    """The user's case: an ordinary part is issued, does not fit, and the dept
+    sends it back on a return slip — even though it was never flagged returnable."""
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 10)
+    svc.issue(p.id, 3, "Press Shop", returnable=False)  # a plain issue
+    lid = _last_issue_id(p.id)
+
+    res = svc.return_item(lid, reason="Did not fit", returned_by="Ramesh", user="storekpr")
+    assert _on_hand(p.id) == 10.0                        # all 3 back on the shelf
+    assert res["returned_qty"] == 3.0
+    assert res["return_no"].startswith("RET-")           # a slip number was raised
+    assert res["issue_status"] == "RETURNED"
+
+    ret = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RETURN").first()
+    assert ret.return_no == res["return_no"]
+    assert ret.return_reason == "Did not fit"
+    assert ret.returned_by == "Ramesh"
+    assert float(ret.qty_delta) == 3.0                   # positive — stock came in
+    assert ret.return_of_id == lid
+
+    issue = SpareStockLedger.query.get(lid)
+    assert issue.status == "RETURNED"
+
+
+def test_partial_return_leaves_remainder_outstanding():
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 10)
+    svc.issue(p.id, 6, "Maintenance")
+    lid = _last_issue_id(p.id)
+
+    r1 = svc.return_item(lid, qty=4, reason="Excess — not required")
+    assert _on_hand(p.id) == 8.0                          # 4 back
+    assert r1["issue_status"] == "PARTIALLY_RETURNED"
+
+    out = next(r for r in svc.returnable_issues_for_part(p.id) if r["id"] == lid)
+    assert out["outstanding_qty"] == 2.0 and out["returned_qty"] == 4.0
+
+    r2 = svc.return_item(lid, qty=2, reason="Excess — not required")
+    assert _on_hand(p.id) == 10.0                         # remainder back
+    assert r2["issue_status"] == "RETURNED"
+    assert not any(r["id"] == lid for r in svc.returnable_issues_for_part(p.id))
+
+
+def test_cannot_return_more_than_is_out():
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 5)
+    svc.issue(p.id, 2, "Tool Room")
+    lid = _last_issue_id(p.id)
+    with pytest.raises(BadRequestError):
+        svc.return_item(lid, qty=5)          # only 2 are out
+    assert _on_hand(p.id) == 3.0             # nothing credited
+
+
+def test_installed_issue_has_nothing_to_return():
+    """A part that was actually fitted (INSTALLED) cannot be returned — crediting
+    it would invent stock that never physically came back."""
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 10)
+    svc.issue(p.id, 3, "Maintenance")
+    lid = _last_issue_id(p.id)
+    svc.confirm_installation(lid, machine="M-1", actual_qty=3)   # all fitted
+    with pytest.raises(BadRequestError):
+        svc.return_item(lid)
+
+
+def test_partially_used_can_return_the_unfitted_remainder():
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 10)
+    svc.issue(p.id, 5, "Maintenance")
+    lid = _last_issue_id(p.id)
+    svc.confirm_installation(lid, machine="M-2", actual_qty=2)   # 2 fitted, 3 spare
+
+    out = next(r for r in svc.returnable_issues_for_part(p.id) if r["id"] == lid)
+    assert out["outstanding_qty"] == 3.0
+    res = svc.return_item(lid, reason="Did not fit")
+    assert _on_hand(p.id) == 8.0            # 10 - 5 issued + 3 returned
+    assert res["returned_qty"] == 3.0
+
+
+def test_return_slips_get_sequential_numbers():
+    svc = SpareStockService()
+    a = _part(); _set_physical(a.id, 5)
+    b = _part(); _set_physical(b.id, 5)
+    svc.issue(a.id, 1, "Maintenance"); svc.return_item(_last_issue_id(a.id), reason="Wrong part")
+    svc.issue(b.id, 1, "Maintenance"); n2 = svc.return_item(_last_issue_id(b.id), reason="Wrong part")["return_no"]
+    seqs = [int(r.return_no.rsplit("-", 1)[1]) for r in SpareStockLedger.query.filter(
+        SpareStockLedger.return_no.isnot(None)).all()]
+    assert len(set(seqs)) == len(seqs)      # no number reused
+    assert n2.startswith("RET-")
+
+
+def test_cancelled_issue_cannot_be_returned():
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 5)
+    svc.issue(p.id, 2, "Maintenance")
+    lid = _last_issue_id(p.id)
+    issue = SpareStockLedger.query.get(lid)
+    issue.status = "CANCELLED"; db.session.commit()
+    with pytest.raises(BadRequestError):
+        svc.return_item(lid)
+
+
 def test_receive_adds_stock():
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 5)
@@ -225,6 +337,42 @@ def test_below_minimum_beats_reorder_when_under_min():
     assert mine["status"] == "Below Minimum"
 
 
+def test_today_issues_lists_shift_issues_and_ties_to_summary():
+    """The Today's-Issue drill rows must tie out to the card: one row per issue
+    line since shift start, qty summing to issued_qty."""
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 20)
+    svc.issue(p.id, 3, "Press Shop")
+    svc.issue(p.id, 2, "Maintenance")
+
+    rows = svc.today_issues("MAINTENANCE")
+    mine = [r for r in rows if r["part_no"] == p.part_no]
+    assert len(mine) == 2
+    assert all(r["txn_type"] == "ISSUE" for r in mine)
+    assert {abs(r["qty_delta"]) for r in mine} == {3.0, 2.0}
+
+    summ = svc.today_movements("MAINTENANCE")
+    # Row count == issued_lines and qty magnitude == issued_qty for these two.
+    assert sum(1 for r in rows if r["part_no"] == p.part_no) == 2
+    assert summ["issued_lines"] >= 2 and summ["issued_qty"] >= 5.0
+
+
+def test_pending_erp_movements_match_the_count():
+    """The Pending-ERP drill list length equals the Pending-ERP count."""
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 20)
+    svc.issue(p.id, 4, "Maintenance")
+    svc.receive(p.id, 6, reference="GRN-9")
+
+    count = svc.pending_erp_count("MAINTENANCE")
+    rows = svc.pending_erp_movements("MAINTENANCE")
+    assert len(rows) == count
+    # Only stock movements (never OPENING/ADJUSTMENT) are pending.
+    assert all(r["txn_type"] in ("ISSUE", "RECEIPT", "RETURN") for r in rows)
+    mine = [r for r in rows if r["part_no"] == p.part_no]
+    assert {r["txn_type"] for r in mine} == {"ISSUE", "RECEIPT"}
+
+
 def test_consumption_trend_has_a_point_per_day_and_counts_issue():
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 50)
@@ -233,6 +381,27 @@ def test_consumption_trend_has_a_point_per_day_and_counts_issue():
     trend = svc.consumption_trend("MAINTENANCE", days=7)
     assert len(trend) == 7                       # one point for every day, gaps filled with 0
     assert sum(d["qty"] for d in trend) - before == 9.0
+
+
+def test_value_trend_values_excess_and_short_from_ledger():
+    """The trend lines: excess-value = money above max, short-value = money short
+    below min, valued from the real ledger balance."""
+    svc = SpareStockService()
+    _seq["n"] += 1
+    e = Part(part_no=f"VTE-{_seq['n']}", part_name="Excess Trend", uom="NO", part_type="OTHER",
+             store_code="MAINTENANCE", max_stock_level=5, unit_price=10)
+    s = Part(part_no=f"VTS-{_seq['n']}", part_name="Short Trend", uom="NO", part_type="OTHER",
+             store_code="MAINTENANCE", min_stock_level=10, unit_price=10)
+    db.session.add_all([e, s]); db.session.commit()
+    _set_physical(e.id, 8)   # 3 above max of 5 -> 30 excess value
+    _set_physical(s.id, 4)   # 6 below min of 10 -> 60 short value
+
+    trend = svc.value_trend("MAINTENANCE", days=5)
+    assert len(trend) == 5
+    assert all("excess_value" in d and "short_value" in d for d in trend)
+    today = trend[-1]
+    assert today["excess_value"] >= 30.0   # our excess part contributes (8-5)*10
+    assert today["short_value"] >= 60.0    # our short part contributes (10-4)*10
 
 
 def test_top_consumed_ranks_by_issued_quantity():
