@@ -1,5 +1,5 @@
-import React, { Suspense } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import React, { Suspense, useEffect } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import MainLayout from "./layouts/MainLayout.jsx";
 import Login from "./pages/Login.jsx";
@@ -44,6 +44,23 @@ const VehicleInOut = React.lazy(() => import("./pages/VehicleInOut.jsx"));
 const CurrentStock = React.lazy(() => import("./pages/CurrentStock.jsx"));
 const WindowTimeBoard = React.lazy(() => import("./pages/WindowTimeBoard.jsx"));
 const TvDashboard = React.lazy(() => import("./pages/TvDashboard.jsx"));
+const Admin = React.lazy(() => import("./pages/Admin.jsx"));
+
+// SPA navigation (and browser reloads) don't reset scroll on their own, so
+// coming back from the Live Dashboard — or reopening the app — used to land
+// halfway down a long page (wherever it was last scrolled). Reset to the top on
+// every route change, and turn off the browser's own scroll restoration so a
+// reload starts at the top too.
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
+  }, []);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
 
 // Shown while a route's chunk loads — brief, since chunks are small and cached.
 function PageFallback() {
@@ -71,6 +88,7 @@ function AuthenticatedApp() {
 
   return (
     <StoreProvider>
+      <ScrollToTop />
       <Suspense fallback={<PageFallback />}>
       <Routes>
         {/* The 53" LED "Live Dashboard": behind login, but deliberately OUTSIDE
@@ -82,6 +100,7 @@ function AuthenticatedApp() {
           <Route path="/" element={<StoreHome />} />
           <Route path="/dashboard" element={<StoreDashboard />} />
           <Route path="/store/MAINTENANCE" element={<MaintenanceStore />} />
+          <Route path="/admin" element={<Admin />} />
           {/* A section is its own address, so the sidebar can link straight to
               it and the browser's back button behaves. */}
           <Route path="/store/MAINTENANCE/:sectionId" element={<MaintenanceStore />} />

@@ -26,11 +26,20 @@ const TITLES = {
   "/inventory-overview": "Inventory Overview",
   "/supplier-vehicles": "Supplier Vehicle Management",
   "/vehicle-in-out": "Vehicle In / Out",
+  "/admin": "User Management",
 };
 
 export default function MainLayout() {
-  // The rail is an overlay drawer, hidden by default; the Topbar logo opens it.
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // A persistent rail that squeezes to an icon-only strip and expands back; the
+  // Topbar's panel icon toggles it, and the choice is remembered across reloads.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem("dx_sidebar_collapsed") === "1"; } catch { return false; }
+  });
+  const toggleSidebar = () => setCollapsed((c) => {
+    const next = !c;
+    try { localStorage.setItem("dx_sidebar_collapsed", next ? "1" : "0"); } catch { /* ignore */ }
+    return next;
+  });
 
   const location = useLocation();
   const { activeStore } = useStores();
@@ -48,11 +57,11 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-screen flex">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar collapsed={collapsed} />
       <div className="flex-1 flex flex-col min-w-0">
         {/* Search sits in the header (in the gap between the title and the
             actions) on the main screens — not repeated inside every section. */}
-        <Topbar title={title} onMenuClick={() => setSidebarOpen(true)} showSearch={!section} />
+        <Topbar title={title} onMenuClick={toggleSidebar} collapsed={collapsed} showSearch={!section} />
         {/* Now the rail is an overlay, the content spans the full width — cap and
             centre it so the cards keep their intended density (a huge gap opened
             in the KPI tiles once they stretched edge to edge). */}

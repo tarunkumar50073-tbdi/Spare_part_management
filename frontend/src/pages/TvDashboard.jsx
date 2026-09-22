@@ -8,6 +8,7 @@ import {
   FileBarChart, PackagePlus, Sun, Moon, ArrowLeft,
   Maximize, Minimize,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { spareStockService } from "../services/spareStockService.js";
 import { storeService } from "../services/storeService.js";
 
@@ -216,6 +217,7 @@ function HeaderClock({ isDay, onToggle }) {
 // ---- main ------------------------------------------------------------------
 
 export default function TvDashboard() {
+  const navigate = useNavigate();
   const [data, setData] = useState({});
   const [hour, setHour] = useState(() => new Date().getHours()); // only for day/night auto — the ticking clock lives in <HeaderClock/> so it doesn't re-render the charts every second
   const [sections, setSections] = useState([]);
@@ -550,7 +552,12 @@ export default function TvDashboard() {
           background: "radial-gradient(720px 300px at 82% -50%, rgba(56,189,248,0.42), transparent 62%), radial-gradient(520px 240px at 10% 150%, rgba(37,99,235,0.32), transparent 60%), linear-gradient(120deg,#0a2340 0%,#123a6b 48%,#0a2038 100%)",
           boxShadow: "0 14px 40px rgba(10,32,70,0.40), inset 0 1px 0 rgba(255,255,255,0.08)",
         }}>
-        <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-[4.6vh] w-auto bg-white/95 rounded-lg p-[0.5vh] shrink-0" draggable={false} />
+        {/* The logo doubles as "back to the app" — tap it to leave the wallboard. */}
+        <button type="button" onClick={() => navigate("/store/MAINTENANCE")}
+          title="Back to the app" aria-label="Back to the app"
+          className="shrink-0 rounded-lg cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60">
+          <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-[4.6vh] w-auto bg-white/95 rounded-lg p-[0.5vh] block" draggable={false} />
+        </button>
         <div className="hidden xl:block leading-tight shrink-0">
           <div className="text-[1.6vh] font-bold">Toyota Boshoku</div>
           <div className="text-[1.2vh] text-white/60">Device India Pvt. Ltd.</div>

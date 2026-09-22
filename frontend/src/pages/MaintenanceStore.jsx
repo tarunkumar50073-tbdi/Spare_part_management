@@ -1448,51 +1448,53 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
 
   return (
     <>
-      {/* ---- Operational KPIs: what the store is doing right now ---- */}
-      {ops && (
-        <section>
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <div>
-              <h3 className="section-title">Store Status</h3>
-              <p className="section-hint">
-                Movements since the {new Date(ops.today?.since || Date.now())
-                  .toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} shift start
-              </p>
-            </div>
+      {/* ---- Operational KPIs: what the store is doing right now. Rendered even
+           while `ops`/`stock` are still loading (skeleton tiles) so this headline
+           strip always anchors the TOP of the page, instead of popping in above
+           Coverage / Needs Reordering once its background calls return. ---- */}
+      <section>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h3 className="section-title">Store Status</h3>
+            <p className="section-hint">
+              Movements since the {new Date(ops?.today?.since || Date.now())
+                .toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} shift start
+            </p>
           </div>
-          {/* Four across, two rows — not eight across. At eight the card is
-              ~175px, and once the chip takes its column the label truncates to
-              "TOT…" and the figure clips. A KPI you cannot read is not a KPI. */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <KpiCard featured tone="blue" label="Total Spare Parts" icon="🔧" value={stats.total} loading={loading}
-              onClick={opener(partsDrill("Total Spare Parts", "Every active part in this list", parts, "spares_all"))} />
-            <KpiCard featured tone="navy" label="Live Stock" icon="📦" value={stock ? stock.total_qty : 0} unit="pcs"
-              hint={stock ? `${num(stock.counted_parts)} of ${num(stock.total_parts)} counted` : ""}
-              onClick={opener(stockDrill("Live Stock", "Counted parts and what is on the shelf", counted, "spare_live_stock"))} />
-            <KpiCard featured tone="green" label="Stock Value" icon="💰"
-              value={compactMoney(stock?.stock_value || null)} valueTitle={money(stock?.stock_value)}
-              hint={stock?.valued_parts ? `${num(stock.valued_parts)} carry a rate` : "No rated part counted yet"}
-              onClick={opener({
-                title: "Stock Value", exportName: "spare_stock_value", onRowClick: onStockClick,
-                subtitle: `${money(stock?.stock_value)} across ${num(stock?.valued_parts)} counted parts that carry a rate`,
-                rows: counted.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value),
-                columns: STOCK_VALUE_COLUMNS,
-                // Opens with the Live-Dashboard "Top 10 by Value" bar chart above
-                // the list — the highest-value spares, graphically, on drill.
-                valueChart: true,
-              })} />
-            {/* Below Minimum, Above Maximum and SRV Pending are not repeated
-                here — they are the Action Required tiles below, where they can
-                be acted on. This row is the store's headline flow and value. */}
-            <KpiCard featured tone="green" label="Today Received" icon="📥"
-              value={ops.today?.received_qty ?? 0} unit="pcs"
-              hint={`${ops.today?.received_lines ?? 0} receipt line${ops.today?.received_lines === 1 ? "" : "s"}`} />
-            <KpiCard featured tone="red" label="Today Issued" icon="📤"
-              value={ops.today?.issued_qty ?? 0} unit="pcs"
-              hint={`${ops.today?.issued_lines ?? 0} issue line${ops.today?.issued_lines === 1 ? "" : "s"}`} />
-          </div>
-        </section>
-      )}
+        </div>
+        {/* Four across, two rows — not eight across. At eight the card is
+            ~175px, and once the chip takes its column the label truncates to
+            "TOT…" and the figure clips. A KPI you cannot read is not a KPI. */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <KpiCard featured tone="blue" label="Total Spare Parts" icon="🔧" value={stats.total}
+            onClick={opener(partsDrill("Total Spare Parts", "Every active part in this list", parts, "spares_all"))} />
+          <KpiCard featured tone="navy" label="Live Stock" icon="📦" value={stock ? stock.total_qty : 0} unit="pcs"
+            hint={stock ? `${num(stock.counted_parts)} of ${num(stock.total_parts)} counted` : ""}
+            onClick={opener(stockDrill("Live Stock", "Counted parts and what is on the shelf", counted, "spare_live_stock"))} />
+          <KpiCard featured tone="green" label="Stock Value" icon="💰"
+            value={compactMoney(stock?.stock_value || null)} valueTitle={money(stock?.stock_value)}
+            hint={stock?.valued_parts ? `${num(stock.valued_parts)} carry a rate` : "No rated part counted yet"}
+            onClick={opener({
+              title: "Stock Value", exportName: "spare_stock_value", onRowClick: onStockClick,
+              subtitle: `${money(stock?.stock_value)} across ${num(stock?.valued_parts)} counted parts that carry a rate`,
+              rows: counted.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value),
+              columns: STOCK_VALUE_COLUMNS,
+              // Opens with the Live-Dashboard "Top 10 by Value" bar chart above
+              // the list — the highest-value spares, graphically, on drill.
+              valueChart: true,
+            })} />
+          {/* All five tiles always show, each with its fallback figure (0 / —)
+              until the data lands — no skeletons that could sit blank. Today
+              Received / Issued simply stay 0 on a section page, which has no
+              store-wide ops. */}
+          <KpiCard featured tone="green" label="Today Received" icon="📥"
+            value={ops?.today?.received_qty ?? 0} unit="pcs"
+            hint={`${ops?.today?.received_lines ?? 0} receipt line${ops?.today?.received_lines === 1 ? "" : "s"}`} />
+          <KpiCard featured tone="red" label="Today Issued" icon="📤"
+            value={ops?.today?.issued_qty ?? 0} unit="pcs"
+            hint={`${ops?.today?.issued_lines ?? 0} issue line${ops?.today?.issued_lines === 1 ? "" : "s"}`} />
+        </div>
+      </section>
 
       {/* Master Data has no KPI strip — the same story is told by the charts in
           Coverage & Spread (Parts by Rack, Master Data Completeness, Parts by
@@ -2137,26 +2139,23 @@ export default function MaintenanceStore() {
   const { sectionId } = useParams();
   const navigate = useNavigate();
   const [sections, setSections] = useState([]);
-  const [parts, setParts] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    Promise.all([
-      storeService.sections(STORE_CODE).then((res) => res.data.data).catch(() => []),
-      fetchAllParts({ store_code: STORE_CODE, is_active: true }).catch(() => []),
-    ])
-      .then(([secs, all]) => {
-        setSections(secs);
-        setParts(all);
-      })
-      .finally(() => setLoading(false));
+    storeService.sections(STORE_CODE).then((res) => res.data.data).catch(() => []).then(setSections);
   }, []);
 
-  const stats = useStoreStats(parts);
   // Skipped when a section is open: this component still runs its hooks before
   // handing off to SectionDetail, and the store-wide figures would go unused.
   const { stock, belowMin, stockRows } = useSpareStock(undefined, !sectionId);
+  // `parts` is derived from the stock list rather than fetched separately — the
+  // stock rows already carry every part field (plus on-hand / status / value),
+  // so pulling the ~4,800-row part master a SECOND time on load was pure
+  // duplicate payload. `id` is aliased from part_id so the detail modal and the
+  // drills (which resolve a part by id) keep working unchanged.
+  const parts = useMemo(() => stockRows.map((r) => ({ ...r, id: r.part_id })), [stockRows]);
+  const stats = useStoreStats(parts);
+  const loading = !sectionId && stock == null;
   // Operational data is the whole store's, so it is fetched only for the store
   // dashboard — a section screen must not show it as if it were its own.
   const ops = useSpareOps(!sectionId);

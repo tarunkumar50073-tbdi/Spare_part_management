@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { FileDown, Maximize2, Minimize2 } from "lucide-react";
+import { FileDown, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Badge from "./Badge.jsx";
 import { notificationService } from "../services/notificationService.js";
 import { liveStockService } from "../services/liveStockService.js";
@@ -96,7 +96,7 @@ const asSpareResult = (row) => ({
 // This is the app's only search box — the dashboard used to carry a second one
 // of its own. Account controls (user, sign out, theme) sit at the foot of the
 // sidebar instead, since they belong to the session rather than to the page.
-export default function Topbar({ onMenuClick, title, showSearch = true }) {
+export default function Topbar({ onMenuClick, title, collapsed = false, showSearch = true }) {
   const navigate = useNavigate();
   // The box searches the store you are standing in. It used to always search
   // Child Parts live stock, so from the Spare Parts Store it answered every
@@ -210,16 +210,17 @@ export default function Topbar({ onMenuClick, title, showSearch = true }) {
       {/* Left | centre | right, with equal side columns so the title sits dead
           centre whatever the logo and actions widths are. */}
       <div className="flex items-center gap-3 px-4 lg:px-6 py-2">
-        {/* Left group (flex-1) — just the logo; it balances the right group so the
-            title stays dead-centre. */}
+        {/* Left group (flex-1) — the logo is a plain Home link now (it no longer
+            secretly opens the menu); it balances the right group so the title
+            stays dead-centre. */}
         <div className="flex-1 min-w-0 flex items-center">
-          <button
-            onClick={onMenuClick}
-            title="Open menu"
+          <Link
+            to="/"
+            title="Home"
             className="shrink-0 rounded-lg -m-1 p-1 hover:bg-slate-100 dark:hover:bg-navy-800 transition-colors"
           >
-            <img src="/toyota-boshoku-logo.png" alt="Menu" className="h-11 w-auto" draggable={false} />
-          </button>
+            <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-11 w-auto" draggable={false} />
+          </Link>
         </div>
 
         {/* The page title — centred, big and premium (a colourful gradient). */}
@@ -305,6 +306,17 @@ export default function Topbar({ onMenuClick, title, showSearch = true }) {
             </div>
           )}
           <div className="flex items-center gap-1.5 shrink-0">
+          {/* Squeeze / expand the side menu — the discoverable control the logo
+              used to hide. */}
+          <button
+            onClick={onMenuClick}
+            title={collapsed ? "Expand the menu" : "Collapse the menu"}
+            aria-label={collapsed ? "Expand the menu" : "Collapse the menu"}
+            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
+              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+          >
+            {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+          </button>
           <ErpStatusPill />
           <button
             onClick={toggleFullscreen}
