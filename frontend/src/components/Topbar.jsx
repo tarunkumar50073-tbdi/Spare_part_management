@@ -1,12 +1,41 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { FileDown, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import {
+  FileDown, Home, LogOut, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon,
+} from "lucide-react";
 import Badge from "./Badge.jsx";
 import { notificationService } from "../services/notificationService.js";
 import { liveStockService } from "../services/liveStockService.js";
 import { partService } from "../services/partService.js";
 import { storeDashboardService } from "../services/storeDashboardService.js";
 import { useStores } from "../context/StoreContext.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
+
+// The coming multi-plant switch. Today the app serves one plant, so Plant 1 is
+// the live data and Plant 2 is a disabled placeholder. When the second site's
+// data and per-plant permissions land, a user will see only the plant(s) they
+// may access and admins / plant-heads will toggle between both here.
+function PlantToggle() {
+  return (
+    <div className="hidden md:inline-flex items-center rounded-lg border border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 p-0.5">
+      <button
+        type="button"
+        className="rounded-md bg-toyotared px-2.5 py-1 text-xs font-semibold text-white shadow-sm"
+        title="Plant 1 — current"
+      >
+        Plant&nbsp;1
+      </button>
+      <button
+        type="button"
+        disabled
+        title="Plant 2 — coming soon (its data isn't connected yet)"
+        className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-400 cursor-not-allowed"
+      >
+        Plant&nbsp;2
+      </button>
+    </div>
+  );
+}
 
 // "Last ERP data: 01 Aug 2026" — or, honestly, that none has arrived. Every
 // receiving figure in this app waits on ERP calling the gate-entry and
@@ -106,6 +135,7 @@ export default function Topbar({ onMenuClick, title, collapsed = false, showSear
   // unresolved code (stores still loading) keeps the historical behaviour
   // rather than searching every store at once.
   const { activeCode, activeStore } = useStores();
+  const { user, logout } = useAuth();
   const childParts = !activeCode || activeCode === "CHILD_PART";
   // Tracked rather than assumed: the user can leave fullscreen with Esc or F11
   // without touching the button, and a button showing the wrong state is worse
@@ -208,41 +238,22 @@ export default function Topbar({ onMenuClick, title, collapsed = false, showSear
   return (
     <header className="bg-gradient-to-b from-white/95 to-white/85 dark:from-navy-900/95 dark:to-navy-900/75 backdrop-blur-sm border-b border-slate-200/80 dark:border-navy-800 shadow-[0_6px_18px_rgba(15,31,56,0.05)] dark:shadow-[0_6px_18px_rgba(0,0,0,0.35)] sticky top-0 z-20">
       {/* Left | centre | right, with equal side columns so the title sits dead
-          centre whatever the logo and actions widths are. */}
+          centre whatever the two action groups' widths are. */}
       <div className="flex items-center gap-3 px-4 lg:px-6 py-2">
-        {/* Left group (flex-1) — the logo is a plain Home link now (it no longer
-            secretly opens the menu); it balances the right group so the title
-            stays dead-centre. */}
-        <div className="flex-1 min-w-0 flex items-center">
+        {/* Left group (flex-1) — a Home button and the global search. No logo:
+            the title carries the branding, and the sidebar keeps the mark. */}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
           <Link
             to="/"
             title="Home"
-            className="shrink-0 rounded-lg -m-1 p-1 hover:bg-slate-100 dark:hover:bg-navy-800 transition-colors"
+            aria-label="Home"
+            className="shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
+              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
           >
-            <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-11 w-auto" draggable={false} />
+            <Home size={16} />
           </Link>
-        </div>
-
-        {/* The page title — centred, big and premium (a colourful gradient). */}
-        <h1
-          className="shrink-0 text-center text-2xl lg:text-3xl font-extrabold tracking-tight leading-none truncate max-w-[36vw]"
-          style={{
-            backgroundImage: "linear-gradient(92deg,#ff7a18 0%,#eb0a1e 48%,#c81d77 100%)",
-            WebkitBackgroundClip: "text",
-            backgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            color: "transparent",
-            filter: "drop-shadow(0 2px 8px rgba(235,10,30,0.25))",
-          }}
-        >
-          {title}
-        </h1>
-
-        {/* Right group (flex-1) — a small search sitting in the gap, then the
-            compact actions, all pushed to the right. */}
-        <div className="flex-1 min-w-0 flex items-center justify-end gap-3">
           {showSearch && (
-            <div ref={searchRef} className="relative hidden lg:block w-48 xl:w-60">
+            <div ref={searchRef} className="relative hidden lg:block w-48 xl:w-64">
               <form onSubmit={handleSearch}>
                 <div className="relative">
                   <span className="absolute left-3 top-1.5 text-sm pointer-events-none">🔍</span>
@@ -305,18 +316,28 @@ export default function Topbar({ onMenuClick, title, collapsed = false, showSear
               )}
             </div>
           )}
+        </div>
+
+        {/* The page title — centred, big and premium (a colourful gradient). */}
+        <h1
+          className="shrink-0 text-center text-2xl lg:text-3xl font-extrabold tracking-tight leading-none truncate max-w-[36vw]"
+          style={{
+            backgroundImage: "linear-gradient(92deg,#ff7a18 0%,#eb0a1e 48%,#c81d77 100%)",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            color: "transparent",
+            filter: "drop-shadow(0 2px 8px rgba(235,10,30,0.25))",
+          }}
+        >
+          {title}
+        </h1>
+
+        {/* Right group (flex-1) — the plant switch and the session / utility
+            controls, pushed right so the title stays centred. */}
+        <div className="flex-1 min-w-0 flex items-center justify-end gap-3">
           <div className="flex items-center gap-1.5 shrink-0">
-          {/* Squeeze / expand the side menu — the discoverable control the logo
-              used to hide. */}
-          <button
-            onClick={onMenuClick}
-            title={collapsed ? "Expand the menu" : "Collapse the menu"}
-            aria-label={collapsed ? "Expand the menu" : "Collapse the menu"}
-            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
-              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
-          >
-            {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
-          </button>
+          <PlantToggle />
           <ErpStatusPill />
           <button
             onClick={toggleFullscreen}
@@ -371,6 +392,41 @@ export default function Topbar({ onMenuClick, title, collapsed = false, showSear
           >
             <FileDown size={14} /> <span className="hidden lg:inline">Report</span>
           </Link>
+
+          {/* Settings — admins only (the page is admin-gated anyway). */}
+          {user?.is_admin && (
+            <Link
+              to="/settings"
+              title="Settings"
+              aria-label="Settings"
+              className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
+                text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+            >
+              <SettingsIcon size={15} />
+            </Link>
+          )}
+
+          {/* Sign out — the session control, also at the foot of the sidebar. */}
+          <button
+            onClick={logout}
+            title={user ? `Sign out ${user.username}` : "Sign out"}
+            aria-label="Sign out"
+            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
+              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+          >
+            <LogOut size={15} />
+          </button>
+
+          {/* Hide / show the side menu — kept at the far right as requested. */}
+          <button
+            onClick={onMenuClick}
+            title={collapsed ? "Show the menu" : "Hide the menu"}
+            aria-label={collapsed ? "Show the menu" : "Hide the menu"}
+            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
+              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+          >
+            {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+          </button>
           </div>
         </div>
       </div>
