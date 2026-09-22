@@ -5,9 +5,7 @@ import CardHead from "../components/CardHead.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
 import KpiCard from "../components/KpiCard.jsx";
 import Table from "../components/Table.jsx";
-import Modal from "../components/Modal.jsx";
 import Can, { useCan } from "../components/Can.jsx";
-import BarcodeScanInput from "../components/BarcodeScanInput.jsx";
 import UploadReportModal from "../components/UploadReportModal.jsx";
 import { spareStockService } from "../services/spareStockService.js";
 import { useStores } from "../context/StoreContext.jsx";
@@ -25,10 +23,6 @@ const STATUS_TONE = {
   "Healthy": "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
   "Not Counted": "bg-slate-100 text-slate-500 dark:bg-navy-800 dark:text-slate-400",
 };
-
-// Mirrors the backend SpareStockService.DEPARTMENTS — the shop-floor
-// departments a spare can be issued to.
-const DEPARTMENTS = ["Press Shop", "Maintenance", "Tool Room"];
 
 const FILTERS = [
   { key: "", label: "All" },
@@ -56,25 +50,10 @@ export default function SpareStock() {
   // {partId} of the row being typed into, and the value typed so far.
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState("");
-  // Issue-to-department modal state.
-  const [issuing, setIssuing] = useState(null);
-  const [issueQty, setIssueQty] = useState("");
-  const [issueDept, setIssueDept] = useState(DEPARTMENTS[0]);
-  const [issueRemarks, setIssueRemarks] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [issueIssuedTo, setIssueIssuedTo] = useState("");   // person the store hands it to (Stage 1)
-  const [issueReturnable, setIssueReturnable] = useState(false);
   const [returnables, setReturnables] = useState([]);    // outstanding returnable issues
   const [reorder, setReorder] = useState(null);          // reorder list {items,count,total}
   const [erpPending, setErpPending] = useState(0);       // movements awaiting ERP push
   const [erpSyncing, setErpSyncing] = useState(false);
-  const [scanOpen, setScanOpen] = useState(false);
-  const [scanResolving, setScanResolving] = useState(false);
-  const [receivingRow, setReceivingRow] = useState(null);
-  const [receiveQty, setReceiveQty] = useState("");
-  const [receiveRef, setReceiveRef] = useState("");
-  const [receiveRemarks, setReceiveRemarks] = useState("");
-  const [receiveSubmitting, setReceiveSubmitting] = useState(false);
 
   const load = useCallback(() => {
     if (!activeCode) return;
@@ -129,57 +108,6 @@ export default function SpareStock() {
     }
   };
 
-  const openIssue = (row) => {
-    setIssuing(row);
-    setIssueQty("");
-    setIssueDept(DEPARTMENTS[0]);
-    setIssueIssuedTo("");
-    setIssueReturnable(false);
-    setIssueRemarks("");
-  };
-
-  const openReceive = (row) => {
-    setReceivingRow(row);
-    setReceiveQty("");
-    setReceiveRef("");
-    setReceiveRemarks("");
-  };
-
-  const submitReceive = async () => {
-    const qty = Number(receiveQty);
-    if (receiveQty === "" || Number.isNaN(qty) || qty <= 0) {
-      toast.error("Enter a quantity greater than zero");
-      return;
-    }
-    setReceiveSubmitting(true);
-    try {
-      await spareStockService.receive(receivingRow.part_id, {
-        qty, reference: receiveRef.trim() || undefined, remarks: receiveRemarks || undefined,
-      });
-      toast.success(`Received ${qty} of ${receivingRow.part_no}`);
-      setReceivingRow(null);
-      load();
-    } catch (err) {
-      toast.error(err?.response?.data?.message || "Could not receive");
-    } finally {
-      setReceiveSubmitting(false);
-    }
-  };
-
-  const resolveScan = async (code) => {
-    if (!code) return;
-    setScanResolving(true);
-    try {
-      const res = await spareStockService.scan(activeCode, code);
-      setScanOpen(false);
-      openIssue(res.data.data);   // jump straight to issuing the scanned part
-    } catch (err) {
-      toast.error(err?.response?.data?.message || `No part found for "${code}"`);
-    } finally {
-      setScanResolving(false);
-    }
-  };
-
   const handleErpSync = async () => {
     setErpSyncing(true);
     try {
@@ -207,30 +135,6 @@ export default function SpareStock() {
       load();
     } catch (err) {
       toast.error(err?.response?.data?.message || "Could not return");
-    }
-  };
-
-  const submitIssue = async () => {
-    const qty = Number(issueQty);
-    if (issueQty === "" || Number.isNaN(qty) || qty <= 0) {
-      toast.error("Enter a quantity greater than zero");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await spareStockService.issue(issuing.part_id, {
-        qty, department: issueDept,
-        issued_to: issueIssuedTo.trim() || undefined,
-        returnable: issueReturnable,
-        remarks: issueRemarks || undefined,
-      });
-      toast.success(`Issued ${qty} of ${issuing.part_no} to ${issueDept}${issueIssuedTo.trim() ? ` · ${issueIssuedTo.trim()}` : ""}`);
-      setIssuing(null);
-      load();
-    } catch (err) {
-      toast.error(err?.response?.data?.message || "Could not issue");
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -318,34 +222,6 @@ export default function SpareStock() {
           ${STATUS_TONE[r.status] || STATUS_TONE["Not Counted"]}`}>{r.status}</span>
       ),
     },
-    {
-      key: "_actions", label: "", align: "right",
-      render: (r) => (
-        <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-          <Can mod="scan_part" edit>
-            <button
-              onClick={() => openReceive(r)}
-              className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
-                text-emerald-600 dark:text-emerald-400 hover:border-emerald-500"
-              title="Receive new stock for this part"
-            >
-              Receive
-            </button>
-          </Can>
-          <Can mod="scan_part" edit>
-            <button
-              onClick={() => openIssue(r)}
-              disabled={!r.qty_on_hand}
-              className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
-                text-rose-600 dark:text-rose-400 hover:border-toyotared disabled:opacity-40 disabled:cursor-not-allowed"
-              title={r.qty_on_hand ? "Issue this spare to a department" : "Nothing in stock to issue"}
-            >
-              Issue
-            </button>
-          </Can>
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -358,15 +234,8 @@ export default function SpareStock() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Can mod="scan_part" edit>
-            <button
-              onClick={() => setScanOpen(true)}
-              className="btn-secondary whitespace-nowrap"
-              title="Scan a part barcode / QR to issue it"
-            >
-              📷 Scan
-            </button>
-          </Can>
+          {/* Scanning-to-issue lives on the dedicated Scan Part screen now — no
+              duplicate here. This screen is for counting stock + opening upload. */}
           <ExcelActions
             addLabel="Stock"
             canEdit={canEditStock}
@@ -537,152 +406,6 @@ export default function SpareStock() {
           </div>
         </div>
       )}
-
-      <Modal open={scanOpen} onClose={() => setScanOpen(false)} title="Scan a part to issue">
-        <div className="space-y-3">
-          <p className="text-xs text-slate-400">
-            Scan the part&apos;s barcode / QR, or type its part number and press Enter.
-          </p>
-          <BarcodeScanInput onScan={resolveScan} placeholder="Scan or type part no…" autoFocus disabled={scanResolving} />
-          {scanResolving && <p className="text-xs text-slate-400">Looking up…</p>}
-        </div>
-      </Modal>
-
-      <Modal
-        open={!!issuing}
-        onClose={() => setIssuing(null)}
-        title={issuing ? `Issue ${issuing.part_no}` : "Issue"}
-        footer={
-          <>
-            <button className="btn-secondary" onClick={() => setIssuing(null)} disabled={submitting}>Cancel</button>
-            <button
-              className="px-3 py-1.5 rounded-lg bg-toyotared text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
-              onClick={submitIssue}
-              disabled={submitting || issueQty === "" || Number(issueQty) <= 0 || Number(issueQty) > Number(issuing?.qty_on_hand ?? 0)}
-            >
-              {submitting ? "Issuing…" : "Issue"}
-            </button>
-          </>
-        }
-      >
-        {issuing && (
-          <div className="space-y-3 text-sm">
-            <p className="text-slate-500 dark:text-slate-400">
-              {issuing.part_name} · <b>{num(issuing.qty_on_hand)}</b> in stock
-            </p>
-            <label className="block">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Quantity to issue</span>
-              <input
-                type="number" min="0" step="any" autoFocus
-                max={Number(issuing.qty_on_hand ?? 0)}
-                value={issueQty}
-                onChange={(e) => setIssueQty(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submitIssue(); }}
-                className={`input-field w-full mt-1 ${issueQty !== "" && Number(issueQty) > Number(issuing.qty_on_hand ?? 0) ? "border-rose-400" : ""}`}
-              />
-              {issueQty !== "" && Number(issueQty) > Number(issuing.qty_on_hand ?? 0) && (
-                <p className="mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400">
-                  Only {num(issuing.qty_on_hand)} in stock — cannot issue more.
-                </p>
-              )}
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Department</span>
-              <select value={issueDept} onChange={(e) => setIssueDept(e.target.value)} className="input-field w-full mt-1">
-                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Issued to <span className="font-normal text-slate-400">— person taking the part</span>
-              </span>
-              <input
-                type="text"
-                value={issueIssuedTo}
-                onChange={(e) => setIssueIssuedTo(e.target.value)}
-                placeholder="e.g. Ravi Kumar"
-                className="input-field w-full mt-1"
-              />
-              <p className="mt-1 text-[11px] text-slate-400">Line &amp; machine are recorded later, when the user fits the part (Scan Part &rarr; Confirm).</p>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={issueReturnable}
-                onChange={(e) => setIssueReturnable(e.target.checked)}
-                className="accent-toyotared"
-              />
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Returnable <span className="font-normal text-slate-400">— a tool/die expected back</span>
-              </span>
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Remarks (optional)</span>
-              <input
-                type="text" value={issueRemarks}
-                onChange={(e) => setIssueRemarks(e.target.value)}
-                placeholder="Work order, reference, etc."
-                className="input-field w-full mt-1"
-              />
-            </label>
-          </div>
-        )}
-      </Modal>
-
-      <Modal
-        open={!!receivingRow}
-        onClose={() => setReceivingRow(null)}
-        title={receivingRow ? `Receive ${receivingRow.part_no}` : "Receive"}
-        footer={
-          <>
-            <button className="btn-secondary" onClick={() => setReceivingRow(null)} disabled={receiveSubmitting}>Cancel</button>
-            <button
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
-              onClick={submitReceive}
-              disabled={receiveSubmitting}
-            >
-              {receiveSubmitting ? "Receiving…" : "Receive"}
-            </button>
-          </>
-        }
-      >
-        {receivingRow && (
-          <div className="space-y-3 text-sm">
-            <p className="text-slate-500 dark:text-slate-400">
-              {receivingRow.part_name} · <b>{num(receivingRow.qty_on_hand)}</b> in stock now
-            </p>
-            <label className="block">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Quantity received</span>
-              <input
-                type="number" min="0" step="any" autoFocus
-                value={receiveQty}
-                onChange={(e) => setReceiveQty(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submitReceive(); }}
-                className="input-field w-full mt-1"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Reference <span className="font-normal text-slate-400">— GRN / PO / invoice</span>
-              </span>
-              <input
-                type="text" value={receiveRef}
-                onChange={(e) => setReceiveRef(e.target.value)}
-                placeholder="e.g. GRN-1234"
-                className="input-field w-full mt-1"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Remarks (optional)</span>
-              <input
-                type="text" value={receiveRemarks}
-                onChange={(e) => setReceiveRemarks(e.target.value)}
-                className="input-field w-full mt-1"
-              />
-            </label>
-          </div>
-        )}
-      </Modal>
 
       <UploadReportModal report={report} onClose={() => setReport(null)} />
     </div>
