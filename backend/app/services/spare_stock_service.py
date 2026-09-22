@@ -5,6 +5,7 @@ that a part should never fall below 2, with nothing anywhere to say how many
 were actually on the shelf. Everything here is scoped to a store, so the
 Child Parts screens are untouched.
 """
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -38,6 +39,20 @@ REQUIRED_FIELDS = ["part_no", "qty_on_hand"]
 # once; the TTL only bounds staleness if a write path ever bypasses _write.
 _STOCK_CACHE = {}
 _STOCK_CACHE_TTL = 5.0
+# Per-key build locks for single-flight. A dashboard load fires ~6 endpoints that
+# each need the whole stock list AT THE SAME INSTANT (Promise.all), so all six
+# miss the TTL cache together and each rebuilds ~4,800 rows. The lock makes the
+# first caller build once while the rest wait and then read the fresh cache.
+_STOCK_BUILD_LOCKS = {}
+_STOCK_BUILD_LOCKS_GUARD = threading.Lock()
+
+
+def _stock_build_lock(key):
+    with _STOCK_BUILD_LOCKS_GUARD:
+        lock = _STOCK_BUILD_LOCKS.get(key)
+        if lock is None:
+            lock = _STOCK_BUILD_LOCKS[key] = threading.Lock()
+        return lock
 
 # Shop-floor departments that draw spares — the split behind Department-wise
 # Consumption. Recorded on every ISSUE.
@@ -576,17 +591,34 @@ class SpareStockService:
         from flask import current_app
         ttl = current_app.config.get("SPARE_STOCK_CACHE_TTL", _STOCK_CACHE_TTL)
         key = (store_code, section_id)
-        if ttl and ttl > 0:
+
+        def _fresh():
             hit = _STOCK_CACHE.get(key)
             if hit is not None and hit[0] > time.time():
                 # A fresh list each call so an in-place sort by a caller (reorder /
                 # by-status) never reorders the cached copy.
                 return list(hit[1])
-        rows = [self._row_dict(part, stock)
-                for part, stock in self.repo.list_for_store(store_code, section_id)]
-        if ttl and ttl > 0:
-            _STOCK_CACHE[key] = (time.time() + ttl, rows)
-        return list(rows)
+            return None
+
+        def _build():
+            rows = [self._row_dict(part, stock)
+                    for part, stock in self.repo.list_for_store(store_code, section_id)]
+            if ttl and ttl > 0:
+                _STOCK_CACHE[key] = (time.time() + ttl, rows)
+            return list(rows)
+
+        # Caching off (tests) — build straight through, no lock.
+        if not (ttl and ttl > 0):
+            return _build()
+
+        cached = _fresh()
+        if cached is not None:
+            return cached
+        # Single-flight: the winner builds once; the others wait on the lock and
+        # then find the just-built cache instead of rebuilding all ~4,800 rows.
+        with _stock_build_lock(key):
+            cached = _fresh()
+            return cached if cached is not None else _build()
 
     def get_summary(self, store_code, section_id=None):
         """The figures the store dashboard asks for. Counted separately from
@@ -838,16 +870,23 @@ class SpareStockService:
         }
 
     def monthly_consumption(self, store_code, months=12, section_id=None):
-        """Issued quantity per month, off the ledger. Real usage — an empty
-        list means nothing has been issued, not that the query failed."""
-        entries = [e for e in self.ledger_repo.recent_for_store(store_code, 5000)
-                   if e.txn_type == "ISSUE" and e.created_at
-                   and (not section_id or (e.part and e.part.section_id == section_id))]
-        by_month = {}
-        for e in entries:
-            key = e.created_at.strftime("%Y-%m")
-            by_month[key] = by_month.get(key, 0) + abs(float(e.qty_delta))
-        return [{"name": k, "value": round(v, 2)} for k, v in sorted(by_month.items())][-months:]
+        """Issued quantity per month (YYYY-MM), off the ledger. A SQL GROUP BY
+        — the ~12 monthly totals — rather than hydrating up to 5,000 ORM rows and
+        grouping in Python, which is what made `analytics` the heaviest call.
+        Real usage: an empty list means nothing has been issued."""
+        from app.extensions import db
+        from sqlalchemy import func
+        from app.models.spare_stock import SpareStockLedger
+        key = func.strftime("%Y-%m", SpareStockLedger.created_at)
+        rows = (
+            db.session.query(key, func.sum(func.abs(SpareStockLedger.qty_delta)))
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
+                    *((Part.section_id == section_id,) if section_id else ()))
+            .group_by(key).order_by(key)
+            .all()
+        )
+        return [{"name": k, "value": round(float(v or 0), 2)} for k, v in rows if k][-months:]
 
     def _consumption_window(self, days=None, date_from=None, date_to=None):
         """Filter clauses scoping the ledger to a window on `created_at`. An

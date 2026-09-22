@@ -268,6 +268,17 @@ def _patch_schema():
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_return_no ON spare_stock_ledger (return_no)"))
         db.session.commit()
 
+    # created_at drives every time-window query (today's movements, the
+    # consumption trend, the date-range filters) but was never indexed — so each
+    # was a full ledger scan that grows with the whole table, not the window.
+    # Composite (txn_type, created_at) too, because those queries first filter
+    # txn_type == 'ISSUE' and then range on the date. IF NOT EXISTS → a cheap
+    # catalog no-op on every later boot.
+    if ledger_cols:
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_created_at ON spare_stock_ledger (created_at)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_txn_created ON spare_stock_ledger (txn_type, created_at)"))
+        db.session.commit()
+
     # `rgps` was first created with an earlier schema; the RGP model since moved
     # to the ERP Pending-RGP columns (ven_cd, balance_qty, ...). create_all never
     # ALTERs an existing table, so the old shape made every /rgp query 500. It is
