@@ -14,7 +14,11 @@ import { storeService } from "../services/storeService.js";
 // A full-screen wallboard for a 64" PORTRAIT LED — no menu, no scroll, a tall
 // single-store (Spare) board. Real figures come from the spare-stock API; the
 // header switches between the store's sections (auto-rotating on the wall).
-const REFRESH_MS = 30000;
+// The wallboard re-pulls the full store list + ERP gap on this timer; at 30s
+// that was ~10 heavy requests every 30s, saturating the backend and re-rendering
+// every chart (so clicks near a tick stalled). Store stock doesn't move that
+// fast — 2 minutes keeps it live enough at a quarter of the load.
+const REFRESH_MS = 120000;
 // Sentinel section: the combined view over the whole store (no section filter).
 const ALL_SECTIONS = "ALL";
 

@@ -1371,16 +1371,19 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
   const [consDrill, setConsDrill] = useState(null);
   const [consumedParts, setConsumedParts] = useState([]);
   const [trendData, setTrendData] = useState([]);
+  const [consDetailLoading, setConsDetailLoading] = useState(false);
   useEffect(() => {
     if (!consDrill) return;
     let cancelled = false;
+    setConsDetailLoading(true);
     Promise.all([
-      spareStockService.topConsumed(STORE_CODE, 1000, 3650, qFrom, qTo).then((r) => r.data.data).catch(() => []),
+      spareStockService.topConsumed(STORE_CODE, 300, 3650, qFrom, qTo).then((r) => r.data.data).catch(() => []),
       spareStockService.consumptionTrend(STORE_CODE, 90, undefined, qFrom, qTo).then((r) => r.data.data).catch(() => []),
     ]).then(([consumed, trend]) => {
       if (cancelled) return;
       setConsumedParts(consumed);
       setTrendData(trend);
+      setConsDetailLoading(false);
     });
     return () => { cancelled = true; };
   }, [consDrill, qFrom, qTo]);
@@ -1957,7 +1960,9 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
             <div className="card">
               <CardHead icon="📈" tone="blue" title="Consumption Trend"
                 hint={custom ? `Daily issued qty · ${consRangeTitle}` : "Daily issued qty · last 90 days"} />
-              <TrendArea data={trendData} />
+              {consDetailLoading
+                ? <div className="h-56 flex items-center justify-center"><div className="skeleton h-40 w-full rounded-xl" /></div>
+                : <TrendArea data={trendData} />}
             </div>
           </div>
 
@@ -1975,22 +1980,30 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
                 ⬇ Excel (full list)
               </button>
             </div>
-            <HorizontalBars
-              data={consumedParts.slice(0, 20).map((p) => ({
-                ...p,
-                name: p.part_name ? `${p.part_name} · ${p.part_no}` : p.part_no,
-                value: Number(p.qty) || 0,
-              }))}
-              color="#6366f1"
-              valueSuffix=" pcs"
-              emptyMessage="Nothing issued in this range"
-              onBarClick={(d) => {
-                const row = stockRows.find((r) => r.part_no === d.part_no);
-                if (row && onStockClick) { setConsDrill(null); onStockClick(row); }
-              }}
-            />
-            {consumedParts.length > 20 && (
-              <p className="text-xs text-slate-400 mt-3">Showing the top 20 of {num(consumedParts.length)} — download for the full list.</p>
+            {consDetailLoading ? (
+              <div className="space-y-2.5 py-2">
+                {Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton h-6 w-full rounded" />)}
+              </div>
+            ) : (
+              <>
+                <HorizontalBars
+                  data={consumedParts.slice(0, 20).map((p) => ({
+                    ...p,
+                    name: p.part_name ? `${p.part_name} · ${p.part_no}` : p.part_no,
+                    value: Number(p.qty) || 0,
+                  }))}
+                  color="#6366f1"
+                  valueSuffix=" pcs"
+                  emptyMessage="Nothing issued in this range"
+                  onBarClick={(d) => {
+                    const row = stockRows.find((r) => r.part_no === d.part_no);
+                    if (row && onStockClick) { setConsDrill(null); onStockClick(row); }
+                  }}
+                />
+                {consumedParts.length > 20 && (
+                  <p className="text-xs text-slate-400 mt-3">Showing the top 20 of {num(consumedParts.length)} — download for the full list.</p>
+                )}
+              </>
             )}
           </div>
         </div>,
