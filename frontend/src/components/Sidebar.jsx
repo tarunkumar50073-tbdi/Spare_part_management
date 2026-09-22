@@ -187,15 +187,17 @@ function StoreTab({ store, active, onSelect }) {
   );
 }
 
-export default function Sidebar({ open, onClose, collapsed = false, onToggleCollapse }) {
+export default function Sidebar({ open, onClose }) {
   const { stores, activeCode, activeStore, setActiveStore } = useStores();
   const { dark, toggleDark } = useTheme();
   const { user, logout } = useAuth();
 
   return (
     <>
+      {/* The rail is an overlay drawer on every screen now: hidden until the
+          logo is clicked, and it dims + blurs the page behind it while open. */}
       {open && (
-        <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={onClose} />
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-30" onClick={onClose} />
       )}
       {/* Light rail on a light canvas, separated by a hairline rather than by
           a block of navy. The red is then the only strong colour on screen, so
@@ -205,11 +207,10 @@ export default function Sidebar({ open, onClose, collapsed = false, onToggleColl
           so the menu never scrolled inside itself and Log out sat below the
           fold, reachable only by scrolling the whole page. */}
       <aside
-        className={`fixed lg:sticky z-40 top-0 left-0 h-full lg:h-screen w-64 shrink-0 flex flex-col
+        className={`fixed z-40 top-0 left-0 h-full w-64 shrink-0 flex flex-col
         bg-gradient-to-b from-white to-slate-50/70 dark:from-navy-950 dark:to-navy-900/60
         border-r border-slate-200/80 dark:border-navy-800 shadow-[2px_0_24px_rgba(15,31,56,0.05)]
-        transform transition-transform duration-200 ${open ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0
-        ${collapsed ? "lg:hidden" : ""}`}
+        transform transition-transform duration-200 ${open ? "translate-x-0" : "-translate-x-full"}`}
       >
         <div className="relative px-4 py-4 border-b border-slate-200 dark:border-navy-800">
           <button className="lg:hidden absolute top-3 right-3 text-slate-400" onClick={onClose}>
@@ -220,22 +221,14 @@ export default function Sidebar({ open, onClose, collapsed = false, onToggleColl
               charts the extra 256px without touching the browser's chrome. */}
           <button
             type="button"
-            onClick={() => {
-              // Same intent either way — put the menu away. On a phone the rail
-              // is a drawer, so that means closing it; on desktop it means
-              // collapsing it. Deciding here keeps the logo from being a
-              // control that does nothing on one of the two.
-              if (window.matchMedia("(min-width: 1024px)").matches) onToggleCollapse?.();
-              else onClose?.();
-            }}
+            onClick={() => onClose?.()}
             title="Hide the menu"
             className="flex items-center gap-3 text-left w-full rounded-lg -m-1 p-1
               hover:bg-slate-50 dark:hover:bg-navy-900 transition-colors"
           >
             <ToyotaBoshokuLogo size={40} />
             <div className="min-w-0">
-              <p className="font-bold text-[15px] leading-tight text-slate-800 dark:text-white truncate">Part Store</p>
-              <p className="text-[10px] text-slate-400 leading-tight mt-0.5 truncate">Toyota Boshoku Device India</p>
+              <p className="font-bold text-[14px] leading-snug text-slate-800 dark:text-white">Spare Part Store Management</p>
             </div>
           </button>
         </div>

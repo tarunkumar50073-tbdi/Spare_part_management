@@ -96,7 +96,7 @@ const asSpareResult = (row) => ({
 // This is the app's only search box — the dashboard used to carry a second one
 // of its own. Account controls (user, sign out, theme) sit at the foot of the
 // sidebar instead, since they belong to the session rather than to the page.
-export default function Topbar({ onMenuClick, title, showMenu = false }) {
+export default function Topbar({ onMenuClick, title, showSearch = true }) {
   const navigate = useNavigate();
   // The box searches the store you are standing in. It used to always search
   // Child Parts live stock, so from the Spare Parts Store it answered every
@@ -206,160 +206,161 @@ export default function Topbar({ onMenuClick, title, showMenu = false }) {
   };
 
   return (
-    <header className="h-16 bg-gradient-to-b from-white/95 to-white/85 dark:from-navy-900/95 dark:to-navy-900/75 backdrop-blur-sm border-b border-slate-200/80 dark:border-navy-800 shadow-[0_6px_18px_rgba(15,31,56,0.05)] dark:shadow-[0_6px_18px_rgba(0,0,0,0.35)] flex items-center gap-4 px-4 lg:px-6 sticky top-0 z-20">
-      <div className="flex items-center gap-3 shrink-0 min-w-0">
-        {/* Always on small screens (the drawer's only handle); on desktop only
-            once the rail is hidden, so it isn't a button that does nothing. */}
-        <button
-          className={`text-lg ${showMenu ? "" : "lg:hidden"}`}
-          onClick={onMenuClick}
-          title={showMenu ? "Show menu" : "Menu"}
-        >
-          ☰
-        </button>
-        {/* Title over a fixed subtitle — the screen says both what you are
-            looking at and whose plant it is, which is what makes a screenshot
-            of it stand on its own in a meeting. */}
-        <div className="min-w-0">
-          <h1 className="dx-radiant text-lg font-bold text-slate-800 dark:text-white leading-tight truncate">{title}</h1>
-          <p className="text-[11px] text-slate-400 leading-tight truncate">Toyota Boshoku Device India</p>
-        </div>
-      </div>
-
-      <div ref={searchRef} className="flex-1 max-w-sm mx-auto hidden md:block relative">
-        <form onSubmit={handleSearch}>
-          <div className="relative">
-            <span className="absolute left-3 top-2 text-sm pointer-events-none">🔍</span>
-            <input
-              className="w-full rounded-full border border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-toyotared/40 focus:border-toyotared transition"
-              placeholder={childParts
-                ? "Search Part No, Old Part No or Part Name..."
-                : "Search Part No or Part Name..."}
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setResultsOpen(true);
-              }}
-              onFocus={() => setResultsOpen(true)}
-            />
-          </div>
-        </form>
-
-        {resultsOpen && query.trim().length >= 2 && (
-          <div className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-900 shadow-lg overflow-hidden">
-            {searching && matches.length === 0 ? (
-              <p className="px-4 py-3 text-sm text-slate-400">Searching…</p>
-            ) : matches.length === 0 ? (
-              // Naming the store matters now that there are two: "not found"
-              // and "not found in the store you are standing in" are different
-              // answers, and only one of them means the part does not exist.
-              <p className="px-4 py-3 text-sm text-slate-400">
-                No part found for “{query.trim()}”{activeStore ? ` in ${activeStore.name}` : ""}.
-              </p>
-            ) : (
-              <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-navy-800">
-                {matches.map((r) => (
-                  <button
-                    key={r.key}
-                    type="button"
-                    onClick={() => openPart(r)}
-                    className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-navy-800 transition-colors"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-sm text-slate-800 dark:text-white truncate">{r.partNo}</span>
-                      <span className="flex items-center gap-1.5 shrink-0">
-                        {/* A row that does not itself carry the typed text is
-                            here because it is the same part under another
-                            supplier's number — say so rather than let it look
-                            like a stray result. */}
-                        {r.sob && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
-                            SOB
-                          </span>
-                        )}
-                        {r.status && <Badge status={r.status} />}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 mt-0.5">
-                      <span className="text-[11px] text-slate-400 truncate">
-                        {r.secondary ? `${r.secondary} · ` : ""}{r.name}
-                      </span>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0 tabular">
-                        {r.right}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 shrink-0 ml-auto">
-        <ErpStatusPill />
-
-        {/* This screen sits on a wall for weeks. A one-click way into real
-            fullscreen is worth more here than on an ordinary app — it drops
-            the browser chrome the plant never uses. */}
-        <button
-          onClick={toggleFullscreen}
-          className="hidden lg:inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-navy-700
-            px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300
-            hover:bg-slate-50 dark:hover:bg-navy-800 transition-colors"
-          title={full ? "Leave fullscreen" : "Fill the screen"}
-        >
-          {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          {full ? "Exit" : "Full Screen"}
-        </button>
-
-        <div className="relative" ref={bellRef}>
+    <header className="bg-gradient-to-b from-white/95 to-white/85 dark:from-navy-900/95 dark:to-navy-900/75 backdrop-blur-sm border-b border-slate-200/80 dark:border-navy-800 shadow-[0_6px_18px_rgba(15,31,56,0.05)] dark:shadow-[0_6px_18px_rgba(0,0,0,0.35)] sticky top-0 z-20">
+      {/* Left | centre | right, with equal side columns so the title sits dead
+          centre whatever the logo and actions widths are. */}
+      <div className="flex items-center gap-3 px-4 lg:px-6 py-2">
+        {/* Left group (flex-1) — just the logo; it balances the right group so the
+            title stays dead-centre. */}
+        <div className="flex-1 min-w-0 flex items-center">
           <button
-            onClick={() => setBellOpen((o) => !o)}
-            className="relative text-lg hover:opacity-70 transition-opacity"
-            title="Notifications"
+            onClick={onMenuClick}
+            title="Open menu"
+            className="shrink-0 rounded-lg -m-1 p-1 hover:bg-slate-100 dark:hover:bg-navy-800 transition-colors"
           >
-            🔔
-            {notifications.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-toyotared text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 px-0.5 flex items-center justify-center">
-                {notifications.length}
-              </span>
-            )}
+            <img src="/toyota-boshoku-logo.png" alt="Menu" className="h-11 w-auto" draggable={false} />
           </button>
+        </div>
 
-          {bellOpen && (
-            <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-navy-900 rounded-xl shadow-lg border border-slate-200 dark:border-navy-800 overflow-hidden">
-              <p className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100 dark:border-navy-800">
-                Notifications
-              </p>
-              {notifications.length === 0 ? (
-                <p className="px-4 py-6 text-sm text-slate-400 text-center">No active notifications</p>
-              ) : (
-                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-navy-800">
-                  {notifications.map((n) => (
-                    <div key={n.id} className="px-4 py-2.5 text-sm">
-                      <p className="text-slate-700 dark:text-slate-200">{n.message}</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        {n.created_at ? new Date(n.created_at).toLocaleString() : ""}
-                      </p>
+        {/* The page title — centred, big and premium (a colourful gradient). */}
+        <h1
+          className="shrink-0 text-center text-2xl lg:text-3xl font-extrabold tracking-tight leading-none truncate max-w-[36vw]"
+          style={{
+            backgroundImage: "linear-gradient(92deg,#ff7a18 0%,#eb0a1e 48%,#c81d77 100%)",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            color: "transparent",
+            filter: "drop-shadow(0 2px 8px rgba(235,10,30,0.25))",
+          }}
+        >
+          {title}
+        </h1>
+
+        {/* Right group (flex-1) — a small search sitting in the gap, then the
+            compact actions, all pushed to the right. */}
+        <div className="flex-1 min-w-0 flex items-center justify-end gap-3">
+          {showSearch && (
+            <div ref={searchRef} className="relative hidden lg:block w-48 xl:w-60">
+              <form onSubmit={handleSearch}>
+                <div className="relative">
+                  <span className="absolute left-3 top-1.5 text-sm pointer-events-none">🔍</span>
+                  <input
+                    className="w-full rounded-full border border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 pl-9 pr-4 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-toyotared/40 focus:border-toyotared transition"
+                    placeholder={childParts
+                      ? "Search Part No, Old Part No or Part Name..."
+                      : "Search Part No or Part Name..."}
+                    value={query}
+                    onChange={(e) => {
+                      setQuery(e.target.value);
+                      setResultsOpen(true);
+                    }}
+                    onFocus={() => setResultsOpen(true)}
+                  />
+                </div>
+              </form>
+
+              {resultsOpen && query.trim().length >= 2 && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-900 shadow-lg overflow-hidden">
+                  {searching && matches.length === 0 ? (
+                    <p className="px-4 py-3 text-sm text-slate-400">Searching…</p>
+                  ) : matches.length === 0 ? (
+                    <p className="px-4 py-3 text-sm text-slate-400">
+                      No part found for “{query.trim()}”{activeStore ? ` in ${activeStore.name}` : ""}.
+                    </p>
+                  ) : (
+                    <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-navy-800">
+                      {matches.map((r) => (
+                        <button
+                          key={r.key}
+                          type="button"
+                          onClick={() => openPart(r)}
+                          className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-navy-800 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-sm text-slate-800 dark:text-white truncate">{r.partNo}</span>
+                            <span className="flex items-center gap-1.5 shrink-0">
+                              {r.sob && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+                                  SOB
+                                </span>
+                              )}
+                              {r.status && <Badge status={r.status} />}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 mt-0.5">
+                            <span className="text-[11px] text-slate-400 truncate">
+                              {r.secondary ? `${r.secondary} · ` : ""}{r.name}
+                            </span>
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0 tabular">
+                              {r.right}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>
           )}
+          <div className="flex items-center gap-1.5 shrink-0">
+          <ErpStatusPill />
+          <button
+            onClick={toggleFullscreen}
+            className="hidden lg:inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
+              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 transition-colors"
+            title={full ? "Leave fullscreen" : "Fill the screen"}
+          >
+            {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
+
+          <div className="relative" ref={bellRef}>
+            <button
+              onClick={() => setBellOpen((o) => !o)}
+              className="relative h-8 w-8 flex items-center justify-center text-base hover:opacity-70 transition-opacity"
+              title="Notifications"
+            >
+              🔔
+              {notifications.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 bg-toyotared text-white text-[10px] font-bold rounded-full min-w-[15px] h-[15px] px-0.5 flex items-center justify-center">
+                  {notifications.length}
+                </span>
+              )}
+            </button>
+
+            {bellOpen && (
+              <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-navy-900 rounded-xl shadow-lg border border-slate-200 dark:border-navy-800 overflow-hidden z-30">
+                <p className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100 dark:border-navy-800">
+                  Notifications
+                </p>
+                {notifications.length === 0 ? (
+                  <p className="px-4 py-6 text-sm text-slate-400 text-center">No active notifications</p>
+                ) : (
+                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-navy-800">
+                    {notifications.map((n) => (
+                      <div key={n.id} className="px-4 py-2.5 text-sm">
+                        <p className="text-slate-700 dark:text-slate-200">{n.message}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {n.created_at ? new Date(n.created_at).toLocaleString() : ""}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <Link
+            to="/reports"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-[#ff2a3c] to-toyotared px-2.5 py-1.5 text-xs font-semibold
+              text-white shadow-[0_6px_16px_rgba(235,10,30,0.35)] hover:brightness-110 transition shrink-0"
+            title="Reports"
+          >
+            <FileDown size={14} /> <span className="hidden lg:inline">Report</span>
+          </Link>
+          </div>
         </div>
-        <Link
-          to="/reports"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-[#ff2a3c] to-toyotared px-3 py-1.5 text-xs font-semibold
-            text-white shadow-[0_6px_16px_rgba(235,10,30,0.35)] hover:brightness-110 transition shrink-0"
-          title="Reports"
-        >
-          <FileDown size={14} /> <span className="hidden sm:inline">Report</span>
-        </Link>
-        {/* The signed-in user, sign-out and the theme toggle live at the foot
-            of the sidebar now — they are account state, not page state, so the
-            top bar keeps only what belongs to the page in front of you. */}
       </div>
     </header>
   );

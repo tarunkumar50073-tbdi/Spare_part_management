@@ -169,7 +169,7 @@ export default function KpiCard({
       tabIndex={clickable ? 0 : undefined}
       onKeyDown={clickable ? (e) => e.key === "Enter" && onClick() : undefined}
       className={clsx(
-        "relative overflow-hidden p-4 rounded-xl2 transition-all duration-200 ease-enterprise card !p-4",
+        "relative overflow-hidden rounded-xl2 transition-all duration-200 ease-enterprise card !p-3.5",
         !featured && "flex flex-col gap-2",
         clickable && "card-interactive",
         // The one visual weight available for "read this first". Used sparingly
@@ -180,15 +180,13 @@ export default function KpiCard({
       {priority && <span className={clsx("absolute inset-y-0 left-0 w-[3px]", colors.rail)} />}
 
       {featured ? (
-        // Label above the figure, chip held to the right. The chip stops
-        // competing with the number for the top line, which is what a strip of
-        // ten headline readings needs.
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate kpi-label mb-1.5">{label}</p>
-            {figure}
-          </div>
-          {badge}
+        // The chip is a small accent in the top-right corner; the label and the
+        // figure run the full width beneath it. Held on the right edge instead,
+        // a wide tile opened a big empty gap between the number and the chip.
+        <div className="relative">
+          <span className="absolute top-0 right-0">{badge}</span>
+          <p className="truncate kpi-label mb-1.5 pr-12">{label}</p>
+          {figure}
         </div>
       ) : (
         <>

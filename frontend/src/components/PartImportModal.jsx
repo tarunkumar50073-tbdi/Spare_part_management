@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import Modal from "./Modal.jsx";
 import { partService } from "../services/partService.js";
+import { downloadXlsx } from "../utils/excel.js";
 
 // Part-master import with a preview step (spec §2): parse + validate first,
 // show the planned action per row (INSERT / UPDATE / ERROR) and counts, let the
@@ -13,14 +14,10 @@ const ACTION_CLASS = {
   ERROR: "text-rose-600 dark:text-rose-400",
 };
 
-function downloadCsv(name, rows, headers) {
-  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const csv = [headers.join(","), ...rows.map((r) => headers.map((h) => esc(r[h])).join(","))].join("\n");
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = name; a.click();
-  URL.revokeObjectURL(url);
+// Rejected rows go out as a real .xlsx (like every other download in the app),
+// not a CSV — `rows` are objects keyed by header.
+function downloadRows(name, rows, headers) {
+  downloadXlsx(name, headers, rows.map((r) => headers.map((h) => r[h] ?? "")), "Rejected");
 }
 
 export default function PartImportModal({ file, storeCode, sectionId, onClose, onImported }) {
@@ -55,7 +52,7 @@ export default function PartImportModal({ file, storeCode, sectionId, onClose, o
   const counts = preview?.counts || { insert: 0, update: 0, error: 0 };
   const rejected = (preview?.rows || []).filter((r) => r.action === "ERROR");
   const downloadRejected = () =>
-    downloadCsv("rejected_rows.csv",
+    downloadRows("rejected_rows",
       rejected.map((r) => ({ Row: r.row, "Part No": r.part_no, "Part Name": r.part_name, Reason: r.reason })),
       ["Row", "Part No", "Part Name", "Reason"]);
 

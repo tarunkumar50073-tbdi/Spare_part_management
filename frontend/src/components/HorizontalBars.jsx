@@ -11,6 +11,10 @@ export default function HorizontalBars({
   emptyMessage = "Nothing to show",
   onBarClick,
   valueSuffix = "",
+  // Optional formatter for the figure printed at the end of each bar — e.g.
+  // money() so a value bar reads "₹24,00,000" while the width still scales on
+  // the raw number. Falls back to the plain number plus valueSuffix.
+  valueFormat,
 }) {
   const rows = data.filter((d) => d.value > 0);
   if (rows.length === 0) {
@@ -38,7 +42,7 @@ export default function HorizontalBars({
                   {d.name}
                 </span>
                 <span className="text-xs font-semibold text-slate-800 dark:text-white tabular shrink-0">
-                  {d.value}{valueSuffix}
+                  {valueFormat ? valueFormat(d.value) : `${d.value}${valueSuffix}`}
                 </span>
               </div>
               <div className="h-2 rounded-full bg-slate-100 dark:bg-navy-800 overflow-hidden">

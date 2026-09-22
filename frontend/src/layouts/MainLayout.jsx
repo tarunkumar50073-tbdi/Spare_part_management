@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "../components/Sidebar.jsx";
 import { useStores } from "../context/StoreContext.jsx";
@@ -28,49 +28,38 @@ const TITLES = {
   "/vehicle-in-out": "Vehicle In / Out",
 };
 
-const COLLAPSED_KEY = "dx_sidebar_collapsed";
-
 export default function MainLayout() {
+  // The rail is an overlay drawer, hidden by default; the Topbar logo opens it.
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  // Desktop-only, and remembered: a wall monitor set to full width should come
-  // back that way after a reboot rather than needing someone to hide the rail
-  // again every morning.
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === "1");
-  useEffect(() => {
-    localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0");
-  }, [collapsed]);
 
   const location = useLocation();
   const { activeStore } = useStores();
+  // On a section page the heading is that section's own name (Press Shop …),
+  // read from the store master by the id in the path.
+  const sectionMatch = location.pathname.match(/^\/store\/[^/]+\/(\d+)$/);
+  const section = sectionMatch && (activeStore?.sections || []).find((s) => String(s.id) === sectionMatch[1]);
   // The dashboard is one route shared by every store, so its heading comes
   // from whichever store is in scope rather than from the path.
-  const title =
-    location.pathname === "/dashboard"
+  const title = section
+    ? section.name
+    : location.pathname === "/dashboard"
       ? activeStore?.name || "Store Dashboard"
-      : TITLES[location.pathname] || "Part Store";
+      : TITLES[location.pathname] || "Spare Part Store Management";
 
   return (
     <div className="min-h-screen flex">
-      <Sidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed((c) => !c)}
-      />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0">
-        {/* The top bar's menu button is the way back once the rail is hidden —
-            the logo that collapsed it goes with it, so without this there
-            would be no control left to bring it back. */}
-        <Topbar
-          title={title}
-          showMenu={collapsed}
-          onMenuClick={() => {
-            setSidebarOpen(true);
-            setCollapsed(false);
-          }}
-        />
-        <main className="flex-1 p-4 lg:p-8 overflow-x-hidden">
-          <Outlet />
+        {/* Search sits in the header (in the gap between the title and the
+            actions) on the main screens — not repeated inside every section. */}
+        <Topbar title={title} onMenuClick={() => setSidebarOpen(true)} showSearch={!section} />
+        {/* Now the rail is an overlay, the content spans the full width — cap and
+            centre it so the cards keep their intended density (a huge gap opened
+            in the KPI tiles once they stretched edge to edge). */}
+        <main className="flex-1 overflow-x-hidden">
+          <div className="max-w-[1600px] mx-auto p-4 lg:p-8">
+            <Outlet />
+          </div>
         </main>
       </div>
       <BackToTop />

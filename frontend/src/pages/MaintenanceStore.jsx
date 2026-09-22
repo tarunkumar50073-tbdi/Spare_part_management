@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Printer, X } from "lucide-react";
 import Badge from "../components/Badge.jsx";
@@ -9,8 +10,10 @@ import KpiCard from "../components/KpiCard.jsx";
 import Modal from "../components/Modal.jsx";
 import NotCaptured from "../components/NotCaptured.jsx";
 import { downloadFile } from "../utils/download.js";
+import { downloadXlsx } from "../utils/excel.js";
 import RadialGauge from "../components/RadialGauge.jsx";
 import Table from "../components/Table.jsx";
+import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import { storeService } from "../services/storeService.js";
 import { partService } from "../services/partService.js";
 import { spareStockService } from "../services/spareStockService.js";
@@ -118,9 +121,6 @@ function useStoreStats(parts) {
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value),
       bands,
-      dearest: [...rated]
-        .sort((a, b) => Number(b.unit_price) - Number(a.unit_price))
-        .slice(0, 8),
     };
   }, [parts]);
 }
@@ -636,7 +636,7 @@ const EXCESS_COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true },
   { key: "part_name", label: "Description", sortable: true },
   { key: "location", label: "Location", render: (r) => r.location || "—" },
-  { key: "qty_on_hand", label: "Current", sortable: true, align: "right", render: (r) => num(r.qty_on_hand) },
+  { key: "qty_on_hand", label: "In Stock", sortable: true, align: "right", render: (r) => num(r.qty_on_hand) },
   { key: "max_stock_level", label: "Maximum", align: "right", render: (r) => num(r.max_stock_level) },
   {
     key: "excess_qty", label: "Excess", sortable: true, align: "right",
@@ -1094,56 +1094,195 @@ function Traceability({ part, onClose }) {
   );
 }
 
-// A shelf count is not a part count: "448 shelf locations" opens the shelves,
-// with how many parts sit on each, or the list would not add up to the figure
-// that was clicked.
-const LOCATION_COLUMNS = [
-  { key: "location", label: "Location", sortable: true },
-  { key: "rack", label: "Rack", sortable: true },
-  { key: "parts", label: "Parts", sortable: true, align: "right", render: (r) => num(r.parts) },
-];
-
 // Every headline figure opens the list behind it. A KPI you cannot open is a
 // number the floor has to take on trust — and the first question anyone asks
 // about "3 below minimum" is which three.
-function DrillDown({ drill, onClose }) {
+const DRILL_STATUS_COLORS = {
+  "Out of Stock": "#e11d48", "Zero Stock": "#e11d48", "Below Minimum": "#fb7185",
+  "Reorder": "#f97316", "Above Maximum": "#f59e0b", "Healthy": "#10b981",
+  "Not Counted": "#94a3b8",
+};
+const REORDER_BAR_COLORS = ["#eb0a1e", "#f97316", "#f59e0b", "#c026d3", "#7c3aed", "#0ea5e9"];
+
+// Hover card for the value bars — part no, description and the exact rupee.
+function ValueTip({ active, payload }) {
+  if (!active || !payload || !payload.length) return null;
+  const p = payload[0].payload;
   return (
-    <Modal open={!!drill} onClose={onClose} size="full" title={drill ? drill.title : ""}>
-      {drill && (
-        <div className="space-y-3">
-          {drill.subtitle && (
-            <p className="text-xs text-slate-400 -mt-1">
-              {drill.subtitle}
-              <span className="ml-1.5 font-semibold text-slate-500 dark:text-slate-300">
-                · {num(drill.rows.length)} row{drill.rows.length === 1 ? "" : "s"}
-              </span>
-            </p>
-          )}
+    <div className="rounded-lg bg-navy-900 text-white px-3 py-2 shadow-xl max-w-[240px] border border-white/10">
+      <p className="font-bold text-sm leading-tight">{p.part_no}</p>
+      {p.part_name && <p className="text-[11px] text-slate-300 leading-snug mt-0.5">{p.part_name}</p>}
+      <p className="text-blue-300 font-bold text-sm mt-1">{money(p.value)}</p>
+    </div>
+  );
+}
+
+// The "Top 10 by Value" graphic, rebuilt from the Live Dashboard against this
+// page's light/dark theme: a ranked column chart of stock value with a hover
+// card and the combined total beneath it. Tapping a bar opens that part.
+function TopValueChart({ data, onBarClick }) {
+  if (!data.length) {
+    return <p className="text-sm text-slate-400 text-center py-12">No counted stock value yet</p>;
+  }
+  const total = data.reduce((s, d) => s + (Number(d.value) || 0), 0);
+  return (
+    <div className="flex flex-col">
+      <div className="h-72">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 36 }}>
+            <defs>
+              <linearGradient id="hv-blue" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stopColor="#60a5fa" />
+                <stop offset="1" stopColor="#2563eb" />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148,163,184,0.25)" />
+            <XAxis dataKey="part_no" interval={0} angle={-32} textAnchor="end" height={48}
+              tick={{ fontSize: 10, fill: "#94a3b8" }} />
+            <YAxis tickFormatter={compactMoney} width={62} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+            <RechartsTooltip content={<ValueTip />} cursor={{ fill: "rgba(148,163,184,0.12)" }} />
+            <Bar dataKey="value" fill="url(#hv-blue)" radius={[5, 5, 0, 0]} maxBarSize={34}
+              cursor="pointer" isAnimationActive={false}
+              onClick={(entry) => entry && onBarClick && onBarClick(entry)} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-1 flex items-center justify-between border-t border-slate-200 dark:border-navy-800 pt-2.5 px-1">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Top {data.length} total</span>
+        <span className="text-lg font-extrabold text-slate-800 dark:text-white tabular">{money(total)}</span>
+      </div>
+    </div>
+  );
+}
+
+// A full-screen drill in the Live Dashboard's style: a premium header, a status
+// ring at a glance (when the list carries one), and the whole searchable list —
+// a row opens that part. Replaces the old centred dialog.
+function DrillDown({ drill, onClose }) {
+  if (!drill) return null;
+  const rows = drill.rows || [];
+  const hasStatus = rows.some((r) => r.status);
+  const statusData = hasStatus
+    ? Object.entries(rows.reduce((acc, r) => { const s = r.status || "—"; acc[s] = (acc[s] || 0) + 1; return acc; }, {}))
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+    : [];
+  const statusColors = Object.fromEntries(statusData.map((d) => [d.name, DRILL_STATUS_COLORS[d.name] || "#8b5cf6"]));
+  // Top 10 by the money on the shelf — only when the drill asks for it (the
+  // Stock Value tile), computed from the very rows the list shows.
+  const topValueRows = drill.valueChart
+    ? rows.filter((r) => Number(r.stock_value) > 0)
+        .slice()
+        .sort((a, b) => Number(b.stock_value) - Number(a.stock_value))
+        .slice(0, 10)
+        .map((r) => ({ ...r, value: Number(r.stock_value) }))
+    : [];
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex flex-col gap-4 p-4 lg:p-6 overflow-auto bg-slate-50 dark:bg-navy-950 animate-[fadeIn_0.15s_ease-out]">
+      <div className="shrink-0 rounded-2xl px-5 py-3.5 flex items-center gap-4 text-white shadow-[0_12px_34px_rgba(10,32,70,0.35)]"
+        style={{ background: "linear-gradient(120deg,#0a2340 0%,#123a6b 55%,#0a2038 100%)" }}>
+        <button onClick={onClose} title="Back"
+          className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center shrink-0">
+          <ArrowLeft size={20} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl lg:text-2xl font-extrabold truncate"
+            style={{ backgroundImage: "linear-gradient(92deg,#ff9a4d,#ff5a6a,#ffd9b0)", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent" }}>
+            {drill.title}
+          </h2>
+          <p className="text-xs text-white/70 truncate">
+            {drill.subtitle ? `${drill.subtitle} · ` : ""}{num(rows.length)} row{rows.length === 1 ? "" : "s"}
+          </p>
+        </div>
+        <button onClick={onClose} title="Close"
+          className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-2xl leading-none shrink-0">✕</button>
+      </div>
+
+      {topValueRows.length > 0 && (
+        <div className="card shrink-0">
+          <CardHead icon="💎" tone="blue" title="Top 10 by value"
+            hint="Highest stock value on the shelf — tap a bar to open the part" />
+          <TopValueChart
+            data={topValueRows}
+            onBarClick={(entry) => { onClose(); if (drill.onRowClick) drill.onRowClick(entry); }}
+          />
+        </div>
+      )}
+
+      <div className={`flex-1 min-h-0 grid grid-cols-1 gap-4 ${hasStatus ? "xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]" : ""}`}>
+        {hasStatus && (
+          <div className="card h-fit">
+            <CardHead icon="📊" tone="violet" title="By status" hint="How this list splits up" />
+            <DonutChart data={statusData} colors={statusColors} size={132}
+              centerValue={num(rows.length)} centerLabel="parts" emptyMessage="—" />
+          </div>
+        )}
+        <div className="card min-w-0">
           <Table
             columns={drill.columns}
-            rows={drill.rows}
-            // Opening a part closes this list rather than stacking a second
-            // dialog over it — two modals deep, Escape stops meaning anything.
+            rows={rows}
+            // Opening a part closes this drill rather than stacking a dialog over it.
             onRowClick={drill.onRowClick && ((row) => { onClose(); drill.onRowClick(row); })}
-            searchable={drill.rows.length > 10 ? "Search this list…" : false}
-            // No paging: the whole list is here and scrolls under a pinned
-            // header. Twenty pages of 25 is not a list anyone reads — it is a
-            // list you give up on halfway through.
+            searchable={rows.length > 10 ? "Search this list…" : false}
             pageSize={0}
-            maxHeight="60vh"
+            maxHeight="68vh"
             exportName={drill.exportName}
             emptyMessage="Nothing in this list — the figure is zero"
           />
         </div>
-      )}
-    </Modal>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// Donut palette for the consumption breakdowns — assigned by rank so the biggest
+// slice is always the same lead colour across dept / machine / type.
+const CONS_DONUT = ["#8b5cf6", "#0f8d7e", "#d0902a", "#2563eb", "#eb0a1e", "#c026d3", "#0891b2", "#65a30d"];
+const consColors = (rows) => Object.fromEntries(rows.map((r, i) => [r.name, CONS_DONUT[i % CONS_DONUT.length]]));
+
+// Hover card for the trend area.
+function TrendTip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div className="rounded-lg bg-navy-900 text-white px-2.5 py-1.5 shadow-lg text-xs">
+      <p className="font-semibold">{label}</p>
+      <p className="text-indigo-300 font-semibold">{payload[0].value} issued</p>
+    </div>
+  );
+}
+
+// Daily issued quantity as a soft gradient area — the shape of usage over the
+// chosen window.
+function TrendArea({ data }) {
+  if (!data.length || data.every((d) => !d.qty)) {
+    return <p className="text-sm text-slate-400 text-center py-14">Nothing issued in this range</p>;
+  }
+  return (
+    <div className="h-56">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+          <defs>
+            <linearGradient id="cons-trend" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#6366f1" stopOpacity={0.35} />
+              <stop offset="1" stopColor="#6366f1" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148,163,184,0.2)" />
+          <XAxis dataKey="d" tick={{ fontSize: 10, fill: "#94a3b8" }} interval="preserveStartEnd" minTickGap={24} />
+          <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} width={30} allowDecimals={false} />
+          <RechartsTooltip content={<TrendTip />} cursor={{ stroke: "rgba(148,163,184,0.4)" }} />
+          <Area type="monotone" dataKey="qty" stroke="#6366f1" strokeWidth={2} fill="url(#cons-trend)" isAnimationActive={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
 // A stock row is not a part row — it carries part_id, and the detail modal
 // needs the part itself. The parent already holds the list, so it resolves.
-function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, stock, belowMin,
-  parts = [], stockRows = [], ops = null, onTrace, reorderPlanned = true }) {
+function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belowMin,
+  parts = [], stockRows = [], ops = null, onTrace, reorderPlanned = true, onReorderExport }) {
   const [pendingOpen, setPendingOpen] = useState(false);
   const [pendingRows, setPendingRows] = useState([]);
 
@@ -1153,7 +1292,6 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
       .then((r) => setPendingRows(r.data.data)).catch(() => setPendingRows([]));
   }, [pendingOpen]);
 
-  const plannedPct = stats.total ? Math.round((stats.planned / stats.total) * 100) : 0;
   // Three things a spares master either has or does not. Averaged rather than
   // weighted — there is no basis yet for saying a missing rate matters more
   // than a missing maximum, and inventing one would be a number about nothing.
@@ -1187,17 +1325,77 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
 
   const [drill, setDrill] = useState(null);
 
-  // Shelves with what sits on each — the list behind the location count.
-  const shelves = useMemo(() => {
-    const by = {};
-    parts.forEach((p) => {
-      if (!p.location) return;
-      by[p.location] = (by[p.location] || 0) + 1;
+  // Consumption filters purely by a calendar From–To range now — no presets.
+  // With no range set it shows all-time, straight off `ops` (no fetch); a range
+  // re-queries the three breakdowns. The cancel flag stops a fast re-pick from
+  // landing an older range's rows after a newer one.
+  const [consFrom, setConsFrom] = useState("");
+  const [consTo, setConsTo] = useState("");
+  // A native date input can't show a custom placeholder, so each field starts as
+  // a text box reading "From"/"To" and flips to a real date picker on focus —
+  // the type is in state so React never reconciles it back mid-interaction.
+  const [fromType, setFromType] = useState("text");
+  const [toType, setToType] = useState("text");
+  const [rangedCons, setRangedCons] = useState(null);
+  const [consLoading, setConsLoading] = useState(false);
+  const custom = Boolean(consFrom && consTo);
+  const qFrom = custom ? consFrom : undefined;
+  const qTo = custom ? consTo : undefined;
+
+  useEffect(() => {
+    if (!custom) { setRangedCons(null); setConsLoading(false); return; }
+    let cancelled = false;
+    setConsLoading(true);
+    Promise.all([
+      spareStockService.consumption(STORE_CODE, "department", undefined, undefined, qFrom, qTo).then((r) => r.data.data).catch(() => []),
+      spareStockService.consumption(STORE_CODE, "machine", undefined, undefined, qFrom, qTo).then((r) => r.data.data).catch(() => []),
+      spareStockService.consumption(STORE_CODE, "type", undefined, undefined, qFrom, qTo).then((r) => r.data.data).catch(() => []),
+    ]).then(([department, machine, type]) => {
+      if (cancelled) return;
+      setRangedCons({ department, machine, type });
+      setConsLoading(false);
     });
-    return Object.entries(by)
-      .map(([location, count]) => ({ location, rack: rackOf(location) || "—", parts: count }))
-      .sort((a, b) => b.parts - a.parts || a.location.localeCompare(b.location));
-  }, [parts]);
+    return () => { cancelled = true; };
+  }, [custom, qFrom, qTo]);
+
+  const deptData = rangedCons ? rangedCons.department : (ops?.consumption || []);
+  const machineData = rangedCons ? rangedCons.machine : (ops?.machineConsumption || []);
+  const typeData = rangedCons ? rangedCons.type : (ops?.typeConsumption || []);
+
+  // The single donut opens a full-detail drill: machine + part-type breakdowns,
+  // the daily trend and the whole consumed-parts list. All of it is fetched only
+  // when the drill is opened (and refetched if the range changes while open), so
+  // the summary page stays a single light request. `consDrill` names which of
+  // the three donuts was drilled — that dimension leads the drill, with the
+  // daily trend and the consumed-parts list (labelled by description) below.
+  const [consDrill, setConsDrill] = useState(null);
+  const [consumedParts, setConsumedParts] = useState([]);
+  const [trendData, setTrendData] = useState([]);
+  useEffect(() => {
+    if (!consDrill) return;
+    let cancelled = false;
+    Promise.all([
+      spareStockService.topConsumed(STORE_CODE, 1000, 3650, qFrom, qTo).then((r) => r.data.data).catch(() => []),
+      spareStockService.consumptionTrend(STORE_CODE, 90, undefined, qFrom, qTo).then((r) => r.data.data).catch(() => []),
+    ]).then(([consumed, trend]) => {
+      if (cancelled) return;
+      setConsumedParts(consumed);
+      setTrendData(trend);
+    });
+    return () => { cancelled = true; };
+  }, [consDrill, qFrom, qTo]);
+
+  const consTotal = deptData.reduce((s, d) => s + (Number(d.value) || 0), 0);
+  const typeTotal = typeData.reduce((s, d) => s + (Number(d.value) || 0), 0);
+  const machineTotal = machineData.reduce((s, d) => s + (Number(d.value) || 0), 0);
+  const consRangeTitle = custom ? `${consFrom} → ${consTo}` : "All time";
+  // One config drives both the three page donuts and the drill each opens.
+  const CONS_DIMS = [
+    { key: "department", icon: "🏭", tone: "violet", title: "By Department", pageTitle: "Department-wise", hint: "Share of issues by department", data: deptData, total: consTotal, empty: "Nothing issued in this range" },
+    { key: "machine", icon: "⚙️", tone: "green", title: "By Machine", pageTitle: "Machine-wise", hint: "Which machine eats the most spares", data: machineData, total: machineTotal, empty: "No machine recorded yet" },
+    { key: "type", icon: "🔩", tone: "amber", title: "By Part Type", pageTitle: "Part-type", hint: "Sensor · Cylinder · Pin · Punch …", data: typeData, total: typeTotal, empty: "No part-type consumption yet" },
+  ];
+  const consFocus = CONS_DIMS.find((d) => d.key === consDrill) || null;
 
   // Every tile opens, including one reading zero: a tile that silently does
   // nothing reads as broken, and "nothing is below its minimum" is worth
@@ -1216,21 +1414,6 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
 
   // Worst out-of-band first, so the six rows on screen are the six worth
   // looking at rather than whichever part numbers sort first.
-  // Issued quantity per part, off the ledger. Real usage, not a forecast —
-  // and only as deep as the activity feed goes, which is why the card says
-  // what it is measuring rather than calling itself a trend.
-  const consumptionByPart = useMemo(() => {
-    const by = {};
-    (ops?.activity || []).forEach((a) => {
-      if (a.txn_type !== "ISSUE" || !a.part_no) return;
-      by[a.part_no] = (by[a.part_no] || 0) + Math.abs(a.qty_delta);
-    });
-    return Object.entries(by)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8);
-  }, [ops]);
-
   const bandRows = useMemo(() => {
     const severity = { "Out of Stock": 0, "Below Minimum": 1, "Reorder": 2, "Above Maximum": 3, "Healthy": 4 };
     return [...counted]
@@ -1238,19 +1421,6 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
         || (b.unit_price || 0) - (a.unit_price || 0))
       .slice(0, 6);
   }, [stockRows]);
-
-  // The dearest parts, with what is actually on the shelf against them. The
-  // rate alone said which parts matter; the stock beside it says which of
-  // those are currently a problem.
-  const dearest = useMemo(() => {
-    const byPart = Object.fromEntries(stockRows.map((r) => [r.part_id, r]));
-    return stats.dearest.map((p) => ({
-      ...p,
-      qty_on_hand: byPart[p.id]?.qty_on_hand ?? null,
-      status: byPart[p.id]?.status || "Not Counted",
-      stock_value: byPart[p.id]?.stock_value ?? null,
-    }));
-  }, [stats.dearest, stockRows]);
 
   // Both the rack donut and the Top Racks bars open the same list.
   const rackDrill = (rack) => partsDrill(
@@ -1290,7 +1460,7 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
           {/* Four across, two rows — not eight across. At eight the card is
               ~175px, and once the chip takes its column the label truncates to
               "TOT…" and the figure clips. A KPI you cannot read is not a KPI. */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <KpiCard featured tone="blue" label="Total Spare Parts" icon="🔧" value={stats.total} loading={loading}
               onClick={opener(partsDrill("Total Spare Parts", "Every active part in this list", parts, "spares_all"))} />
             <KpiCard featured tone="navy" label="Live Stock" icon="📦" value={stock ? stock.total_qty : 0} unit="pcs"
@@ -1304,6 +1474,9 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
                 subtitle: `${money(stock?.stock_value)} across ${num(stock?.valued_parts)} counted parts that carry a rate`,
                 rows: counted.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value),
                 columns: STOCK_VALUE_COLUMNS,
+                // Opens with the Live-Dashboard "Top 10 by Value" bar chart above
+                // the list — the highest-value spares, graphically, on drill.
+                valueChart: true,
               })} />
             {/* Below Minimum, Above Maximum and SRV Pending are not repeated
                 here — they are the Action Required tiles below, where they can
@@ -1317,6 +1490,10 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
           </div>
         </section>
       )}
+
+      {/* Master Data has no KPI strip — the same story is told by the charts in
+          Coverage & Spread (Parts by Rack, Master Data Completeness, Parts by
+          Price), and Total Spares already sits in Store Status above. */}
 
       {/* ---- Action Required ---- */}
       {ops && stock && (
@@ -1510,24 +1687,25 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
             <h3 className="section-title">SRV · Engineer Clearance</h3>
             <p className="section-hint">Material waiting on Maintenance and Tool Room</p>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="card">
-              <CardHead icon="🛠️" tone="blue" title="Tool Room"
-                hint="Forwarded to the Tool Room engineer" />
-              <div className="grid grid-cols-2 gap-3">
-                <ClearanceStat label="Pending" value={ops.pending.tool_room.pending} tone="amber"
-                  onClick={() => setPendingOpen(true)} />
-                <ClearanceStat label="Cleared" value={ops.pending.tool_room.cleared} tone="green" />
+          {/* One card, two halves — Tool Room and Maintenance side by side, each
+              showing how many SRVs' quality clearance is pending at that end. */}
+          <div className="card">
+            <CardHead icon="🧪" tone="violet" title="Pending Quality Clearance"
+              hint="SRVs waiting on the engineer's quality check after SRV making" />
+            <div className="grid grid-cols-2 gap-3">
+              <ClearanceStat label="Tool Room" value={ops.pending.tool_room.pending} tone="amber"
+                onClick={() => setPendingOpen(true)} />
+              {/* An SRV has no Maintenance clearance field yet, so this half stays
+                  honestly blank until that data exists. */}
+              <div className="rounded-xl px-3 py-3 text-left bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300">
+                <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80">Maintenance</p>
+                <p className="text-2xl font-bold tabular mt-1 leading-none">
+                  {ops.pending.maintenance?.pending != null ? num(ops.pending.maintenance.pending) : "—"}
+                </p>
+                {ops.pending.maintenance?.pending == null && (
+                  <p className="text-[10px] opacity-70 mt-1 normal-case font-normal">not tracked on the SRV yet</p>
+                )}
               </div>
-            </div>
-            <div className="card">
-              <CardHead icon="🔧" tone="violet" title="Maintenance"
-                hint="Forwarded to the Maintenance engineer" />
-              <NotCaptured
-                what="Maintenance clearance is not recorded yet"
-                needs="An SRV carries a Tool Room forward and clearance timestamp but has no Maintenance equivalent, so pending and cleared cannot be split out. Adding those two fields fills this card from the same data."
-                endpoint="GET /spare-stock/pending → pending.maintenance"
-              />
             </div>
           </div>
         </section>
@@ -1535,15 +1713,21 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
 
       {reorderPlanned && belowMin && belowMin.length > 0 && (
         <section>
-          <div className="mb-3">
-            <h3 className="section-title">Needs Reordering</h3>
-            <p className="section-hint">Out of stock first, then furthest below its minimum</p>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-xl font-extrabold text-toyotared dark:text-red-400">Needs Reordering</h3>
+            {onReorderExport && (
+              <button className="btn-secondary py-1.5 text-[13px]" onClick={onReorderExport}
+                title="Reorder list, section & category-wise, with the quantity to order — for the concerned department">
+                ⬇ Excel (section &amp; category-wise, with order qty)
+              </button>
+            )}
           </div>
           <div className="card">
             <Table
               columns={BELOW_MIN_COLUMNS}
               rows={belowMin}
               onRowClick={onStockClick}
+              rowClassName={() => "text-red-600 dark:text-red-400 font-semibold"}
               searchable={belowMin.length > 10 ? "Search part no or description…" : false}
               pageSize={belowMin.length > 25 ? 25 : 0}
               exportName="spares_below_minimum"
@@ -1553,145 +1737,74 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
         </section>
       )}
 
-      {/* ---- Excess: which parts are tying money up, not just how many ---- */}
-      {ops && ops.excess.length > 0 && (
-        <section>
-          <div className="mb-3">
-            {/* Named for the parts, not the metric — "Excess Stock" is the
-                gauge above, and two things with one name read as a repeat. */}
-            <h3 className="section-title">Excess Parts — which ones</h3>
-            <p className="section-hint">Above maximum, furthest over first, with the value tied up</p>
-          </div>
-          <div className="card">
-            <Table
-              columns={EXCESS_COLUMNS}
-              rows={ops.excess}
-              onRowClick={onStockClick}
-              searchable={ops.excess.length > 10 ? "Search part no or description…" : false}
-              pageSize={0}
-              maxHeight={ops.excess.length > 12 ? "45vh" : ""}
-              exportName="spares_excess"
-              emptyMessage="Nothing above its maximum"
-            />
-          </div>
-        </section>
-      )}
+      {/* Excess has no standalone list here — the Inventory Status Distribution
+          donut (Above Maximum slice) and the "Excess Parts" tile in Action
+          Required both drill to the same list, and that drill carries its own
+          Export button. A third copy as a flat table was redundant. */}
 
-      {/* ---- Consumption: laid out and waiting on a capture point ---- */}
+      {/* ---- Consumption analytics: a headline strip over four charts, all
+           scoped by one range picker ---- */}
       {ops && (
         <section>
-          <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="section-title">Consumption</h3>
-              <p className="section-hint">By department, and over time</p>
+              <p className="text-xs font-medium text-slate-400 dark:text-slate-500">Spare Parts Store Analytics · {consRangeTitle}</p>
             </div>
-            <button className="btn-secondary shrink-0"
-              onClick={() => downloadFile("/spare-stock/consumption/export", "spare_consumption_report.xlsx", { store_code: STORE_CODE })}>
-              ⬇ Download report (Excel)
-            </button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {/* Filter purely by a calendar From–To range; clear it (✕) for
+                  all-time. It scopes every chart, the drill and the Excel. */}
+              <div className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 ${custom ? "border-toyotared bg-toyotared/5" : "border-slate-200 dark:border-navy-700"}`}>
+                <span className="text-[15px]" aria-hidden="true">📅</span>
+                <input type={fromType} placeholder="From" value={consFrom} max={consTo || undefined}
+                  aria-label="From date"
+                  onFocus={(e) => { e.target.type = "date"; setFromType("date"); try { e.target.showPicker?.(); } catch { /* not user-activated */ } }}
+                  onBlur={() => { if (!consFrom) setFromType("text"); }}
+                  onChange={(e) => setConsFrom(e.target.value)}
+                  className="bg-transparent text-xs text-slate-600 dark:text-slate-300 placeholder:text-slate-400 outline-none w-[86px] cursor-pointer" />
+                <span className="text-slate-400 text-xs">–</span>
+                <input type={toType} placeholder="To" value={consTo} min={consFrom || undefined}
+                  aria-label="To date"
+                  onFocus={(e) => { e.target.type = "date"; setToType("date"); try { e.target.showPicker?.(); } catch { /* not user-activated */ } }}
+                  onBlur={() => { if (!consTo) setToType("text"); }}
+                  onChange={(e) => setConsTo(e.target.value)}
+                  className="bg-transparent text-xs text-slate-600 dark:text-slate-300 placeholder:text-slate-400 outline-none w-[70px] cursor-pointer" />
+                {custom && (
+                  <button type="button" title="Clear the range — back to all-time"
+                    onClick={() => { setConsFrom(""); setConsTo(""); setFromType("text"); setToType("text"); }}
+                    className="text-slate-400 hover:text-toyotared text-sm leading-none px-0.5">✕</button>
+                )}
+              </div>
+              <button className="btn-secondary shrink-0"
+                onClick={() => downloadFile(
+                  "/spare-stock/consumption/export",
+                  `spare_consumption_${custom ? `${consFrom}_${consTo}` : "all"}.xlsx`,
+                  { store_code: STORE_CODE, from: qFrom, to: qTo },
+                )}>
+                ⬇ Excel
+              </button>
+            </div>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="card">
-              <CardHead icon="🏭" tone="violet" title="Department-wise Consumption"
-                hint="Press Shop · Maintenance · Tool Room" />
-              {ops.consumption && ops.consumption.length > 0 ? (
-                <HorizontalBars
-                  data={ops.consumption}
-                  color="#8b5cf6"
-                  emptyMessage="Nothing issued yet"
-                />
-              ) : (
-                <NotCaptured
-                  what="Nothing has been issued yet"
-                  needs="Issue a spare to a department from the Store Stock screen (the Issue button on each part). Each issue is tagged with its department, so this splits the total by Press Shop / Maintenance / Tool Room."
-                  endpoint="GET /spare-stock/consumption?group_by=department"
-                />
-              )}
-            </div>
-            <div className="card">
-              <CardHead icon="⚙️" tone="green" title="Machine-wise Consumption"
-                hint="Which machine eats the most spares" />
-              {ops.machineConsumption && ops.machineConsumption.length > 0 ? (
-                <HorizontalBars data={ops.machineConsumption} color="#0f8d7e" emptyMessage="Nothing issued yet" />
-              ) : (
-                <NotCaptured
-                  what="No machine recorded yet"
-                  needs="Issue a spare from Store Stock and type the machine it was fitted on — this ranks machines by spares consumed, so the heaviest-consuming machine (often the one needing attention) stands out."
-                  endpoint="GET /spare-stock/consumption?group_by=machine"
-                />
-              )}
-            </div>
-            <div className="card">
-              <CardHead icon="🔩" tone="amber" title="Part-type-wise Consumption"
-                hint="Sensor · Cylinder · Punch · Pin …" />
-              {ops.typeConsumption && ops.typeConsumption.length > 0 ? (
-                <HorizontalBars data={ops.typeConsumption} color="#d0902a" emptyMessage="Nothing issued yet" />
-              ) : (
-                <NotCaptured
-                  what="No part-type consumption yet"
-                  needs="Fill each part's type in Part Master (auto-derivable from the description), then issue parts — this splits consumption by Sensor / Cylinder / Punch / Pin, for procurement and reorder planning."
-                  endpoint="GET /spare-stock/consumption?group_by=type"
-                />
-              )}
-            </div>
-            <div className="card">
-              <CardHead icon="📉" tone="blue" title="Consumption Trend"
-                hint="Daily, weekly and monthly usage" />
-              {ops.activity.some((a) => a.txn_type === "ISSUE") ? (
-                <HorizontalBars
-                  data={consumptionByPart}
-                  color="#6366f1"
-                  emptyMessage="Nothing issued yet"
-                  onBarClick={(d) => {
-                    const row = stockRows.find((r) => r.part_no === d.name);
-                    if (row && onStockClick) onStockClick(row);
-                  }}
-                />
-              ) : (
-                <NotCaptured
-                  what="Nothing has been issued yet"
-                  needs="The ledger already records every ISSUE with its quantity and date, so this chart fills itself as soon as parts start being issued from the store."
-                  endpoint="GET /spare-stock/activity"
-                />
-              )}
-            </div>
+
+          {/* Three donuts side by side — the wide row had the room. Tapping any
+              one opens its own drill with the daily trend and consumed parts. */}
+          <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 transition-opacity ${consLoading ? "opacity-50" : ""}`}>
+            {CONS_DIMS.map((dim) => (
+              <div key={dim.key} role="button" tabIndex={0}
+                onClick={() => setConsDrill(dim.key)}
+                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setConsDrill(dim.key)}
+                className="card card-interactive">
+                <div className="flex items-start justify-between gap-2">
+                  <CardHead icon={dim.icon} tone={dim.tone} title={`${dim.pageTitle} Consumption`} hint={dim.hint} />
+                  <span className="text-xs font-semibold text-slate-400 shrink-0 mt-0.5">Drill →</span>
+                </div>
+                <DonutChart data={dim.data} colors={consColors(dim.data)} size={128}
+                  centerValue={num(dim.total)} centerLabel="pcs" emptyMessage={dim.empty} />
+              </div>
+            ))}
           </div>
         </section>
       )}
-
-      {/* Master data, not operations — it sits below the operational bands so
-          the top of the page stays about what the store is doing today. */}
-      <section>
-        <div className="mb-3">
-          <h3 className="section-title">Master Data</h3>
-          <p className="section-hint">What the list itself carries</p>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <KpiCard featured tone="blue" label="Total Spares" icon="🔧" value={stats.total} loading={loading} hint={totalHint}
-            onClick={opener(partsDrill("Total Spares", `Every active part in this list`, parts, "spares_all"))} />
-          <KpiCard featured label="Min/Max Planned" icon="📋" tone={plannedPct < 50 ? "amber" : "green"}
-            value={stats.planned} unit={`of ${stats.total}`} loading={loading}
-            hint={`${stats.unplanned} still without a maximum`}
-            onClick={opener(partsDrill("Min/Max Planned",
-              "Parts with a maximum set — these are the ones that can be reordered against",
-              parts.filter((p) => Number(p.max_stock_level || 0) > 0), "spares_planned"))} />
-          <KpiCard featured tone="amber" label="Rework Parts" icon="🔁" value={stats.rework} loading={loading}
-            hint="Have a second shelf for rework"
-            onClick={opener(partsDrill("Rework Parts", "Parts that also keep a rework shelf",
-              parts.filter((p) => p.rework_location), "spares_rework"))} />
-          <KpiCard featured tone="violet" label="Rated Parts" icon="🏷️" value={stats.rated} loading={loading}
-            hint={stats.unrated ? `${stats.unrated} carry no rate` : "Every part is rated"}
-            onClick={opener(partsDrill("Rated Parts", "Parts carrying a rate, so they can be valued",
-              parts.filter((p) => Number(p.unit_price || 0) > 0), "spares_rated"))} />
-          <KpiCard featured tone="cyan" label="Shelf Locations" icon="📍" value={stats.locations} loading={loading}
-            hint={`${stats.racks.length} rack${stats.racks.length === 1 ? "" : "s"} in use`}
-            onClick={opener({
-              title: "Shelf Locations", columns: LOCATION_COLUMNS, rows: shelves,
-              exportName: "spare_locations",
-              subtitle: `${num(shelves.length)} shelves in use across ${stats.racks.length} rack${stats.racks.length === 1 ? "" : "s"}`,
-            })} />
-        </div>
-      </section>
 
       <section>
         <div className="mb-3">
@@ -1752,60 +1865,27 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
               </ul>
             </div>
           </div>
-        </div>
 
-        {/* Top Racks is gone: the Parts by Rack donut above carries the same
-            three numbers and opens the same lists. Value Bands stays — it
-            groups by rate, which nothing else on the page does. */}
-        <div className="mt-4">
+          {/* Grouped by unit rate — a ring beside the rack ring, each band a slice,
+              the rated-part total in the hole. */}
           <div className="card">
-            <CardHead icon="💰" tone="green" title="Value Bands" hint="Rated parts grouped by unit rate" />
-            <HorizontalBars data={stats.bands} emptyMessage="No rates recorded yet"
-              onBarClick={(d) => setDrill(bandDrill(d.name))} />
+            <CardHead icon="💰" tone="green" title="Parts by Price" hint="Grouped by unit price" />
+            <DonutChart
+              data={stats.bands}
+              colors={Object.fromEntries(stats.bands.map((b) => [b.name, b.color]))}
+              size={124}
+              centerValue={num(stats.bands.reduce((s, b) => s + b.value, 0))}
+              centerLabel="rated parts"
+              emptyMessage="No rates recorded yet"
+              onSliceClick={(d) => setDrill(bandDrill(d.name))}
+            />
           </div>
         </div>
       </section>
 
-      <section>
-        <div className="mb-3">
-          <h3 className="section-title">Highest Value Spares</h3>
-          <p className="section-hint">The parts worth planning first</p>
-        </div>
-        <div className="card">
-          <Table
-            columns={[
-              { key: "part_no", label: "Part No" },
-              { key: "part_name", label: "Description" },
-              { key: "location", label: "Location", render: (r) => r.location || "—" },
-              {
-                key: "qty_on_hand", label: "Current", align: "right",
-                render: (r) => (r.qty_on_hand == null
-                  ? <span className="text-slate-400 text-[11px]">not counted</span>
-                  : num(r.qty_on_hand)),
-              },
-              {
-                key: "max_stock_level", label: "Max", align: "right",
-                render: (r) => (r.max_stock_level == null
-                  ? <span className="text-amber-600 dark:text-amber-400 text-[11px] font-medium">not planned</span>
-                  : num(r.max_stock_level)),
-              },
-              {
-                key: "unit_price", label: "Rate", align: "right",
-                render: (r) => <span className="font-semibold">{money(r.unit_price)}</span>,
-              },
-              {
-                key: "stock_value", label: "Stock Value", align: "right",
-                render: (r) => (r.stock_value == null ? "—" : money(r.stock_value)),
-              },
-              { key: "status", label: "Status", render: (r) => <StockStatus status={r.status} /> },
-            ]}
-            rows={dearest}
-            loading={loading}
-            onRowClick={onPartClick}
-            emptyMessage="No rated parts yet"
-          />
-        </div>
-      </section>
+      {/* No standalone "Highest Value Spares" section — the Top-10-by-value bar
+          chart now opens inside the Stock Value tile's drill (valueChart), the
+          way the Live Dashboard does it. */}
 
       {/* ---- Recent Activity: what has actually happened to stock ---- */}
       {ops && (
@@ -1839,6 +1919,83 @@ function SpareDashboard({ stats, loading, totalHint, onPartClick, onStockClick, 
       )}
 
       <DrillDown drill={drill} onClose={() => setDrill(null)} />
+
+      {/* The drilled donut's detail: that dimension's breakdown, the daily trend
+          and the consumed-parts list — labelled by description, like the Live
+          Dashboard. */}
+      {consFocus && createPortal(
+        <div className="fixed inset-0 z-50 flex flex-col gap-4 p-4 lg:p-6 overflow-auto bg-slate-50 dark:bg-navy-950 animate-[fadeIn_0.15s_ease-out]">
+          <div className="shrink-0 rounded-2xl px-5 py-3.5 flex items-center gap-3 text-white shadow-[0_12px_34px_rgba(10,32,70,0.35)]"
+            style={{ background: "linear-gradient(120deg,#0a2340 0%,#123a6b 55%,#0a2038 100%)" }}>
+            <button onClick={() => setConsDrill(null)} title="Back"
+              className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center shrink-0">
+              <ArrowLeft size={20} />
+            </button>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-xl lg:text-2xl font-extrabold truncate"
+                style={{ backgroundImage: "linear-gradient(92deg,#ff9a4d,#ff5a6a,#ffd9b0)", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent" }}>
+                Consumption · {consFocus.title} · {consRangeTitle}
+              </h2>
+              <p className="text-xs text-white/70 truncate">{num(consFocus.total)} pcs · with the daily trend and the consumed-parts list</p>
+            </div>
+            <button className="btn-secondary py-1.5 text-[13px] shrink-0"
+              onClick={() => downloadFile("/spare-stock/consumption/export",
+                `spare_consumption_${custom ? `${consFrom}_${consTo}` : "all"}.xlsx`,
+                { store_code: STORE_CODE, from: qFrom, to: qTo })}>
+              ⬇ Excel
+            </button>
+            <button onClick={() => setConsDrill(null)} title="Close"
+              className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-2xl leading-none shrink-0">✕</button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="card">
+              <CardHead icon={consFocus.icon} tone={consFocus.tone} title={consFocus.title} hint={consFocus.hint} />
+              <DonutChart data={consFocus.data} colors={consColors(consFocus.data)} size={150}
+                centerValue={num(consFocus.total)} centerLabel="pcs" emptyMessage={consFocus.empty} />
+            </div>
+            <div className="card">
+              <CardHead icon="📈" tone="blue" title="Consumption Trend"
+                hint={custom ? `Daily issued qty · ${consRangeTitle}` : "Daily issued qty · last 90 days"} />
+              <TrendArea data={trendData} />
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="flex items-start justify-between gap-2">
+              <CardHead icon="📋" tone="violet" title="Consumed parts — by quantity"
+                hint="Ranked by quantity issued, labelled with the part description" />
+              <button className="btn-secondary py-1.5 text-[13px] shrink-0"
+                onClick={() => downloadXlsx(
+                  `spare_consumed_${custom ? `${consFrom}_${consTo}` : "all"}`,
+                  ["Part No", "Description", "Qty Issued"],
+                  consumedParts.map((p) => [p.part_no, p.part_name || "", Number(p.qty) || 0]),
+                  "Consumed",
+                )}>
+                ⬇ Excel (full list)
+              </button>
+            </div>
+            <HorizontalBars
+              data={consumedParts.slice(0, 20).map((p) => ({
+                ...p,
+                name: p.part_name ? `${p.part_name} · ${p.part_no}` : p.part_no,
+                value: Number(p.qty) || 0,
+              }))}
+              color="#6366f1"
+              valueSuffix=" pcs"
+              emptyMessage="Nothing issued in this range"
+              onBarClick={(d) => {
+                const row = stockRows.find((r) => r.part_no === d.part_no);
+                if (row && onStockClick) { setConsDrill(null); onStockClick(row); }
+              }}
+            />
+            {consumedParts.length > 20 && (
+              <p className="text-xs text-slate-400 mt-3">Showing the top 20 of {num(consumedParts.length)} — download for the full list.</p>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {/* SRV lines waiting on an SRV being raised or on an engineer. */}
       <Modal open={pendingOpen} onClose={() => setPendingOpen(false)} size="full"
@@ -1908,7 +2065,7 @@ const COLUMNS = [
   },
 ];
 
-function SectionDetail({ section, onBack }) {
+function SectionDetail({ section }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
@@ -1931,23 +2088,8 @@ function SectionDetail({ section, onBack }) {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-toyotared transition-colors"
-          title="Back to the whole store"
-        >
-          <ArrowLeft size={16} />
-        </button>
-        <span className="w-11 h-11 rounded-xl flex items-center justify-center text-xl shrink-0
-          bg-toyotared/[0.07] dark:bg-toyotared/15">
-          {emojiFor(section.name)}
-        </span>
-        <div>
-          <h2 className="font-semibold text-slate-800 dark:text-white">{section.name}</h2>
-          <p className="text-xs text-slate-400">Section of the Spare Parts Store</p>
-        </div>
-      </div>
+      {/* The section's back arrow + name/icon are gone from here — its name and
+          icon now sit in the top header, so the content starts straight away. */}
 
       {/* The same dashboard as the store's, scoped to this section. Clicking a
           section used to drop you onto a bare table — a step down from the
@@ -1956,7 +2098,6 @@ function SectionDetail({ section, onBack }) {
       <SpareDashboard
         stats={stats}
         loading={loading}
-        totalHint={`In ${section.name}`}
         onPartClick={setSelected}
         onStockClick={(row) => setSelected(rows.find((p) => p.id === row.part_id) || null)}
         stock={stock}
@@ -1966,24 +2107,8 @@ function SectionDetail({ section, onBack }) {
         reorderPlanned={reorderPlanned}
       />
 
-      <section>
-        <div className="mb-3">
-          <h3 className="section-title">All Parts</h3>
-          <p className="section-hint">Searchable and exportable</p>
-        </div>
-        <div className="card">
-          <Table
-            columns={COLUMNS}
-            rows={rows}
-            loading={loading}
-            onRowClick={setSelected}
-            searchable="Search part no, description or location…"
-            exportName={`${section.name.toLowerCase().replace(/\s+/g, "_")}_parts`}
-            pageSize={25}
-            emptyMessage="No parts in this section yet"
-          />
-        </div>
-      </section>
+      {/* "All Parts" table removed — the Master Data "Total Spares" card already
+          drills to this same full list, so a second copy below was redundant. */}
 
       <SparePartDetail
         part={selected}
@@ -2024,11 +2149,69 @@ export default function MaintenanceStore() {
   const ops = useSpareOps(!sectionId);
   const [tracing, setTracing] = useState(null);
 
+  // The reorder alert: pop it up once when the app first lands on the main
+  // store screen (not on every section), with a section-wise breakdown of what
+  // needs ordering. Computed off the full stock list, so the counts are real.
+  const [reorderPopup, setReorderPopup] = useState(false);
+  const sectionName = useMemo(
+    () => Object.fromEntries(sections.map((s) => [String(s.id), s.name])), [sections]);
+  const reorderParts = useMemo(
+    () => stockRows.filter((r) => ["Out of Stock", "Below Minimum", "Reorder"].includes(r.status)),
+    [stockRows]);
+  const reorderBySection = useMemo(() => {
+    const by = {};
+    reorderParts.forEach((r) => { const k = String(r.section_id ?? "—"); by[k] = (by[k] || 0) + 1; });
+    return Object.entries(by)
+      .map(([sid, count]) => ({ name: sectionName[sid] || "Unassigned", count }))
+      .sort((a, b) => b.count - a.count);
+  }, [reorderParts, sectionName]);
+
+  // The reorder list as a section- and category-wise Excel with the quantity to
+  // order per part — what a store hand attaches when raising the shortage with
+  // the concerned department. Order qty = the gap up to the maximum (the same
+  // figure the backend's reorder feed uses), falling back to the gap up to the
+  // minimum when no maximum is planned.
+  const downloadReorderExcel = () => {
+    const orderQty = (r) => {
+      if (r.shortfall != null) return r.shortfall;
+      const gap = (r.min_stock_level || 0) - (r.qty_on_hand || 0);
+      return gap > 0 ? Math.round(gap * 100) / 100 : null;
+    };
+    const sec = (r) => sectionName[String(r.section_id)] || "Unassigned";
+    const cat = (r) => r.sub_category || "Uncategorised";
+    const sorted = [...reorderParts].sort((a, b) =>
+      sec(a).localeCompare(sec(b))
+      || cat(a).localeCompare(cat(b))
+      || String(a.part_no || "").localeCompare(String(b.part_no || "")));
+    const headers = ["Section", "Category", "Part No", "Description", "Location",
+      "In Stock", "Reorder Level", "Min", "Max", "Order Qty", "Rate", "Order Value", "Status"];
+    const body = sorted.map((r) => {
+      const q = orderQty(r);
+      return [
+        sec(r), cat(r), r.part_no || "", r.part_name || "", r.location || "",
+        r.qty_on_hand ?? 0, r.reorder_level ?? "", r.min_stock_level ?? "", r.max_stock_level ?? "",
+        q ?? "", r.unit_price ?? "",
+        q != null && r.unit_price != null ? Math.round(q * r.unit_price * 100) / 100 : "",
+        r.status,
+      ];
+    });
+    downloadXlsx(`reorder_list_${new Date().toISOString().slice(0, 10)}`, headers, body, "Reorder");
+  };
+  useEffect(() => {
+    if (sectionId || reorderParts.length === 0) return;
+    let seen = false;
+    try { seen = sessionStorage.getItem("dx_reorder_popup_shown") === "1"; } catch { /* private mode */ }
+    if (!seen) {
+      setReorderPopup(true);
+      try { sessionStorage.setItem("dx_reorder_popup_shown", "1"); } catch { /* ignore */ }
+    }
+  }, [reorderParts.length, sectionId]);
+
   // Which section is open comes from the URL, so the sidebar's section links
   // and the cards below land in exactly the same place.
   const openSection = sectionId ? sections.find((s) => String(s.id) === sectionId) : null;
   if (sectionId && openSection) {
-    return <SectionDetail section={openSection} onBack={() => navigate(`/store/${STORE_CODE}`)} />;
+    return <SectionDetail section={openSection} />;
   }
 
   return (
@@ -2039,7 +2222,6 @@ export default function MaintenanceStore() {
       <SpareDashboard
         stats={stats}
         loading={loading}
-        totalHint={`Across ${sections.length} section${sections.length === 1 ? "" : "s"}`}
         onPartClick={setSelected}
         onStockClick={(row) => setSelected(parts.find((p) => p.id === row.part_id) || null)}
         stock={stock}
@@ -2047,7 +2229,72 @@ export default function MaintenanceStore() {
         parts={parts}
         stockRows={stockRows}
         ops={ops}
+        onReorderExport={downloadReorderExcel}
       />
+
+      {/* Reorder alert — premium, section-wise; shown once when the app opens. */}
+      <Modal
+        open={reorderPopup}
+        onClose={() => setReorderPopup(false)}
+        size="xl"
+        footer={
+          <div className="flex flex-wrap gap-2 justify-end">
+            <button className="btn-secondary" onClick={downloadReorderExcel}>
+              ⬇ Excel (section &amp; category-wise, with order qty)
+            </button>
+            <button className="btn-primary" onClick={() => setReorderPopup(false)}>Got it</button>
+          </div>
+        }
+      >
+        <div className="-mx-5 -mt-4 mb-4 px-5 py-4 text-white"
+          style={{ background: "linear-gradient(120deg,#8f0713 0%,#eb0a1e 55%,#ff6a3d 100%)" }}>
+          <div className="flex items-center gap-3">
+            <span className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center text-2xl shrink-0">⚠️</span>
+            <div className="min-w-0">
+              <h3 className="text-2xl font-extrabold leading-tight">Needs Reordering</h3>
+              <p className="text-sm text-white/80">
+                {reorderParts.length} part{reorderParts.length === 1 ? "" : "s"} out of stock, below minimum, or at reorder level
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {reorderBySection.length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">By section — where the shortage is</p>
+            <div className="space-y-2">
+              {reorderBySection.map((s, i) => (
+                <div key={s.name} className="flex items-center gap-3 text-sm">
+                  <span className="w-32 shrink-0 truncate font-medium text-slate-600 dark:text-slate-300">{s.name}</span>
+                  <span className="flex-1 h-3 rounded-full bg-slate-100 dark:bg-navy-800 overflow-hidden">
+                    <span className="block h-full rounded-full" style={{
+                      width: `${Math.max(6, (s.count / (reorderBySection[0]?.count || 1)) * 100)}%`,
+                      background: REORDER_BAR_COLORS[i % REORDER_BAR_COLORS.length],
+                    }} />
+                  </span>
+                  <span className="w-8 text-right font-extrabold tabular text-slate-800 dark:text-white">{s.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">The parts</p>
+        <div className="rounded-xl border border-red-200 dark:border-red-500/30 divide-y divide-red-100 dark:divide-red-500/20 max-h-[38vh] overflow-y-auto">
+          {reorderParts.map((r) => (
+            <div key={r.part_id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+              <div className="min-w-0">
+                <span className="font-semibold text-red-600 dark:text-red-400">{r.part_no}</span>
+                <span className="text-slate-500 dark:text-slate-400 ml-2">{r.part_name}</span>
+                <span className="text-[11px] text-slate-400 ml-2">· {sectionName[String(r.section_id)] || "—"}</span>
+              </div>
+              <span className="shrink-0 text-xs font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
+                {r.qty_on_hand ?? 0} in stock · {r.status}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Modal>
 
       {/* Only once there is something to compare. The sidebar is where you go
           to a section; this table is where you see which section is planned

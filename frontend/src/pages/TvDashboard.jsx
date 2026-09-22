@@ -447,14 +447,14 @@ export default function TvDashboard() {
   const belowMin = dist["Below Minimum"] || 0;
   const liveAlerts = [];
   if (outOfStock) liveAlerts.push({ color: C.red, text: `${outOfStock} part${outOfStock > 1 ? "s" : ""} OUT OF STOCK`,
-    onClick: () => openStack({ kind: "partList", title: "Out of Stock", rows: rows.filter((r) => r.status === "Out of Stock"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand, trend: "short" }) });
+    onClick: () => openStack({ kind: "partList", title: "Out of Stock", rows: rows.filter((r) => r.status === "Out of Stock"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand }) });
   if (belowMin) liveAlerts.push({ color: C.red, text: `${belowMin} part${belowMin > 1 ? "s" : ""} below minimum`,
-    onClick: () => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)), trend: "short" }) });
+    onClick: () => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)) }) });
   const reorderN = dist["Reorder"] || 0;
   if (reorderN) liveAlerts.push({ color: "#f97316", text: `${reorderN} part${reorderN > 1 ? "s" : ""} at reorder level`,
     onClick: () => openStack({ kind: "partList", title: "Reorder", rows: rows.filter((r) => r.status === "Reorder"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand }) });
   if (excess) liveAlerts.push({ color: C.amber, text: `${excess} part${excess > 1 ? "s" : ""} above maximum · ${fmtMoney(excessValue)} tied up`,
-    onClick: () => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney, trend: "excess" }) });
+    onClick: () => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney }) });
   if (pendingCount) liveAlerts.push({ color: C.purple, text: `${pendingCount} issue${pendingCount > 1 ? "s" : ""} awaiting user confirmation`,
     onClick: () => openStack({ kind: "txnList", title: "Awaiting user confirmation",
       rows: (P.pending || []).map((r) => ({
@@ -806,7 +806,7 @@ export default function TvDashboard() {
       {/* ---------- excess stock value ---------- */}
       <Card className="p-[1.4vh]">
         <PanelHead icon={Boxes} color={C.amber} title="Excess Stock Value"
-          action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney, trend: "excess" })} />
+          action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
         {excessSections.length ? (
           <div className="flex items-center gap-[1vh]">
             <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
@@ -970,21 +970,14 @@ export default function TvDashboard() {
             <button onClick={() => setStack([])} title="Close"
               className="w-[4.4vh] h-[4.4vh] rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-[2.4vh] leading-none">✕</button>
           </div>
-          <div className="flex-1 min-h-0 flex flex-col gap-[1.4vh]">
-            <div className="flex-1 min-h-[50vh]">
-              {stack[stack.length - 1].kind === "partHistory"
-                ? <PartHistoryView frame={stack[stack.length - 1]} axis={axisColor} grid={gridColor} />
-                : stack[stack.length - 1].kind === "txnList"
-                  ? <TxnListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
-                  : stack[stack.length - 1].kind === "erpGap"
-                    ? <ErpGapView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
-                    : <PartListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />}
-            </div>
-            {/* A separate time-trend line under every parts drill — the frame's
-                own metric where it has one (Excess / Short), otherwise both. */}
-            {stack[stack.length - 1].kind === "partList" && (
-              <ValueTrendCard metric={stack[stack.length - 1].trend || "both"} axis={axisColor} grid={gridColor} />
-            )}
+          <div className="flex-1 min-h-0">
+            {stack[stack.length - 1].kind === "partHistory"
+              ? <PartHistoryView frame={stack[stack.length - 1]} axis={axisColor} grid={gridColor} />
+              : stack[stack.length - 1].kind === "txnList"
+                ? <TxnListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
+                : stack[stack.length - 1].kind === "erpGap"
+                  ? <ErpGapView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
+                  : <PartListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />}
           </div>
         </div>
       )}
@@ -1027,99 +1020,6 @@ function DonutHub({ value, label, size = "2.5vh" }) {
         style={{ fontSize: size, filter: "drop-shadow(0 2px 10px rgba(90,130,230,0.30))" }}>{value}</span>
       <span className="mt-[0.5vh] text-[1.05vh] font-semibold uppercase tracking-[0.16em] text-[var(--dx-t4)]">{label}</span>
     </div>
-  );
-}
-
-// A separate time-trend line under an Excess / Short drill: how the money tied
-// up above max (or short below min) has moved day by day. Real stock history
-// from the ledger, valued at current rates — see the backend value_trend.
-const TREND_RANGES = [
-  { label: "1W", days: 7 }, { label: "1M", days: 30 }, { label: "3M", days: 90 },
-  { label: "6M", days: 180 }, { label: "1Y", days: 365 },
-];
-function ValueTrendCard({ metric = "both", axis = "#64748b", grid = "#e2e8f0" }) {
-  const [days, setDays] = useState(30);
-  const [data, setData] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    setData(null);
-    spareStockService.valueTrend("MAINTENANCE", days)
-      .then((r) => { if (alive) setData(Array.isArray(r.data.data) ? r.data.data : []); })
-      .catch(() => { if (alive) setData([]); });
-    return () => { alive = false; };
-  }, [days]);
-  // Which line(s) to draw: an Excess drill shows the excess line, a Short drill
-  // the short line, and every other drill shows both so it still carries a trend.
-  const EXC = { key: "excess_value", color: "#f59e0b", name: "Excess" };
-  const SHT = { key: "short_value", color: "#ef4444", name: "Short" };
-  const series = metric === "excess" ? [EXC] : metric === "short" ? [SHT] : [EXC, SHT];
-  const title = metric === "excess" ? "Excess value trend — money tied up above max"
-    : metric === "short" ? "Short value trend — money short below min"
-      : "Excess & Short value trend — money above max / below min";
-  const hasData = Array.isArray(data) && data.some((d) => series.some((s) => (d[s.key] || 0) > 0));
-  // ~10 evenly-spaced date ticks whatever the range (7 → all, 365 → every ~37th).
-  const tickInterval = data && data.length ? Math.max(0, Math.ceil(data.length / 10) - 1) : 0;
-  return (
-    <Card className="p-[1.6vh] shrink-0" style={{ height: "30vh" }}>
-      <div className="flex items-center justify-between gap-[1vh] mb-[1vh] flex-wrap">
-        <div className="flex items-center gap-[1.4vh] flex-wrap">
-          <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)]">{title}</h3>
-          {series.length > 1 && (
-            <div className="flex items-center gap-[1.2vh]">
-              {series.map((s) => (
-                <span key={s.key} className="flex items-center gap-[0.5vh] text-[1.25vh] font-semibold text-[var(--dx-t3)]">
-                  <span className="w-[1.2vh] h-[1.2vh] rounded-full" style={{ background: s.color }} />{s.name}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex gap-[0.5vh]">
-          {TREND_RANGES.map((r) => (
-            <button key={r.days} type="button" onClick={() => setDays(r.days)}
-              className="px-[1.1vh] py-[0.4vh] rounded-md text-[1.25vh] font-bold transition-colors"
-              style={days === r.days
-                ? { background: "#2563eb", color: "#fff" }
-                : { background: "var(--dx-track)", color: "var(--dx-t3)" }}>
-              {r.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="h-[20vh]">
-        {data == null ? (
-          <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.5vh]">Loading trend…</div>
-        ) : !hasData ? (
-          <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.5vh] text-center px-[2vh]">
-            No value recorded in this window yet — the line fills in as stock moves day by day.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 6, right: 14, left: 2, bottom: 2 }}>
-              <defs>
-                {series.map((s) => (
-                  <linearGradient key={s.key} id={`vt-${s.key}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" stopColor={s.color} stopOpacity={0.32} /><stop offset="1" stopColor={s.color} stopOpacity={0} />
-                  </linearGradient>
-                ))}
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
-              {/* Fixed interval → evenly-spaced date ticks (recharts' auto mode
-                  hides overlaps unevenly, which looked irregular). */}
-              <XAxis dataKey="d" tick={{ fontSize: 10, fill: axis }} interval={tickInterval} />
-              <YAxis tickFormatter={fmtMoney} width={58} tick={{ fontSize: 11, fill: axis }} />
-              <Tooltip formatter={(v, n) => [fmtMoney(v), n === "excess_value" ? "Excess" : n === "short_value" ? "Short" : n]} />
-              {series.map((s) => (
-                <Area key={`a-${s.key}`} type="monotone" dataKey={s.key} stroke="none" fill={`url(#vt-${s.key})`} isAnimationActive={false} />
-              ))}
-              {series.map((s) => (
-                <Line key={`l-${s.key}`} type="monotone" dataKey={s.key} stroke={s.color} strokeWidth={2.5} dot={false} isAnimationActive={false} />
-              ))}
-            </ComposedChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    </Card>
   );
 }
 
@@ -1172,23 +1072,25 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
           {!chartData.length ? (
             <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No parts</div>
           ) : isByType ? (
-            <div className="h-full relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <defs>
-                    {chartData.map((c, i) => {
-                      const col = PIE[i % PIE.length];
-                      const g = GRAD[col] || [col, col];
-                      return <linearGradient key={i} id={`byt-${i}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} /></linearGradient>;
-                    })}
-                  </defs>
-                  <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="88%"
-                    paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
-                    {chartData.map((c, i) => <Cell key={i} fill={`url(#byt-${i})`} cursor="pointer" />)}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <DonutHub value={fmtInt(pick ? (chartData.find((c) => c.name === pick)?.value || 0) : chartData.reduce((s, d) => s + d.value, 0))} label={pick || "Parts by type"} size="3.6vh" />
+            // Ranked horizontal bars (not a donut) — tap a type to filter the list.
+            <div className="h-full overflow-auto pr-[0.4vh] space-y-[0.6vh]">
+              {chartData.map((c, i) => {
+                const col = PIE[i % PIE.length];
+                const active = pick === c.name;
+                return (
+                  <button key={c.name} onClick={() => setPick((p) => (p === c.name ? null : c.name))}
+                    className={`w-full flex items-center gap-[1.2vh] text-[1.5vh] rounded-md px-[0.6vh] py-[0.55vh] transition-colors ${active ? "bg-[var(--dx-track)]" : "hover:bg-[var(--dx-track)]"}`}>
+                    <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(col), boxShadow: `0 1px 4px ${col}66` }} />
+                    <span className="w-[16vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
+                    <span className="flex-1 h-[1.5vh] rounded-full overflow-hidden bg-[var(--dx-track)]">
+                      <span className="block h-full rounded-full" style={{ width: `${Math.max(3, (c.value / (chartData[0]?.value || 1)) * 100)}%`, background: gradCss(col, 90) }} />
+                    </span>
+                    <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap w-[8vh] text-right">{fmtInt(c.value)}</span>
+                    <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (chartTotal || 1)) * 100)}%</span>
+                  </button>
+                );
+              })}
+              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a type to filter the list</div>
             </div>
           ) : isBySection ? (
             <div className="h-full flex items-center gap-[1.5vh]">

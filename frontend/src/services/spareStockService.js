@@ -47,23 +47,21 @@ export const spareStockService = {
     api.get(`/spare-stock/parts/${partId}/pending-confirmations`),
   updateLocation: (partId, payload) => api.post(`/spare-stock/parts/${partId}/update-location`, payload),
   locationHistory: (partId) => api.get(`/spare-stock/parts/${partId}/location-history`),
-  consumption: (storeCode, groupBy = "department", sectionId) =>
+  // `days` scopes to a rolling window (last N days) for the Day/Week/Month/Year
+  // presets; `from`/`to` (ISO dates) scope to a calendar range and win over
+  // `days`; omit all three for the all-time default.
+  consumption: (storeCode, groupBy = "department", sectionId, days, from, to) =>
     api.get("/spare-stock/consumption",
-      { params: { store_code: storeCode, group_by: groupBy, section_id: sectionId } }),
+      { params: { store_code: storeCode, group_by: groupBy, section_id: sectionId, days, from, to } }),
   consumptionByPeriod: (storeCode, period = "month", sectionId) =>
     api.get("/spare-stock/consumption/report",
       { params: { store_code: storeCode, period, section_id: sectionId } }),
   machines: (storeCode) => api.get("/spare-stock/machines", { params: { store_code: storeCode } }),
-  consumptionTrend: (storeCode, days = 7, sectionId) =>
+  consumptionTrend: (storeCode, days = 7, sectionId, from, to) =>
     api.get("/spare-stock/consumption-trend",
-      { params: { store_code: storeCode, days, section_id: sectionId } }),
-  // Excess-value and short-value per day (money tied up above max / short below
-  // min over time) — for the trend line charts.
-  valueTrend: (storeCode, days = 30, sectionId) =>
-    api.get("/spare-stock/value-trend",
-      { params: { store_code: storeCode, days, section_id: sectionId } }),
-  topConsumed: (storeCode, limit = 5, days = 30) =>
-    api.get("/spare-stock/top-consumed", { params: { store_code: storeCode, limit, days } }),
+      { params: { store_code: storeCode, days, section_id: sectionId, from, to } }),
+  topConsumed: (storeCode, limit = 5, days = 30, from, to) =>
+    api.get("/spare-stock/top-consumed", { params: { store_code: storeCode, limit, days, from, to } }),
   scan: (storeCode, code) => api.get("/spare-stock/scan", { params: { store_code: storeCode, code } }),
   returnables: (storeCode) => api.get("/spare-stock/returnables", { params: { store_code: storeCode } }),
   reorder: (storeCode) => api.get("/spare-stock/reorder", { params: { store_code: storeCode } }),

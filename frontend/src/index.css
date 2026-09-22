@@ -160,10 +160,11 @@
     @apply text-[11px] text-slate-400 dark:text-slate-500;
   }
   .section-title {
-    @apply text-sm font-semibold text-slate-800 dark:text-white;
+    @apply text-xl font-extrabold text-slate-800 dark:text-white;
   }
+  /* Hidden by request — the big heading stands on its own without a subtitle. */
   .section-hint {
-    @apply text-xs text-slate-500 dark:text-slate-400;
+    @apply hidden;
   }
   .btn-primary {
     @apply inline-flex items-center gap-2 active:scale-[0.97]

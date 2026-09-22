@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
+import { downloadXlsx } from "../utils/excel.js";
 
 /**
  * Shared data table.
@@ -106,29 +107,18 @@ export default function Table({
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
   };
 
-  const exportCsv = () => {
-    const cell = (col, row) => {
+  const exportXlsx = () => {
+    // Numbers stay numeric so Excel can sum/sort them; everything else becomes
+    // text. React elements (a rendered <Badge/> etc.) have no place in a cell,
+    // so a column that renders one should set exportValue to the plain value.
+    const cellVal = (col, row) => {
       const raw = col.exportValue ? col.exportValue(row) : row[col.key];
       if (raw == null || typeof raw === "object") return "";
-      const text = String(raw);
-      // Quote anything that would otherwise break the row apart.
-      return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+      return typeof raw === "number" ? raw : String(raw);
     };
-    const lines = [
-      columns.map((c) => cell({ key: "label", exportValue: () => c.label }, {})).join(","),
-      ...sorted.map((row) => columns.map((col) => cell(col, row)).join(",")),
-    ];
-    // The BOM is what makes Excel read the file as UTF-8; without it part
-    // names with ~ and accented characters arrive mangled.
-    const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${exportName}_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    const headers = columns.map((c) => c.label);
+    const body = sorted.map((row) => columns.map((col) => cellVal(col, row)));
+    downloadXlsx(`${exportName}_${new Date().toISOString().slice(0, 10)}`, headers, body, "Export");
   };
 
   if (loading) {
@@ -162,10 +152,10 @@ export default function Table({
           {toolbar}
           {exportName && (
             <button
-              onClick={exportCsv}
+              onClick={exportXlsx}
               disabled={sorted.length === 0}
               className="btn-secondary py-1.5 text-[13px] ml-auto disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Download these rows as CSV"
+              title="Download these rows as Excel"
             >
               <Download size={14} /> Export
             </button>
