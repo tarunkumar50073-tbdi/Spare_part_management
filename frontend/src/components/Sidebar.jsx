@@ -301,6 +301,11 @@ export default function Sidebar({ collapsed = false }) {
               {!collapsed && <span className="truncate">User Management</span>}
               {collapsed && <Flyout>User Management</Flyout>}
             </NavLink>
+            <NavLink to="/settings" className={navItemClass} title={collapsed ? "Settings" : undefined}>
+              <span className="text-base leading-none w-[18px] text-center shrink-0">⚙️</span>
+              {!collapsed && <span className="truncate">Settings</span>}
+              {collapsed && <Flyout>Settings</Flyout>}
+            </NavLink>
           </div>
         )}
       </nav>

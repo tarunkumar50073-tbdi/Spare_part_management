@@ -29,9 +29,11 @@ from app.utils.exceptions import (
 # 24h suits the hourly ERP poller; a missed sync then shows honestly as stale.
 STALE_AFTER_HOURS = 24
 
-# The label template. Configurable — 100mm x 50mm is only the starting default
-# because the label-roll size may change; the frontend reads these values rather
-# than hardcoding a size. (A later admin-editable template can override these.)
+# The label template. 100mm x 50mm is only the starting default because the
+# label-roll size may change; the frontend reads these values rather than
+# hardcoding a size. An admin edits them on the Settings page — the override is
+# stored under LABEL_SETTING_KEY in app_settings and merged over these below, so
+# a roll change is a setting change, not a code change.
 LABEL_DEFAULTS = {
     "width_mm": 100,
     "height_mm": 50,
@@ -40,6 +42,7 @@ LABEL_DEFAULTS = {
     "show_description": True,
     "description_max_chars": 48,
 }
+LABEL_SETTING_KEY = "barcode_label"
 
 
 class BarcodeService:
@@ -169,7 +172,14 @@ class BarcodeService:
     # ---- label print / reprint ----
 
     def label_config(self):
-        return dict(LABEL_DEFAULTS)
+        """The effective label template: the built-in defaults with any
+        admin-saved override merged over them (only known keys are honoured)."""
+        from app.models.app_setting import AppSetting
+        cfg = dict(LABEL_DEFAULTS)
+        override = AppSetting.get_value(LABEL_SETTING_KEY) or {}
+        if isinstance(override, dict):
+            cfg.update({k: v for k, v in override.items() if k in LABEL_DEFAULTS})
+        return cfg
 
     def record_print(self, part_id, copies=1, user=None, is_reprint=False, reason=None):
         """Record a label print/reprint and return the data the label needs.

@@ -60,7 +60,16 @@ class StoreService:
         return self.repo.create(**data).to_dict()
 
     def update_store(self, code, data):
-        return self.repo.update(self.get_store(code), **data).to_dict()
+        store = self.get_store(code)
+        # Don't let the last visible store be switched off — with zero active
+        # stores the sidebar, the store list and the landing page all go empty
+        # and no one (not even an admin) has a store to open.
+        if data.get("is_active") is False and store.is_active:
+            others = [s for s in self.repo.list_active() if s.code != code]
+            if not others:
+                raise BadRequestError(
+                    "Can't switch off the only active store — at least one must stay visible")
+        return self.repo.update(store, **data).to_dict()
 
     def list_sections(self, store_code):
         """Sections of a store, each carrying the figures its card shows.

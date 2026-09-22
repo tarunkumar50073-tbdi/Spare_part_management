@@ -27,6 +27,7 @@ const TITLES = {
   "/supplier-vehicles": "Supplier Vehicle Management",
   "/vehicle-in-out": "Vehicle In / Out",
   "/admin": "User Management",
+  "/settings": "Settings",
 };
 
 export default function MainLayout() {
