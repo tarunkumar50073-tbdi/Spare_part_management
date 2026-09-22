@@ -6,6 +6,7 @@ import Login from "./pages/Login.jsx";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { StoreProvider, storeHome, useStores } from "./context/StoreContext.jsx";
+import RequirePermission from "./components/RequirePermission.jsx";
 
 // Route pages are code-split: each loads its own chunk on demand, so opening the
 // app no longer downloads all ~35 screens (plus recharts / xlsx / zxing) up
@@ -99,33 +100,33 @@ function AuthenticatedApp() {
               in scope rather than putting a chooser in the way. */}
           <Route path="/" element={<StoreHome />} />
           <Route path="/dashboard" element={<StoreDashboard />} />
-          <Route path="/store/MAINTENANCE" element={<MaintenanceStore />} />
+          <Route path="/store/MAINTENANCE" element={<RequirePermission mod="spare_store"><MaintenanceStore /></RequirePermission>} />
           <Route path="/admin" element={<Admin />} />
           {/* A section is its own address, so the sidebar can link straight to
               it and the browser's back button behaves. */}
-          <Route path="/store/MAINTENANCE/:sectionId" element={<MaintenanceStore />} />
-          <Route path="/gate-entry" element={<GateEntry />} />
+          <Route path="/store/MAINTENANCE/:sectionId" element={<RequirePermission mod="spare_store"><MaintenanceStore /></RequirePermission>} />
+          <Route path="/gate-entry" element={<RequirePermission mod="gate_entry"><GateEntry /></RequirePermission>} />
           <Route path="/srvs" element={<SRVWorkflow />} />
           <Route path="/store-stock" element={<StoreStock />} />
           <Route path="/put-away" element={<PutAway />} />
           <Route path="/holding-area" element={<HoldingArea />} />
           <Route path="/audit-trail" element={<AuditTrail />} />
           <Route path="/reports" element={<Reports />} />
-          <Route path="/parts" element={<PartMaster />} />
-          <Route path="/departments" element={<DepartmentMaster />} />
+          <Route path="/parts" element={<RequirePermission mod="part_master"><PartMaster /></RequirePermission>} />
+          <Route path="/departments" element={<RequirePermission mod="departments"><DepartmentMaster /></RequirePermission>} />
           <Route path="/report-recipients" element={<ReportRecipientMaster />} />
           <Route path="/part-history" element={<PartHistory />} />
-          <Route path="/vehicle-in-out" element={<VehicleInOut />} />
+          <Route path="/vehicle-in-out" element={<RequirePermission mod="vehicle_in_out"><VehicleInOut /></RequirePermission>} />
           <Route path="/window-time" element={<WindowTimeBoard />} />
           <Route path="/current-stock" element={<CurrentStock />} />
           {/* Distinct from Child Parts' /store-stock — this is the Spare
               Parts Store's own on-hand screen. */}
-          <Route path="/store-stock-spare" element={<SpareStock />} />
-          <Route path="/scan-part" element={<ScanPart />} />
-          <Route path="/supplier-barcodes" element={<SupplierBarcodeMapping />} />
-          <Route path="/scan-audit" element={<ScanAudit />} />
-          <Route path="/spare-part-history" element={<SparePartHistory />} />
-          <Route path="/spare-erp-gap" element={<SpareErpGap />} />
+          <Route path="/store-stock-spare" element={<RequirePermission mod="store_stock"><SpareStock /></RequirePermission>} />
+          <Route path="/scan-part" element={<RequirePermission mod="scan_part"><ScanPart /></RequirePermission>} />
+          <Route path="/supplier-barcodes" element={<RequirePermission mod="supplier_barcodes"><SupplierBarcodeMapping /></RequirePermission>} />
+          <Route path="/scan-audit" element={<RequirePermission mod="scan_audit"><ScanAudit /></RequirePermission>} />
+          <Route path="/spare-part-history" element={<RequirePermission mod="part_ledger"><SparePartHistory /></RequirePermission>} />
+          <Route path="/spare-erp-gap" element={<RequirePermission mod="erp_gap"><SpareErpGap /></RequirePermission>} />
           <Route path="/suppliers" element={<SupplierMaster />} />
           <Route path="/stock-count" element={<StockCount />} />
           <Route path="/rack-bins" element={<RackBinMaster />} />

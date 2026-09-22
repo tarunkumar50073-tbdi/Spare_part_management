@@ -6,6 +6,7 @@ import ExcelActions from "../components/ExcelActions.jsx";
 import KpiCard from "../components/KpiCard.jsx";
 import Table from "../components/Table.jsx";
 import Modal from "../components/Modal.jsx";
+import Can, { useCan } from "../components/Can.jsx";
 import BarcodeScanInput from "../components/BarcodeScanInput.jsx";
 import UploadReportModal from "../components/UploadReportModal.jsx";
 import { spareStockService } from "../services/spareStockService.js";
@@ -44,6 +45,9 @@ const FILTERS = [
 // quantity exists here, Min and Max have nothing to be compared against.
 export default function SpareStock() {
   const { activeCode, activeStore } = useStores();
+  // Import (opening stock upload) is a store_stock write — hide it, and the
+  // toolbar's Add button, from a view-only user; Template/Export stay visible.
+  const canEditStock = useCan("store_stock", "edit");
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -278,18 +282,28 @@ export default function SpareStock() {
           </button>
         </div>
       ) : (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setEditing(r.part_id);
-            setDraft(r.qty_on_hand == null ? "" : String(r.qty_on_hand));
-          }}
-          className={`px-2 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-navy-800 transition-colors
-            ${r.qty_on_hand == null ? "text-slate-400 italic text-[11px]" : "font-semibold"}`}
-          title="Click to count this part"
+        <Can
+          mod="store_stock"
+          edit
+          fallback={
+            <span className={r.qty_on_hand == null ? "text-slate-400 italic text-[11px]" : "font-semibold"}>
+              {r.qty_on_hand == null ? "—" : num(r.qty_on_hand)}
+            </span>
+          }
         >
-          {r.qty_on_hand == null ? "count" : num(r.qty_on_hand)}
-        </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditing(r.part_id);
+              setDraft(r.qty_on_hand == null ? "" : String(r.qty_on_hand));
+            }}
+            className={`px-2 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-navy-800 transition-colors
+              ${r.qty_on_hand == null ? "text-slate-400 italic text-[11px]" : "font-semibold"}`}
+            title="Click to count this part"
+          >
+            {r.qty_on_hand == null ? "count" : num(r.qty_on_hand)}
+          </button>
+        </Can>
       )),
     },
     { key: "unit_price", label: "Rate", align: "right", render: (r) => money(r.unit_price) },
@@ -308,23 +322,27 @@ export default function SpareStock() {
       key: "_actions", label: "", align: "right",
       render: (r) => (
         <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-          <button
-            onClick={() => openReceive(r)}
-            className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
-              text-emerald-600 dark:text-emerald-400 hover:border-emerald-500"
-            title="Receive new stock for this part"
-          >
-            Receive
-          </button>
-          <button
-            onClick={() => openIssue(r)}
-            disabled={!r.qty_on_hand}
-            className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
-              text-rose-600 dark:text-rose-400 hover:border-toyotared disabled:opacity-40 disabled:cursor-not-allowed"
-            title={r.qty_on_hand ? "Issue this spare to a department" : "Nothing in stock to issue"}
-          >
-            Issue
-          </button>
+          <Can mod="scan_part" edit>
+            <button
+              onClick={() => openReceive(r)}
+              className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
+                text-emerald-600 dark:text-emerald-400 hover:border-emerald-500"
+              title="Receive new stock for this part"
+            >
+              Receive
+            </button>
+          </Can>
+          <Can mod="scan_part" edit>
+            <button
+              onClick={() => openIssue(r)}
+              disabled={!r.qty_on_hand}
+              className="text-xs px-2 py-0.5 rounded border border-slate-200 dark:border-navy-700
+                text-rose-600 dark:text-rose-400 hover:border-toyotared disabled:opacity-40 disabled:cursor-not-allowed"
+              title={r.qty_on_hand ? "Issue this spare to a department" : "Nothing in stock to issue"}
+            >
+              Issue
+            </button>
+          </Can>
         </div>
       ),
     },
@@ -340,15 +358,18 @@ export default function SpareStock() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setScanOpen(true)}
-            className="btn-secondary whitespace-nowrap"
-            title="Scan a part barcode / QR to issue it"
-          >
-            📷 Scan
-          </button>
+          <Can mod="scan_part" edit>
+            <button
+              onClick={() => setScanOpen(true)}
+              className="btn-secondary whitespace-nowrap"
+              title="Scan a part barcode / QR to issue it"
+            >
+              📷 Scan
+            </button>
+          </Can>
           <ExcelActions
             addLabel="Stock"
+            canEdit={canEditStock}
             onUpload={handleUpload}
             onDownloadTemplate={() => downloadFile(
               "/spare-stock/template", "spare_opening_stock_template.xlsx", { store_code: activeCode })}
@@ -364,9 +385,11 @@ export default function SpareStock() {
             <b>{erpPending}</b> stock movement{erpPending === 1 ? "" : "s"} pending ERP sync
             <span className="text-slate-400"> — pushes automatically once the ERP endpoint is live</span>
           </p>
-          <button onClick={handleErpSync} disabled={erpSyncing} className="btn-secondary whitespace-nowrap">
-            {erpSyncing ? "Syncing…" : "Sync to ERP now"}
-          </button>
+          <Can mod="store_stock" edit>
+            <button onClick={handleErpSync} disabled={erpSyncing} className="btn-secondary whitespace-nowrap">
+              {erpSyncing ? "Syncing…" : "Sync to ERP now"}
+            </button>
+          </Can>
         </div>
       )}
 
@@ -498,12 +521,14 @@ export default function SpareStock() {
                     <td className="px-3 py-2.5">{r.department || "—"}</td>
                     <td className="px-3 py-2.5">{r.machine || "—"}</td>
                     <td className="px-3 py-2.5 text-right">
-                      <button
-                        onClick={() => handleReturn(r.id, r.part_no)}
-                        className="text-xs px-2.5 py-1 rounded bg-emerald-600 text-white hover:opacity-90"
-                      >
-                        Return
-                      </button>
+                      <Can mod="scan_part" edit>
+                        <button
+                          onClick={() => handleReturn(r.id, r.part_no)}
+                          className="text-xs px-2.5 py-1 rounded bg-emerald-600 text-white hover:opacity-90"
+                        >
+                          Return
+                        </button>
+                      </Can>
                     </td>
                   </tr>
                 ))}

@@ -43,6 +43,30 @@ def admin_required(fn):
     return wrapper
 
 
+def permission_required(module, action="view"):
+    """Per-module gate for the app's own screens. A signed-in person must hold
+    the given right (``view`` to read, ``edit`` to mutate) on ``module``; an
+    admin holds everything, and the trusted ERP machine caller passes so its
+    sync jobs are never blocked by a person's rights. This is the real boundary
+    behind the SPA's nav/route hiding — the address bar and a raw API call must
+    be refused too, not just the menu.
+
+    Usage: ``@permission_required("part_master", "edit")`` on a mutation route,
+    ``@permission_required("part_ledger")`` on a read route.
+    """
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            if is_machine():
+                return fn(*args, **kwargs)
+            user = current_user()
+            if user is None or not user.can(module, action):
+                raise ForbiddenError("You do not have permission for this action")
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 def machine_required(fn):
     """ERP-inbound endpoints (the receiving pipeline, ERP stock sync, the
     production punch). Only the trusted machine caller may drive these — a

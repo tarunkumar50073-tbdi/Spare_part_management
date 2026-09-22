@@ -13,7 +13,7 @@ from app.schemas.spare_stock_schema import (
     SpareStockSetSchema, SpareIssueSchema, SpareReceiveSchema,
     SpareConfirmSchema, SpareLocationSchema, SpareReturnSchema,
 )
-from app.utils.authz import require_store_access
+from app.utils.authz import permission_required, require_store_access
 from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
 from app.utils.validators import validate_payload
@@ -208,6 +208,7 @@ def erp_sync():
 
 
 @bp.route("/issues/<int:ledger_id>/return", methods=["POST"])
+@permission_required("scan_part", "edit")
 def return_issue(ledger_id):
     """Take an issued part back on a store return slip. Body is optional — the
     legacy one-click return of a returnable tool sends none (whole quantity, no
@@ -314,6 +315,7 @@ def scan_lookup():
 
 
 @bp.route("/parts/<int:part_id>", methods=["PUT"])
+@permission_required("store_stock", "edit")
 def set_quantity(part_id):
     _require_part_store(part_id)
     data = validate_payload(SpareStockSetSchema(), request.get_json(force=True) or {})
@@ -327,6 +329,7 @@ def set_quantity(part_id):
 
 
 @bp.route("/parts/<int:part_id>/issue", methods=["POST"])
+@permission_required("scan_part", "edit")
 def issue_part(part_id):
     """Stage 1 — store issues to a department + person (no machine/line)."""
     _require_part_store(part_id)
@@ -343,6 +346,7 @@ def issue_part(part_id):
 
 
 @bp.route("/issues/<int:ledger_id>/confirm", methods=["POST"])
+@permission_required("scan_part", "edit")
 def confirm_issue(ledger_id):
     """Stage 2 — the user at the line confirms line + machine + installation."""
     row = service.ledger_repo.get_by_id(ledger_id)
@@ -372,6 +376,7 @@ def part_pending_confirmations(part_id):
 
 
 @bp.route("/parts/<int:part_id>/receive", methods=["POST"])
+@permission_required("scan_part", "edit")
 def receive_part(part_id):
     _require_part_store(part_id)
     data = validate_payload(SpareReceiveSchema(), request.get_json(force=True) or {})
@@ -386,6 +391,7 @@ def receive_part(part_id):
 
 
 @bp.route("/parts/<int:part_id>/update-location", methods=["POST"])
+@permission_required("scan_part", "edit")
 def update_location(part_id):
     _require_part_store(part_id)
     data = validate_payload(SpareLocationSchema(), request.get_json(force=True) or {})
@@ -434,6 +440,7 @@ def export_stock():
 
 
 @bp.route("/import", methods=["POST"])
+@permission_required("store_stock", "edit")
 def import_stock():
     # store_code is REQUIRED and access-enforced (audit finding AUTHZ): without
     # it the per-row store guard in bulk_import is skipped, letting an upload

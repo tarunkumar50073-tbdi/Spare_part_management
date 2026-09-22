@@ -8,6 +8,7 @@ import { barcodeService } from "../services/barcodeService.js";
 import { spareStockService } from "../services/spareStockService.js";
 import { departmentService } from "../services/departmentService.js";
 import { supplierService } from "../services/supplierService.js";
+import Can from "../components/Can.jsx";
 
 const MODES = [
   { key: "LOOKUP", label: "Lookup", emoji: "🔎" },
@@ -16,14 +17,15 @@ const MODES = [
   { key: "RETURN", label: "Return", emoji: "↩️" },
   { key: "UPDATE_LOCATION", label: "Location", emoji: "📍" },
   { key: "CONFIRM", label: "Confirm", emoji: "✅" },
-  { key: "HISTORY", label: "History", emoji: "📜" },
+  // History is deliberately NOT here — a part's full timeline lives on the
+  // dedicated Part Ledger screen, so it isn't duplicated on the scan gun.
 ];
 const CHECK_RESULTS = ["OK", "SHORT", "EXCESS", "DAMAGED"];
 // Why a department sent an issued part back (matches the backend RETURN_REASONS).
 const RETURN_REASONS = ["Did not fit", "Wrong part", "Damaged / defective", "Excess — not required", "Other"];
-// RETURN acts on an existing issue; audit its scan as a plain LOOKUP (a valid
-// scan mode) rather than inventing a new one.
-const scanModeFor = (mode) => (mode === "CONFIRM" ? "ISSUE" : mode === "RETURN" ? "LOOKUP" : mode);
+// The actions offered once a part is scanned. Lookup is not here — the part's
+// details are always on screen; these are the things you can DO to it.
+const ACTIONS = MODES.filter((m) => m.key !== "LOOKUP");
 const fmt = (v) => (v == null || v === "" ? "—" : v);
 
 function Field({ label, children }) {
@@ -36,7 +38,7 @@ function Field({ label, children }) {
 }
 
 export default function ScanPart() {
-  const { activeCode } = useStores();
+  const { activeCode, activeStore } = useStores();
   const { user } = useAuth();
   const storeCode = activeCode || "MAINTENANCE";
 
@@ -45,7 +47,6 @@ export default function ScanPart() {
   const [part, setPart] = useState(null);
   const [form, setForm] = useState({});
   const [pending, setPending] = useState([]);
-  const [history, setHistory] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
@@ -65,9 +66,10 @@ export default function ScanPart() {
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); clearInterval(id); };
   }, []);
 
-  const reset = () => { setPart(null); setForm({}); setPending([]); setHistory([]); };
-  const changeMode = (m) => { reqSeqRef.current++; setMode(m); reset(); };
+  const reset = () => { setPart(null); setForm({}); setPending([]); setMode("LOOKUP"); };
 
+  // Scan-first: a scan just resolves the part and shows its details; the user
+  // then picks what to do with it. So every scan enters neutral LOOKUP.
   const handleCode = async (code, source) => {
     if (resolvingRef.current || busy) return;
     resolvingRef.current = true;
@@ -75,31 +77,41 @@ export default function ScanPart() {
     setBusy(true);
     try {
       const res = await barcodeService.resolve(storeCode, code, {
-        scanSource: source, scanMode: scanModeFor(mode),
+        scanSource: source, scanMode: "LOOKUP",
       });
-      // Mode changed (or a new scan started) while this resolve was in flight —
-      // drop the stale result instead of resurrecting the old part.
+      // A newer scan started while this resolve was in flight — drop the stale
+      // result instead of resurrecting the old part.
       if (reqSeqRef.current !== seq) return;
-      const data = res.data.data;
-      setPart(data);
-      setForm(defaultForm(mode));
-      if (mode === "CONFIRM") {
-        const p = await spareStockService.partPendingConfirmations(data.part_id);
-        setPending(p.data.data || []);
-      }
-      if (mode === "RETURN") {
-        const p = await spareStockService.returnableIssues(data.part_id);
-        setPending(p.data.data || []);
-      }
-      if (mode === "HISTORY") {
-        const h = await spareStockService.history(data.part_id, 200);
-        setHistory(h.data.data || []);
-      }
+      setPart(res.data.data);
+      setMode("LOOKUP");
+      setForm({});
+      setPending([]);
     } catch {
       /* interceptor toasts the message (unknown/inactive/no-access) */
     } finally {
       setBusy(false);
       resolvingRef.current = false;
+    }
+  };
+
+  // Chosen after a part is on screen — opens that action's form and pulls any
+  // data it needs (pending issues to confirm, issues still out for a return).
+  const selectAction = async (m) => {
+    if (busy) return;
+    setMode(m);
+    setForm(defaultForm(m));
+    setPending([]);
+    if (!part) return;
+    try {
+      if (m === "CONFIRM") {
+        const p = await spareStockService.partPendingConfirmations(part.part_id);
+        setPending(p.data.data || []);
+      } else if (m === "RETURN") {
+        const p = await spareStockService.returnableIssues(part.part_id);
+        setPending(p.data.data || []);
+      }
+    } catch {
+      /* interceptor toasts */
     }
   };
 
@@ -208,7 +220,9 @@ export default function ScanPart() {
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl2 border border-slate-200 bg-white px-4 py-2 text-sm dark:border-navy-800 dark:bg-navy-900">
         <div className="flex items-center gap-3">
           <span className="font-semibold text-slate-800 dark:text-white">Scan Part</span>
-          <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-navy-800 dark:text-slate-300">{storeCode}</span>
+          {/* The store's own name, not its internal code ("MAINTENANCE") — a
+              scan resolves any spare part across every section of this store. */}
+          <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-navy-800 dark:text-slate-300">{activeStore?.name || "Spare Parts"}</span>
         </div>
         <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400">
           <span className={`inline-flex items-center gap-1 ${online ? "text-emerald-600" : "text-rose-500"}`}>
@@ -219,21 +233,10 @@ export default function ScanPart() {
         </div>
       </div>
 
-      {/* mode tabs */}
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-        {MODES.map((m) => (
-          <button key={m.key} type="button" onClick={() => changeMode(m.key)} disabled={busy}
-            className={`rounded-lg py-3 text-sm font-semibold ${
-              mode === m.key ? "bg-toyotared text-white" : "bg-slate-100 text-slate-700 dark:bg-navy-800 dark:text-slate-200"}`}>
-            <span className="mr-1">{m.emoji}</span>{m.label}
-          </button>
-        ))}
-      </div>
-
+      {/* One scan box for everything — scan a part, then choose what to do with
+          it. No mode is picked first; the actions appear on the resolved part. */}
       <ScanPanel onCode={handleCode} busy={busy}
-        hint={mode === "CONFIRM" ? "Re-scan the issued part to confirm"
-          : mode === "RETURN" ? "Scan the part the department is sending back"
-          : "Scan or enter Part No., then Enter"} />
+        hint="Scan or enter Part No., then Enter — issue, receive, return… appear next" />
 
       {part && (
         <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
@@ -276,10 +279,22 @@ export default function ScanPart() {
             </div>
           )}
 
-          {/* mode-specific action */}
+          {/* what to do with the scanned part — the actions live here, on the
+              part, instead of being picked before the scan. */}
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            {ACTIONS.map((m) => (
+              <button key={m.key} type="button" onClick={() => selectAction(m.key)} disabled={busy}
+                className={`rounded-lg py-3 text-sm font-semibold transition-colors ${
+                  mode === m.key ? "bg-toyotared text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-navy-800 dark:text-slate-200 dark:hover:bg-navy-700"}`}>
+                <span className="mr-1">{m.emoji}</span>{m.label}
+              </button>
+            ))}
+          </div>
+
+          {/* the chosen action's form */}
           <div className="mt-4 border-t border-slate-100 pt-4 dark:border-navy-800">
             {mode === "LOOKUP" && (
-              <p className="text-sm text-slate-500 dark:text-slate-400">Read-only lookup — no stock changed. Switch to a mode above to act on this part.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Details shown above — pick an action to issue, receive, return, relocate or confirm this part.</p>
             )}
 
             {mode === "ISSUE" && (
@@ -303,9 +318,11 @@ export default function ScanPart() {
                     <input type="checkbox" checked={form.returnable} onChange={(e) => set("returnable", e.target.checked)} /> Returnable (tool/die)</label>
                 </div>
                 <p className="text-xs text-slate-400">Machine / line are captured later by the user who fits the part (Confirm mode).</p>
-                <button type="button" onClick={doIssue}
-                  disabled={busy || form.qty === "" || Number(form.qty) <= 0 || Number(form.qty) > Number(part.qty_on_hand ?? 0)}
-                  className="btn-primary w-full py-3 text-lg">Confirm issue</button>
+                <Can mod="scan_part" edit>
+                  <button type="button" onClick={doIssue}
+                    disabled={busy || form.qty === "" || Number(form.qty) <= 0 || Number(form.qty) > Number(part.qty_on_hand ?? 0)}
+                    className="btn-primary w-full py-3 text-lg">Confirm issue</button>
+                </Can>
               </div>
             )}
 
@@ -334,7 +351,9 @@ export default function ScanPart() {
                     </select></label>
                 </div>
                 <p className="text-xs text-slate-400">Spare receiving is direct — no RQC, no put-away.</p>
-                <button type="button" onClick={doReceive} disabled={busy} className="btn-primary w-full py-3 text-lg">Confirm receive</button>
+                <Can mod="scan_part" edit>
+                  <button type="button" onClick={doReceive} disabled={busy} className="btn-primary w-full py-3 text-lg">Confirm receive</button>
+                </Can>
               </div>
             )}
 
@@ -347,7 +366,9 @@ export default function ScanPart() {
                   <label className="block sm:col-span-2"><span className="text-sm text-slate-600 dark:text-slate-300">Reason *</span>
                     <input value={form.reason} onChange={(e) => set("reason", e.target.value)} className="input-field mt-1 w-full" /></label>
                 </div>
-                <button type="button" onClick={doLocation} disabled={busy} className="btn-primary w-full py-3 text-lg">Update location</button>
+                <Can mod="scan_part" edit>
+                  <button type="button" onClick={doLocation} disabled={busy} className="btn-primary w-full py-3 text-lg">Update location</button>
+                </Can>
               </div>
             )}
 
@@ -376,7 +397,9 @@ export default function ScanPart() {
                       <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Actual used qty</span>
                         <input type="number" min={0} value={form.actual_qty} onChange={(e) => set("actual_qty", e.target.value)} className="input-field mt-1 w-full" /></label>
                     </div>
-                    <button type="button" onClick={doConfirm} disabled={busy} className="btn-primary w-full py-3 text-lg">Confirm installation</button>
+                    <Can mod="scan_part" edit>
+                      <button type="button" onClick={doConfirm} disabled={busy} className="btn-primary w-full py-3 text-lg">Confirm installation</button>
+                    </Can>
                   </>
                 )}
               </div>
@@ -426,39 +449,16 @@ export default function ScanPart() {
                         <input value={form.note} onChange={(e) => set("note", e.target.value)} placeholder={form.reason === "Other" ? "Describe the reason" : "Optional"} className="input-field mt-1 w-full" /></label>
                     </div>
                     <p className="text-xs text-slate-400">A store return slip (RET-…) is raised and stock is added back. Anything already fitted can't be taken back.</p>
-                    <button type="button" onClick={doReturn}
-                      disabled={busy || !form.ledger_id || !form.reason || (returnIssue && Number(form.qty) > Number(returnIssue.outstanding_qty))}
-                      className="btn-primary w-full py-3 text-lg">Take back on return slip</button>
+                    <Can mod="scan_part" edit>
+                      <button type="button" onClick={doReturn}
+                        disabled={busy || !form.ledger_id || !form.reason || (returnIssue && Number(form.qty) > Number(returnIssue.outstanding_qty))}
+                        className="btn-primary w-full py-3 text-lg">Take back on return slip</button>
+                    </Can>
                   </>
                 )}
               </div>
             )}
 
-            {mode === "HISTORY" && (
-              <div className="max-h-[50vh] overflow-y-auto">
-                {history.length === 0 ? (
-                  <p className="text-sm text-slate-500 dark:text-slate-400">No history yet.</p>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead className="text-left text-xs uppercase text-slate-400">
-                      <tr><th className="py-1">When</th><th>Type</th><th>Qty</th><th>Dept / To</th><th>Line / Machine</th><th>Status</th></tr>
-                    </thead>
-                    <tbody>
-                      {history.map((h) => (
-                        <tr key={h.id} className="border-t border-slate-100 dark:border-navy-800">
-                          <td className="py-1 tabular-nums">{h.at ? new Date(h.at).toLocaleString("en-GB") : "—"}</td>
-                          <td>{h.txn_type}</td>
-                          <td className="tabular-nums">{h.qty_delta}</td>
-                          <td>{fmt(h.department)}{h.issued_to ? ` / ${h.issued_to}` : ""}</td>
-                          <td>{fmt(h.line_name)}{h.machine ? ` / ${h.machine}` : ""}</td>
-                          <td>{fmt(h.status)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )}
           </div>
         </div>
       )}

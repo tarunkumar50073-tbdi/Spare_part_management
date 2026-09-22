@@ -7,6 +7,7 @@ import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
+import Can, { useCan } from "../components/Can.jsx";
 import PartImportModal from "../components/PartImportModal.jsx";
 import PrintBarcodeModal from "../components/PrintBarcodeModal.jsx";
 import { partService } from "../services/partService.js";
@@ -254,16 +255,26 @@ export default function PartMaster() {
     const value = row[field];
     const unset = value == null || Number(value) === 0;
     return (
-      <button
-        type="button"
-        onClick={() => startEdit(row, field)}
-        title="Click to edit"
-        className={`w-full text-left px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-navy-800 transition-colors ${
-          unset ? "text-amber-600 dark:text-amber-400" : ""
-        }`}
+      <Can
+        mod="part_master"
+        edit
+        fallback={
+          <span className={`px-1.5 py-0.5 ${unset ? "text-amber-600 dark:text-amber-400" : ""}`}>
+            {unset ? "—" : format(value)}
+          </span>
+        }
       >
-        {unset ? "set…" : format(value)}
-      </button>
+        <button
+          type="button"
+          onClick={() => startEdit(row, field)}
+          title="Click to edit"
+          className={`w-full text-left px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-navy-800 transition-colors ${
+            unset ? "text-amber-600 dark:text-amber-400" : ""
+          }`}
+        >
+          {unset ? "set…" : format(value)}
+        </button>
+      </Can>
     );
   };
 
@@ -332,18 +343,24 @@ export default function PartMaster() {
       label: "Actions",
       render: (r) => (
         <div className="flex gap-2">
-          <button onClick={() => openEdit(r)} className="text-navy-700 dark:text-slate-300 hover:text-toyotared">
-            <Pencil size={16} />
-          </button>
-          {activeCode === "MAINTENANCE" && (
-            <button onClick={() => setPrintPart(r)} title="Print barcode label"
-              className="text-navy-700 dark:text-slate-300 hover:text-toyotared">
-              <Printer size={16} />
+          <Can mod="part_master" edit>
+            <button onClick={() => openEdit(r)} className="text-navy-700 dark:text-slate-300 hover:text-toyotared">
+              <Pencil size={16} />
             </button>
+          </Can>
+          {activeCode === "MAINTENANCE" && (
+            <Can mod="scan_part" edit>
+              <button onClick={() => setPrintPart(r)} title="Print barcode label"
+                className="text-navy-700 dark:text-slate-300 hover:text-toyotared">
+                <Printer size={16} />
+              </button>
+            </Can>
           )}
-          <button onClick={() => handleDelete(r)} className="text-rose-500 hover:text-rose-700">
-            <Trash2 size={16} />
-          </button>
+          <Can mod="part_master" edit>
+            <button onClick={() => handleDelete(r)} className="text-rose-500 hover:text-rose-700">
+              <Trash2 size={16} />
+            </button>
+          </Can>
         </div>
       ),
     },
@@ -361,8 +378,12 @@ export default function PartMaster() {
             onChange={(e) => setKeyword(e.target.value)}
           />
         </div>
+        {/* Add + Upload (import) are part_master mutations, so the toolbar
+            hides them for a view-only user; Download Template and Export are
+            reads and stay available. */}
         <ExcelActions
           addLabel="Add Part"
+          canEdit={useCan("part_master", "edit")}
           onAddNew={openCreate}
           onUpload={handleUpload}
           onDownloadTemplate={handleDownloadTemplate}

@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { useStores } from "../context/StoreContext.jsx";
-import { useAuth } from "../context/AuthContext.jsx";
 import { barcodeService } from "../services/barcodeService.js";
 import { supplierService } from "../services/supplierService.js";
+import Can, { useCan } from "../components/Can.jsx";
 
 // Admin-only: map a supplier's barcode to an internal spare part. Both the
 // internal barcode and any mapped supplier barcode resolve to the same part;
@@ -11,9 +11,8 @@ import { supplierService } from "../services/supplierService.js";
 // server-side (409). Deactivated mappings stay as history.
 export default function SupplierBarcodeMapping() {
   const { activeCode } = useStores();
-  const { user } = useAuth();
   const storeCode = activeCode || "MAINTENANCE";
-  const isAdmin = !!user?.is_admin;
+  const canEdit = useCan("supplier_barcodes", "edit");
 
   const [query, setQuery] = useState("");
   const [part, setPart] = useState(null);
@@ -82,9 +81,9 @@ export default function SupplierBarcodeMapping() {
         </p>
       </div>
 
-      {!isAdmin && (
+      {!canEdit && (
         <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
-          Read-only — supplier barcode mapping is an administrator action.
+          Read-only — you don’t have edit rights for supplier barcode mapping.
         </div>
       )}
 
@@ -121,11 +120,13 @@ export default function SupplierBarcodeMapping() {
                     <td>{b.is_primary ? "★" : ""}</td>
                     <td>{b.is_active ? "Active" : "Inactive"}</td>
                     <td className="text-right">
-                      {isAdmin && b.source === "SUPPLIER" && (
-                        <button type="button" onClick={() => toggleActive(b)} disabled={busy}
-                          className="text-xs font-semibold text-toyotared hover:underline">
-                          {b.is_active ? "Deactivate" : "Reactivate"}
-                        </button>
+                      {b.source === "SUPPLIER" && (
+                        <Can mod="supplier_barcodes" edit>
+                          <button type="button" onClick={() => toggleActive(b)} disabled={busy}
+                            className="text-xs font-semibold text-toyotared hover:underline">
+                            {b.is_active ? "Deactivate" : "Reactivate"}
+                          </button>
+                        </Can>
                       )}
                     </td>
                   </tr>
@@ -138,7 +139,7 @@ export default function SupplierBarcodeMapping() {
           </div>
 
           {/* add a supplier mapping */}
-          {isAdmin && (
+          <Can mod="supplier_barcodes" edit>
             <div className="grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 dark:border-navy-800 sm:grid-cols-3">
               <label className="block sm:col-span-1"><span className="text-sm text-slate-600 dark:text-slate-300">Supplier</span>
                 <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="input-field mt-1 w-full">
@@ -153,7 +154,7 @@ export default function SupplierBarcodeMapping() {
                 <button type="button" onClick={addMapping} disabled={busy} className="btn-primary w-full py-2">Map barcode</button>
               </div>
             </div>
-          )}
+          </Can>
         </div>
       )}
     </div>

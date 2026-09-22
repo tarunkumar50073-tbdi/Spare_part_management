@@ -39,6 +39,10 @@ def _store_user(stores=("MAINTENANCE",)):
     _seq["n"] += 1
     u = User(username=f"bfu{_seq['n']}", role="STORE_USER", is_active=True)
     u.set_password("pw")
+    # Grant the module edit rights these flows need, so the tests exercise
+    # store-scoping / validation rather than being short-circuited by the
+    # per-module gate (which has its own tests).
+    u.set_permissions({"scan_part": {"edit": True}, "store_stock": {"edit": True}})
     db.session.add(u)
     db.session.flush()
     for c in stores:

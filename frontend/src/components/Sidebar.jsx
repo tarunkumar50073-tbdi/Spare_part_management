@@ -4,6 +4,7 @@ import { LogOut, Moon, Sun } from "lucide-react";
 import { storeHome, useStores } from "../context/StoreContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { can } from "../utils/permissions.js";
 
 // Toyota Boshoku brand logo — the real company image (mark + wordmark,
 // cropped from the company-supplied file, served from frontend/public).
@@ -25,10 +26,10 @@ const SHARED_GROUPS = [
   {
     label: "Receiving",
     items: [
-      { to: "/gate-entry", label: "Gate Entry", emoji: "🚚" },
+      { to: "/gate-entry", label: "Gate Entry", emoji: "🚚", mod: "gate_entry" },
       // The ERP-fed gate arrivals / vehicle in-out live here so they stay
       // reachable even when the Child store nav is off (Spare-only mode).
-      { to: "/vehicle-in-out", label: "Vehicle In / Out", emoji: "🚦" },
+      { to: "/vehicle-in-out", label: "Vehicle In / Out", emoji: "🚦", mod: "vehicle_in_out" },
     ],
   },
 ];
@@ -97,19 +98,19 @@ const NAV_BY_STORE = {
       // nothing to compare against.
       label: "Inventory",
       items: [
-        { to: "/scan-part", label: "Scan Part", emoji: "📷" },
-        { to: "/store-stock-spare", label: "Store Stock", emoji: "📦" },
-        { to: "/spare-part-history", label: "Part Ledger", emoji: "📜" },
-        { to: "/spare-erp-gap", label: "ERP vs Physical Gap", emoji: "⚖️" },
+        { to: "/scan-part", label: "Scan Part", emoji: "📷", mod: "scan_part" },
+        { to: "/store-stock-spare", label: "Store Stock", emoji: "📦", mod: "store_stock" },
+        { to: "/spare-part-history", label: "Part Ledger", emoji: "📜", mod: "part_ledger" },
+        { to: "/spare-erp-gap", label: "ERP vs Physical Gap", emoji: "⚖️", mod: "erp_gap" },
       ],
     },
     {
       label: "Masters",
       items: [
-        { to: "/parts", label: "Part Master", emoji: "🔩" },
-        { to: "/supplier-barcodes", label: "Supplier Barcodes", emoji: "🏷️" },
-        { to: "/scan-audit", label: "Scan Audit", emoji: "🧾" },
-        { to: "/departments", label: "Department Emails", emoji: "✉️" },
+        { to: "/parts", label: "Part Master", emoji: "🔩", mod: "part_master" },
+        { to: "/supplier-barcodes", label: "Supplier Barcodes", emoji: "🏷️", mod: "supplier_barcodes" },
+        { to: "/scan-audit", label: "Scan Audit", emoji: "🧾", mod: "scan_audit" },
+        { to: "/departments", label: "Department Emails", emoji: "✉️", mod: "departments" },
       ],
     },
     ...SHARED_GROUPS,
@@ -149,6 +150,7 @@ const sectionGroup = (store) => {
       to: `${storeHome(store.code)}/${s.id}`,
       label: s.name,
       emoji: sectionEmoji(s.name),
+      mod: "spare_store",
     })),
   };
 };
@@ -236,39 +238,50 @@ export default function Sidebar({ collapsed = false }) {
         </NavLink>
       </div>
 
-      {/* Stores + the combined Live Dashboard, pinned above the menu. */}
-      <div className={`space-y-1 border-b border-slate-200 dark:border-navy-800 ${collapsed ? "px-2 py-3" : "px-3 pt-3 pb-3"}`}>
-        {!collapsed && (
-          <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Stores</p>
-        )}
-        {stores.map((store) => (
-          <StoreTab key={store.code} store={store} active={store.code === activeCode} collapsed={collapsed}
-            onSelect={() => setActiveStore(store.code)} />
-        ))}
-        <NavLink to="/live-dashboard" title={collapsed ? "Live Dashboard" : undefined} className={liveClass}>
-          <span className="text-lg leading-none shrink-0">🖥️</span>
-          {!collapsed && <span className="flex-1 min-w-0 text-[13px] font-semibold truncate">Live Dashboard</span>}
-          {collapsed && <Flyout>Live Dashboard</Flyout>}
-        </NavLink>
-      </div>
+      {/* Stores + the combined Live Dashboard, pinned above the menu — each shown
+          only if the user's rights allow it. */}
+      {(can(user, "spare_store") || can(user, "live_dashboard")) && (
+        <div className={`space-y-1 border-b border-slate-200 dark:border-navy-800 ${collapsed ? "px-2 py-3" : "px-3 pt-3 pb-3"}`}>
+          {!collapsed && (
+            <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Stores</p>
+          )}
+          {can(user, "spare_store") && stores.map((store) => (
+            <StoreTab key={store.code} store={store} active={store.code === activeCode} collapsed={collapsed}
+              onSelect={() => setActiveStore(store.code)} />
+          ))}
+          {can(user, "live_dashboard") && (
+            <NavLink to="/live-dashboard" title={collapsed ? "Live Dashboard" : undefined} className={liveClass}>
+              <span className="text-lg leading-none shrink-0">🖥️</span>
+              {!collapsed && <span className="flex-1 min-w-0 text-[13px] font-semibold truncate">Live Dashboard</span>}
+              {collapsed && <Flyout>Live Dashboard</Flyout>}
+            </NavLink>
+          )}
+        </div>
+      )}
 
       <nav className={`flex-1 overflow-y-auto overflow-x-hidden ${collapsed ? "px-2 py-3 space-y-2" : "px-3 py-3 space-y-3"}`}>
-        {[sectionGroup(activeStore), ...navFor(activeCode)].filter(Boolean).map((group) => (
-          <div key={group.label}>
-            {collapsed
-              ? <div className="mx-1.5 mb-1 border-t border-slate-200/70 dark:border-navy-800" />
-              : <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{group.label}</p>}
-            <div className="space-y-1">
-              {group.items.map(({ to, label, emoji, end }) => (
-                <NavLink key={to} to={to} end={end} className={navItemClass} title={collapsed ? label : undefined}>
-                  <span className="text-base leading-none w-[18px] text-center shrink-0">{emoji}</span>
-                  {!collapsed && <span className="truncate">{label}</span>}
-                  {collapsed && <Flyout>{label}</Flyout>}
-                </NavLink>
-              ))}
+        {[sectionGroup(activeStore), ...navFor(activeCode)].filter(Boolean).map((group) => {
+          // Only the items this user may view; a group with nothing left is
+          // hidden entirely (admin's `can` returns true for everything).
+          const items = group.items.filter((it) => can(user, it.mod));
+          if (!items.length) return null;
+          return (
+            <div key={group.label}>
+              {collapsed
+                ? <div className="mx-1.5 mb-1 border-t border-slate-200/70 dark:border-navy-800" />
+                : <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{group.label}</p>}
+              <div className="space-y-1">
+                {items.map(({ to, label, emoji, end }) => (
+                  <NavLink key={to} to={to} end={end} className={navItemClass} title={collapsed ? label : undefined}>
+                    <span className="text-base leading-none w-[18px] text-center shrink-0">{emoji}</span>
+                    {!collapsed && <span className="truncate">{label}</span>}
+                    {collapsed && <Flyout>{label}</Flyout>}
+                  </NavLink>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {navFor(activeCode) === SHARED_GROUPS && !sectionGroup(activeStore) && !collapsed && (
           <p className="px-3 text-[11px] text-slate-400 leading-relaxed">

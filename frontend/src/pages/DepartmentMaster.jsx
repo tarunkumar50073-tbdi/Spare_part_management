@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { BellRing } from "lucide-react";
 import { departmentService } from "../services/departmentService.js";
-import { useAuth } from "../context/AuthContext.jsx";
+import Can, { useCan } from "../components/Can.jsx";
 
 // Department Email Master — each department's reorder / low-stock mail can now go
 // to SEVERAL people (name + e-mail), not one address. Tick "Reorder mail" for a
@@ -39,8 +39,7 @@ function EmailInput({ value, onChange, onBlur, onEnter, disabled, placeholder = 
 }
 
 export default function DepartmentMaster() {
-  const { user } = useAuth();
-  const isAdmin = !!user?.is_admin;
+  const canEdit = useCan("departments", "edit");
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -143,7 +142,7 @@ export default function DepartmentMaster() {
         )}
       </div>
 
-      {!isAdmin && (
+      {!canEdit && (
         <p className="text-[13px] text-amber-600 dark:text-amber-400">
           You are viewing this master read-only — an administrator can edit the recipients.
         </p>
@@ -172,7 +171,7 @@ export default function DepartmentMaster() {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <input type="checkbox" className="h-4 w-4 accent-toyotared cursor-pointer"
-                      checked={r._notify} disabled={!isAdmin}
+                      checked={r._notify} disabled={!canEdit}
                       onChange={(e) => toggleNotify(r, e.target.checked)} />
                   </td>
                   <td className="px-4 py-3">
@@ -180,22 +179,22 @@ export default function DepartmentMaster() {
                       {r.recipients.map((rec) => (
                         <div key={rec.id} className="flex items-stretch gap-2 max-w-2xl">
                           <input className={`${INPUT} md:max-w-[12rem]`} placeholder="Person name"
-                            value={rec.name} disabled={!isAdmin}
+                            value={rec.name} disabled={!canEdit}
                             onChange={(e) => patchPerson(r.id, rec.id, { name: e.target.value })}
-                            onBlur={() => isAdmin && savePerson(rec)} />
-                          <EmailInput value={rec.email} disabled={!isAdmin}
+                            onBlur={() => canEdit && savePerson(rec)} />
+                          <EmailInput value={rec.email} disabled={!canEdit}
                             onChange={(v) => patchPerson(r.id, rec.id, { email: v })}
-                            onBlur={() => isAdmin && savePerson(rec)} />
-                          {isAdmin && (
+                            onBlur={() => canEdit && savePerson(rec)} />
+                          <Can mod="departments" edit>
                             <button type="button" onClick={() => removePerson(r.id, rec.id)}
                               className="shrink-0 rounded-lg px-2.5 text-slate-400 hover:text-rose-500" title="Remove">✕</button>
-                          )}
+                          </Can>
                         </div>
                       ))}
                       {r.recipients.length === 0 && (
                         <div className="text-xs text-slate-400">No people yet.</div>
                       )}
-                      {isAdmin && (
+                      <Can mod="departments" edit>
                         <div className="flex items-stretch gap-2 max-w-2xl pt-0.5">
                           <input className={`${INPUT} md:max-w-[12rem]`} placeholder="Add person name"
                             value={r._draft.name}
@@ -206,7 +205,7 @@ export default function DepartmentMaster() {
                           <button type="button" onClick={() => addPerson(r)}
                             className="shrink-0 rounded-lg bg-toyotared px-3 text-xs font-semibold text-white hover:opacity-90">+ Add</button>
                         </div>
-                      )}
+                      </Can>
                     </div>
                   </td>
                 </tr>
@@ -215,7 +214,7 @@ export default function DepartmentMaster() {
           </table>
         </div>
 
-        {isAdmin && (
+        <Can mod="departments" edit>
           <div className="border-t border-slate-200 dark:border-navy-800 bg-slate-50 dark:bg-navy-900/50 px-4 py-3">
             <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Add a department</p>
             <div className="flex flex-col md:flex-row md:items-center gap-2">
@@ -236,7 +235,7 @@ export default function DepartmentMaster() {
             </div>
             <p className="mt-1 text-[11px] text-slate-400">Add the department first, then add its people below.</p>
           </div>
-        )}
+        </Can>
       </div>
     </div>
   );

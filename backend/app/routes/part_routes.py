@@ -6,7 +6,7 @@ from app.utils.validators import validate_payload
 from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import success_response, paginated_response
 from app.utils.exceptions import BadRequestError
-from app.utils.authz import admin_required, current_user
+from app.utils.authz import current_user, permission_required
 
 bp = Blueprint("parts", __name__, url_prefix="/api/v1/parts")
 service = PartService()
@@ -49,7 +49,7 @@ def get_part(part_id):
 
 
 @bp.route("", methods=["POST"])
-@admin_required
+@permission_required("part_master", "edit")
 def create_part():
     data = validate_payload(PartCreateSchema(), request.get_json(force=True) or {})
     part = service.create(data)
@@ -57,7 +57,7 @@ def create_part():
 
 
 @bp.route("/<int:part_id>", methods=["PUT"])
-@admin_required
+@permission_required("part_master", "edit")
 def update_part(part_id):
     data = validate_payload(PartUpdateSchema(), request.get_json(force=True) or {})
     part = service.update(part_id, data)
@@ -65,7 +65,7 @@ def update_part(part_id):
 
 
 @bp.route("/<int:part_id>", methods=["DELETE"])
-@admin_required
+@permission_required("part_master", "edit")
 def delete_part(part_id):
     service.delete(part_id)
     return success_response(None, "Part deleted")
@@ -86,7 +86,7 @@ def export_parts():
 
 
 @bp.route("/import/preview", methods=["POST"])
-@admin_required
+@permission_required("part_master", "edit")
 def preview_import_parts():
     """Dry-run before committing: per-row INSERT/UPDATE/ERROR + counts."""
     file = request.files.get("file")
@@ -97,7 +97,7 @@ def preview_import_parts():
 
 
 @bp.route("/import", methods=["POST"])
-@admin_required
+@permission_required("part_master", "edit")
 def import_parts():
     file = request.files.get("file")
     if not file or file.filename == "":
@@ -122,14 +122,14 @@ def import_parts():
 
 
 @bp.route("/import/history", methods=["GET"])
-@admin_required
+@permission_required("part_master", "view")
 def import_history():
     return success_response(service.import_history(
         limit=request.args.get("limit", default=50, type=int)))
 
 
 @bp.route("/derive-categories", methods=["POST"])
-@admin_required
+@permission_required("part_master", "edit")
 def derive_categories():
     """Auto-fill parts' component type (sub_category) from their description.
     Pass {"dry_run": true} to preview counts without writing."""

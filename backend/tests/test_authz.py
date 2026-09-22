@@ -33,10 +33,12 @@ def _login(client, user_id):
 _seq = {"n": 0}
 
 
-def _make_user(role, stores=()):
+def _make_user(role, stores=(), perms=None):
     _seq["n"] += 1
     user = User(username=f"authuser{_seq['n']}", role=role, is_active=True)
     user.set_password("pw")
+    if perms:
+        user.set_permissions(perms)
     db.session.add(user)
     db.session.flush()
     for code in stores:
@@ -103,11 +105,23 @@ def test_store_user_cannot_write_another_stores_stock(client):
 
 
 def test_store_user_can_write_own_stores_stock(client):
-    user = _make_user("STORE_USER", stores=["MAINTENANCE"])
+    # Store access AND the module edit right — the two together are what a write
+    # now needs (the per-module RBAC layered on top of store-scoping).
+    user = _make_user("STORE_USER", stores=["MAINTENANCE"], perms={"store_stock": {"edit": True}})
     own = _make_part("MAINTENANCE")
     _login(client, user.id)
     resp = client.put(f"/api/v1/spare-stock/parts/{own.id}", json={"qty_on_hand": 5})
     assert resp.status_code != 403
+
+
+def test_store_user_without_module_right_cannot_write_stock(client):
+    # Has store access but NOT store_stock.edit — the module gate refuses the
+    # write even though the store is theirs.
+    user = _make_user("STORE_USER", stores=["MAINTENANCE"])
+    own = _make_part("MAINTENANCE")
+    _login(client, user.id)
+    resp = client.put(f"/api/v1/spare-stock/parts/{own.id}", json={"qty_on_hand": 5})
+    assert resp.status_code == 403
 
 
 def test_machine_can_write_any_stores_stock(client, api_key):

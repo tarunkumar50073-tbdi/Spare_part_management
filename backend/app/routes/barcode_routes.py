@@ -13,7 +13,7 @@ from app.schemas.barcode_schema import (
 )
 from app.services.auth_service import AuthService
 from app.services.barcode_service import BarcodeService
-from app.utils.authz import admin_required, require_store_access
+from app.utils.authz import permission_required, require_store_access
 from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
 from app.utils.validators import validate_payload
@@ -91,7 +91,7 @@ def part_barcodes(part_id):
 
 
 @bp.route("/scan-audit", methods=["GET"])
-@admin_required
+@permission_required("scan_audit", "view")
 def scan_audit():
     return success_response(service.list_scan_audit(
         store_code=request.args.get("store_code"),
@@ -104,7 +104,7 @@ def scan_audit():
 
 
 @bp.route("/mapping", methods=["POST"])
-@admin_required
+@permission_required("supplier_barcodes", "edit")
 def create_mapping():
     data = validate_payload(SupplierBarcodeMapSchema(), request.get_json(force=True) or {})
     _require_part_store(data["part_id"])
@@ -116,7 +116,7 @@ def create_mapping():
 
 
 @bp.route("/mapping/<int:mapping_id>/active", methods=["PUT"])
-@admin_required
+@permission_required("supplier_barcodes", "edit")
 def set_mapping_active(mapping_id):
     body = request.get_json(force=True) or {}
     active = bool(body.get("active", True))

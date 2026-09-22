@@ -44,10 +44,14 @@ def _login(client, user_id):
         sess["user_id"] = user_id
 
 
-def _store_user(stores=("MAINTENANCE",)):
+def _store_user(stores=("MAINTENANCE",), perms=None):
     _seq["n"] += 1
     u = User(username=f"tsu{_seq['n']}", role="STORE_USER", is_active=True)
     u.set_password("pw")
+    # The scan/issue/receive flow needs scan_part.edit; the stock write needs
+    # store_stock.edit. Grant both by default so these flow tests exercise the
+    # route, not the (separately tested) module gate.
+    u.set_permissions(perms or {"scan_part": {"edit": True}, "store_stock": {"edit": True}})
     db.session.add(u)
     db.session.flush()
     for code in stores:
