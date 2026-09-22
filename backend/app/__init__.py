@@ -279,6 +279,16 @@ def _patch_schema():
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_txn_created ON spare_stock_ledger (txn_type, created_at)"))
         db.session.commit()
 
+    # Admin user-management additions: a readable password copy (so the admin
+    # screen can show it) and the per-module rights map. Both nullable/additive.
+    user_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(users)")).fetchall()]
+    if user_cols and "password_plain" not in user_cols:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN password_plain VARCHAR(255)"))
+        db.session.commit()
+    if user_cols and "permissions" not in user_cols:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT"))
+        db.session.commit()
+
     # `rgps` was first created with an earlier schema; the RGP model since moved
     # to the ERP Pending-RGP columns (ven_cd, balance_qty, ...). create_all never
     # ALTERs an existing table, so the old shape made every /rgp query 500. It is
