@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
-import { LogOut, Moon, Sun } from "lucide-react";
+import { LogOut, Moon, PanelLeftClose, PanelLeftOpen, Sun } from "lucide-react";
 import { storeHome, useStores } from "../context/StoreContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -192,7 +192,7 @@ function StoreTab({ store, active, collapsed, onSelect }) {
 // A persistent rail that squeezes to an icon-only strip (w-16) and expands back
 // (w-64). The Topbar's panel icon toggles it; squeezed, every row reveals its
 // label on hover so nothing is lost.
-export default function Sidebar({ collapsed = false }) {
+export default function Sidebar({ collapsed = false, onToggle }) {
   const { stores, activeCode, activeStore, setActiveStore } = useStores();
   const { dark, toggleDark } = useTheme();
   const { user, logout } = useAuth();
@@ -220,22 +220,34 @@ export default function Sidebar({ collapsed = false }) {
         border-r border-slate-200/80 dark:border-navy-800 shadow-[2px_0_24px_rgba(15,31,56,0.05)]
         transition-[width] duration-200 ${collapsed ? "w-16" : "w-64"}`}
     >
-      {/* Header: the logo is a Home link now — the old logo-as-hide-control is
-          gone; the Topbar's panel icon squeezes the rail. */}
-      <div className={`border-b border-slate-200 dark:border-navy-800 ${collapsed ? "px-2 py-3 flex justify-center" : "px-4 py-4"}`}>
-        <NavLink
-          to={storeHome(activeCode)}
-          title="Home"
-          className={`flex items-center rounded-lg hover:bg-slate-50 dark:hover:bg-navy-900 transition-colors ${
-            collapsed ? "p-1 justify-center" : "gap-3 -m-1 p-1"}`}
-        >
-          <ToyotaBoshokuLogo size={collapsed ? 30 : 40} />
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="font-bold text-[14px] leading-snug text-slate-800 dark:text-white">Spare Part Store Management</p>
-            </div>
-          )}
-        </NavLink>
+      {/* Header: the brand (a Home link) and, at its top-right, the button that
+          hides / shows this menu — the control lives on the menu bar itself. */}
+      <div className={`border-b border-slate-200 dark:border-navy-800 ${collapsed ? "px-2 py-3" : "px-4 py-4"}`}>
+        <div className={`flex gap-2 ${collapsed ? "flex-col items-center" : "items-center justify-between"}`}>
+          <NavLink
+            to={storeHome(activeCode)}
+            title="Home"
+            className={`flex items-center rounded-lg hover:bg-slate-50 dark:hover:bg-navy-900 transition-colors ${
+              collapsed ? "p-1 justify-center order-2" : "gap-3 -m-1 p-1 min-w-0"}`}
+          >
+            <ToyotaBoshokuLogo size={collapsed ? 28 : 40} />
+            {!collapsed && (
+              <div className="min-w-0">
+                <p className="font-bold text-[14px] leading-snug text-slate-800 dark:text-white">Spare Part Store Management</p>
+              </div>
+            )}
+          </NavLink>
+          <button
+            onClick={onToggle}
+            title={collapsed ? "Show the menu" : "Hide the menu"}
+            aria-label={collapsed ? "Show the menu" : "Hide the menu"}
+            className={`shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
+              text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-navy-800 hover:text-toyotared transition-colors ${
+              collapsed ? "order-1" : ""}`}
+          >
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+        </div>
       </div>
 
       {/* Stores + the combined Live Dashboard, pinned above the menu — each shown

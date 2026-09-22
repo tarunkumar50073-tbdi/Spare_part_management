@@ -28,6 +28,9 @@ const TITLES = {
   "/vehicle-in-out": "Vehicle In / Out",
   "/admin": "User Management",
   "/settings": "Settings",
+  "/store-stock-spare": "Store Stock",
+  "/spare-erp-gap": "ERP vs Physical Gap",
+  "/departments": "Department Emails",
 };
 
 export default function MainLayout() {
@@ -58,11 +61,11 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-screen flex">
-      <Sidebar collapsed={collapsed} />
+      <Sidebar collapsed={collapsed} onToggle={toggleSidebar} />
       <div className="flex-1 flex flex-col min-w-0">
         {/* Search sits in the header (in the gap between the title and the
             actions) on the main screens — not repeated inside every section. */}
-        <Topbar title={title} onMenuClick={toggleSidebar} collapsed={collapsed} showSearch={!section} />
+        <Topbar title={title} showSearch={!section} />
         {/* Now the rail is an overlay, the content spans the full width — cap and
             centre it so the cards keep their intended density (a huge gap opened
             in the KPI tiles once they stretched edge to edge). */}

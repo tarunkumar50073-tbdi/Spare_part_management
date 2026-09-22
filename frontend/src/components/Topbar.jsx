@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  FileDown, Home, LogOut, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon,
-} from "lucide-react";
+import { FileDown, Home, LogOut, Maximize2, Minimize2, Settings as SettingsIcon } from "lucide-react";
 import Badge from "./Badge.jsx";
 import { notificationService } from "../services/notificationService.js";
 import { liveStockService } from "../services/liveStockService.js";
@@ -125,7 +123,7 @@ const asSpareResult = (row) => ({
 // This is the app's only search box — the dashboard used to carry a second one
 // of its own. Account controls (user, sign out, theme) sit at the foot of the
 // sidebar instead, since they belong to the session rather than to the page.
-export default function Topbar({ onMenuClick, title, collapsed = false, showSearch = true }) {
+export default function Topbar({ title, showSearch = true }) {
   const navigate = useNavigate();
   // The box searches the store you are standing in. It used to always search
   // Child Parts live stock, so from the Spare Parts Store it answered every
@@ -240,9 +238,9 @@ export default function Topbar({ onMenuClick, title, collapsed = false, showSear
       {/* Left | centre | right, with equal side columns so the title sits dead
           centre whatever the two action groups' widths are. */}
       <div className="flex items-center gap-3 px-4 lg:px-6 py-2">
-        {/* Left group (flex-1) — a Home button and the global search. No logo:
-            the title carries the branding, and the sidebar keeps the mark. */}
-        <div className="flex-1 min-w-0 flex items-center gap-2">
+        {/* Left group — a Home button and the global search. Fixed to its
+            content (shrink-0) so the flexible centre title never overlaps it. */}
+        <div className="shrink-0 flex items-center gap-2">
           <Link
             to="/"
             title="Home"
@@ -318,9 +316,11 @@ export default function Topbar({ onMenuClick, title, collapsed = false, showSear
           )}
         </div>
 
-        {/* The page title — centred, big and premium (a colourful gradient). */}
+        {/* The page title — the flexible centre column: it grows to fill the
+            space between the two fixed groups and truncates rather than
+            overlapping them. */}
         <h1
-          className="shrink-0 text-center text-2xl lg:text-3xl font-extrabold tracking-tight leading-none truncate max-w-[36vw]"
+          className="flex-1 min-w-0 text-center text-xl lg:text-2xl font-extrabold tracking-tight leading-none truncate px-2"
           style={{
             backgroundImage: "linear-gradient(92deg,#ff7a18 0%,#eb0a1e 48%,#c81d77 100%)",
             WebkitBackgroundClip: "text",
@@ -333,9 +333,9 @@ export default function Topbar({ onMenuClick, title, collapsed = false, showSear
           {title}
         </h1>
 
-        {/* Right group (flex-1) — the plant switch and the session / utility
-            controls, pushed right so the title stays centred. */}
-        <div className="flex-1 min-w-0 flex items-center justify-end gap-3">
+        {/* Right group — the plant switch and the session / utility controls.
+            Fixed to its content (shrink-0) so it never rides over the title. */}
+        <div className="shrink-0 flex items-center justify-end gap-3">
           <div className="flex items-center gap-1.5 shrink-0">
           <PlantToggle />
           <ErpStatusPill />
@@ -415,17 +415,6 @@ export default function Topbar({ onMenuClick, title, collapsed = false, showSear
               text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
           >
             <LogOut size={15} />
-          </button>
-
-          {/* Hide / show the side menu — kept at the far right as requested. */}
-          <button
-            onClick={onMenuClick}
-            title={collapsed ? "Show the menu" : "Hide the menu"}
-            aria-label={collapsed ? "Show the menu" : "Hide the menu"}
-            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
-              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
-          >
-            {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
           </button>
           </div>
         </div>
