@@ -849,10 +849,34 @@ class SpareStockService:
             by_month[key] = by_month.get(key, 0) + abs(float(e.qty_delta))
         return [{"name": k, "value": round(v, 2)} for k, v in sorted(by_month.items())][-months:]
 
-    def consumption_by_department(self, store_code, section_id=None):
+    def _consumption_window(self, days=None, date_from=None, date_to=None):
+        """Filter clauses scoping the ledger to a window on `created_at`. An
+        explicit calendar range (`date_from`/`date_to`, ISO 'YYYY-MM-DD' from the
+        Consumption screen's date picker) wins; otherwise a rolling last-`days`
+        window (the Day/Week/Month/Year presets); otherwise () for all-time.
+        days=None with no range keeps the whole-ledger default, so every existing
+        caller is unaffected."""
+        from sqlalchemy import func
+        from app.models.spare_stock import SpareStockLedger
+        col = func.date(SpareStockLedger.created_at)
+        if date_from or date_to:
+            clauses = []
+            if date_from:
+                clauses.append(col >= date_from)
+            if date_to:
+                clauses.append(col <= date_to)
+            return tuple(clauses)
+        if days and days > 0:
+            from datetime import date, timedelta
+            start = date.today() - timedelta(days=days - 1)
+            return (col >= start.isoformat(),)
+        return ()
+
+    def consumption_by_department(self, store_code, section_id=None, days=None, date_from=None, date_to=None):
         """Total issued quantity per department — the split behind Department-wise
         Consumption. Only ISSUE rows carry a department, so opening/receipt/
-        adjustment rows never appear here."""
+        adjustment rows never appear here. `days` scopes to a rolling window
+        (None = all-time)."""
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
@@ -863,17 +887,18 @@ class SpareStockService:
             )
             .join(Part, Part.id == SpareStockLedger.part_id)
             .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
-                    *((Part.section_id == section_id,) if section_id else ()))
+                    *((Part.section_id == section_id,) if section_id else ()),
+                    *self._consumption_window(days, date_from, date_to))
             .group_by(SpareStockLedger.department)
             .all()
         )
         return [{"name": dept or "Unspecified", "value": round(float(total or 0), 2)}
                 for dept, total in rows if total]
 
-    def consumption_by_machine(self, store_code, section_id=None):
+    def consumption_by_machine(self, store_code, section_id=None, days=None, date_from=None, date_to=None):
         """Total issued quantity per machine — the split behind Machine-wise
         Consumption (which machine eats the most spares). Only ISSUE rows carry
-        a machine."""
+        a machine. `days` scopes to a rolling window (None = all-time)."""
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
@@ -884,7 +909,8 @@ class SpareStockService:
             )
             .join(Part, Part.id == SpareStockLedger.part_id)
             .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
-                    *((Part.section_id == section_id,) if section_id else ()))
+                    *((Part.section_id == section_id,) if section_id else ()),
+                    *self._consumption_window(days, date_from, date_to))
             .group_by(SpareStockLedger.machine)
             .all()
         )
@@ -893,10 +919,10 @@ class SpareStockService:
         out.sort(key=lambda r: r["value"], reverse=True)
         return out
 
-    def consumption_by_type(self, store_code, section_id=None):
+    def consumption_by_type(self, store_code, section_id=None, days=None, date_from=None, date_to=None):
         """Total issued quantity per component type (Part.sub_category) — the
         split behind Part-type-wise Consumption. Parts with no type group under
-        'Uncategorised'."""
+        'Uncategorised'. `days` scopes to a rolling window (None = all-time)."""
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
@@ -904,7 +930,8 @@ class SpareStockService:
             db.session.query(Part.sub_category, func.sum(func.abs(SpareStockLedger.qty_delta)))
             .join(Part, Part.id == SpareStockLedger.part_id)
             .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
-                    *((Part.section_id == section_id,) if section_id else ()))
+                    *((Part.section_id == section_id,) if section_id else ()),
+                    *self._consumption_window(days, date_from, date_to))
             .group_by(Part.sub_category)
             .all()
         )
@@ -932,35 +959,60 @@ class SpareStockService:
         )
         return [{"period": p, "qty": round(float(q or 0), 2)} for p, q in rows if p]
 
-    def consumption_report_excel(self, store_code):
-        """Downloadable consumption report — a Month-wise sheet and a Year-wise
-        sheet of total issued quantity."""
+    def consumption_report_excel(self, store_code, days=None, section_id=None, date_from=None, date_to=None):
+        """Downloadable consumption report. The first three sheets — By
+        Department, By Machine, By Part Type — reflect the range picked on the
+        screen (a calendar range, a rolling `days` window, or all-time), so the
+        download always matches the bars the user is looking at. Month-wise and
+        Year-wise stay whole-ledger so the long view rides along in every
+        report."""
         from io import BytesIO
         from openpyxl import Workbook
         wb = Workbook()
-        ws1 = wb.active
-        ws1.title = "Month-wise"
-        ws1.append(["Month", "Issued Qty"])
-        for r in self.consumption_by_period(store_code, "month"):
-            ws1.append([r["period"], r["qty"]])
-        ws2 = wb.create_sheet("Year-wise")
-        ws2.append(["Year", "Issued Qty"])
-        for r in self.consumption_by_period(store_code, "year"):
-            ws2.append([r["period"], r["qty"]])
+        breakdowns = [
+            ("By Department", "Department", self.consumption_by_department(store_code, section_id, days, date_from, date_to)),
+            ("By Machine", "Machine", self.consumption_by_machine(store_code, section_id, days, date_from, date_to)),
+            ("By Part Type", "Part Type", self.consumption_by_type(store_code, section_id, days, date_from, date_to)),
+        ]
+        for i, (title, head, data) in enumerate(breakdowns):
+            ws = wb.active if i == 0 else wb.create_sheet(title)
+            ws.title = title
+            ws.append([head, "Issued Qty"])
+            for r in data:
+                ws.append([r["name"], r["value"]])
+        wsm = wb.create_sheet("Month-wise")
+        wsm.append(["Month", "Issued Qty"])
+        for r in self.consumption_by_period(store_code, "month", section_id):
+            wsm.append([r["period"], r["qty"]])
+        wsy = wb.create_sheet("Year-wise")
+        wsy.append(["Year", "Issued Qty"])
+        for r in self.consumption_by_period(store_code, "year", section_id):
+            wsy.append([r["period"], r["qty"]])
         buf = BytesIO()
         wb.save(buf)
         buf.seek(0)
         return buf
 
-    def consumption_trend(self, store_code, days=7, section_id=None):
-        """Issued quantity per day for the last `days` days — the Live
-        Dashboard's consumption trend. Days with no issue come back as 0 so the
-        line has a point for every day rather than a gap."""
+    def consumption_trend(self, store_code, days=7, section_id=None, date_from=None, date_to=None):
+        """Issued quantity per day — the consumption trend line. A calendar range
+        (`date_from`/`date_to`, ISO) wins; otherwise the last `days` days. Days
+        with no issue come back as 0 so the line has a point for every day rather
+        than a gap. The daily span is capped so a very wide range can't return
+        thousands of points."""
         from datetime import date, timedelta
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
-        start = date.today() - timedelta(days=days - 1)
+        if date_from or date_to:
+            end = date.fromisoformat(date_to) if date_to else date.today()
+            start = date.fromisoformat(date_from) if date_from else end - timedelta(days=6)
+            if start > end:
+                start, end = end, start
+        else:
+            end = date.today()
+            start = end - timedelta(days=days - 1)
+        span = min((end - start).days + 1, 366)   # guard against a pathological range
+        start = end - timedelta(days=span - 1)
         rows = (
             db.session.query(
                 func.date(SpareStockLedger.created_at),
@@ -970,100 +1022,32 @@ class SpareStockService:
             .filter(Part.store_code == store_code,
                     SpareStockLedger.txn_type == "ISSUE",
                     func.date(SpareStockLedger.created_at) >= start.isoformat(),
+                    func.date(SpareStockLedger.created_at) <= end.isoformat(),
                     *((Part.section_id == section_id,) if section_id else ()))
             .group_by(func.date(SpareStockLedger.created_at))
             .all()
         )
         by_day = {str(d): float(q or 0) for d, q in rows}
         out = []
-        for i in range(days):
+        for i in range(span):
             d = start + timedelta(days=i)
             out.append({"d": d.strftime("%d %b"), "qty": round(by_day.get(d.isoformat(), 0.0), 2)})
         return out
 
-    def value_trend(self, store_code, days=30, section_id=None):
-        """Excess-value and short-value on each of the last `days` days — the
-        money tied up above maximum, and the money short below minimum, over
-        time. Rebuilt from the ledger: a part's stock at the end of a day is its
-        last recorded balance on or before that day, valued at its current rate
-        against its current max/min. So the STOCK is real history (balance_after
-        as it actually stood) while the thresholds/rate are today's — those move
-        rarely, so the shape is a genuine trend of how the excess/short money has
-        risen or fallen. A day before a part was ever counted contributes nothing
-        (there was no figure to value), never a false zero-excess."""
-        from datetime import date, timedelta
-        from collections import defaultdict
-        from app.models.spare_stock import SpareStockLedger
-        days = max(1, min(int(days or 30), 730))  # 1 day .. ~2 years
-        today = date.today()
-        day_list = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
-        excess_by_day = [0.0] * days
-        short_by_day = [0.0] * days
-
-        meta = {}
-        for p in self.part_repo.get_active(store_code):
-            if section_id and p.section_id != section_id:
-                continue
-            price = float(p.unit_price) if p.unit_price is not None else None
-            if price is None:
-                continue
-            meta[p.id] = (
-                float(p.max_stock_level) if p.max_stock_level is not None else None,
-                float(p.min_stock_level or 0),
-                price,
-            )
-        if meta:
-            # Every balance point for the store's parts, oldest first: (date, balance).
-            timeline = defaultdict(list)
-            for pid, created_at, bal in (
-                db.session.query(SpareStockLedger.part_id, SpareStockLedger.created_at,
-                                 SpareStockLedger.balance_after)
-                .join(Part, Part.id == SpareStockLedger.part_id)
-                .filter(Part.store_code == store_code)
-                .order_by(SpareStockLedger.created_at.asc(), SpareStockLedger.id.asc())
-                .all()
-            ):
-                if pid in meta and created_at is not None:
-                    timeline[pid].append((created_at.date(), float(bal)))
-
-            # One forward pass per part alongside the day list (both sorted
-            # oldest-first), so the cost is parts x (rows + days), not per day.
-            for pid, (mx, mn, price) in meta.items():
-                tl = timeline.get(pid)
-                if not tl:
-                    continue
-                idx = 0
-                stock = None
-                for di, d in enumerate(day_list):
-                    while idx < len(tl) and tl[idx][0] <= d:
-                        stock = tl[idx][1]
-                        idx += 1
-                    if stock is None:
-                        continue  # part not yet counted on this day
-                    if mx is not None and stock > mx:
-                        excess_by_day[di] += (stock - mx) * price
-                    if mn > 0 and stock < mn:
-                        short_by_day[di] += (mn - stock) * price
-
-        return [{"d": day_list[i].strftime("%d %b"),
-                 "excess_value": round(excess_by_day[i], 2),
-                 "short_value": round(short_by_day[i], 2)} for i in range(days)]
-
-    def top_consumed(self, store_code, limit=5, days=30):
-        """The most-issued parts over the last `days` days — the Top-5 Consumed
-        table. Ranked by total issued quantity."""
-        from datetime import date, timedelta
+    def top_consumed(self, store_code, limit=5, days=30, date_from=None, date_to=None):
+        """The most-issued parts in the window — the consumed-parts list. A
+        calendar range (`date_from`/`date_to`) wins; otherwise the last `days`
+        days. Ranked by total issued quantity."""
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
-        start = date.today() - timedelta(days=days - 1)
         total = func.sum(func.abs(SpareStockLedger.qty_delta))
         rows = (
             db.session.query(Part.part_no, Part.part_name, total)
             .join(Part, Part.id == SpareStockLedger.part_id)
             .filter(Part.store_code == store_code,
                     SpareStockLedger.txn_type == "ISSUE",
-                    func.date(SpareStockLedger.created_at) >= start.isoformat())
+                    *self._consumption_window(days, date_from, date_to))
             .group_by(Part.id)
             .order_by(total.desc())
             .limit(limit)

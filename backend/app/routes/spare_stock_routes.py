@@ -43,6 +43,20 @@ def _section():
     return request.args.get("section_id", type=int)
 
 
+def _date_range():
+    """(from, to) as ISO 'YYYY-MM-DD' strings from the query, or (None, None) —
+    the Consumption screen's calendar picker. A malformed value is dropped
+    rather than 400'd, so a stray date just means no filter on that side."""
+    from datetime import date
+
+    def clean(v):
+        try:
+            return date.fromisoformat(v).isoformat() if v else None
+        except (ValueError, TypeError):
+            return None
+    return clean(request.args.get("from")), clean(request.args.get("to"))
+
+
 def _require_part_store(part_id):
     """Resolve the part's own store and enforce access on it, so a raw part_id
     can't be used to read or overwrite another store's stock (audit finding
@@ -104,13 +118,17 @@ def erp_gap_summary():
 def consumption():
     store = _store_code()
     section_id = _section()
+    # Optional window: a calendar range (from/to) wins, else a rolling last-N-days
+    # (the Day/Week/Month/Year presets), else all-time — the breakdowns' default.
+    days = request.args.get("days", type=int)
+    date_from, date_to = _date_range()
     group_by = request.args.get("group_by", "department")
     if group_by == "department":
-        return success_response(service.consumption_by_department(store, section_id))
+        return success_response(service.consumption_by_department(store, section_id, days, date_from, date_to))
     if group_by == "machine":
-        return success_response(service.consumption_by_machine(store, section_id))
+        return success_response(service.consumption_by_machine(store, section_id, days, date_from, date_to))
     if group_by == "type":
-        return success_response(service.consumption_by_type(store, section_id))
+        return success_response(service.consumption_by_type(store, section_id, days, date_from, date_to))
     raise BadRequestError(f"Unsupported group_by: {group_by}")
 
 
@@ -122,7 +140,10 @@ def consumption_report():
 
 @bp.route("/consumption/export", methods=["GET"])
 def consumption_export():
-    buf = service.consumption_report_excel(_store_code())
+    date_from, date_to = _date_range()
+    buf = service.consumption_report_excel(
+        _store_code(), days=request.args.get("days", type=int), section_id=_section(),
+        date_from=date_from, date_to=date_to)
     return send_file(buf, as_attachment=True,
                      download_name="spare_consumption_report.xlsx", mimetype=XLSX_MIME)
 
@@ -134,27 +155,21 @@ def machines():
 
 @bp.route("/consumption-trend", methods=["GET"])
 def consumption_trend():
+    date_from, date_to = _date_range()
     return success_response(service.consumption_trend(
         _store_code(), days=request.args.get("days", default=7, type=int),
-        section_id=_section(),
+        section_id=_section(), date_from=date_from, date_to=date_to,
     ))
-
-
-@bp.route("/value-trend", methods=["GET"])
-def value_trend():
-    """Excess-value and short-value per day over the last `days` days — the money
-    tied up above max / short below min over time, for the trend line charts."""
-    return success_response(service.value_trend(
-        _store_code(), days=request.args.get("days", default=30, type=int),
-        section_id=_section()))
 
 
 @bp.route("/top-consumed", methods=["GET"])
 def top_consumed():
+    date_from, date_to = _date_range()
     return success_response(service.top_consumed(
         _store_code(),
         limit=request.args.get("limit", default=5, type=int),
         days=request.args.get("days", default=30, type=int),
+        date_from=date_from, date_to=date_to,
     ))
 
 

@@ -383,27 +383,6 @@ def test_consumption_trend_has_a_point_per_day_and_counts_issue():
     assert sum(d["qty"] for d in trend) - before == 9.0
 
 
-def test_value_trend_values_excess_and_short_from_ledger():
-    """The trend lines: excess-value = money above max, short-value = money short
-    below min, valued from the real ledger balance."""
-    svc = SpareStockService()
-    _seq["n"] += 1
-    e = Part(part_no=f"VTE-{_seq['n']}", part_name="Excess Trend", uom="NO", part_type="OTHER",
-             store_code="MAINTENANCE", max_stock_level=5, unit_price=10)
-    s = Part(part_no=f"VTS-{_seq['n']}", part_name="Short Trend", uom="NO", part_type="OTHER",
-             store_code="MAINTENANCE", min_stock_level=10, unit_price=10)
-    db.session.add_all([e, s]); db.session.commit()
-    _set_physical(e.id, 8)   # 3 above max of 5 -> 30 excess value
-    _set_physical(s.id, 4)   # 6 below min of 10 -> 60 short value
-
-    trend = svc.value_trend("MAINTENANCE", days=5)
-    assert len(trend) == 5
-    assert all("excess_value" in d and "short_value" in d for d in trend)
-    today = trend[-1]
-    assert today["excess_value"] >= 30.0   # our excess part contributes (8-5)*10
-    assert today["short_value"] >= 60.0    # our short part contributes (10-4)*10
-
-
 def test_top_consumed_ranks_by_issued_quantity():
     svc = SpareStockService()
     a = _part(); _set_physical(a.id, 100)
@@ -415,3 +394,79 @@ def test_top_consumed_ranks_by_issued_quantity():
     assert qa >= 30.0
     order = {r["part_no"]: i for i, r in enumerate(top)}
     assert order.get(a.part_no, 10 ** 9) < order.get(b.part_no, 10 ** 9 + 1)  # 30 ranks above 5
+
+
+def test_consumption_window_scopes_breakdowns_to_recent_days():
+    """The Day/Week/Month/Year picker: consumption_by_department(days=N) counts
+    only issues inside the last N days, while days=None stays all-time. Deltas,
+    because the store's totals accumulate across the shared test DB."""
+    from datetime import datetime, timedelta
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 50)
+
+    base_all = _dept_total(svc.consumption_by_department("MAINTENANCE"), "Maintenance")
+    base_week = _dept_total(svc.consumption_by_department("MAINTENANCE", days=7), "Maintenance")
+
+    svc.issue(p.id, 3, "Maintenance")   # recent — inside every window
+    svc.issue(p.id, 9, "Maintenance")   # backdated below to fall outside a short window
+    old = (SpareStockLedger.query
+           .filter_by(part_id=p.id, txn_type="ISSUE")
+           .filter(SpareStockLedger.qty_delta == -9)
+           .first())
+    old.created_at = datetime.utcnow() - timedelta(days=400)
+    db.session.commit()
+
+    all_after = _dept_total(svc.consumption_by_department("MAINTENANCE"), "Maintenance")
+    week_after = _dept_total(svc.consumption_by_department("MAINTENANCE", days=7), "Maintenance")
+    year_after = _dept_total(svc.consumption_by_department("MAINTENANCE", days=365), "Maintenance")
+
+    assert all_after - base_all == 12.0    # both issues in the all-time view
+    assert week_after - base_week == 3.0   # only the recent one in the 7-day window
+    assert year_after - base_week == 3.0   # 400 days back is outside a year too
+
+
+def test_consumption_date_range_scopes_to_the_calendar_window():
+    """The Consumption calendar picker: consumption_by_department(date_from,
+    date_to) counts only issues whose date falls inside [from, to]."""
+    from datetime import datetime
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 100)
+
+    window = ("2000-01-01", "2000-01-31")
+    base = _dept_total(svc.consumption_by_department("MAINTENANCE", None, None, *window), "Tool Room")
+
+    svc.issue(p.id, 5, "Tool Room")   # dated today — outside the Jan-2000 window
+    svc.issue(p.id, 8, "Tool Room")   # backdated into the window below
+    old = (SpareStockLedger.query
+           .filter_by(part_id=p.id, txn_type="ISSUE")
+           .filter(SpareStockLedger.qty_delta == -8)
+           .first())
+    old.created_at = datetime(2000, 1, 15, 10, 0, 0)
+    db.session.commit()
+
+    inside = _dept_total(svc.consumption_by_department("MAINTENANCE", None, None, *window), "Tool Room")
+    assert inside - base == 8.0   # only the 15-Jan-2000 issue lands in the range
+
+
+def test_consumption_trend_custom_range_spans_every_day():
+    """A calendar range builds one point per day across [from, to], zero-filled."""
+    svc = SpareStockService()
+    trend = svc.consumption_trend("MAINTENANCE", date_from="2000-01-01", date_to="2000-01-07")
+    assert len(trend) == 7
+    assert trend[0]["d"] == "01 Jan"
+    assert all("qty" in t for t in trend)
+
+
+def test_consumption_report_excel_carries_breakdown_and_period_sheets():
+    """The download workbook builds and lays out the breakdown sheets (which
+    follow the picked range) ahead of the whole-ledger month/year sheets."""
+    from openpyxl import load_workbook
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 20)
+    svc.issue(p.id, 4, "Tool Room", machine="PRESS-05")
+
+    buf = svc.consumption_report_excel("MAINTENANCE", days=7)
+    wb = load_workbook(buf)
+    assert wb.sheetnames == ["By Department", "By Machine", "By Part Type", "Month-wise", "Year-wise"]
+    assert wb["By Department"].cell(row=1, column=1).value == "Department"
+    assert wb["By Machine"].cell(row=1, column=1).value == "Machine"
