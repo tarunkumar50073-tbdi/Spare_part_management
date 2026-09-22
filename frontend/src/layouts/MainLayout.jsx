@@ -4,6 +4,7 @@ import Sidebar from "../components/Sidebar.jsx";
 import { useStores } from "../context/StoreContext.jsx";
 import Topbar from "../components/Topbar.jsx";
 import BackToTop from "../components/BackToTop.jsx";
+import AssistantWidget from "../components/AssistantWidget.jsx";
 
 const TITLES = {
   "/dashboard": "Child Parts Store",
@@ -31,6 +32,7 @@ const TITLES = {
   "/store-stock-spare": "Store Stock",
   "/spare-erp-gap": "ERP vs Physical Gap",
   "/departments": "Department Emails",
+  "/services": "All Services",
 };
 
 export default function MainLayout() {
@@ -76,6 +78,7 @@ export default function MainLayout() {
         </main>
       </div>
       <BackToTop />
+      <AssistantWidget />
     </div>
   );
 }

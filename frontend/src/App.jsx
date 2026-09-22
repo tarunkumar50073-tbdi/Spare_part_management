@@ -47,6 +47,7 @@ const WindowTimeBoard = React.lazy(() => import("./pages/WindowTimeBoard.jsx"));
 const TvDashboard = React.lazy(() => import("./pages/TvDashboard.jsx"));
 const Admin = React.lazy(() => import("./pages/Admin.jsx"));
 const Settings = React.lazy(() => import("./pages/Settings.jsx"));
+const AllServices = React.lazy(() => import("./pages/AllServices.jsx"));
 
 // SPA navigation (and browser reloads) don't reset scroll on their own, so
 // coming back from the Live Dashboard — or reopening the app — used to land
@@ -104,6 +105,7 @@ function AuthenticatedApp() {
           <Route path="/store/MAINTENANCE" element={<RequirePermission mod="spare_store"><MaintenanceStore /></RequirePermission>} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/services" element={<AllServices />} />
           {/* A section is its own address, so the sidebar can link straight to
               it and the browser's back button behaves. */}
           <Route path="/store/MAINTENANCE/:sectionId" element={<RequirePermission mod="spare_store"><MaintenanceStore /></RequirePermission>} />

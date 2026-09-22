@@ -272,6 +272,13 @@ export default function Sidebar({ collapsed = false, onToggle }) {
       )}
 
       <nav className={`flex-1 overflow-y-auto overflow-x-hidden ${collapsed ? "px-2 py-3 space-y-2" : "px-3 py-3 space-y-3"}`}>
+        {/* One launcher for every screen — pinned at the top of the menu. */}
+        <NavLink to="/services" className={navItemClass} title={collapsed ? "All Services" : undefined}>
+          <span className="text-base leading-none w-[18px] text-center shrink-0">🧩</span>
+          {!collapsed && <span className="truncate">All Services</span>}
+          {collapsed && <Flyout>All Services</Flyout>}
+        </NavLink>
+
         {[sectionGroup(activeStore), ...navFor(activeCode)].filter(Boolean).map((group) => {
           // Only the items this user may view; a group with nothing left is
           // hidden entirely (admin's `can` returns true for everything).
