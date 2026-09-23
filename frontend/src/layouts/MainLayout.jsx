@@ -65,9 +65,9 @@ export default function MainLayout() {
     <div className="min-h-screen flex">
       <Sidebar collapsed={collapsed} onToggle={toggleSidebar} />
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Search sits in the header (in the gap between the title and the
-            actions) on the main screens — not repeated inside every section. */}
-        <Topbar title={title} showSearch={!section} />
+        {/* The global part search is in the header on every screen — including
+            sections — so the top bar reads the same everywhere. */}
+        <Topbar title={title} />
         {/* Now the rail is an overlay, the content spans the full width — cap and
             centre it so the cards keep their intended density (a huge gap opened
             in the KPI tiles once they stretched edge to edge). */}
