@@ -115,27 +115,22 @@ function PanelHead({ icon: Icon, color, title, action, onAction }) {
 
 function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color }) {
   return (
-    // A taller tile: icon/title pinned to the top and the number + label to the
-    // bottom (justify-between), with a min-height so the card has real presence
-    // instead of a thin strip.
-    <Card className="w-full max-w-[26vh] px-[1.1vh] py-[1.3vh] flex flex-col justify-between min-h-[13.5vh]"
+    <Card className="px-[0.9vh] py-[0.5vh] flex flex-col"
       style={{ borderColor: `${color}55`, boxShadow: `var(--dx-glass-shadow), 0 0 26px ${color}30, inset 0 0 22px ${color}12` }}>
-      <div className="flex items-center gap-[0.8vh]">
-        <span className="w-[3vh] h-[3vh] rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: gradCss(color), boxShadow: `0 6px 14px ${color}66, inset 0 2px 3px rgba(255,255,255,0.45), inset 0 -3px 5px rgba(0,0,0,0.18)` }}>
-          <Icon size={16} className="text-white" />
+      <div className="flex items-center gap-[0.7vh]">
+        <span className="w-[2.6vh] h-[2.6vh] rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: gradCss(color), boxShadow: `0 4px 10px ${color}66, inset 0 2px 3px rgba(255,255,255,0.45), inset 0 -3px 5px rgba(0,0,0,0.18)` }}>
+          <Icon size={14} className="text-white" />
         </span>
-        <span className="text-[1.35vh] font-bold text-[var(--dx-t2)] flex-1 truncate">{title}</span>
+        <span className="text-[1.25vh] font-bold text-[var(--dx-t2)] flex-1 truncate">{title}</span>
         {trend != null && (
-          <span className={`shrink-0 text-[1.15vh] font-bold ${trendUp ? "text-emerald-600" : "text-rose-600"}`}>
+          <span className={`shrink-0 text-[1.1vh] font-bold ${trendUp ? "text-emerald-600" : "text-rose-600"}`}>
             {trendUp ? "↑" : "↓"} {trend}
           </span>
         )}
       </div>
-      <div>
-        <div className="dx-radiant text-[2.9vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</div>
-        <div className="text-[1.05vh] text-[var(--dx-t4)] mt-[0.3vh] truncate">{sub}</div>
-      </div>
+      <div className="dx-radiant mt-[0.1vh] text-[2.3vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</div>
+      <div className="text-[1vh] text-[var(--dx-t4)] mt-[0.1vh] truncate">{sub}</div>
     </Card>
   );
 }
@@ -666,7 +661,7 @@ export default function TvDashboard() {
       {/* ---------- KPI cards ---------- */}
       {/* Six across in one row: on a wide board each 3-col card was far wider
           than its stat, so the number sat in a corner with a big empty gap. */}
-      <div className="grid grid-cols-6 gap-[0.8vh] justify-items-center">
+      <div className="grid grid-cols-6 gap-[0.8vh]">
         {/* The six KPI cards are read-only. Their detail opens from the charts
             below (Total / Stock Value / Excess) or from the Live Alerts panel,
             which carries the clickable drills for Short Parts, Pending ERP and
@@ -686,7 +681,7 @@ export default function TvDashboard() {
         <Card className="p-[1.1vh]">
           <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[19vh] h-[19vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
+            <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -725,7 +720,7 @@ export default function TvDashboard() {
 
         <Card className="p-[1.1vh]">
           <PanelHead icon={FileBarChart} color={C.green} title="Monthly Consumption / Issue" />
-          <div className="h-[19vh]">
+          <div className="h-[24vh]">
             {monthlyData.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={monthlyData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -778,7 +773,7 @@ export default function TvDashboard() {
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, chart: "bySection", sectionNames: sectionName })} />
         {valueBySection.length ? (
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[19vh] h-[19vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
+            <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -817,7 +812,7 @@ export default function TvDashboard() {
             </div>
           </div>
         ) : (
-          <div className="h-[19vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No stock value yet</div>
+          <div className="h-[24vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No stock value yet</div>
         )}
       </Card>
 
@@ -827,7 +822,7 @@ export default function TvDashboard() {
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
         {excessSections.length ? (
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[19vh] h-[19vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
+            <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -866,7 +861,7 @@ export default function TvDashboard() {
             </div>
           </div>
         ) : (
-          <div className="h-[19vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No excess stock — nothing above its maximum</div>
+          <div className="h-[24vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No excess stock — nothing above its maximum</div>
         )}
       </Card>
       </div>
