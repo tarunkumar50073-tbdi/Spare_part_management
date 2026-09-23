@@ -115,22 +115,22 @@ function PanelHead({ icon: Icon, color, title, action, onAction }) {
 
 function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color }) {
   return (
-    <Card className="px-[1vh] py-[0.7vh] flex flex-col"
+    <Card className="px-[0.9vh] py-[0.5vh] flex flex-col"
       style={{ borderColor: `${color}55`, boxShadow: `var(--dx-glass-shadow), 0 0 26px ${color}30, inset 0 0 22px ${color}12` }}>
-      <div className="flex items-center gap-[0.9vh]">
-        <span className="w-[3vh] h-[3vh] rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: gradCss(color), boxShadow: `0 6px 14px ${color}66, inset 0 2px 3px rgba(255,255,255,0.45), inset 0 -3px 5px rgba(0,0,0,0.18)` }}>
-          <Icon size={16} className="text-white" />
+      <div className="flex items-center gap-[0.7vh]">
+        <span className="w-[2.6vh] h-[2.6vh] rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: gradCss(color), boxShadow: `0 4px 10px ${color}66, inset 0 2px 3px rgba(255,255,255,0.45), inset 0 -3px 5px rgba(0,0,0,0.18)` }}>
+          <Icon size={14} className="text-white" />
         </span>
-        <span className="text-[1.35vh] font-bold text-[var(--dx-t2)] flex-1 truncate">{title}</span>
+        <span className="text-[1.25vh] font-bold text-[var(--dx-t2)] flex-1 truncate">{title}</span>
         {trend != null && (
-          <span className={`shrink-0 text-[1.2vh] font-bold ${trendUp ? "text-emerald-600" : "text-rose-600"}`}>
+          <span className={`shrink-0 text-[1.1vh] font-bold ${trendUp ? "text-emerald-600" : "text-rose-600"}`}>
             {trendUp ? "↑" : "↓"} {trend}
           </span>
         )}
       </div>
-      <div className="dx-radiant mt-[0.2vh] text-[2.7vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</div>
-      <div className="text-[1.05vh] text-[var(--dx-t4)] mt-[0.15vh]">{sub}</div>
+      <div className="dx-radiant mt-[0.1vh] text-[2.3vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</div>
+      <div className="text-[1vh] text-[var(--dx-t4)] mt-[0.1vh] truncate">{sub}</div>
     </Card>
   );
 }
