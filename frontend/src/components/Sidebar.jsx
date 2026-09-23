@@ -1,5 +1,6 @@
-import React from "react";
-import { NavLink } from "react-router-dom";
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { LogOut, Moon, PanelLeftClose, PanelLeftOpen, Sun } from "lucide-react";
 import { storeHome, useStores } from "../context/StoreContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
@@ -166,6 +167,78 @@ function Flyout({ children }) {
   );
 }
 
+// One glyph that stands for a whole nav group on the squeezed rail; falls back
+// to the group's first item so a new group still gets an icon.
+const GROUP_ICONS = {
+  "Sections": "🗂️", "Inventory": "📦", "Masters": "🗄️",
+  "Receiving": "🚚", "Receiving & Management": "🚚", "Reports & System": "📑",
+};
+const groupIcon = (label, items) => GROUP_ICONS[label] || items[0]?.emoji || "▫️";
+
+// A squeezed nav group: one icon, and on hover a submenu panel (heading + every
+// item) that opens to the right. The panel is portalled to <body> and
+// fixed-positioned so the sidebar's own scroll (overflow) can't clip it — the
+// bug the old inline flyout hit. A short close delay lets the mouse cross the
+// gap from the icon to the panel without it vanishing.
+function CollapsedGroupIcon({ group, items }) {
+  const { pathname } = useLocation();
+  const [rect, setRect] = useState(null);
+  const timer = useRef(null);
+  const active = items.some((it) => pathname === it.to || pathname.startsWith(it.to + "/"));
+
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  const open = (e) => { if (timer.current) clearTimeout(timer.current); setRect(e.currentTarget.getBoundingClientRect()); };
+  const keep = () => { if (timer.current) clearTimeout(timer.current); };
+  const close = () => { timer.current = setTimeout(() => setRect(null), 140); };
+
+  return (
+    <div className="flex justify-center" onMouseEnter={open} onMouseLeave={close}>
+      <NavLink
+        to={items[0].to}
+        title={group.label}
+        className={`flex items-center justify-center h-10 w-10 rounded-lg transition-colors ${
+          active
+            ? "bg-gradient-to-b from-[#ff2a3c] to-toyotared text-white shadow-[0_4px_12px_rgba(235,10,30,0.35)]"
+            : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-navy-800 hover:text-slate-900 dark:hover:text-white"}`}
+      >
+        <span className="text-base leading-none">{groupIcon(group.label, items)}</span>
+      </NavLink>
+
+      {rect && createPortal(
+        <div
+          style={{ position: "fixed", top: Math.max(8, rect.top), left: rect.right + 8, zIndex: 60 }}
+          onMouseEnter={keep}
+          onMouseLeave={close}
+          className="w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-navy-800 dark:bg-navy-900"
+        >
+          <p className="border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:border-navy-800">
+            {group.label}
+          </p>
+          <div className="py-1">
+            {items.map((it) => (
+              <NavLink
+                key={it.to}
+                to={it.to}
+                end={it.end}
+                onClick={() => setRect(null)}
+                className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors ${
+                  isActive
+                    ? "bg-toyotared/10 font-semibold text-toyotared"
+                    : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-navy-800"}`}
+              >
+                <span className="w-[18px] text-center text-base leading-none">{it.emoji}</span>
+                <span className="truncate">{it.label}</span>
+              </NavLink>
+            ))}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
 // The store picker: every store, always visible, pinned above the menu — so it
 // is one click to switch, never hidden behind a dropdown. Squeezed, it centres
 // its icon and reveals the store name on hover.
@@ -284,17 +357,16 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           // hidden entirely (admin's `can` returns true for everything).
           const items = group.items.filter((it) => can(user, it.mod));
           if (!items.length) return null;
+          // Squeezed: one group icon whose hover panel lists the whole group.
+          if (collapsed) return <CollapsedGroupIcon key={group.label} group={group} items={items} />;
           return (
             <div key={group.label}>
-              {collapsed
-                ? <div className="mx-1.5 mb-1 border-t border-slate-200/70 dark:border-navy-800" />
-                : <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{group.label}</p>}
+              <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{group.label}</p>
               <div className="space-y-1">
                 {items.map(({ to, label, emoji, end }) => (
-                  <NavLink key={to} to={to} end={end} className={navItemClass} title={collapsed ? label : undefined}>
+                  <NavLink key={to} to={to} end={end} className={navItemClass}>
                     <span className="text-base leading-none w-[18px] text-center shrink-0">{emoji}</span>
-                    {!collapsed && <span className="truncate">{label}</span>}
-                    {collapsed && <Flyout>{label}</Flyout>}
+                    <span className="truncate">{label}</span>
                   </NavLink>
                 ))}
               </div>
