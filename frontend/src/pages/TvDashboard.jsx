@@ -115,22 +115,22 @@ function PanelHead({ icon: Icon, color, title, action, onAction }) {
 
 function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color }) {
   return (
-    <Card className="p-[1vh] flex flex-col"
+    <Card className="px-[1vh] py-[0.7vh] flex flex-col"
       style={{ borderColor: `${color}55`, boxShadow: `var(--dx-glass-shadow), 0 0 26px ${color}30, inset 0 0 22px ${color}12` }}>
-      <div className="flex items-center gap-[1vh]">
-        <span className="w-[3.4vh] h-[3.4vh] rounded-xl flex items-center justify-center shrink-0"
+      <div className="flex items-center gap-[0.9vh]">
+        <span className="w-[3vh] h-[3vh] rounded-xl flex items-center justify-center shrink-0"
           style={{ background: gradCss(color), boxShadow: `0 6px 14px ${color}66, inset 0 2px 3px rgba(255,255,255,0.45), inset 0 -3px 5px rgba(0,0,0,0.18)` }}>
-          <Icon size={17} className="text-white" />
+          <Icon size={16} className="text-white" />
         </span>
-        <span className="text-[1.4vh] font-bold text-[var(--dx-t2)] flex-1 truncate">{title}</span>
+        <span className="text-[1.35vh] font-bold text-[var(--dx-t2)] flex-1 truncate">{title}</span>
         {trend != null && (
           <span className={`shrink-0 text-[1.2vh] font-bold ${trendUp ? "text-emerald-600" : "text-rose-600"}`}>
             {trendUp ? "↑" : "↓"} {trend}
           </span>
         )}
       </div>
-      <div className="dx-radiant mt-[0.4vh] text-[2.9vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</div>
-      <div className="text-[1.05vh] text-[var(--dx-t4)] mt-[0.2vh]">{sub}</div>
+      <div className="dx-radiant mt-[0.2vh] text-[2.7vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</div>
+      <div className="text-[1.05vh] text-[var(--dx-t4)] mt-[0.15vh]">{sub}</div>
     </Card>
   );
 }
@@ -544,7 +544,7 @@ export default function TvDashboard() {
   const gridColor = isDay ? "#e2e8f0" : "rgba(148,163,184,0.18)";
 
   return (
-    <div className="min-h-screen w-full flex flex-col gap-[1.2vh] p-[1.2vh] text-[var(--dx-t2)] transition-colors duration-300" style={{ ...themeVars, background: "var(--dx-board)" }}>
+    <div className="min-h-screen w-full flex flex-col gap-[0.8vh] p-[1vh] text-[var(--dx-t2)] transition-colors duration-300" style={{ ...themeVars, background: "var(--dx-board)" }}>
 
       {/* ---------- header ---------- */}
       <div className="shrink-0 rounded-2xl px-[2vh] py-[0.8vh] flex items-center gap-[1.6vh] text-white overflow-hidden relative"
@@ -659,7 +659,7 @@ export default function TvDashboard() {
       )}
 
       {/* ---------- KPI cards ---------- */}
-      <div className="grid grid-cols-3 gap-[1.2vh]">
+      <div className="grid grid-cols-3 gap-[0.8vh]">
         {/* The six KPI cards are read-only. Their detail opens from the charts
             below (Total / Stock Value / Excess) or from the Live Alerts panel,
             which carries the clickable drills for Short Parts, Pending ERP and
@@ -675,8 +675,8 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- charts ---------- */}
-      <div className="grid grid-cols-2 gap-[1.2vh]">
-        <Card className="p-[1.4vh]">
+      <div className="grid grid-cols-2 gap-[0.8vh]">
+        <Card className="p-[1.1vh]">
           <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
           <div className="flex items-center gap-[1vh]">
             <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
@@ -716,7 +716,7 @@ export default function TvDashboard() {
           </div>
         </Card>
 
-        <Card className="p-[1.4vh]">
+        <Card className="p-[1.1vh]">
           <PanelHead icon={FileBarChart} color={C.green} title="Monthly Consumption / Issue" />
           <div className="h-[24vh]">
             {monthlyData.length ? (
@@ -744,8 +744,8 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- health + dept ---------- */}
-      <div className="grid grid-cols-2 gap-[1.2vh]">
-        <Card className="p-[1.4vh]">
+      <div className="grid grid-cols-2 gap-[0.8vh]">
+        <Card className="p-[1.1vh]">
           <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
           <div className="flex items-center justify-around pt-[1vh]">
             <Gauge pct={(healthy / counted) * 100} color={C.green} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
@@ -754,7 +754,7 @@ export default function TvDashboard() {
           </div>
         </Card>
 
-        <Card className="p-[1.4vh]">
+        <Card className="p-[1.1vh]">
           <PanelHead icon={FileBarChart} color={C.purple} title="Department-wise Issue (This Month)" />
           <div className="space-y-[1.1vh] pt-[0.6vh]">
             {deptData.length ? deptData.map((d) => <DeptBar key={d.name} {...d} />)
@@ -764,9 +764,9 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- value + excess, side by side ---------- */}
-      <div className="grid grid-cols-2 gap-[1.2vh]">
+      <div className="grid grid-cols-2 gap-[0.8vh]">
       {/* ---------- stock value by section ---------- */}
-      <Card className="p-[1.4vh]">
+      <Card className="p-[1.1vh]">
         <PanelHead icon={Database} color={C.green} title="Stock Value by Section"
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, chart: "bySection", sectionNames: sectionName })} />
         {valueBySection.length ? (
@@ -815,7 +815,7 @@ export default function TvDashboard() {
       </Card>
 
       {/* ---------- excess stock value ---------- */}
-      <Card className="p-[1.4vh]">
+      <Card className="p-[1.1vh]">
         <PanelHead icon={Boxes} color={C.amber} title="Excess Stock Value"
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
         {excessSections.length ? (
@@ -865,9 +865,9 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- ERP current stock ---------- */}
-      <Card className="p-[1.4vh]">
+      <Card className="p-[1.1vh]">
         <PanelHead icon={Database} color={C.cyan} title="Current Stock — ERP vs Physical" action="View Details" onAction={openErpGap} />
-        <div className="grid grid-cols-4 gap-[1.2vh]">
+        <div className="grid grid-cols-4 gap-[0.8vh]">
           {[
             { label: "ERP Stock", value: fmtInt(Math.round(erpTotal)), sub: "units · from ERP", color: C.cyan },
             { label: "Physical Stock", value: fmtInt(Math.round(physTotal)), sub: "units · store count", color: C.blue },
@@ -889,7 +889,7 @@ export default function TvDashboard() {
       </Card>
 
       {/* ---------- top short parts ---------- */}
-      <Card className="p-[1.4vh]">
+      <Card className="p-[1.1vh]">
         <PanelHead icon={AlertTriangle} color={C.red} title="Top Short Parts (Below Minimum)" />
         <div>
         <table className="w-full text-[1.45vh]">
@@ -924,7 +924,7 @@ export default function TvDashboard() {
       </Card>
 
       {/* ---------- recent transactions (Live Alerts now runs in the top ticker) ---------- */}
-      <Card className="p-[1.4vh]">
+      <Card className="p-[1.1vh]">
         <PanelHead icon={PackagePlus} color={C.green} title="Recent Transactions" />
         <div>
         <table className="w-full text-[1.4vh]">
