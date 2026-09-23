@@ -659,7 +659,9 @@ export default function TvDashboard() {
       )}
 
       {/* ---------- KPI cards ---------- */}
-      <div className="grid grid-cols-3 gap-[0.8vh]">
+      {/* Six across in one row: on a wide board each 3-col card was far wider
+          than its stat, so the number sat in a corner with a big empty gap. */}
+      <div className="grid grid-cols-6 gap-[0.8vh]">
         {/* The six KPI cards are read-only. Their detail opens from the charts
             below (Total / Stock Value / Excess) or from the Live Alerts panel,
             which carries the clickable drills for Short Parts, Pending ERP and
