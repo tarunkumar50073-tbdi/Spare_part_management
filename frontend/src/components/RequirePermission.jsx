@@ -2,7 +2,6 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { ShieldAlert } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { storeHome, useStores } from "../context/StoreContext.jsx";
 import { can } from "../utils/permissions.js";
 
 // Route-level gate. The sidebar already hides screens a user may not view, but
@@ -10,7 +9,6 @@ import { can } from "../utils/permissions.js";
 // passes everything; an ungated route (no `mod`) is open to any signed-in user.
 export default function RequirePermission({ mod, action = "view", children }) {
   const { user } = useAuth();
-  const { activeCode } = useStores();
 
   if (can(user, mod, action)) return children;
 
@@ -23,11 +21,13 @@ export default function RequirePermission({ mod, action = "view", children }) {
           You don’t have permission to open this screen. Ask an administrator to grant it under
           User Management.
         </p>
+        {/* Go to the launcher, not the store dashboard — a user who lacks the
+            dashboard right would otherwise loop straight back here. */}
         <Link
-          to={storeHome(activeCode)}
+          to="/services"
           className="inline-block mt-5 rounded-lg bg-toyotared px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
         >
-          Back to store
+          Open All Services
         </Link>
       </div>
     </div>
