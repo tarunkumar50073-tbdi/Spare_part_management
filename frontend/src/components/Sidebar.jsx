@@ -306,7 +306,8 @@ export default function Sidebar({ collapsed = false, onToggle }) {
             <ToyotaBoshokuLogo size={collapsed ? 28 : 40} />
             {!collapsed && (
               <div className="min-w-0">
-                <p className="font-bold text-[14px] leading-snug text-slate-800 dark:text-white">Spare Part Store Management</p>
+                <p className="font-extrabold text-[15px] leading-tight tracking-tight text-slate-800 dark:text-white">TBDI Digital Store</p>
+                <p className="text-[10px] leading-tight text-slate-400">Toyota Boshoku Device India</p>
               </div>
             )}
           </NavLink>

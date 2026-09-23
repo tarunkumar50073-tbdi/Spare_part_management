@@ -59,7 +59,7 @@ export default function MainLayout() {
     ? section.name
     : location.pathname === "/dashboard"
       ? activeStore?.name || "Store Dashboard"
-      : TITLES[location.pathname] || "Spare Part Store Management";
+      : TITLES[location.pathname] || "TBDI Digital Store";
 
   return (
     <div className="min-h-screen flex">
