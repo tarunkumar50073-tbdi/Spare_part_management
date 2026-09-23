@@ -118,7 +118,7 @@ function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color }) {
     // A taller tile: icon/title pinned to the top and the number + label to the
     // bottom (justify-between), with a min-height so the card has real presence
     // instead of a thin strip.
-    <Card className="w-full px-[1.1vh] py-[1.3vh] flex flex-col justify-between min-h-[13.5vh]"
+    <Card className="w-full max-w-[26vh] px-[1.1vh] py-[1.3vh] flex flex-col justify-between min-h-[13.5vh]"
       style={{ borderColor: `${color}55`, boxShadow: `var(--dx-glass-shadow), 0 0 26px ${color}30, inset 0 0 22px ${color}12` }}>
       <div className="flex items-center gap-[0.8vh]">
         <span className="w-[3vh] h-[3vh] rounded-xl flex items-center justify-center shrink-0"
@@ -663,11 +663,10 @@ export default function TvDashboard() {
         </div>
       )}
 
-      {/* ---------- KPI tiles + Stock Health, one row ---------- */}
-      <div className="grid grid-cols-12 gap-[0.8vh] items-stretch">
-        {/* The six KPI tiles fill 8/12 (adjacent, no centring gap); Stock Health
-            fills the other 4/12 so the row has no empty space. */}
-        <div className="col-span-8 grid grid-cols-6 gap-[0.8vh]">
+      {/* ---------- KPI cards ---------- */}
+      {/* Six across in one row: on a wide board each 3-col card was far wider
+          than its stat, so the number sat in a corner with a big empty gap. */}
+      <div className="grid grid-cols-6 gap-[0.8vh] justify-items-center">
         {/* The six KPI cards are read-only. Their detail opens from the charts
             below (Total / Stock Value / Excess) or from the Live Alerts panel,
             which carries the clickable drills for Short Parts, Pending ERP and
@@ -680,17 +679,6 @@ export default function TvDashboard() {
         <Kpi icon={ClipboardList} title="Pending ERP" value={fmtInt(P.erpPend?.pending ?? 0)} sub="Movements pending in ERP" color={C.purple} />
         <Kpi icon={ShoppingCart} title="Today's Issue" value={fmtInt(P.today?.issued_qty)} trend={P.today?.issued_lines ? `${P.today.issued_lines} lines` : null}
           sub="Parts issued this shift" color={C.blue} />
-        </div>
-
-        {/* Stock Health sits beside the tiles so the row is full. */}
-        <Card className="col-span-4 p-[1.1vh] flex flex-col justify-center">
-          <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
-          <div className="flex items-center justify-around">
-            <Gauge pct={(healthy / counted) * 100} color={C.green} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
-            <Gauge pct={(excess / counted) * 100} color={C.amber} label="Excess" sub={`${fmtInt(excess)} Parts`} />
-            <Gauge pct={(short / counted) * 100} color={C.red} label="Short" sub={`${fmtInt(short)} Parts`} />
-          </div>
-        </Card>
       </div>
 
       {/* ---------- charts ---------- */}
@@ -762,14 +750,25 @@ export default function TvDashboard() {
         </Card>
       </div>
 
-      {/* ---------- department-wise issue (full width; Stock Health moved up) ---------- */}
-      <Card className="p-[1.1vh]">
-        <PanelHead icon={FileBarChart} color={C.purple} title="Department-wise Issue (This Month)" />
-        <div className="space-y-[1.1vh] pt-[0.6vh]">
-          {deptData.length ? deptData.map((d) => <DeptBar key={d.name} {...d} />)
-            : <div className="text-[1.5vh] text-[var(--dx-t4)] py-[3vh] text-center">No issues this month</div>}
-        </div>
-      </Card>
+      {/* ---------- health + dept ---------- */}
+      <div className="grid grid-cols-2 gap-[0.8vh]">
+        <Card className="p-[1.1vh]">
+          <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
+          <div className="flex items-center justify-around pt-[1vh]">
+            <Gauge pct={(healthy / counted) * 100} color={C.green} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
+            <Gauge pct={(excess / counted) * 100} color={C.amber} label="Excess" sub={`${fmtInt(excess)} Parts`} />
+            <Gauge pct={(short / counted) * 100} color={C.red} label="Short" sub={`${fmtInt(short)} Parts`} />
+          </div>
+        </Card>
+
+        <Card className="p-[1.1vh]">
+          <PanelHead icon={FileBarChart} color={C.purple} title="Department-wise Issue (This Month)" />
+          <div className="space-y-[1.1vh] pt-[0.6vh]">
+            {deptData.length ? deptData.map((d) => <DeptBar key={d.name} {...d} />)
+              : <div className="text-[1.5vh] text-[var(--dx-t4)] py-[3vh] text-center">No issues this month</div>}
+          </div>
+        </Card>
+      </div>
 
       {/* ---------- value + excess, side by side ---------- */}
       <div className="grid grid-cols-2 gap-[0.8vh]">
