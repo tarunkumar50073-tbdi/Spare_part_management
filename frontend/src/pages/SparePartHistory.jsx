@@ -37,7 +37,10 @@ export default function SparePartHistory() {
   const [locs, setLocs] = useState([]);
   // ERP-style: no type/department/machine filters — the full ledger shows on pick;
   // an optional From/To date range narrows it (and adds an opening-balance row).
+  // `dateDraft` holds what's typed in the inputs; it only takes effect (into
+  // `filters`) when Search is pressed — the ERP set-dates-then-Search flow.
   const [filters, setFilters] = useState({ from: "", to: "" });
+  const [dateDraft, setDateDraft] = useState({ from: "", to: "" });
 
   useEffect(() => {
     spareStockService.list({ store_code: storeCode }).then((r) => setAllParts(r.data.data || [])).catch(() => {});
@@ -68,7 +71,21 @@ export default function SparePartHistory() {
     setPart(p);
     setQuery(p.part_no);   // reflect the chosen part in the search box
     setOpen(false);        // and close the suggestion list
+    setDateDraft({ from: "", to: "" });   // a fresh part starts on its full ledger
+    setFilters({ from: "", to: "" });
     await loadHistory(p.part_id);
+  };
+
+  // Search = apply the typed date range; Reset = clear the date range (full
+  // ledger); Clear = drop the whole selection and start from the search box.
+  const runSearch = () => setFilters({ ...dateDraft });
+  const resetDates = () => { setDateDraft({ from: "", to: "" }); setFilters({ from: "", to: "" }); };
+  const clearAll = () => {
+    setPart(null);
+    setQuery("");
+    setRows([]);
+    setLocs([]);
+    resetDates();
   };
 
   // Only an optional date range narrows the ledger — it applies instantly on the
@@ -205,15 +222,21 @@ export default function SparePartHistory() {
               <button className="btn-secondary shrink-0" onClick={exportLedger} disabled={!ledger.length}>⬇ Export Excel</button>
             </div>
 
-            {/* Optional date range only — like ERP; the full ledger shows without it. */}
+            {/* Optional date range + ERP-style actions (Search / Reset / Clear). */}
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">From</span>
-              <input type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} className="input-field text-sm" />
+              <input type="date" value={dateDraft.from}
+                onChange={(e) => setDateDraft((d) => ({ ...d, from: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
+                className="input-field text-sm" />
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">To</span>
-              <input type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} className="input-field text-sm" />
-              {(filters.from || filters.to) && (
-                <button className="btn-secondary" onClick={() => setFilters({ from: "", to: "" })}>Clear</button>
-              )}
+              <input type="date" value={dateDraft.to}
+                onChange={(e) => setDateDraft((d) => ({ ...d, to: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
+                className="input-field text-sm" />
+              <button className="btn-primary text-sm" onClick={runSearch}>🔍 Search</button>
+              <button className="btn-secondary text-sm" onClick={resetDates}>Reset</button>
+              <button className="btn-secondary text-sm" onClick={clearAll}>Clear</button>
             </div>
 
             <div className="overflow-auto">
