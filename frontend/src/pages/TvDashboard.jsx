@@ -564,7 +564,7 @@ export default function TvDashboard() {
         </div>
 
         <div className="flex-1 text-center min-w-0">
-          <div className="text-[2vh] font-extrabold leading-none tracking-wide whitespace-nowrap"
+          <div className="text-[1.7vh] font-extrabold leading-none tracking-normal whitespace-nowrap"
             style={{ backgroundImage: "linear-gradient(180deg,#ffffff 0%,#bcd6ff 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent", filter: "drop-shadow(0 2px 12px rgba(120,180,255,0.55))" }}>
             Spare Parts Store
           </div>
@@ -695,7 +695,7 @@ export default function TvDashboard() {
                     })}
                   </defs>
                   <Pie data={cats.length ? cats : [{ name: "—", value: 1, color: "#e2e8f0" }]} dataKey="value" nameKey="name"
-                    innerRadius="48%" outerRadius="92%" paddingAngle={1} stroke="none" isAnimationActive={false}
+                    innerRadius="60%" outerRadius="92%" paddingAngle={1} stroke="none" isAnimationActive={false}
                     onClick={(s) => cats.length && openCat(s && (s.name ?? (s.payload && s.payload.name)))}>
                     {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} cursor={cats.length ? "pointer" : "default"} />)}
                   </Pie>
@@ -788,7 +788,7 @@ export default function TvDashboard() {
                       );
                     })}
                   </defs>
-                  <Pie data={valueBySection} dataKey="value" nameKey="name" innerRadius="48%" outerRadius="92%"
+                  <Pie data={valueBySection} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="92%"
                     paddingAngle={1} stroke="none" isAnimationActive={false}
                     onClick={(s) => openValueSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {valueBySection.map((c, i) => <Cell key={i} fill={`url(#vsg-${i})`} cursor="pointer" />)}
@@ -833,7 +833,7 @@ export default function TvDashboard() {
                       );
                     })}
                   </defs>
-                  <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="48%" outerRadius="92%"
+                  <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="92%"
                     paddingAngle={1} stroke="none" isAnimationActive={false}
                     onClick={(s) => openExcessSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {excessSections.map((c, i) => <Cell key={i} fill={`url(#exg-${i})`} cursor="pointer" />)}
@@ -953,13 +953,6 @@ export default function TvDashboard() {
       </Card>
       </div>
 
-      {/* ---------- footer ---------- */}
-      <div className="rounded-2xl px-[2vh] py-[1vh] flex items-center justify-between text-white text-[1.35vh]"
-        style={{ background: "linear-gradient(120deg,#0a2a4f,#0d3a6b)" }}>
-        <div className="font-semibold text-white/80">Digitize · Simplify · Improve</div>
-        <div className="italic text-white/80 font-semibold">"Right Parts | Right Time | For Smooth Production"</div>
-        <div className="text-white/60">Toyota Boshoku Device India Pvt. Ltd.</div>
-      </div>
 
       {/* ---------- Explore-Data drill (opens WITHIN the board) ---------- */}
       {stack.length > 0 && (
@@ -1025,9 +1018,9 @@ function Stat({ label, value }) {
 function DonutHub({ value, label, size = "2.5vh" }) {
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-[0.6vh] text-center">
-      <span className="dx-radiant font-black tabular-nums leading-none tracking-tight max-w-full"
+      <span className="dx-radiant font-black tabular-nums leading-none tracking-tight max-w-[62%]"
         style={{ fontSize: size, filter: "drop-shadow(0 2px 10px rgba(90,130,230,0.30))" }}>{value}</span>
-      <span className="mt-[0.15vh] max-w-full truncate text-[0.6vh] font-semibold uppercase tracking-normal text-[var(--dx-t4)]">{label}</span>
+      <span className="mt-[0.15vh] max-w-[66%] truncate text-[0.6vh] font-semibold uppercase tracking-normal text-[var(--dx-t4)]">{label}</span>
     </div>
   );
 }
