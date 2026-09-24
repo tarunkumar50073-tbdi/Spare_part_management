@@ -701,7 +701,7 @@ export default function TvDashboard() {
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
-              <DonutHub value={fmtInt(total)} label="Total Parts" size="3vh" />
+              <DonutHub value={fmtInt(total)} label="Total Parts" size="1.9vh" />
             </div>
             <div className="flex-1 space-y-[0.9vh]">
               {(cats.length ? cats : []).map((c) => (
@@ -793,7 +793,7 @@ export default function TvDashboard() {
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
-              <DonutHub value={fmtMoney(totalStockValue)} label="Total value" size="2.4vh" />
+              <DonutHub value={fmtMoney(totalStockValue)} label="Total value" size="1.5vh" />
             </div>
             <div className="flex-1 min-w-0 space-y-[0.5vh]">
               {valueBySection.map((c) => (
@@ -842,7 +842,7 @@ export default function TvDashboard() {
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
-              <DonutHub value={fmtMoney(excessValue)} label="Excess Value" size="2.4vh" />
+              <DonutHub value={fmtMoney(excessValue)} label="Excess Value" size="1.5vh" />
             </div>
             <div className="flex-1 min-w-0 space-y-[0.5vh]">
               {excessSections.map((c) => (
@@ -1028,10 +1028,10 @@ function Stat({ label, value }) {
 // uppercase caption. One style for every donut on the board.
 function DonutHub({ value, label, size = "2.5vh" }) {
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-[1.5vh] text-center">
-      <span className="dx-radiant font-black tabular-nums leading-none tracking-tight"
+    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-[0.6vh] text-center">
+      <span className="dx-radiant font-black tabular-nums leading-none tracking-tight max-w-full"
         style={{ fontSize: size, filter: "drop-shadow(0 2px 10px rgba(90,130,230,0.30))" }}>{value}</span>
-      <span className="mt-[0.5vh] text-[1.05vh] font-semibold uppercase tracking-[0.16em] text-[var(--dx-t4)]">{label}</span>
+      <span className="mt-[0.2vh] max-w-full truncate text-[0.7vh] font-semibold uppercase tracking-normal text-[var(--dx-t4)]">{label}</span>
     </div>
   );
 }
