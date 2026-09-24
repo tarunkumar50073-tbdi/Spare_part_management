@@ -15,6 +15,7 @@ export default function SparePartHistory() {
   const storeCode = activeCode || "MAINTENANCE";
 
   const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
   const [allParts, setAllParts] = useState([]);
   const [part, setPart] = useState(null);
   const [rows, setRows] = useState([]);
@@ -50,6 +51,8 @@ export default function SparePartHistory() {
 
   const pick = async (p) => {
     setPart(p);
+    setQuery(p.part_no);   // reflect the chosen part in the search box
+    setOpen(false);        // and close the suggestion list
     await loadHistory(p.part_id);
   };
 
@@ -75,10 +78,13 @@ export default function SparePartHistory() {
       </div>
 
       <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
-        <input value={query} onChange={(e) => setQuery(e.target.value)}
+        <input value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
           onKeyDown={(e) => { if (e.key === "Enter" && matches.length) { e.preventDefault(); pick(matches[0]); } }}
           placeholder="Search part no / ref / name… (e.g. cntr, 2025)" className="input-field w-full text-lg" />
-        {query.trim() && (
+        {open && query.trim() && (
           <div className="mt-2 max-h-60 overflow-auto rounded-lg border border-slate-100 dark:border-navy-800">
             {matches.length === 0 ? (
               <div className="px-3 py-3 text-sm text-slate-400">No matching parts</div>
@@ -92,7 +98,7 @@ export default function SparePartHistory() {
             ))}
           </div>
         )}
-        {matches.length >= 50 && <p className="mt-1 text-xs text-slate-400">Showing first 50 — refine your search.</p>}
+        {open && matches.length >= 50 && <p className="mt-1 text-xs text-slate-400">Showing first 50 — refine your search.</p>}
       </div>
 
       {part && (
