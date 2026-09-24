@@ -1734,7 +1734,8 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
               onRowClick={onStockClick}
               rowClassName={() => "text-red-600 dark:text-red-400 font-semibold"}
               searchable={belowMin.length > 10 ? "Search part no or description…" : false}
-              pageSize={belowMin.length > 25 ? 25 : 0}
+              pageSize={0}
+              maxHeight="62vh"
               exportName="spares_below_minimum"
               emptyMessage="Nothing below its minimum"
             />
