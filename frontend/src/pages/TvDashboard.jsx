@@ -677,7 +677,7 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- charts ---------- */}
-      <div className="grid grid-cols-1 gap-[0.8vh]">
+      <div className="grid grid-cols-2 gap-[0.8vh]">
         <Card className="p-[0.7vh]">
           <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
           <div className="flex items-center gap-[1vh]">
@@ -746,7 +746,7 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- health + dept ---------- */}
-      <div className="grid grid-cols-1 gap-[0.8vh]">
+      <div className="grid grid-cols-2 gap-[0.8vh]">
         <Card className="p-[0.7vh]">
           <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
           <div className="flex items-center justify-around pt-[1vh]">
@@ -766,7 +766,7 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- value + excess, side by side ---------- */}
-      <div className="grid grid-cols-1 gap-[0.8vh]">
+      <div className="grid grid-cols-2 gap-[0.8vh]">
       {/* ---------- stock value by section ---------- */}
       <Card className="p-[0.7vh]">
         <PanelHead icon={Database} color={C.green} title="Stock Value by Section"
