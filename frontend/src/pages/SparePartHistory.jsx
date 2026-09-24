@@ -1,14 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useStores } from "../context/StoreContext.jsx";
 import { spareStockService } from "../services/spareStockService.js";
-import { departmentService } from "../services/departmentService.js";
 import { downloadXlsx } from "../utils/excel.js";
 
-// Standalone, filterable Complete Part History (spec §15) — search or scan a
-// part, then see its full chronological ledger (with the two-stage issue detail
-// the old view dropped) plus its location-move trail. Filters: txn type,
-// department, machine (server-side) and date range (client-side).
-const TXN_TYPES = ["", "ISSUE", "RECEIPT", "RETURN", "OPENING", "ADJUSTMENT"];
+// Part Ledger rendered as the ERP "Stock Ledger (Valuation)": search/scan a part,
+// then its FULL ledger shows automatically (opening + every receipt + every issue
+// with where it went) — the only optional filter is a date range, like ERP.
 const fmt = (v) => (v == null || v === "" ? "—" : v);
 
 // ERP "Stock Ledger (Valuation)" helpers — the app ledger stores qty + running
@@ -38,11 +35,11 @@ export default function SparePartHistory() {
   const [part, setPart] = useState(null);
   const [rows, setRows] = useState([]);
   const [locs, setLocs] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [filters, setFilters] = useState({ txn_type: "", department: "", machine: "", from: "", to: "" });
+  // ERP-style: no type/department/machine filters — the full ledger shows on pick;
+  // an optional From/To date range narrows it (and adds an opening-balance row).
+  const [filters, setFilters] = useState({ from: "", to: "" });
 
   useEffect(() => {
-    departmentService.list(true).then((r) => setDepartments(r.data.data || [])).catch(() => {});
     spareStockService.list({ store_code: storeCode }).then((r) => setAllParts(r.data.data || [])).catch(() => {});
   }, [storeCode]);
 
@@ -74,12 +71,9 @@ export default function SparePartHistory() {
     await loadHistory(p.part_id);
   };
 
-  // All filters (type / department / machine / date range) apply instantly on
-  // the client — changing any control updates the table with no Apply, no Enter.
+  // Only an optional date range narrows the ledger — it applies instantly on the
+  // client, no Apply/Enter. Everything else (every type, every department) shows.
   const shown = useMemo(() => rows.filter((r) => {
-    if (filters.txn_type && r.txn_type !== filters.txn_type) return false;
-    if (filters.department && r.department !== filters.department) return false;
-    if (filters.machine && !(r.machine || "").toLowerCase().includes(filters.machine.trim().toLowerCase())) return false;
     if (r.at) {
       const d = r.at.slice(0, 10);
       if (filters.from && d < filters.from) return false;
@@ -94,35 +88,57 @@ export default function SparePartHistory() {
   // ledger — opening flows down to the latest closing.
   const ledger = useMemo(() => {
     const rate = Number(part?.unit_price) || 0;
-    return [...shown]
+    const base = {
+      group: part?.category || "—",
+      subGroup: part?.sub_category || "—",
+      itemCd: part?.part_no,
+      itemDesc: part?.part_name,
+      uom: part?.uom || "—",
+      openingRate: rate,
+      recvRate: rate,
+      issueRate: rate,
+      closingRate: rate,
+    };
+    const list = [...shown]
       .sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0))
       .map((r) => {
         const delta = Number(r.qty_delta) || 0;
         const closing = Number(r.balance_after) || 0;
         const isIn = delta >= 0;
+        // "where it went" — department / person / machine on an issue.
+        const dest = [r.department, r.issued_to].filter(Boolean).join(" / ")
+          + (r.machine ? `${(r.department || r.issued_to) ? " · " : ""}${r.machine}` : "");
         return {
+          ...base,
           id: r.id,
-          group: part?.category || "—",
-          subGroup: part?.sub_category || "—",
-          itemCd: part?.part_no,
-          itemDesc: part?.part_name,
-          uom: part?.uom || "—",
           tranDt: r.at || null,
           docNo: r.reference || r.invoice_no || r.return_no || "—",
           docType: DOC_TYPE[r.txn_type] || r.txn_type,
           tranType: isIn ? "R" : "I",
+          dest: dest || "—",
           openingQty: closing - delta,
-          openingRate: rate,
           recvQty: isIn ? delta : 0,
-          recvRate: rate,
           issueQty: isIn ? 0 : -delta,
-          issueRate: rate,
           closingStock: closing,
-          closingRate: rate,
           closingValue: closing * rate,
         };
       });
-  }, [shown, part]);
+    // ERP shows the opening balance carried into the From date as the first row,
+    // so "opening kitni thi" is always visible even when a date range hides the
+    // original opening/receipts. Balance as of From = the last balance before it.
+    if (filters.from) {
+      const before = rows.filter((r) => r.at && r.at.slice(0, 10) < filters.from);
+      if (before.length) {
+        const ob = Number([...before].sort((a, b) => new Date(b.at) - new Date(a.at))[0].balance_after) || 0;
+        list.unshift({
+          ...base, id: "opening-balance", tranDt: filters.from, docNo: "—", docType: "OB",
+          tranType: "—", dest: "—", openingQty: ob, recvQty: 0, issueQty: 0,
+          closingStock: ob, closingValue: ob * rate,
+        });
+      }
+    }
+    return list;
+  }, [shown, part, rows, filters.from]);
 
   const totals = useMemo(
     () => ledger.reduce((a, l) => ({ recv: a.recv + l.recvQty, issue: a.issue + l.issueQty }), { recv: 0, issue: 0 }),
@@ -131,10 +147,10 @@ export default function SparePartHistory() {
 
   const exportLedger = () => {
     if (!ledger.length) return;
-    const headers = ["Group", "Sub Group", "Item Cd", "Item Desc", "UOM", "Tran Dt", "Doc No", "Doc Type", "Tran Type",
+    const headers = ["Group", "Sub Group", "Item Cd", "Item Desc", "UOM", "Tran Dt", "Doc No", "Doc Type", "Tran Type", "Dept / Issued To / Machine",
       "Opening Qty", "Opening Rate", "Recv Qty", "Recv Rate", "Issue Qty", "Issue Rate", "Closing Stock", "Closing Rate", "Closing Value"];
     const body = ledger.map((l) => [
-      l.group, l.subGroup, l.itemCd, l.itemDesc, l.uom, erpDate(l.tranDt), l.docNo, l.docType, l.tranType,
+      l.group, l.subGroup, l.itemCd, l.itemDesc, l.uom, erpDate(l.tranDt), l.docNo, l.docType, l.tranType, l.dest,
       Number(l.openingQty), Number(l.openingRate), Number(l.recvQty), Number(l.recvRate),
       Number(l.issueQty), Number(l.issueRate), Number(l.closingStock), Number(l.closingRate), Number(l.closingValue),
     ]);
@@ -189,20 +205,14 @@ export default function SparePartHistory() {
               <button className="btn-secondary shrink-0" onClick={exportLedger} disabled={!ledger.length}>⬇ Export Excel</button>
             </div>
 
-            {/* filters */}
-            <div className="mb-3 flex flex-wrap gap-2">
-              <select value={filters.txn_type} onChange={(e) => setFilters((f) => ({ ...f, txn_type: e.target.value }))} className="input-field text-sm">
-                {TXN_TYPES.map((t) => <option key={t} value={t}>{t || "All types"}</option>)}
-              </select>
-              <select value={filters.department} onChange={(e) => setFilters((f) => ({ ...f, department: e.target.value }))} className="input-field text-sm">
-                <option value="">All departments</option>
-                {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
-              </select>
-              <input value={filters.machine} onChange={(e) => setFilters((f) => ({ ...f, machine: e.target.value }))} placeholder="Machine" className="input-field text-sm" />
+            {/* Optional date range only — like ERP; the full ledger shows without it. */}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">From</span>
               <input type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} className="input-field text-sm" />
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">To</span>
               <input type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} className="input-field text-sm" />
-              {(filters.txn_type || filters.department || filters.machine || filters.from || filters.to) && (
-                <button className="btn-secondary" onClick={() => setFilters({ txn_type: "", department: "", machine: "", from: "", to: "" })}>Clear</button>
+              {(filters.from || filters.to) && (
+                <button className="btn-secondary" onClick={() => setFilters({ from: "", to: "" })}>Clear</button>
               )}
             </div>
 
@@ -219,6 +229,7 @@ export default function SparePartHistory() {
                     <th className="pr-3">Doc No</th>
                     <th className="pr-3">Doc Type</th>
                     <th className="pr-3">Tran Type</th>
+                    <th className="pr-3">Dept / Issued To · Machine</th>
                     <th className="pr-3 text-right">Opening Qty</th>
                     <th className="pr-3 text-right">Opening Rate</th>
                     <th className="pr-3 text-right">Recv Qty</th>
@@ -242,6 +253,7 @@ export default function SparePartHistory() {
                       <td className="pr-3">{l.docNo}</td>
                       <td className="pr-3">{l.docType}</td>
                       <td className="pr-3">{l.tranType}</td>
+                      <td className="pr-3 text-slate-600 dark:text-slate-300">{l.dest}</td>
                       <td className="pr-3 text-right tabular-nums">{q3(l.openingQty)}</td>
                       <td className="pr-3 text-right tabular-nums">{m2(l.openingRate)}</td>
                       <td className="pr-3 text-right tabular-nums">{q3(l.recvQty)}</td>
@@ -254,13 +266,13 @@ export default function SparePartHistory() {
                     </tr>
                   ))}
                   {ledger.length === 0 && (
-                    <tr><td colSpan={18} className="py-6 text-center text-slate-400">No movements match.</td></tr>
+                    <tr><td colSpan={19} className="py-6 text-center text-slate-400">No movements yet for this part.</td></tr>
                   )}
                 </tbody>
                 {ledger.length > 0 && (
                   <tfoot>
                     <tr className="border-t-2 border-slate-200 font-semibold dark:border-navy-700">
-                      <td className="py-1 pr-3 text-right" colSpan={11}>Total</td>
+                      <td className="py-1 pr-3 text-right" colSpan={12}>Total</td>
                       <td className="pr-3 text-right tabular-nums">{q3(totals.recv)}</td>
                       <td className="pr-3"></td>
                       <td className="pr-3 text-right tabular-nums">{q3(totals.issue)}</td>
