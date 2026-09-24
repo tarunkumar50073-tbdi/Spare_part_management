@@ -661,7 +661,7 @@ export default function TvDashboard() {
       {/* ---------- KPI cards ---------- */}
       {/* Six across in one row: on a wide board each 3-col card was far wider
           than its stat, so the number sat in a corner with a big empty gap. */}
-      <div className="grid grid-cols-6 gap-[0.8vh]">
+      <div className="grid grid-cols-3 gap-[0.8vh]">
         {/* The six KPI cards are read-only. Their detail opens from the charts
             below (Total / Stock Value / Excess) or from the Live Alerts panel,
             which carries the clickable drills for Short Parts, Pending ERP and
@@ -677,7 +677,7 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- charts ---------- */}
-      <div className="grid grid-cols-2 gap-[0.8vh]">
+      <div className="grid grid-cols-1 gap-[0.8vh]">
         <Card className="p-[1.1vh]">
           <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
           <div className="flex items-center gap-[1vh]">
@@ -746,7 +746,7 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- health + dept ---------- */}
-      <div className="grid grid-cols-2 gap-[0.8vh]">
+      <div className="grid grid-cols-1 gap-[0.8vh]">
         <Card className="p-[1.1vh]">
           <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
           <div className="flex items-center justify-around pt-[1vh]">
@@ -766,7 +766,7 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- value + excess, side by side ---------- */}
-      <div className="grid grid-cols-2 gap-[0.8vh]">
+      <div className="grid grid-cols-1 gap-[0.8vh]">
       {/* ---------- stock value by section ---------- */}
       <Card className="p-[1.1vh]">
         <PanelHead icon={Database} color={C.green} title="Stock Value by Section"
@@ -869,7 +869,7 @@ export default function TvDashboard() {
       {/* ---------- ERP current stock ---------- */}
       <Card className="p-[1.1vh]">
         <PanelHead icon={Database} color={C.cyan} title="Current Stock — ERP vs Physical" action="View Details" onAction={openErpGap} />
-        <div className="grid grid-cols-4 gap-[0.8vh]">
+        <div className="grid grid-cols-2 gap-[0.8vh]">
           {[
             { label: "ERP Stock", value: fmtInt(Math.round(erpTotal)), sub: "units · from ERP", color: C.cyan },
             { label: "Physical Stock", value: fmtInt(Math.round(physTotal)), sub: "units · store count", color: C.blue },
