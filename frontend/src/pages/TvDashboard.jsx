@@ -681,7 +681,7 @@ export default function TvDashboard() {
         <Card className="p-[0.7vh]">
           <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[11vh] h-[11vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
+            <div className="w-[12.5vh] h-[12.5vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -695,7 +695,7 @@ export default function TvDashboard() {
                     })}
                   </defs>
                   <Pie data={cats.length ? cats : [{ name: "—", value: 1, color: "#e2e8f0" }]} dataKey="value" nameKey="name"
-                    innerRadius="60%" outerRadius="92%" paddingAngle={1} stroke="none" isAnimationActive={false}
+                    innerRadius="55%" outerRadius="92%" paddingAngle={1} stroke="none" isAnimationActive={false}
                     onClick={(s) => cats.length && openCat(s && (s.name ?? (s.payload && s.payload.name)))}>
                     {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} cursor={cats.length ? "pointer" : "default"} />)}
                   </Pie>
@@ -775,7 +775,7 @@ export default function TvDashboard() {
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, chart: "bySection", sectionNames: sectionName })} />
         {valueBySection.length ? (
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[11vh] h-[11vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
+            <div className="w-[12.5vh] h-[12.5vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -788,7 +788,7 @@ export default function TvDashboard() {
                       );
                     })}
                   </defs>
-                  <Pie data={valueBySection} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="92%"
+                  <Pie data={valueBySection} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="92%"
                     paddingAngle={1} stroke="none" isAnimationActive={false}
                     onClick={(s) => openValueSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {valueBySection.map((c, i) => <Cell key={i} fill={`url(#vsg-${i})`} cursor="pointer" />)}
@@ -820,7 +820,7 @@ export default function TvDashboard() {
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
         {excessSections.length ? (
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[11vh] h-[11vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
+            <div className="w-[12.5vh] h-[12.5vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -833,7 +833,7 @@ export default function TvDashboard() {
                       );
                     })}
                   </defs>
-                  <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="92%"
+                  <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="92%"
                     paddingAngle={1} stroke="none" isAnimationActive={false}
                     onClick={(s) => openExcessSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
                     {excessSections.map((c, i) => <Cell key={i} fill={`url(#exg-${i})`} cursor="pointer" />)}
@@ -1018,9 +1018,9 @@ function Stat({ label, value }) {
 function DonutHub({ value, label, size = "2.5vh" }) {
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-[0.6vh] text-center">
-      <span className="dx-radiant font-black tabular-nums leading-none tracking-tight max-w-[62%]"
+      <span className="dx-radiant font-black tabular-nums leading-none tracking-tight max-w-[56%]"
         style={{ fontSize: size, filter: "drop-shadow(0 2px 10px rgba(90,130,230,0.30))" }}>{value}</span>
-      <span className="mt-[0.15vh] max-w-[66%] truncate text-[0.6vh] font-semibold uppercase tracking-normal text-[var(--dx-t4)]">{label}</span>
+      <span className="mt-[0.15vh] max-w-[62%] truncate text-[0.6vh] font-semibold uppercase tracking-normal text-[var(--dx-t4)]">{label}</span>
     </div>
   );
 }
