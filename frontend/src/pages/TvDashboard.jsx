@@ -544,7 +544,7 @@ export default function TvDashboard() {
   const gridColor = isDay ? "#e2e8f0" : "rgba(148,163,184,0.18)";
 
   return (
-    <div className="min-h-screen w-full flex flex-col gap-[0.8vh] p-[1vh] text-[var(--dx-t2)] transition-colors duration-300" style={{ ...themeVars, background: "var(--dx-board)" }}>
+    <div className="min-h-screen w-full flex flex-col gap-[0.5vh] p-[0.7vh] text-[var(--dx-t2)] transition-colors duration-300" style={{ ...themeVars, background: "var(--dx-board)" }}>
 
       {/* ---------- header ---------- */}
       <div className="shrink-0 rounded-2xl px-[2vh] py-[0.8vh] flex items-center gap-[1.6vh] text-white overflow-hidden relative"
@@ -564,11 +564,11 @@ export default function TvDashboard() {
         </div>
 
         <div className="flex-1 text-center min-w-0">
-          <div className="text-[2.9vh] font-extrabold leading-none tracking-wide"
+          <div className="text-[2vh] font-extrabold leading-none tracking-wide whitespace-nowrap"
             style={{ backgroundImage: "linear-gradient(180deg,#ffffff 0%,#bcd6ff 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent", filter: "drop-shadow(0 2px 12px rgba(120,180,255,0.55))" }}>
             Spare Parts Store
           </div>
-          <div className="mt-[0.45vh] flex items-center justify-center gap-[1vh]">
+          <div className="mt-[0.3vh] flex items-center justify-center gap-[1vh]">
             <span className="h-px w-[3.2vh]" style={{ background: "linear-gradient(90deg,transparent,rgba(56,189,248,0.75))" }} />
             <span className="flex items-center gap-[0.7vh] text-[1.25vh] font-bold tracking-[0.42em] text-cyan-100/90">
               <span className="w-[0.9vh] h-[0.9vh] rounded-full bg-emerald-400 animate-pulse" style={{ boxShadow: "0 0 8px #34d399" }} />
@@ -678,10 +678,10 @@ export default function TvDashboard() {
 
       {/* ---------- charts ---------- */}
       <div className="grid grid-cols-1 gap-[0.8vh]">
-        <Card className="p-[1.1vh]">
+        <Card className="p-[0.7vh]">
           <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
+            <div className="w-[13vh] h-[13vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -706,7 +706,7 @@ export default function TvDashboard() {
             <div className="flex-1 space-y-[0.9vh]">
               {(cats.length ? cats : []).map((c) => (
                 <button key={c.name} onClick={() => openCat(c.name)}
-                  className="w-full flex items-center gap-[1vh] text-[1.5vh] rounded-md px-[0.5vh] py-[0.25vh] hover:bg-[var(--dx-track)] transition-colors">
+                  className="w-full flex items-center gap-[1vh] text-[1.35vh] rounded-md px-[0.5vh] py-[0.15vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
                   <span className="flex-1 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
                   <span className="dx-radiant font-bold text-[var(--dx-t1)]">{fmtInt(c.value)}</span>
@@ -718,9 +718,9 @@ export default function TvDashboard() {
           </div>
         </Card>
 
-        <Card className="p-[1.1vh]">
+        <Card className="p-[0.7vh]">
           <PanelHead icon={FileBarChart} color={C.green} title="Monthly Consumption / Issue" />
-          <div className="h-[24vh]">
+          <div className="h-[13vh]">
             {monthlyData.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={monthlyData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -747,7 +747,7 @@ export default function TvDashboard() {
 
       {/* ---------- health + dept ---------- */}
       <div className="grid grid-cols-1 gap-[0.8vh]">
-        <Card className="p-[1.1vh]">
+        <Card className="p-[0.7vh]">
           <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
           <div className="flex items-center justify-around pt-[1vh]">
             <Gauge pct={(healthy / counted) * 100} color={C.green} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
@@ -756,7 +756,7 @@ export default function TvDashboard() {
           </div>
         </Card>
 
-        <Card className="p-[1.1vh]">
+        <Card className="p-[0.7vh]">
           <PanelHead icon={FileBarChart} color={C.purple} title="Department-wise Issue (This Month)" />
           <div className="space-y-[1.1vh] pt-[0.6vh]">
             {deptData.length ? deptData.map((d) => <DeptBar key={d.name} {...d} />)
@@ -768,12 +768,12 @@ export default function TvDashboard() {
       {/* ---------- value + excess, side by side ---------- */}
       <div className="grid grid-cols-1 gap-[0.8vh]">
       {/* ---------- stock value by section ---------- */}
-      <Card className="p-[1.1vh]">
+      <Card className="p-[0.7vh]">
         <PanelHead icon={Database} color={C.green} title="Stock Value by Section"
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, chart: "bySection", sectionNames: sectionName })} />
         {valueBySection.length ? (
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
+            <div className="w-[13vh] h-[13vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -798,7 +798,7 @@ export default function TvDashboard() {
             <div className="flex-1 min-w-0 space-y-[0.5vh]">
               {valueBySection.map((c) => (
                 <button key={c.sid} onClick={() => openValueSection(c.sid)}
-                  className="w-full flex items-center gap-[1.2vh] text-[1.6vh] rounded-md px-[0.6vh] py-[0.55vh] hover:bg-[var(--dx-track)] transition-colors">
+                  className="w-full flex items-center gap-[1.2vh] text-[1.35vh] rounded-md px-[0.6vh] py-[0.25vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
                   <span className="w-[12vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
                   <span className="flex-1 h-[1.3vh] rounded-full overflow-hidden bg-[var(--dx-track)]">
@@ -812,17 +812,17 @@ export default function TvDashboard() {
             </div>
           </div>
         ) : (
-          <div className="h-[24vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No stock value yet</div>
+          <div className="h-[13vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No stock value yet</div>
         )}
       </Card>
 
       {/* ---------- excess stock value ---------- */}
-      <Card className="p-[1.1vh]">
+      <Card className="p-[0.7vh]">
         <PanelHead icon={Boxes} color={C.amber} title="Excess Stock Value"
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
         {excessSections.length ? (
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[24vh] h-[24vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
+            <div className="w-[13vh] h-[13vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -847,7 +847,7 @@ export default function TvDashboard() {
             <div className="flex-1 min-w-0 space-y-[0.5vh]">
               {excessSections.map((c) => (
                 <button key={c.sid} onClick={() => openExcessSection(c.sid)}
-                  className="w-full flex items-center gap-[1.2vh] text-[1.6vh] rounded-md px-[0.6vh] py-[0.55vh] hover:bg-[var(--dx-track)] transition-colors">
+                  className="w-full flex items-center gap-[1.2vh] text-[1.35vh] rounded-md px-[0.6vh] py-[0.25vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
                   <span className="w-[12vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
                   <span className="flex-1 h-[1.3vh] rounded-full overflow-hidden bg-[var(--dx-track)]">
@@ -861,13 +861,13 @@ export default function TvDashboard() {
             </div>
           </div>
         ) : (
-          <div className="h-[24vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No excess stock — nothing above its maximum</div>
+          <div className="h-[13vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No excess stock — nothing above its maximum</div>
         )}
       </Card>
       </div>
 
       {/* ---------- ERP current stock ---------- */}
-      <Card className="p-[1.1vh]">
+      <Card className="p-[0.7vh]">
         <PanelHead icon={Database} color={C.cyan} title="Current Stock — ERP vs Physical" action="View Details" onAction={openErpGap} />
         <div className="grid grid-cols-2 gap-[0.8vh]">
           {[
@@ -891,7 +891,7 @@ export default function TvDashboard() {
       </Card>
 
       {/* ---------- top short parts ---------- */}
-      <Card className="p-[1.1vh]">
+      <Card className="p-[0.7vh]">
         <PanelHead icon={AlertTriangle} color={C.red} title="Top Short Parts (Below Minimum)" />
         <div>
         <table className="w-full text-[1.45vh]">
@@ -926,7 +926,7 @@ export default function TvDashboard() {
       </Card>
 
       {/* ---------- recent transactions (Live Alerts now runs in the top ticker) ---------- */}
-      <Card className="p-[1.1vh]">
+      <Card className="p-[0.7vh]">
         <PanelHead icon={PackagePlus} color={C.green} title="Recent Transactions" />
         <div>
         <table className="w-full text-[1.4vh]">
