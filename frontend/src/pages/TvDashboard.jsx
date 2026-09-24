@@ -677,11 +677,11 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- charts ---------- */}
-      <div className="grid grid-cols-2 gap-[0.8vh]">
+      <div className="grid grid-cols-1 gap-[0.8vh]">
         <Card className="p-[0.7vh]">
           <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[13vh] h-[13vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
+            <div className="w-[11vh] h-[11vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -703,24 +703,27 @@ export default function TvDashboard() {
               </ResponsiveContainer>
               <DonutHub value={fmtInt(total)} label="Total Parts" size="1.9vh" />
             </div>
-            <div className="flex-1 space-y-[0.9vh]">
+            <div className="flex-1 min-w-0 grid grid-cols-2 gap-x-[2vh] gap-y-[0.35vh] content-center">
               {(cats.length ? cats : []).map((c) => (
                 <button key={c.name} onClick={() => openCat(c.name)}
                   className="w-full flex items-center gap-[1vh] text-[1.35vh] rounded-md px-[0.5vh] py-[0.15vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
-                  <span className="flex-1 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
-                  <span className="dx-radiant font-bold text-[var(--dx-t1)]">{fmtInt(c.value)}</span>
-                  <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (total || 1)) * 100)}%</span>
+                  <span className="flex-1 min-w-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
+                  <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap shrink-0">{fmtInt(c.value)}</span>
                 </button>
               ))}
-              {!cats.length && <div className="text-[1.5vh] text-[var(--dx-t4)]">No parts in this section</div>}
+              {!cats.length && <div className="col-span-2 text-[1.5vh] text-[var(--dx-t4)]">No parts in this section</div>}
             </div>
           </div>
         </Card>
 
         <Card className="p-[0.7vh]">
           <PanelHead icon={FileBarChart} color={C.green} title="Monthly Consumption / Issue" />
-          <div className="h-[13vh]">
+          <div className="flex items-center gap-[2vh] text-[1.2vh] text-[var(--dx-t2)] px-[0.6vh] pb-[0.3vh]">
+            <span className="flex items-center gap-[0.5vh]"><span className="w-[1.3vh] h-[1.3vh] rounded-sm shrink-0" style={{ background: "linear-gradient(#60a5fa,#2563eb)" }} />Issued Qty</span>
+            <span className="flex items-center gap-[0.5vh]"><span className="w-[1.8vh] h-[0.4vh] rounded-full shrink-0" style={{ background: C.green }} />Trend</span>
+          </div>
+          <div className="h-[12vh]">
             {monthlyData.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={monthlyData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -733,7 +736,6 @@ export default function TvDashboard() {
                   <XAxis dataKey="name" tick={{ fontSize: 13, fill: axisColor }} axisLine={{ stroke: gridColor }} tickLine={false} />
                   <YAxis tick={{ fontSize: 13, fill: axisColor }} axisLine={false} tickLine={false} width={40} />
                   <Tooltip />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="qty" name="Issued Qty" fill="url(#barGrad)" radius={[5, 5, 0, 0]} barSize={26} isAnimationActive={false} />
                   <Line type="monotone" dataKey="qty" name="Trend" stroke={C.green} strokeWidth={2.5} dot={{ r: 3, fill: C.green }} isAnimationActive={false} />
                 </ComposedChart>
@@ -746,7 +748,7 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- health + dept ---------- */}
-      <div className="grid grid-cols-2 gap-[0.8vh]">
+      <div className="grid grid-cols-1 gap-[0.8vh]">
         <Card className="p-[0.7vh]">
           <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
           <div className="flex items-center justify-around pt-[1vh]">
@@ -766,14 +768,14 @@ export default function TvDashboard() {
       </div>
 
       {/* ---------- value + excess, side by side ---------- */}
-      <div className="grid grid-cols-2 gap-[0.8vh]">
+      <div className="grid grid-cols-1 gap-[0.8vh]">
       {/* ---------- stock value by section ---------- */}
       <Card className="p-[0.7vh]">
         <PanelHead icon={Database} color={C.green} title="Stock Value by Section"
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, chart: "bySection", sectionNames: sectionName })} />
         {valueBySection.length ? (
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[13vh] h-[13vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
+            <div className="w-[11vh] h-[11vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -795,16 +797,16 @@ export default function TvDashboard() {
               </ResponsiveContainer>
               <DonutHub value={fmtMoney(totalStockValue)} label="Total value" size="1.5vh" />
             </div>
-            <div className="flex-1 min-w-0 space-y-[0.5vh]">
+            <div className="flex-1 min-w-0 grid grid-cols-2 gap-x-[2vh] gap-y-[0.35vh] content-center">
               {valueBySection.map((c) => (
                 <button key={c.sid} onClick={() => openValueSection(c.sid)}
-                  className="w-full flex items-center gap-[1.2vh] text-[1.35vh] rounded-md px-[0.6vh] py-[0.25vh] hover:bg-[var(--dx-track)] transition-colors">
+                  className="w-full flex items-center gap-[1vh] text-[1.35vh] rounded-md px-[0.5vh] py-[0.2vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
                   <span className="flex-1 min-w-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
                   <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap shrink-0">{fmtMoney(c.value)}</span>
                 </button>
               ))}
-              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section for its parts</div>
+              <div className="col-span-2 text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section for its parts</div>
             </div>
           </div>
         ) : (
@@ -818,7 +820,7 @@ export default function TvDashboard() {
           action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
         {excessSections.length ? (
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[13vh] h-[13vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
+            <div className="w-[11vh] h-[11vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -840,16 +842,16 @@ export default function TvDashboard() {
               </ResponsiveContainer>
               <DonutHub value={fmtMoney(excessValue)} label="Excess Value" size="1.5vh" />
             </div>
-            <div className="flex-1 min-w-0 space-y-[0.5vh]">
+            <div className="flex-1 min-w-0 grid grid-cols-2 gap-x-[2vh] gap-y-[0.35vh] content-center">
               {excessSections.map((c) => (
                 <button key={c.sid} onClick={() => openExcessSection(c.sid)}
-                  className="w-full flex items-center gap-[1.2vh] text-[1.35vh] rounded-md px-[0.6vh] py-[0.25vh] hover:bg-[var(--dx-track)] transition-colors">
+                  className="w-full flex items-center gap-[1vh] text-[1.35vh] rounded-md px-[0.5vh] py-[0.2vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
                   <span className="flex-1 min-w-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
                   <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap shrink-0">{fmtMoney(c.value)}</span>
                 </button>
               ))}
-              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section for its excess parts</div>
+              <div className="col-span-2 text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section for its excess parts</div>
             </div>
           </div>
         ) : (
