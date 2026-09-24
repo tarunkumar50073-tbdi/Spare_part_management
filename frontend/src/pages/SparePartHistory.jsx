@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useStores } from "../context/StoreContext.jsx";
 import { spareStockService } from "../services/spareStockService.js";
 import { departmentService } from "../services/departmentService.js";
+import { downloadXlsx } from "../utils/excel.js";
 
 // Standalone, filterable Complete Part History (spec §15) — search or scan a
 // part, then see its full chronological ledger (with the two-stage issue detail
@@ -9,6 +10,23 @@ import { departmentService } from "../services/departmentService.js";
 // department, machine (server-side) and date range (client-side).
 const TXN_TYPES = ["", "ISSUE", "RECEIPT", "RETURN", "OPENING", "ADJUSTMENT"];
 const fmt = (v) => (v == null || v === "" ? "—" : v);
+
+// ERP "Stock Ledger (Valuation)" helpers — the app ledger stores qty + running
+// balance per movement; rate/value use the part's single current standard rate
+// (unit_price) until ERP feeds real per-transaction rates.
+const DOC_TYPE = { OPENING: "OP", RECEIPT: "RC", ISSUE: "IS", RETURN: "RT", ADJUSTMENT: "AD" };
+const q3 = (n) => (Number(n) || 0).toFixed(3);   // quantities: 265.000
+const m2 = (n) => (Number(n) || 0).toFixed(2);   // rates / values: 11.19
+const erpDate = (v) => (v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "—");
+
+function Field({ label, value }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{value}</div>
+    </div>
+  );
+}
 
 export default function SparePartHistory() {
   const { activeCode } = useStores();
@@ -70,6 +88,59 @@ export default function SparePartHistory() {
     return true;
   }), [rows, filters]);
 
+  // ERP-style valuation ledger: one row per movement, opening/recv/issue/closing
+  // qty derived from qty_delta + the stored running balance, rate/value from the
+  // part's current standard rate. Chronological (oldest first) so it reads like a
+  // ledger — opening flows down to the latest closing.
+  const ledger = useMemo(() => {
+    const rate = Number(part?.unit_price) || 0;
+    return [...shown]
+      .sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0))
+      .map((r) => {
+        const delta = Number(r.qty_delta) || 0;
+        const closing = Number(r.balance_after) || 0;
+        const isIn = delta >= 0;
+        return {
+          id: r.id,
+          group: part?.category || "—",
+          subGroup: part?.sub_category || "—",
+          itemCd: part?.part_no,
+          itemDesc: part?.part_name,
+          uom: part?.uom || "—",
+          tranDt: r.at || null,
+          docNo: r.reference || r.invoice_no || r.return_no || "—",
+          docType: DOC_TYPE[r.txn_type] || r.txn_type,
+          tranType: isIn ? "R" : "I",
+          openingQty: closing - delta,
+          openingRate: rate,
+          recvQty: isIn ? delta : 0,
+          recvRate: rate,
+          issueQty: isIn ? 0 : -delta,
+          issueRate: rate,
+          closingStock: closing,
+          closingRate: rate,
+          closingValue: closing * rate,
+        };
+      });
+  }, [shown, part]);
+
+  const totals = useMemo(
+    () => ledger.reduce((a, l) => ({ recv: a.recv + l.recvQty, issue: a.issue + l.issueQty }), { recv: 0, issue: 0 }),
+    [ledger],
+  );
+
+  const exportLedger = () => {
+    if (!ledger.length) return;
+    const headers = ["Group", "Sub Group", "Item Cd", "Item Desc", "UOM", "Tran Dt", "Doc No", "Doc Type", "Tran Type",
+      "Opening Qty", "Opening Rate", "Recv Qty", "Recv Rate", "Issue Qty", "Issue Rate", "Closing Stock", "Closing Rate", "Closing Value"];
+    const body = ledger.map((l) => [
+      l.group, l.subGroup, l.itemCd, l.itemDesc, l.uom, erpDate(l.tranDt), l.docNo, l.docType, l.tranType,
+      Number(l.openingQty), Number(l.openingRate), Number(l.recvQty), Number(l.recvRate),
+      Number(l.issueQty), Number(l.issueRate), Number(l.closingStock), Number(l.closingRate), Number(l.closingValue),
+    ]);
+    downloadXlsx(`stock_ledger_${part.part_no}`, headers, body, "Stock Ledger");
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -104,11 +175,18 @@ export default function SparePartHistory() {
       {part && (
         <>
           <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-lg font-bold text-slate-900 dark:text-white">{part.part_no}</div>
-                <div className="text-sm text-slate-500 dark:text-slate-400">{part.part_name}</div>
+            <div className="mb-1 text-base font-bold text-slate-900 dark:text-white">Stock Ledger (Valuation — Std. Rate)</div>
+            {/* ERP-style item identity strip + Excel export */}
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-3 lg:grid-cols-6">
+                <Field label="Item Cd" value={part.part_no} />
+                <Field label="Item Desc" value={part.part_name || "—"} />
+                <Field label="UOM" value={part.uom || "—"} />
+                <Field label="Group" value={part.category || "—"} />
+                <Field label="Sub Group" value={part.sub_category || "—"} />
+                <Field label="Std Rate (₹)" value={part.unit_price != null ? m2(part.unit_price) : "—"} />
               </div>
+              <button className="btn-secondary shrink-0" onClick={exportLedger} disabled={!ledger.length}>⬇ Export Excel</button>
             </div>
 
             {/* filters */}
@@ -129,33 +207,72 @@ export default function SparePartHistory() {
             </div>
 
             <div className="overflow-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm whitespace-nowrap">
                 <thead className="text-left text-xs uppercase text-slate-400">
                   <tr>
-                    <th className="py-1">When</th><th>Type</th><th>Qty</th><th>Bal</th>
-                    <th>Dept / To</th><th>Line / Machine</th><th>Status</th><th>Ref</th><th>By</th>
+                    <th className="py-1 pr-3">Group</th>
+                    <th className="pr-3">Sub Group</th>
+                    <th className="pr-3">Item Cd</th>
+                    <th className="pr-3">Item Desc</th>
+                    <th className="pr-3">UOM</th>
+                    <th className="pr-3">Tran Dt</th>
+                    <th className="pr-3">Doc No</th>
+                    <th className="pr-3">Doc Type</th>
+                    <th className="pr-3">Tran Type</th>
+                    <th className="pr-3 text-right">Opening Qty</th>
+                    <th className="pr-3 text-right">Opening Rate</th>
+                    <th className="pr-3 text-right">Recv Qty</th>
+                    <th className="pr-3 text-right">Recv Rate</th>
+                    <th className="pr-3 text-right">Issue Qty</th>
+                    <th className="pr-3 text-right">Issue Rate</th>
+                    <th className="pr-3 text-right">Closing Stock</th>
+                    <th className="pr-3 text-right">Closing Rate</th>
+                    <th className="pr-3 text-right">Closing Value</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {shown.map((h) => (
-                    <tr key={h.id} className="border-t border-slate-100 dark:border-navy-800">
-                      <td className="py-1 tabular-nums whitespace-nowrap">{h.at ? new Date(h.at).toLocaleString("en-GB") : "—"}</td>
-                      <td>{h.txn_type}</td>
-                      <td className="tabular-nums">{h.qty_delta}</td>
-                      <td className="tabular-nums">{h.balance_after}</td>
-                      <td>{fmt(h.department)}{h.issued_to ? ` / ${h.issued_to}` : ""}</td>
-                      <td>{fmt(h.line_name)}{h.machine ? ` / ${h.machine}` : ""}</td>
-                      <td>{fmt(h.status)}</td>
-                      <td>{fmt(h.reference || h.invoice_no)}</td>
-                      <td>{fmt(h.created_by || h.confirmed_by)}</td>
+                  {ledger.map((l) => (
+                    <tr key={l.id} className="border-t border-slate-100 dark:border-navy-800">
+                      <td className="py-1 pr-3">{l.group}</td>
+                      <td className="pr-3">{l.subGroup}</td>
+                      <td className="pr-3 font-mono">{l.itemCd}</td>
+                      <td className="pr-3 text-slate-500 dark:text-slate-400">{l.itemDesc}</td>
+                      <td className="pr-3">{l.uom}</td>
+                      <td className="pr-3 tabular-nums">{erpDate(l.tranDt)}</td>
+                      <td className="pr-3">{l.docNo}</td>
+                      <td className="pr-3">{l.docType}</td>
+                      <td className="pr-3">{l.tranType}</td>
+                      <td className="pr-3 text-right tabular-nums">{q3(l.openingQty)}</td>
+                      <td className="pr-3 text-right tabular-nums">{m2(l.openingRate)}</td>
+                      <td className="pr-3 text-right tabular-nums">{q3(l.recvQty)}</td>
+                      <td className="pr-3 text-right tabular-nums">{l.recvQty ? m2(l.recvRate) : "—"}</td>
+                      <td className="pr-3 text-right tabular-nums">{q3(l.issueQty)}</td>
+                      <td className="pr-3 text-right tabular-nums">{l.issueQty ? m2(l.issueRate) : "—"}</td>
+                      <td className="pr-3 text-right tabular-nums">{q3(l.closingStock)}</td>
+                      <td className="pr-3 text-right tabular-nums">{m2(l.closingRate)}</td>
+                      <td className="pr-3 text-right font-semibold tabular-nums">{m2(l.closingValue)}</td>
                     </tr>
                   ))}
-                  {shown.length === 0 && (
-                    <tr><td colSpan={9} className="py-6 text-center text-slate-400">No movements match.</td></tr>
+                  {ledger.length === 0 && (
+                    <tr><td colSpan={18} className="py-6 text-center text-slate-400">No movements match.</td></tr>
                   )}
                 </tbody>
+                {ledger.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-200 font-semibold dark:border-navy-700">
+                      <td className="py-1 pr-3 text-right" colSpan={11}>Total</td>
+                      <td className="pr-3 text-right tabular-nums">{q3(totals.recv)}</td>
+                      <td className="pr-3"></td>
+                      <td className="pr-3 text-right tabular-nums">{q3(totals.issue)}</td>
+                      <td colSpan={4}></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
+            <p className="mt-2 text-xs text-slate-400">
+              Rate &amp; value use the part's current standard rate (₹{part.unit_price != null ? m2(part.unit_price) : "—"}/unit) for every row; real per-transaction ERP rates will apply once ERP feeds this ledger.
+            </p>
           </div>
 
           <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
