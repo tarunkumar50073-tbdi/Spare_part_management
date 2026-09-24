@@ -800,12 +800,8 @@ export default function TvDashboard() {
                 <button key={c.sid} onClick={() => openValueSection(c.sid)}
                   className="w-full flex items-center gap-[1.2vh] text-[1.35vh] rounded-md px-[0.6vh] py-[0.25vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
-                  <span className="w-[12vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
-                  <span className="flex-1 h-[1.3vh] rounded-full overflow-hidden bg-[var(--dx-track)]">
-                    <span className="block h-full rounded-full" style={{ width: `${Math.max(3, (c.value / (valueBySection[0].value || 1)) * 100)}%`, background: gradCss(c.color, 90) }} />
-                  </span>
-                  <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap w-[12vh] text-right">{fmtMoney(c.value)}</span>
-                  <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (totalStockValue || 1)) * 100)}%</span>
+                  <span className="flex-1 min-w-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
+                  <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap shrink-0">{fmtMoney(c.value)}</span>
                 </button>
               ))}
               <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section for its parts</div>
@@ -849,12 +845,8 @@ export default function TvDashboard() {
                 <button key={c.sid} onClick={() => openExcessSection(c.sid)}
                   className="w-full flex items-center gap-[1.2vh] text-[1.35vh] rounded-md px-[0.6vh] py-[0.25vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
-                  <span className="w-[12vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
-                  <span className="flex-1 h-[1.3vh] rounded-full overflow-hidden bg-[var(--dx-track)]">
-                    <span className="block h-full rounded-full" style={{ width: `${Math.max(3, (c.value / (excessSections[0].value || 1)) * 100)}%`, background: gradCss(c.color, 90) }} />
-                  </span>
-                  <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap w-[12vh] text-right">{fmtMoney(c.value)}</span>
-                  <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (excessValue || 1)) * 100)}%</span>
+                  <span className="flex-1 min-w-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
+                  <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap shrink-0">{fmtMoney(c.value)}</span>
                 </button>
               ))}
               <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section for its excess parts</div>
