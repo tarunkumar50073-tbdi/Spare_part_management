@@ -6,6 +6,7 @@ import Topbar from "../components/Topbar.jsx";
 import BackToTop from "../components/BackToTop.jsx";
 import AssistantWidget from "../components/AssistantWidget.jsx";
 import ErrorBoundary from "../components/ErrorBoundary.jsx";
+import CommandPalette from "../components/CommandPalette.jsx";
 
 const TITLES = {
   "/dashboard": "Child Parts Store",
@@ -82,6 +83,7 @@ export default function MainLayout() {
       </div>
       <BackToTop />
       <AssistantWidget />
+      <CommandPalette />
     </div>
   );
 }
