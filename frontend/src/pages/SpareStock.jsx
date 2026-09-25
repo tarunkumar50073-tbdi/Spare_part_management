@@ -1,4 +1,5 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -68,7 +69,21 @@ export default function SpareStock() {
   const canEditStock = useCan("store_stock", "edit");
   const confirm = useConfirm();
   const qc = useQueryClient();
-  const [filter, setFilter] = useState("");
+  // The status filter lives in the URL (?status=Below Minimum), so the
+  // dashboard's "Open list" buttons land here pre-filtered and the view can be
+  // bookmarked or sent to someone.
+  const [params, setParams] = useSearchParams();
+  const urlStatus = FILTERS.some((f) => f.key === params.get("status")) ? params.get("status") : "";
+  const [filter, setFilterState] = useState(urlStatus);
+  useEffect(() => { setFilterState(urlStatus); }, [urlStatus]);
+  const setFilter = (key) => {
+    setFilterState(key);
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (key) next.set("status", key); else next.delete("status");
+      return next;
+    }, { replace: true });
+  };
   const [report, setReport] = useState(null);
   // {partId} of the row being typed into, and the value typed so far.
   const [editing, setEditing] = useState(null);

@@ -13,6 +13,7 @@ export const stockKeys = {
   summary: (code, sectionId) => ["stock", "summary", code, sectionId ?? null],
   belowMin: (code, sectionId) => ["stock", "below-min", code, sectionId ?? null],
   ops: (code) => ["stock", "ops", code],
+  overview: (code, sectionId) => ["stock", "overview", code, sectionId ?? null],
   valueBySupplier: (code, sectionId) => ["stock", "value-by-supplier", code, sectionId ?? null],
   returnables: (code) => ["stock", "returnables", code],
   reorder: (code) => ["stock", "reorder", code],
@@ -40,3 +41,13 @@ export function useStockList(code, sectionId = null, { enabled = true } = {}) {
 
 /** Refresh every stock screen — call after a write this browser made. */
 export const invalidateStock = (qc) => qc.invalidateQueries({ queryKey: stockKeys.all });
+
+/** The dashboard's one-call overview (kpis, health, attention, value, ERP, data
+ *  quality) — under "stock", so a stock push refreshes it with everything else. */
+export function useStockOverview(code, sectionId = null, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: stockKeys.overview(code, sectionId),
+    queryFn: () => spareStockService.overview(code, sectionId ?? undefined).then((r) => r.data.data),
+    enabled: enabled && Boolean(code),
+  });
+}

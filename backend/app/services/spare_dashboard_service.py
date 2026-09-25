@@ -83,6 +83,9 @@ class SpareDashboardService:
                       "value": _money(v["value"]), "parts": v["parts"]}
                      for sid, v in agg["by_section"].items() if v["value"]),
                     key=lambda r: -r["value"]),
+                # Part type (sub_category) — `category` is one value for every
+                # spare, so it would chart as a single bar. Top 8 + the rest.
+                "by_type": _top_n(agg["by_type"], 8),
                 "to_restock": _money(agg["restock_value"]),
                 "excess": _money(agg["excess_value"]),
             },
@@ -109,6 +112,7 @@ class SpareDashboardService:
     def _aggregate(rows):
         by_status = {s: {"count": 0, "value": 0.0} for s in STATUS_ORDER}
         by_section = {}
+        by_type = {}
         # Per attention status, which sections hold the parts (the "where").
         where = {s: {} for s in ("Out of Stock", "Below Minimum", "Reorder", "Above Maximum", "Not Counted")}
         counted = valued = 0
@@ -126,6 +130,9 @@ class SpareDashboardService:
             sec = by_section.setdefault(r["section_id"], {"value": 0.0, "parts": 0})
             sec["parts"] += 1
             sec["value"] += sv
+            ty = by_type.setdefault((r["sub_category"] or "").strip() or "Uncategorised", {"value": 0.0, "parts": 0})
+            ty["parts"] += 1
+            ty["value"] += sv
             if st in where:
                 where[st][r["section_id"]] = where[st].get(r["section_id"], 0) + 1
             if q is not None:
@@ -166,7 +173,7 @@ class SpareDashboardService:
         # (max, min, reorder, rate, location — five per part).
         filled = n * 5 - sum(miss.values())
         return {
-            "by_status": by_status, "by_section": by_section, "where": where,
+            "by_status": by_status, "by_section": by_section, "by_type": by_type, "where": where,
             "counted": counted, "valued": valued, "qty": qty, "value": value,
             "restock_value": restock_value, "excess_value": excess_value,
             "quality": {
@@ -296,6 +303,10 @@ class SpareDashboardService:
                     store_code, section_id, date_from=month_start, date_to=today.isoformat()),
                 key=lambda d: -d["value"])[:5],
             "month_start": month_start,
+            # All-time splits behind the dashboard's three consumption donuts.
+            "by_department": self.stock.consumption_by_department(store_code, section_id),
+            "by_machine": self.stock.consumption_by_machine(store_code, section_id),
+            "by_type": self.stock.consumption_by_type(store_code, section_id),
         }
 
     def _recent(self, store_code, section_id):
@@ -351,6 +362,16 @@ class SpareDashboardService:
             "write": {**self.stock.erp_write_status(),
                       "pending": self.stock.pending_erp_count(store_code)},
         }
+
+
+def _top_n(groups, n):
+    ranked = sorted(({"name": k, "value": _money(v["value"]), "parts": v["parts"]}
+                     for k, v in groups.items() if v["value"]), key=lambda g: -g["value"])
+    head, rest = ranked[:n], ranked[n:]
+    if rest:
+        head.append({"name": f"Other ({len(rest)} types)", "value": _money(sum(g["value"] for g in rest)),
+                     "parts": sum(g["parts"] for g in rest), "other": True})
+    return head
 
 
 def _brief(r, names):

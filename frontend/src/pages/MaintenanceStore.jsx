@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { NO_ROWS, fetchStockList, stockKeys } from "../lib/stockQueries.js";
+import { useQuery } from "@tanstack/react-query";
+import { NO_ROWS, stockKeys, useStockList, useStockOverview } from "../lib/stockQueries.js";
+import { AttentionBoard, ErpStatusStrip, HealthBar, ValuePanel } from "../components/spare/OverviewPanels.jsx";
 import {
-  ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bolt, CalendarDays, ChartColumn, ChartPie, CircleCheck,
-  CircleHelp, ClipboardList, Download, Factory, FilePen, FlaskConical, Gem, HardHat, HeartPulse,
-  IndianRupee, Link2, MapPin, Package, Pencil, Printer, ReceiptText, Repeat2, Search, Settings,
-  ShoppingCart, Siren, Store, TrendingUp, TriangleAlert, Truck, Undo2, Wrench, X,
+  ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bolt, CalendarDays, ChartColumn, CircleCheck,
+  ClipboardList, Download, Factory, FilePen, Gem, HardHat, IndianRupee, Link2, MapPin, Package,
+  Pencil, Printer, ReceiptText, Repeat2, Search, Settings, Store, TrendingUp, TriangleAlert, Truck,
+  Undo2, Wrench, X,
 } from "lucide-react";
 import Glyph, { sectionIcon } from "../components/Glyph.jsx";
 import Badge from "../components/Badge.jsx";
@@ -367,76 +368,36 @@ function SparePartDetail({ part, onClose, onTrace }) {
   );
 }
 
-// Stock is fetched apart from the parts list: nothing else on this page needs
-// it, and a store with no count yet must still draw the rest of the dashboard
-// rather than fail whole. sectionId scopes all three calls to one section.
-//
-// On the shared stock cache (lib/stockQueries): the list is the same cached copy
-// Store Stock, Part Ledger and Ctrl+K read, and a server "stock" push (SSE)
-// invalidates it all, so the dashboard refreshes live after an issue / receipt
-// / count and comes back instantly from another page instead of reloading.
-//
-// First load lands all three together, as the old Promise.all did, so no
-// figure is drawn against a list that hasn't arrived; after that each keeps its
-// last value while it refreshes. A failed call reads as "none", never as a
-// crash — the rest of the dashboard still draws.
-const combineStock = ([sum, low, list]) => {
-  const settled = [sum, low, list].every((q) => q.isSuccess || q.isError);
-  return {
-    stock: settled ? sum.data ?? null : null,
-    belowMin: settled ? low.data ?? NO_ROWS : NO_ROWS,
-    stockRows: settled ? list.data ?? NO_ROWS : NO_ROWS,
-  };
-};
-
-function useSpareStock(sectionId, enabled = true) {
+// The dashboard's data, both from the shared stock cache (lib/stockQueries):
+//  - `overview`: ONE server call with everything above the fold — KPIs, the
+//    attention list (what / how serious / where / how much / what to do),
+//    health by status, value by section and type, ERP state, data quality,
+//    consumption splits and recent activity (backend SpareDashboardService);
+//  - `stockRows`: the store's (or section's) full list — the same cached copy
+//    Store Stock, Part Ledger and Ctrl+K read — for the drill lists and the
+//    cards that chart individual parts. It loads alongside, so the top of the
+//    page paints from the overview without waiting for 4,800 rows.
+// A server "stock" push invalidates both, so the page stays live.
+function useSpareDashboardData(sectionId, enabled = true) {
   const sid = sectionId ?? null;
-  return useQueries({
-    queries: [
-      {
-        queryKey: stockKeys.summary(STORE_CODE, sid),
-        queryFn: () => spareStockService.summary(STORE_CODE, sectionId).then((r) => r.data.data),
-        enabled,
-      },
-      {
-        queryKey: stockKeys.belowMin(STORE_CODE, sid),
-        queryFn: () => spareStockService.belowMinimum(STORE_CODE, 50, sectionId).then((r) => r.data.data || []),
-        enabled,
-      },
-      // The full list, for the lists behind each stock figure. The summary and
-      // the below-minimum sort stay server-side rather than being recomputed
-      // here — the status rules live in one place and this screen reads them.
-      { queryKey: stockKeys.list(STORE_CODE, sid), queryFn: () => fetchStockList(STORE_CODE, sid), enabled },
-    ],
-    combine: combineStock,
-  });
+  const ov = useStockOverview(STORE_CODE, sid, { enabled });
+  const list = useStockList(STORE_CODE, sid, { enabled });
+  return { overview: ov.data ?? null, stockRows: list.data ?? NO_ROWS };
 }
 
-// The store's operational picture: what is moving, what is stuck, what just
-// happened. Deliberately store-level and never section-scoped — a section
-// screen showing the whole store's receipts would be quoting someone else's
-// figures under its own heading. One cached bundle; each call inside still
-// falls back on its own, so one slow endpoint never blanks the others.
-function useSpareOps(enabled = true) {
-  const { data } = useQuery({
-    queryKey: stockKeys.ops(STORE_CODE),
-    enabled,
-    queryFn: () => Promise.all([
-      spareStockService.today(STORE_CODE).then((r) => r.data.data).catch(() => null),
-      spareStockService.flow(STORE_CODE).then((r) => r.data.data).catch(() => null),
-      spareStockService.pending(STORE_CODE).then((r) => r.data.data).catch(() => null),
-      spareStockService.activity(STORE_CODE, 15).then((r) => r.data.data).catch(() => []),
-      spareStockService.excess(STORE_CODE).then((r) => r.data.data).catch(() => []),
-      spareStockService.byStatus(STORE_CODE, "Not Counted").then((r) => r.data.data).catch(() => []),
-      spareStockService.analytics(STORE_CODE).then((r) => r.data.data).catch(() => null),
-      spareStockService.consumption(STORE_CODE).then((r) => r.data.data).catch(() => []),
-      spareStockService.consumption(STORE_CODE, "machine").then((r) => r.data.data).catch(() => []),
-      spareStockService.consumption(STORE_CODE, "type").then((r) => r.data.data).catch(() => []),
-      spareStockService.consumptionComparison(STORE_CODE).then((r) => r.data.data).catch(() => null),
-    ]).then(([today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption, comparison]) =>
-      ({ today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption, comparison })),
-  });
-  return data ?? null;
+// Needs Reordering: the worst 50 — empty, then below minimum, then at the
+// reorder level; within each, furthest short of the level that flags it (the
+// same order the backend's below-minimum feed used).
+const REORDER_ORDER = { "Out of Stock": 0, "Below Minimum": 1, "Reorder": 2 };
+function deriveBelowMin(rows, limit = 50) {
+  const gap = (r) => {
+    const level = r.status !== "Reorder" ? r.min_stock_level : (r.reorder_level || 0);
+    return -(level - (r.qty_on_hand || 0));
+  };
+  return rows
+    .filter((r) => r.status in REORDER_ORDER)
+    .sort((a, b) => REORDER_ORDER[a.status] - REORDER_ORDER[b.status] || gap(a) - gap(b))
+    .slice(0, limit);
 }
 
 const STOCK_STATUS_TONE = {
@@ -474,49 +435,6 @@ const BELOW_MIN_COLUMNS = [
 ];
 
 // One glyph per flow stage, in the order the service returns them.
-
-const ACTION_TONE = {
-  red: "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300",
-  amber: "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-300",
-  orange: "bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/30 text-orange-700 dark:text-orange-300",
-  blue: "bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30 text-blue-700 dark:text-blue-300",
-  violet: "bg-violet-50 dark:bg-violet-500/10 border-violet-200 dark:border-violet-500/30 text-violet-700 dark:text-violet-300",
-  slate: "bg-slate-50 dark:bg-navy-800 border-slate-200 dark:border-navy-700 text-slate-600 dark:text-slate-300",
-};
-
-// Deliberately louder than a KPI tile: this row is the one a supervisor is
-// meant to act on, so the number carries the colour rather than the card
-// carrying a chip. A zero stays coloured — "nothing below minimum" is a
-// reading worth seeing, not an absence worth greying out.
-function ActionTile({ tone, icon, label, value, hint, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-xl border px-3.5 py-3 text-left transition-all cursor-pointer
-        hover:-translate-y-0.5 hover:shadow-card ${ACTION_TONE[tone] || ACTION_TONE.slate}`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide truncate">{label}</span>
-        <Glyph icon={icon} size={15} className="shrink-0 opacity-80" />
-      </div>
-      <p className="text-2xl font-bold tabular mt-1.5 leading-none">{num(value)}</p>
-      <p className="text-[10px] opacity-75 mt-1 truncate">{hint}</p>
-    </button>
-  );
-}
-
-// A labelled severity band over the action tiles, so the eye reads
-// Critical -> Warning -> Information rather than six equally-weighted boxes.
-function TierHead({ tone, label }) {
-  const dot = { red: "bg-rose-500", amber: "bg-amber-500", slate: "bg-slate-400" }[tone] || "bg-slate-400";
-  return (
-    <div className="mb-2 flex items-center gap-2">
-      <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />
-      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</span>
-    </div>
-  );
-}
 
 // This calendar month's issued quantity with month-over-month and year-over-year
 // deltas. Direction is shown but left colour-neutral in tone — more or less
@@ -574,104 +492,6 @@ function MinMaxBar({ row }) {
         <span className="absolute inset-y-0 w-px bg-slate-600 dark:bg-slate-300"
           style={{ left: pct(max) }} title={`Max ${max}`} />
       )}
-    </div>
-  );
-}
-
-function ClearanceStat({ label, value, tone, onClick }) {
-  const tones = {
-    amber: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300",
-    green: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  };
-  const Tag = onClick && value > 0 ? "button" : "div";
-  return (
-    <Tag
-      type={onClick && value > 0 ? "button" : undefined}
-      onClick={onClick && value > 0 ? onClick : undefined}
-      className={`rounded-xl px-3 py-3 text-left ${tones[tone]}
-        ${onClick && value > 0 ? "cursor-pointer hover:-translate-y-0.5 transition-transform" : ""}`}
-    >
-      <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80">{label}</p>
-      <p className="text-2xl font-bold tabular mt-1 leading-none">{num(value)}</p>
-    </Tag>
-  );
-}
-
-// One gauge in its own card. `g.pct` of null means the metric has no
-// denominator — the ring is left blank and says why, rather than drawing a
-// confident 0%.
-// Store Analytics gauges: a half-dial with the reading in the mouth of the arc
-// and a status pill beneath it, so the colour, the number and a plain word all
-// say the same thing at a glance. The pill's word and colour come from the very
-// same good/warn/bad logic that colours the arc — never a green ring under a
-// "Critical" tag.
-const G_GREEN = "#059669";
-const G_AMBER = "#f59e0b";
-const G_ROSE = "#e11d48";
-const SEMI_LEN = Math.PI * 80; // length of a radius-80 semicircle arc
-
-// good / warn / bad from the value, its polarity and any per-gauge band edges —
-// the same ramp RadialGauge uses, kept here because these cards draw their own
-// half-arc rather than a full ring.
-function gaugeTone(pct, polarity, thresholds) {
-  if (pct == null) return { key: "none", color: "#cbd5e1" };
-  if (polarity === "higher-better") {
-    if (pct >= (thresholds?.green ?? 80)) return { key: "good", color: G_GREEN };
-    if (pct >= (thresholds?.amber ?? 50)) return { key: "warn", color: G_AMBER };
-    return { key: "bad", color: G_ROSE };
-  }
-  if (pct >= (thresholds?.red ?? 90)) return { key: "bad", color: G_ROSE };
-  if (pct >= (thresholds?.amber ?? 70)) return { key: "warn", color: G_AMBER };
-  return { key: "good", color: G_GREEN };
-}
-
-const DEFAULT_BADGE = { good: "OK", warn: "Watch", bad: "Alert" };
-
-function GaugeCard({ title, icon, g, polarity, note, empty, thresholds, badges }) {
-  const pct = g?.pct ?? null;
-  const measured = pct != null;
-  const tone = gaugeTone(measured ? pct : null, polarity, thresholds);
-  // The arc can only draw up to a full half-dial, so it clamps at 100; the
-  // number does not — 145% has to read 145%, not a reassuring 100%.
-  const arc = measured ? Math.max(0, Math.min(100, pct)) : 0;
-  const shown = measured ? Math.max(0, Math.round(pct)) : null;
-  const badge = measured ? (badges?.[tone.key] ?? DEFAULT_BADGE[tone.key]) : null;
-
-  return (
-    <div className="card !p-4 flex flex-col items-center text-center">
-      <div className="flex items-center gap-1.5 mb-1 min-w-0">
-        <Glyph icon={icon} size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />
-        <h4 className="text-[12px] font-bold tracking-wide text-slate-700 dark:text-slate-200 truncate">
-          {title}
-        </h4>
-      </div>
-
-      <div className="relative w-full max-w-[190px]" title={note || undefined}>
-        <svg viewBox="0 0 200 118" className="w-full"
-          role="img" aria-label={measured ? `${title}: ${shown}%` : `${title}: not measurable yet`}>
-          <path d="M 20 104 A 80 80 0 0 1 180 104" fill="none" strokeWidth="16" strokeLinecap="round"
-            className="stroke-slate-100 dark:stroke-navy-800" />
-          {measured && (
-            <path d="M 20 104 A 80 80 0 0 1 180 104" fill="none" stroke={tone.color}
-              strokeWidth="16" strokeLinecap="round"
-              strokeDasharray={`${(arc / 100) * SEMI_LEN} ${SEMI_LEN * 2}`}
-              className="transition-[stroke-dasharray] duration-700 ease-enterprise motion-reduce:transition-none" />
-          )}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
-          <span className="kpi-value text-[28px] leading-none">{measured ? `${shown}%` : "—"}</span>
-          {badge && (
-            <span className="mt-1 inline-block rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
-              style={{ backgroundColor: tone.color }}>
-              {badge}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <p className="text-[11px] mt-2 text-center leading-tight text-slate-500 dark:text-slate-400">
-        {measured ? g?.caption : (empty || "Nothing to measure against yet")}
-      </p>
     </div>
   );
 }
@@ -1454,9 +1274,13 @@ function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick }) {
 
 // A stock row is not a part row — it carries part_id, and the detail modal
 // needs the part itself. The parent already holds the list, so it resolves.
-function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belowMin,
-  parts = [], stockRows = [], ops = null, onTrace, reorderPlanned = true, onReorderExport,
-  sectionId }) {
+function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
+  parts = [], stockRows = [], reorderPlanned = true, onReorderExport, sectionId }) {
+  const navigate = useNavigate();
+  const kpi = overview?.kpis || null;
+  // Store-wide figures (consumption, SRVs) are never quoted on a section page.
+  const storeLevel = sectionId == null;
+  const belowMin = useMemo(() => deriveBelowMin(stockRows), [stockRows]);
   const [pendingOpen, setPendingOpen] = useState(false);
   const [pendingRows, setPendingRows] = useState([]);
 
@@ -1532,9 +1356,9 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
     return () => { cancelled = true; };
   }, [custom, qFrom, qTo]);
 
-  const deptData = rangedCons ? rangedCons.department : (ops?.consumption || []);
-  const machineData = rangedCons ? rangedCons.machine : (ops?.machineConsumption || []);
-  const typeData = rangedCons ? rangedCons.type : (ops?.typeConsumption || []);
+  const deptData = rangedCons ? rangedCons.department : (overview?.consumption?.by_department || []);
+  const machineData = rangedCons ? rangedCons.machine : (overview?.consumption?.by_machine || []);
+  const typeData = rangedCons ? rangedCons.type : (overview?.consumption?.by_type || []);
 
   // The single donut opens a full-detail drill: machine + part-type breakdowns,
   // the daily trend and the whole consumed-parts list. All of it is fetched only
@@ -1589,6 +1413,54 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
   const counted = stockRows.filter((r) => r.qty_on_hand != null);
   const byStatus = (status) => stockRows.filter((r) => r.status === status);
 
+  // Above-max parts with how far over, furthest first — the excess drill.
+  const excessRows = useMemo(() => stockRows
+    .filter((r) => r.status === "Above Maximum")
+    .map((r) => ({ ...r, excess_qty: Math.round((r.qty_on_hand - (r.max_stock_level || 0)) * 100) / 100 }))
+    .sort((a, b) => b.excess_qty - a.excess_qty), [stockRows]);
+  // Every short part (empty / below min / at reorder), worst first.
+  const shortRows = useMemo(() => deriveBelowMin(stockRows, Infinity), [stockRows]);
+
+  // One opener per stock status, shared by the health bar, the attention list
+  // and the KPI drills — so a status always opens the same list.
+  const STATUS_DRILL = {
+    "Out of Stock": ["Zero Stock", "Counted, and nothing on the shelf", "spares_zero_stock"],
+    "Below Minimum": ["Below Minimum", "In stock has fallen under the minimum", "spares_below_minimum"],
+    "Reorder": ["Reorder", "At or below the reorder level — time to order", "spares_reorder"],
+    "Healthy": ["Healthy", "Counted and inside Min / Max", "spares_healthy"],
+    "Not Counted": ["Never Counted", "No count has ever been recorded — these are not judged against Min/Max", "spares_never_counted"],
+  };
+  const openStatus = (status) => {
+    if (status === "Above Maximum") {
+      setDrill({
+        title: "Excess Parts", subtitle: "Above the maximum, furthest over first",
+        rows: excessRows, columns: EXCESS_COLUMNS, onRowClick: onStockClick, exportName: "spares_excess",
+      });
+      return;
+    }
+    const [title, sub, file] = STATUS_DRILL[status] || [status, "", "spares"];
+    setDrill(stockDrill(title, sub, byStatus(status), file));
+  };
+  const ATTENTION_STATUS = {
+    zero_stock: "Out of Stock", below_min: "Below Minimum", reorder: "Reorder",
+    excess: "Above Maximum", never_counted: "Not Counted",
+  };
+  // A line opens its parts on this page; its action button goes to the screen
+  // that fixes it (Store Stock pre-filtered to that status, Scan Part, ...).
+  const openAttention = (it) => {
+    if (ATTENTION_STATUS[it.key]) { openStatus(ATTENTION_STATUS[it.key]); return; }
+    if (it.key === "srv_pending") { setPendingOpen(true); return; }
+    if (it.action?.to) navigate(it.action.to);
+  };
+  const actAttention = (it) => {
+    if (!it.action) return;
+    navigate(it.action.status ? `${it.action.to}?status=${encodeURIComponent(it.action.status)}` : it.action.to);
+  };
+  const valueDrill = (title, subtitle, rows, file) => setDrill({
+    title, subtitle, exportName: file, onRowClick: onStockClick, columns: STOCK_VALUE_COLUMNS, valueChart: true,
+    rows: rows.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value),
+  });
+
   // Worst out-of-band first, so the six rows on screen are the six worth
   // looking at rather than whichever part numbers sort first.
   const bandRows = useMemo(() => {
@@ -1631,10 +1503,12 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
           <div>
             <h3 className="section-title">Store Status</h3>
             <p className="section-hint">
-              Movements since the {new Date(ops?.today?.since || Date.now())
+              Movements since the {new Date(kpi?.today?.since || Date.now())
                 .toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} shift start
             </p>
           </div>
+          <ErpStatusStrip erp={overview?.erp} quality={overview?.data_quality}
+            generatedAt={overview?.generated_at} onQuality={() => navigate("/parts")} />
         </div>
         {/* Four across, two rows — not eight across. At eight the card is
             ~175px, and once the chip takes its column the label truncates to
@@ -1642,15 +1516,15 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <KpiCard featured tone="blue" label="Total Spare Parts" icon={Wrench} value={stats.total}
             onClick={opener(partsDrill("Total Spare Parts", "Every active part in this list", parts, "spares_all"))} />
-          <KpiCard featured tone="navy" label="Live Stock" icon={Package} value={stock ? stock.total_qty : 0} unit="pcs"
-            hint={stock ? `${num(stock.counted_parts)} of ${num(stock.total_parts)} counted` : ""}
+          <KpiCard featured tone="navy" label="Live Stock" icon={Package} value={kpi ? kpi.total_qty : 0} unit="pcs"
+            hint={kpi ? `${num(kpi.counted_parts)} of ${num(kpi.total_parts)} counted` : ""}
             onClick={opener(stockDrill("Live Stock", "Counted parts and what is on the shelf", counted, "spare_live_stock"))} />
           <KpiCard featured tone="green" label="Stock Value" icon={IndianRupee}
-            value={compactMoney(stock?.stock_value || null)} valueTitle={money(stock?.stock_value)}
-            hint={stock?.valued_parts ? `${num(stock.valued_parts)} carry a rate` : "No rated part counted yet"}
+            value={compactMoney(kpi?.stock_value || null)} valueTitle={money(kpi?.stock_value)}
+            hint={kpi?.valued_parts ? `${num(kpi.valued_parts)} carry a rate` : "No rated part counted yet"}
             onClick={opener({
               title: "Stock Value", exportName: "spare_stock_value", onRowClick: onStockClick,
-              subtitle: `${money(stock?.stock_value)} across ${num(stock?.valued_parts)} counted parts that carry a rate`,
+              subtitle: `${money(kpi?.stock_value)} across ${num(kpi?.valued_parts)} counted parts that carry a rate`,
               rows: counted.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value),
               columns: STOCK_VALUE_COLUMNS,
               // Opens with the Live-Dashboard "Top 10 by Value" bar chart above
@@ -1662,11 +1536,11 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
               Received / Issued simply stay 0 on a section page, which has no
               store-wide ops. */}
           <KpiCard featured tone="green" label="Today Received" icon={ArrowDownToLine}
-            value={ops?.today?.received_qty ?? 0} unit="pcs"
-            hint={`${ops?.today?.received_lines ?? 0} receipt line${ops?.today?.received_lines === 1 ? "" : "s"}`} />
+            value={kpi?.today?.received_qty ?? 0} unit="pcs"
+            hint={`${kpi?.today?.received_lines ?? 0} receipt line${kpi?.today?.received_lines === 1 ? "" : "s"}`} />
           <KpiCard featured tone="red" label="Today Issued" icon={ArrowUpFromLine}
-            value={ops?.today?.issued_qty ?? 0} unit="pcs"
-            hint={`${ops?.today?.issued_lines ?? 0} issue line${ops?.today?.issued_lines === 1 ? "" : "s"}`} />
+            value={kpi?.today?.issued_qty ?? 0} unit="pcs"
+            hint={`${kpi?.today?.issued_lines ?? 0} issue line${kpi?.today?.issued_lines === 1 ? "" : "s"}`} />
         </div>
       </section>
 
@@ -1674,162 +1548,66 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
           Coverage & Spread (Parts by Rack, Master Data Completeness, Parts by
           Price), and Total Spares already sits in Store Status above. */}
 
-      {/* ---- Action Required ---- */}
-      {ops && stock && (
+      {/* ---- Action Required: what is wrong, how serious, where, how much, and
+           what to do — one server-computed list, worst first. ---- */}
+      {overview && kpi && (
         <section>
           <div className="mb-3">
             <h3 className="section-title">Action Required</h3>
             <p className="section-hint">Each opens the parts behind it</p>
           </div>
-          {/* With nothing counted, four of these five tiles cannot have a
-              value — every one of them compares a quantity against Min/Max,
-              and there is no quantity. Four zeros beside "481 never counted"
-              read as a healthy store, which is the opposite of the truth. So
-              until the first count exists, the section says the one thing
-              that is actually required. */}
-          {stock.counted_parts === 0 ? (
+          {/* With nothing counted, every line that compares a quantity against
+              Min/Max is empty by definition — four zeros beside "4,816 never
+              counted" would read as a healthy store. So until the first count
+              exists, the section says the one thing that is actually required. */}
+          {kpi.counted_parts === 0 ? (
             <div className="card border-amber-200 dark:border-amber-500/30 bg-amber-50/50 dark:bg-amber-500/[0.07]">
               <div className="flex flex-wrap items-center gap-4">
                 <ClipboardList size={30} strokeWidth={1.75} className="shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-slate-800 dark:text-white">
-                    No stock has been counted yet
-                  </p>
+                  <p className="font-semibold text-slate-800 dark:text-white">No stock has been counted yet</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                    All {num(stock.total_parts)} parts have a Min and Max, but none has a quantity to
-                    compare against them — so short, zero and excess cannot be worked out. Upload one
-                    opening-stock sheet and this section, the gauges and the whole health view fill in.
+                    None of the {num(kpi.total_parts)} parts has a quantity to compare against its Min and Max —
+                    so short, zero and excess cannot be worked out. Upload one opening-stock sheet and this
+                    section and the whole health view fill in.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setDrill(stockDrill("Never Counted",
-                    "No count has ever been recorded — these are not judged against Min/Max",
-                    ops.uncounted, "spares_never_counted"))}
-                  className="shrink-0 rounded-lg bg-toyotared text-white text-xs font-semibold px-4 py-2.5
-                    hover:opacity-90 transition-opacity"
-                >
-                  See all {num(stock.uncounted_parts)} parts
+                <button type="button" onClick={() => openStatus("Not Counted")}
+                  className="shrink-0 rounded-lg bg-toyotared text-white text-xs font-semibold px-4 py-2.5 hover:opacity-90 transition-opacity">
+                  See all {num(kpi.uncounted_parts)} parts
                 </button>
               </div>
             </div>
           ) : (
-          <div className="space-y-4">
-            <div>
-              <TierHead tone="red" label="Critical" />
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                <ActionTile tone="red" icon={Siren} label="Zero Stock" value={stock.out_of_stock}
-                  hint="Counted and found empty"
-                  onClick={() => setDrill(stockDrill("Zero Stock", "Counted, and nothing on the shelf",
-                    byStatus("Out of Stock"), "spares_zero_stock"))} />
-                <ActionTile tone="violet" icon={FilePen} label="SRV Pending" value={ops.pending?.total ?? 0}
-                  hint="Awaiting SRV or engineer clearance"
-                  onClick={() => setPendingOpen(true)} />
-              </div>
-            </div>
-            <div>
-              <TierHead tone="amber" label="Warning" />
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                <ActionTile tone="amber" icon={TriangleAlert} label="Below Minimum" value={stock.below_minimum}
-                  hint="Under the minimum — order now"
-                  onClick={() => setDrill(stockDrill("Below Minimum", "In stock has fallen under the minimum",
-                    byStatus("Below Minimum"), "spares_below_minimum"))} />
-                <ActionTile tone="orange" icon={ShoppingCart} label="Reorder" value={stock.reorder}
-                  hint="At/below reorder level"
-                  onClick={() => setDrill(stockDrill("Reorder", "At or below the reorder level — time to order",
-                    byStatus("Reorder"), "spares_reorder"))} />
-                <ActionTile tone="blue" icon={TrendingUp} label="Excess Parts" value={ops.excess.length}
-                  hint="Money tied up on the shelf"
-                  onClick={() => setDrill({
-                    title: "Excess Parts", subtitle: "Above the maximum, furthest over first",
-                    rows: ops.excess, columns: EXCESS_COLUMNS, onRowClick: onStockClick,
-                    exportName: "spares_excess",
-                  })} />
-              </div>
-            </div>
-            <div>
-              <TierHead tone="slate" label="For information" />
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                <ActionTile tone="slate" icon={CircleHelp} label="Never Counted" value={stock.uncounted_parts}
-                  hint="No stock figure at all yet"
-                  onClick={() => setDrill(stockDrill("Never Counted",
-                    "No count has ever been recorded — these are not judged against Min/Max",
-                    ops.uncounted, "spares_never_counted"))} />
-              </div>
-            </div>
-          </div>
+            <AttentionBoard items={overview.attention} onOpen={openAttention} onAction={actAttention} />
           )}
         </section>
       )}
 
-      {/* ---- Gauges: every percentage the store is judged on, in one band ---- */}
-      {ops?.analytics && (
+      {/* ---- Inventory health + value: every part once by status (a bar, not
+           four gauges), where the money is, and the Min · Current · Max band. ---- */}
+      {overview && kpi && (
         <section>
           <div className="mb-3">
-            <h3 className="section-title">Store Analytics</h3>
-            <p className="section-hint">
-              Store capacity · inventory health · reorder focus — the colour, the number and the pill all say the same thing
-            </p>
+            <h3 className="section-title">Inventory Health &amp; Value</h3>
+            <p className="section-hint">Every status and every bar opens its parts</p>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {/* Master-data coverage (ever-counted, Min-Max, Planning) isn't a
-                gauge here — a spares store counts physically only at the
-                quarterly stocktake, so those figures sit at a flat ~100% and
-                say nothing day to day. The Master Data Completeness section
-                below carries the gaps and opens the missing parts. */}
-            <GaugeCard title="Capacity Used" icon={Package} g={ops.analytics.gauges.stock_utilisation}
-              polarity="higher-worse" note="How full the store is against its max limit — over 100% means more in stock than the max says to hold"
-              badges={{ good: "OK", warn: "High", bad: "Over Limit" }} />
-            <GaugeCard title="Inventory Health" icon={HeartPulse} g={ops.analytics.gauges.inventory_health}
-              polarity="higher-better" note="Counted parts sitting inside Min/Max"
-              badges={{ good: "Healthy", warn: "Fair", bad: "Low" }} />
-            <GaugeCard title="Critical Parts" icon={Siren} g={ops.analytics.gauges.critical_parts}
-              polarity="higher-worse" note="Below minimum or empty"
-              badges={{ good: "OK", warn: "Elevated", bad: "Critical" }} />
-            {/* Tighter bands than the default 70/90: a store where a large
-                share of parts sit over their maximum is money tied up, so it
-                should read amber past 40% and red past 60%, not calm green —
-                and line up with Capacity Used rather than contradict it. */}
-            <GaugeCard title="Excess Stock" icon={TrendingUp} g={ops.analytics.gauges.excess_stock}
-              polarity="higher-worse" note="Counted parts above maximum"
-              thresholds={{ amber: 40, red: 60 }}
-              badges={{ good: "OK", warn: "Watch", bad: "High" }} />
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-            <div className="card">
-              <CardHead icon={ChartPie} tone="green" title="Inventory Status Distribution"
-                hint="Counted parts, by how they sit against Min/Max" />
-              <DonutChart
-                data={ops.analytics.status_distribution}
-                colors={{
-                  "Healthy": "#10b981", "Below Minimum": "#f59e0b", "Reorder": "#f97316",
-                  "Above Maximum": "#3b82f6", "Zero Stock": "#f43f5e",
-                }}
-                size={128}
-                centerValue={num(ops.analytics.counted_parts)}
-                centerLabel="counted parts"
-                emptyMessage="No part has been counted yet"
-                onSliceClick={(d) => setDrill(stockDrill(d.name,
-                  `Counted parts reading ${d.name.toLowerCase()}`,
-                  byStatus(d.name === "Zero Stock" ? "Out of Stock" : d.name),
-                  `spares_${d.name.toLowerCase().replace(/\s+/g, "_")}`))}
-              />
-            </div>
-
-            <div className="card">
-              <CardHead icon={IndianRupee} tone="amber" title="Stock Value Distribution"
-                hint="Where the money on the shelf is sitting" />
-              <DonutChart
-                data={ops.analytics.value_distribution}
-                colors={{ "Normal Stock": "#10b981", "Critical Stock": "#f43f5e", "Excess Stock": "#3b82f6" }}
-                size={128}
-                centerValue={compactMoney(ops.analytics.total_value || null)}
-                centerLabel="total stock value"
-                emptyMessage="No counted part carries a rate yet"
-              />
-            </div>
-
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <HealthBar health={overview.health} total={kpi.total_parts} onStatus={openStatus} />
+            <ValuePanel
+              value={overview.value}
+              onRestock={() => setDrill({
+                title: "Short parts — restock to max", exportName: "spares_short_restock",
+                subtitle: `${money(overview.value.to_restock)} to bring every empty, below-minimum and at-reorder part back to its maximum`,
+                rows: shortRows, columns: BELOW_MIN_COLUMNS, onRowClick: onStockClick,
+              })}
+              onExcess={() => openStatus("Above Maximum")}
+              onSection={(d) => valueDrill(`${d.name} — stock value`, `${money(d.value)} on the shelf in this section`,
+                stockRows.filter((r) => r.section_id === d.section_id), `spares_value_section_${d.section_id}`)}
+              onType={(d) => valueDrill(`${d.name} — stock value`, `${money(d.value)} across ${num(d.parts)} parts of this type`,
+                stockRows.filter((r) => ((r.sub_category || "").trim() || "Uncategorised") === d.name),
+                `spares_value_type_${d.name.replace(/[^\w-]+/g, "_").toLowerCase()}`)}
+            />
             {/* Min · Current · Max moved here from Inventory Health, which is
                 where the status donut already lives. The two together are the
                 whole stock picture; apart, each half repeated the other. */}
@@ -1874,37 +1652,6 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
         </section>
       )}
 
-      {/* ---- SRV / engineer clearance ---- */}
-      {ops?.pending && (
-        <section>
-          <div className="mb-3">
-            <h3 className="section-title">SRV · Engineer Clearance</h3>
-            <p className="section-hint">Material waiting on Maintenance and Tool Room</p>
-          </div>
-          {/* One card, two halves — Tool Room and Maintenance side by side, each
-              showing how many SRVs' quality clearance is pending at that end. */}
-          <div className="card">
-            <CardHead icon={FlaskConical} tone="violet" title="Pending Quality Clearance"
-              hint="SRVs waiting on the engineer's quality check after SRV making" />
-            <div className="grid grid-cols-2 gap-3">
-              <ClearanceStat label="Tool Room" value={ops.pending.tool_room.pending} tone="amber"
-                onClick={() => setPendingOpen(true)} />
-              {/* An SRV has no Maintenance clearance field yet, so this half stays
-                  honestly blank until that data exists. */}
-              <div className="rounded-xl px-3 py-3 text-left bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300">
-                <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80">Maintenance</p>
-                <p className="text-2xl font-bold tabular mt-1 leading-none">
-                  {ops.pending.maintenance?.pending != null ? num(ops.pending.maintenance.pending) : "—"}
-                </p>
-                {ops.pending.maintenance?.pending == null && (
-                  <p className="text-[10px] opacity-70 mt-1 normal-case font-normal">not tracked on the SRV yet</p>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
       {reorderPlanned && belowMin && belowMin.length > 0 && (
         <section>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1939,13 +1686,13 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
 
       {/* ---- Consumption analytics: a headline strip over four charts, all
            scoped by one range picker ---- */}
-      {ops && (
+      {overview && storeLevel && (
         <section>
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="section-title">Consumption</h3>
               <p className="text-xs font-medium text-slate-400 dark:text-slate-500">Spare Parts Store Analytics · {consRangeTitle}</p>
-              {ops.comparison && <ConsumptionCompare c={ops.comparison} />}
+              {overview.consumption?.comparison && <ConsumptionCompare c={overview.consumption.comparison} />}
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               {/* Filter purely by a calendar From–To range; clear it (X) for
@@ -2093,23 +1840,23 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
           way the Live Dashboard does it. */}
 
       {/* ---- Recent Activity: what has actually happened to stock ---- */}
-      {ops && (
+      {overview && (
         <section>
           <div className="mb-3">
             <h3 className="section-title">Recent Activity</h3>
             <p className="section-hint">Every movement recorded against this store&apos;s stock</p>
           </div>
           <div className="card">
-            {ops.activity.length === 0 ? (
+            {overview.recent_activity.length === 0 ? (
               <NotCaptured
                 what="Nothing has moved yet"
                 needs="Every opening count, receipt, issue and correction writes a ledger row and appears here with its time, part, quantity and who did it."
-                endpoint="GET /spare-stock/activity"
+                endpoint="GET /dashboard/spare/overview"
               />
             ) : (
               <Table
                 columns={ACTIVITY_COLUMNS}
-                rows={ops.activity}
+                rows={overview.recent_activity}
                 onRowClick={(r) => {
                   const row = stockRows.find((s) => s.part_id === r.part_id);
                   if (row && onStockClick) onStockClick(row);
@@ -2282,20 +2029,17 @@ const COLUMNS = [
 
 function SectionDetail({ section }) {
   const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [tracing, setTracing] = useState(null);
 
   useEffect(() => {
-    setLoading(true);
     fetchAllParts({ store_code: STORE_CODE, section_id: section.id, is_active: true })
       .then(setRows)
-      .catch(() => setRows([]))
-      .finally(() => setLoading(false));
+      .catch(() => setRows([]));
   }, [section.id]);
 
   const stats = useStoreStats(rows);
-  const { stock, belowMin, stockRows } = useSpareStock(section.id);
+  const { overview, stockRows } = useSpareDashboardData(section.id);
   // Bin Washing M/C spares are ordered as the machine needs them, not planned
   // to a min/max, so the reorder panel is noise there even though the rows
   // carry limits. Other sections plan against their maximum as usual.
@@ -2312,11 +2056,9 @@ function SectionDetail({ section }) {
           section. */}
       <SpareDashboard
         stats={stats}
-        loading={loading}
         onPartClick={setSelected}
         onStockClick={(row) => setSelected(rows.find((p) => p.id === row.part_id) || null)}
-        stock={stock}
-        belowMin={belowMin}
+        overview={overview}
         parts={rows}
         stockRows={stockRows}
         reorderPlanned={reorderPlanned}
@@ -2348,7 +2090,7 @@ export default function MaintenanceStore() {
 
   // Skipped when a section is open: this component still runs its hooks before
   // handing off to SectionDetail, and the store-wide figures would go unused.
-  const { stock, belowMin, stockRows } = useSpareStock(undefined, !sectionId);
+  const { overview, stockRows } = useSpareDashboardData(undefined, !sectionId);
   // `parts` is derived from the stock list rather than fetched separately — the
   // stock rows already carry every part field (plus on-hand / status / value),
   // so pulling the ~4,800-row part master a SECOND time on load was pure
@@ -2356,10 +2098,7 @@ export default function MaintenanceStore() {
   // drills (which resolve a part by id) keep working unchanged.
   const parts = useMemo(() => stockRows.map((r) => ({ ...r, id: r.part_id })), [stockRows]);
   const stats = useStoreStats(parts);
-  const loading = !sectionId && stock == null;
-  // Operational data is the whole store's, so it is fetched only for the store
-  // dashboard — a section screen must not show it as if it were its own.
-  const ops = useSpareOps(!sectionId);
+  const loading = !sectionId && overview == null;
   const [tracing, setTracing] = useState(null);
 
   // The reorder alert: pop it up once when the app first lands on the main
@@ -2434,14 +2173,11 @@ export default function MaintenanceStore() {
     <div className="space-y-8">
       <SpareDashboard
         stats={stats}
-        loading={loading}
         onPartClick={setSelected}
         onStockClick={(row) => setSelected(parts.find((p) => p.id === row.part_id) || null)}
-        stock={stock}
-        belowMin={belowMin}
+        overview={overview}
         parts={parts}
         stockRows={stockRows}
-        ops={ops}
         onReorderExport={downloadReorderExcel}
       />
 

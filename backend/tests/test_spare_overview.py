@@ -86,6 +86,9 @@ def test_overview_figures_for_a_section(seeded):
     assert ov["value"]["to_restock"] == 1220.0
     assert ov["value"]["excess"] == 1000.0
     assert ov["value"]["by_section"][0]["section_id"] == sec.id
+    # No sub_category on the seeded parts -> one "Uncategorised" group holding it all.
+    assert ov["value"]["by_type"] == [{"name": "Uncategorised", "value": 1540.0, "parts": 6}]
+    assert {"by_department", "by_machine", "by_type", "comparison"} <= set(ov["consumption"])
 
     assert [c["part_id"] for c in ov["critical_parts"]] == [p["A"].id, p["B"].id]
     assert ov["excess_parts"][0]["part_id"] == p["D"].id

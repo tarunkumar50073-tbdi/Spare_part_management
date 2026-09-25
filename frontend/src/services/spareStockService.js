@@ -6,6 +6,9 @@ export const spareStockService = {
   list: (params) => api.get("/spare-stock", { params }),
   // sectionId is optional — omitted for the whole store, passed by the section
   // screen so it never quotes the store's figures as its own.
+  // The dashboard in one call (see backend SpareDashboardService).
+  overview: (storeCode, sectionId) =>
+    api.get("/dashboard/spare/overview", { params: { store_code: storeCode, section_id: sectionId } }),
   summary: (storeCode, sectionId) =>
     api.get("/spare-stock/summary", { params: { store_code: storeCode, section_id: sectionId } }),
   belowMinimum: (storeCode, limit, sectionId) =>
