@@ -32,6 +32,8 @@ export const spareStockService = {
     api.get("/spare-stock/pending/list", { params: { store_code: storeCode, kind, limit } }),
   traceability: (partId) => api.get(`/spare-stock/traceability/${partId}`),
   forPart: (partId) => api.get(`/spare-stock/parts/${partId}`),
+  // Everything about one part in one call — the part drawer.
+  partOverview: (partId) => api.get(`/spare-stock/parts/${partId}/overview`),
   setQuantity: (partId, payload) => api.put(`/spare-stock/parts/${partId}`, payload),
   history: (partId, limit, filters = {}) =>
     api.get(`/spare-stock/parts/${partId}/history`, { params: { limit, ...filters } }),

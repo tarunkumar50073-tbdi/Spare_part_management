@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, CornerDownLeft, Package, Search } from "lucide-react";
 import Badge from "./Badge.jsx";
 import { useStockList } from "../lib/stockQueries.js";
+import { usePartDrawer } from "../context/PartDrawerContext.jsx";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { can } from "../utils/permissions.js";
@@ -30,6 +31,7 @@ export default function CommandPalette() {
   const navigate = useNavigate();
   const { activeCode } = useStores();
   const { user } = useAuth();
+  const { openPart } = usePartDrawer();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -93,7 +95,8 @@ export default function CommandPalette() {
   const activate = useCallback((item) => {
     if (!item) return;
     if (item.kind === "nav") navigate(item.n.to);
-    else navigate(`/parts?keyword=${encodeURIComponent(item.p.part_no)}`);
+    // A part opens the part drawer (stock, location, consumption, ERP, ledger).
+    else openPart(item.p.part_id);
     close();
   }, [navigate, close]);
 

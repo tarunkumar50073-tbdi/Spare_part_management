@@ -8,6 +8,7 @@ import AssistantWidget from "../components/AssistantWidget.jsx";
 import ErrorBoundary from "../components/ErrorBoundary.jsx";
 import CommandPalette from "../components/CommandPalette.jsx";
 import useRealtime from "../hooks/useRealtime.js";
+import { PartDrawerProvider } from "../context/PartDrawerContext.jsx";
 
 const TITLES = {
   "/dashboard": "Child Parts Store",
@@ -66,6 +67,9 @@ export default function MainLayout() {
       : TITLES[location.pathname] || "TBDI Digital Store";
 
   return (
+    // One part drawer for every screen in the shell (and Ctrl+K) — see
+    // context/PartDrawerContext.
+    <PartDrawerProvider>
     <div className="min-h-screen flex">
       <Sidebar collapsed={collapsed} onToggle={toggleSidebar} />
       <div className="flex-1 flex flex-col min-w-0">
@@ -87,5 +91,6 @@ export default function MainLayout() {
       <AssistantWidget />
       <CommandPalette />
     </div>
+    </PartDrawerProvider>
   );
 }

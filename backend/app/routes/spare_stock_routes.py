@@ -427,6 +427,14 @@ def update_location(part_id):
     return success_response(result, "Location updated")
 
 
+@bp.route("/parts/<int:part_id>/overview", methods=["GET"])
+def part_overview(part_id):
+    """Everything about one spare in one call — the part drawer."""
+    from app.services.spare_part_overview_service import SparePartOverviewService
+    _require_part_store(part_id)
+    return success_response(SparePartOverviewService().overview(part_id))
+
+
 @bp.route("/parts/<int:part_id>/location-history", methods=["GET"])
 def part_location_history(part_id):
     _require_part_store(part_id)

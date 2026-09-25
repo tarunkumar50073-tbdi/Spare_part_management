@@ -22,6 +22,7 @@ import { storeService } from "../services/storeService.js";
 import { barcodeService } from "../services/barcodeService.js";
 import { GAP_FILTERS, STATUS_RANK, fmtDay, matchesGap, splitLocation, typeOf } from "../lib/inventory.js";
 import { BulkBar, InventoryFilters, SavedViews } from "../components/spare/InventoryToolbar.jsx";
+import { usePartDrawer } from "../context/PartDrawerContext.jsx";
 
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN"));
 const money = (v) =>
@@ -75,6 +76,7 @@ export default function SpareStock() {
   const canEditStock = useCan("store_stock", "edit");
   const confirm = useConfirm();
   const qc = useQueryClient();
+  const { openPart } = usePartDrawer();
   // Every filter lives in the URL (?status=Below Minimum&section=3&type=Sensor
   // &gap=rate), so the dashboard's "Open list" buttons land here pre-filtered,
   // the browser's back button undoes a filter, and a view can be sent to someone.
@@ -449,7 +451,7 @@ export default function SpareStock() {
 
       <div className="card">
         <CardHead icon={Package} tone="navy" title="Every part in this store"
-          hint="Click an In Stock figure to count that part" />
+          hint="Click a row to open the part · click its In Stock figure to count it" />
         <div className="flex flex-wrap gap-2 mb-3">
           {FILTERS.map((f) => (
             <button
@@ -492,6 +494,7 @@ export default function SpareStock() {
           selected={selected}
           onSelectedChange={setSelected}
           rowKey={(r) => r.part_id}
+          onRowClick={(r) => openPart(r.part_id)}
           virtualize
           emptyMessage={filtersActive ? "No part matches these filters" : "No parts in this store yet"}
         />

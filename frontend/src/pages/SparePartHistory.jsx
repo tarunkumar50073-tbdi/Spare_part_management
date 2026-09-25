@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Search } from "lucide-react";
+import { Download, PanelRightOpen, Search } from "lucide-react";
+import { usePartDrawer } from "../context/PartDrawerContext.jsx";
 import { useStores } from "../context/StoreContext.jsx";
 import { spareStockService } from "../services/spareStockService.js";
 import { NO_ROWS, stockKeys, useStockList } from "../lib/stockQueries.js";
@@ -48,6 +50,16 @@ export default function SparePartHistory() {
   // The search list is the shared cached stock list (lib/stockQueries) — the
   // same copy the dashboard and Store Stock read, so it is usually already here.
   const { data: allParts = NO_ROWS } = useStockList(storeCode);
+  const { openPart } = usePartDrawer();
+  // ?part_id= (from the part drawer's "Part Ledger" button) opens straight on
+  // that part's full ledger once the list is in.
+  const [params] = useSearchParams();
+  const urlPartId = Number(params.get("part_id")) || null;
+  useEffect(() => {
+    if (!urlPartId) return;
+    const hit = allParts.find((x) => x.part_id === urlPartId);
+    if (hit) { setPicked(hit); setQuery(hit.part_no); setOpen(false); }
+  }, [urlPartId, allParts]);
   const part = useMemo(
     () => (picked ? allParts.find((p) => p.part_id === picked.part_id) || picked : null),
     [picked, allParts]);
@@ -227,7 +239,10 @@ export default function SparePartHistory() {
                 <Field label="Sub Group" value={part.sub_category || "—"} />
                 <Field label="Std Rate (₹)" value={part.unit_price != null ? m2(part.unit_price) : "—"} />
               </div>
-              <button className="btn-secondary shrink-0" onClick={exportLedger} disabled={!ledger.length}><Download size={14} aria-hidden="true" /> Export Excel</button>
+              <div className="flex shrink-0 gap-2">
+                <button className="btn-secondary" onClick={() => openPart(part.part_id)}><PanelRightOpen size={14} aria-hidden="true" /> Part details</button>
+                <button className="btn-secondary" onClick={exportLedger} disabled={!ledger.length}><Download size={14} aria-hidden="true" /> Export Excel</button>
+              </div>
             </div>
 
             {/* Optional date range + ERP-style actions (Search / Reset / Clear). */}
