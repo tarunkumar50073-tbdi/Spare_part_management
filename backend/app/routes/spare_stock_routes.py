@@ -168,6 +168,12 @@ def consumption_comparison():
     return success_response(service.consumption_comparison(_store_code(), section_id=_section()))
 
 
+@bp.route("/value-by-supplier", methods=["GET"])
+def value_by_supplier():
+    return success_response(service.stock_value_by_last_supplier(
+        _store_code(), section_id=_section(), top=request.args.get("top", default=10, type=int)))
+
+
 @bp.route("/top-consumed", methods=["GET"])
 def top_consumed():
     date_from, date_to = _date_range()

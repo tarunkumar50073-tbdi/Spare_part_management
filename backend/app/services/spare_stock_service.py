@@ -912,6 +912,78 @@ class SpareStockService:
             "year_ago": {"key": yoy_key, "value": yoy, "change_pct": pct(cur, yoy)},
         }
 
+    def stock_value_by_last_supplier(self, store_code, section_id=None, top=10):
+        """On-hand stock value attributed to each part's MOST RECENT gate-entry
+        supplier.
+
+        A spare part arrives from several vendors over time (supplier is derived
+        live from ERP gate entries, never stored on the part), so this is an
+        honest approximation — "who last supplied what we are holding now" — not
+        an exact per-supplier stock ledger; the response says so in `basis`.
+
+        Parts never seen at the gate (opening stock that predates the ERP feed)
+        are NOT ranked as if they were a supplier — they would swamp the chart —
+        but reported apart as `unattributed`, so total = attributed +
+        unattributed and nothing is silently dropped. Each ranked supplier and
+        the unattributed bucket carry `part_ids`, so the screen can drill into
+        exactly the parts behind a bar without a second request."""
+        from app.extensions import db
+        from app.models.gate_entry import GateEntry
+
+        top = max(1, min(int(top or 10), 50))
+
+        # Latest vendor per item code in ONE pass (newest first → first wins).
+        # NULL dates sort last in DESC on SQLite, so dated entries win. A gate
+        # row with no vendor on it is skipped, so an older row that names one
+        # still counts rather than the part falling to "unattributed".
+        latest = {}
+        q = (db.session.query(GateEntry.item_code, GateEntry.ven_cd, GateEntry.ven_name)
+             .filter(GateEntry.item_code.isnot(None))
+             .order_by(GateEntry.gate_entry_dt.desc(), GateEntry.id.desc()))
+        for code, ven_cd, ven_name in q:
+            k = (code or "").strip().upper()
+            ven_cd = (ven_cd or "").strip() or None
+            name = (ven_name or "").strip() or ven_cd
+            if k and name and k not in latest:
+                latest[k] = (ven_cd, name)
+
+        agg = {}
+        none = {"value": 0.0, "parts": 0, "part_ids": []}
+        for r in self.list_stock(store_code, section_id):
+            val = r.get("stock_value")
+            if not val:
+                continue
+            hit = latest.get((r.get("part_no") or "").strip().upper())
+            if hit is None:
+                none["value"] += float(val)
+                none["parts"] += 1
+                none["part_ids"].append(r["part_id"])
+                continue
+            ven_cd, name = hit
+            a = agg.setdefault(ven_cd or name, {"ven_cd": ven_cd, "name": name,
+                                                "value": 0.0, "parts": 0, "part_ids": []})
+            a["value"] += float(val)
+            a["parts"] += 1
+            a["part_ids"].append(r["part_id"])
+
+        ranked = sorted(agg.values(), key=lambda a: a["value"], reverse=True)
+        for a in ranked:
+            a["value"] = round(a["value"], 2)
+        rest = ranked[top:]
+        attributed = round(sum(a["value"] for a in ranked), 2)
+        none["value"] = round(none["value"], 2)
+        return {
+            "basis": "last gate-entry supplier",
+            "total": round(attributed + none["value"], 2),
+            "attributed": attributed,
+            "supplier_count": len(ranked),
+            "suppliers": ranked[:top],
+            "others": {"count": len(rest),
+                       "value": round(sum(a["value"] for a in rest), 2),
+                       "parts": sum(a["parts"] for a in rest)},
+            "unattributed": none,
+        }
+
     def _consumption_window(self, days=None, date_from=None, date_to=None):
         """Filter clauses scoping the ledger to a window on `created_at`. An
         explicit calendar range (`date_from`/`date_to`, ISO 'YYYY-MM-DD' from the

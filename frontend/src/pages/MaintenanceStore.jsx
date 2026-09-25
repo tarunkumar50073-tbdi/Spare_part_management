@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Printer, X } from "lucide-react";
 import Badge from "../components/Badge.jsx";
 import CardHead from "../components/CardHead.jsx";
@@ -1287,6 +1288,9 @@ function DrillDown({ drill, onClose }) {
             searchable={rows.length > 10 ? "Search this list…" : false}
             pageSize={0}
             maxHeight="68vh"
+            // A drill can be the whole store (4.8k rows) — window the long ones
+            // so opening it doesn't mount every row at once.
+            virtualize={rows.length > 300}
             exportName={drill.exportName}
             emptyMessage="Nothing in this list — the figure is zero"
           />
@@ -1340,10 +1344,136 @@ function TrendArea({ data }) {
   );
 }
 
+// On-hand value by each part's LAST gate-entry supplier. A spare arrives from
+// several vendors over time (the supplier is read live from the gate entries,
+// never stored on the part), so this credits what is on the shelf to whoever
+// brought it most recently — and says so, rather than passing an approximation
+// off as a per-supplier ledger. Opening stock that never came through the gate
+// is kept out of the ranking (it would swamp every bar) and shown beside it, so
+// the bars and the total still reconcile. A bar opens exactly its parts.
+function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick }) {
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ["value-by-supplier", STORE_CODE, sectionId ?? null],
+    queryFn: () => spareStockService.valueBySupplier(STORE_CODE, sectionId).then((r) => r.data.data),
+    staleTime: 60_000,
+  });
+
+  const drillOf = (title, subtitle, ids, exportName) => {
+    const want = new Set(ids);
+    onDrill({
+      title, subtitle, exportName, columns: STOCK_VALUE_COLUMNS, onRowClick: onStockClick, valueChart: true,
+      rows: stockRows.filter((r) => want.has(r.part_id))
+        .sort((a, b) => (b.stock_value || 0) - (a.stock_value || 0)),
+    });
+  };
+
+  const pct = (v) => (data && data.total ? Math.round((v / data.total) * 100) : 0);
+  const bars = (data?.suppliers || []).map((s) => ({
+    ...s,
+    // Two vendor codes can share a trading name; the code keeps them apart.
+    name: s.ven_cd && s.ven_cd !== s.name ? `${s.name} · ${s.ven_cd}` : s.name,
+  }));
+  const none = data?.unattributed;
+
+  return (
+    <div className="card">
+      <CardHead icon="🚚" tone="violet" title="Stock Value by Supplier"
+        hint="Credited to each part's last gate-entry supplier" />
+      {isLoading ? (
+        <div className="space-y-2.5 py-2">
+          {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-6 w-full rounded" />)}
+        </div>
+      ) : isError || !data ? (
+        <div className="text-sm text-slate-400 text-center py-6">
+          Couldn&apos;t load supplier values.{" "}
+          <button type="button" onClick={() => refetch()} className="text-toyotared font-medium hover:underline">
+            Retry
+          </button>
+        </div>
+      ) : !data.total ? (
+        <NotCaptured
+          what="No counted part carries a rate yet"
+          needs="Stock value needs a count and a unit rate; once parts have both, their value is credited here to the supplier who last brought them."
+        />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="lg:col-span-2 min-w-0">
+            <HorizontalBars
+              data={bars}
+              color="#8b5cf6"
+              valueFormat={money}
+              emptyMessage="No valued part has a gate entry yet — suppliers appear here once the ERP gate feed covers them"
+              onBarClick={(d) => drillOf(
+                d.name,
+                `${money(d.value)} on hand · the last supplier of each of these parts`,
+                d.part_ids,
+                `spares_value_${(d.ven_cd || d.name).replace(/[^\w-]+/g, "_").toLowerCase()}`,
+              )}
+            />
+            {data.others.count > 0 && (
+              <p className="text-xs text-slate-400 mt-3">
+                + {num(data.others.count)} more supplier{data.others.count === 1 ? "" : "s"} holding{" "}
+                {money(data.others.value)} across {num(data.others.parts)} parts.
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-xl bg-slate-50 dark:bg-navy-800/60 p-4 space-y-3 min-w-0 lg:self-start">
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">Total on-hand value</p>
+              <p className="text-xl font-semibold tabular text-slate-800 dark:text-white" title={money(data.total)}>
+                {compactMoney(data.total)}
+              </p>
+            </div>
+            <div className="h-2 rounded-full bg-slate-200 dark:bg-navy-700 overflow-hidden flex"
+              role="img" aria-label={`${pct(data.attributed)}% of the value has a known supplier`}>
+              <div className="h-full bg-violet-500" style={{ width: `${pct(data.attributed)}%` }} />
+            </div>
+            <ul className="space-y-2 text-xs">
+              <li className="flex items-baseline justify-between gap-2">
+                <span className="text-slate-500 dark:text-slate-400 min-w-0">
+                  <span className="inline-block w-2 h-2 rounded-full bg-violet-500 mr-1.5" />
+                  {num(data.supplier_count)} supplier{data.supplier_count === 1 ? "" : "s"}
+                </span>
+                <span className="font-semibold tabular text-slate-800 dark:text-white shrink-0">
+                  {money(data.attributed)} · {pct(data.attributed)}%
+                </span>
+              </li>
+              <li>
+                <button type="button" disabled={!none.parts}
+                  onClick={() => drillOf(
+                    "No gate entry",
+                    `${money(none.value)} on hand · never seen at the gate — opening stock or pre-ERP arrivals`,
+                    none.part_ids,
+                    "spares_value_no_gate_entry",
+                  )}
+                  className="w-full flex items-baseline justify-between gap-2 group disabled:cursor-default">
+                  <span className={`text-slate-500 dark:text-slate-400 min-w-0 text-left ${none.parts ? "group-hover:text-toyotared" : ""}`}>
+                    <span className="inline-block w-2 h-2 rounded-full bg-slate-300 dark:bg-navy-600 mr-1.5" />
+                    No gate entry · {num(none.parts)} part{none.parts === 1 ? "" : "s"}
+                  </span>
+                  <span className="font-semibold tabular text-slate-800 dark:text-white shrink-0">
+                    {money(none.value)} · {pct(none.value)}%
+                  </span>
+                </button>
+              </li>
+            </ul>
+            <p className="text-[11px] leading-snug text-slate-400">
+              A part bought from several vendors counts under the most recent one — an
+              approximation from the gate feed, not a per-supplier stock ledger.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // A stock row is not a part row — it carries part_id, and the detail modal
 // needs the part itself. The parent already holds the list, so it resolves.
 function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belowMin,
-  parts = [], stockRows = [], ops = null, onTrace, reorderPlanned = true, onReorderExport }) {
+  parts = [], stockRows = [], ops = null, onTrace, reorderPlanned = true, onReorderExport,
+  sectionId }) {
   const [pendingOpen, setPendingOpen] = useState(false);
   const [pendingRows, setPendingRows] = useState([]);
 
@@ -1891,6 +2021,15 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
 
       <section>
         <div className="mb-3">
+          <h3 className="section-title">Value by Supplier</h3>
+          <p className="section-hint">Who last supplied the stock on the shelf, from the ERP gate entries</p>
+        </div>
+        <SupplierValueCard sectionId={sectionId} stockRows={stockRows}
+          onDrill={setDrill} onStockClick={onStockClick} />
+      </section>
+
+      <section>
+        <div className="mb-3">
           <h3 className="section-title">Coverage & Spread</h3>
           <p className="section-hint">Planning, racks and rates</p>
         </div>
@@ -2198,6 +2337,7 @@ function SectionDetail({ section }) {
         parts={rows}
         stockRows={stockRows}
         reorderPlanned={reorderPlanned}
+        sectionId={section.id}
       />
 
       {/* "All Parts" table removed — the Master Data "Total Spares" card already

@@ -63,6 +63,10 @@ export const spareStockService = {
   consumptionComparison: (storeCode, sectionId) =>
     api.get("/spare-stock/consumption-comparison",
       { params: { store_code: storeCode, section_id: sectionId } }),
+  // On-hand value grouped by each part's LAST gate-entry supplier (approximation).
+  valueBySupplier: (storeCode, sectionId, top = 10) =>
+    api.get("/spare-stock/value-by-supplier",
+      { params: { store_code: storeCode, section_id: sectionId, top } }),
   topConsumed: (storeCode, limit = 5, days = 30, from, to) =>
     api.get("/spare-stock/top-consumed", { params: { store_code: storeCode, limit, days, from, to } }),
   scan: (storeCode, code) => api.get("/spare-stock/scan", { params: { store_code: storeCode, code } }),

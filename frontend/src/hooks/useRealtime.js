@@ -21,6 +21,7 @@ export default function useRealtime() {
       if (msg.event === "stock") {
         qc.invalidateQueries({ queryKey: ["spare-parts"] });
         qc.invalidateQueries({ queryKey: ["notifications"] });
+        qc.invalidateQueries({ queryKey: ["value-by-supplier"] });
       }
       // Pages that aren't on React Query yet (e.g. the dashboard) can listen for
       // this and refresh themselves.
