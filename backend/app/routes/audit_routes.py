@@ -14,6 +14,9 @@ def list_audit_logs():
         entity_type=request.args.get("entity_type"),
         action=request.args.get("action"),
         entity_id=request.args.get("entity_id", type=int),
+        q=request.args.get("q"),
+        date_from=request.args.get("date_from"),
+        date_to=request.args.get("date_to"),
     )
     page, per_page = get_pagination_params()
     items, pagination = paginate_query(query, page, per_page)

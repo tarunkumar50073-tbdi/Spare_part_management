@@ -14,5 +14,8 @@ class AuditLogService:
             old_location=old_location, new_location=new_location, quantity=quantity, remarks=remarks,
         )
 
-    def list_all(self, entity_type=None, action=None, entity_id=None):
-        return self.repo.search(entity_type=entity_type, action=action, entity_id=entity_id)
+    def list_all(self, entity_type=None, action=None, entity_id=None, q=None, date_from=None, date_to=None):
+        return self.repo.search(
+            entity_type=entity_type, action=action, entity_id=entity_id,
+            q=q, date_from=date_from, date_to=date_to,
+        )
