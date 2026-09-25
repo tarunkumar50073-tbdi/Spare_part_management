@@ -501,6 +501,18 @@ function ActionTile({ tone, emoji, label, value, hint, onClick }) {
   );
 }
 
+// A labelled severity band over the action tiles, so the eye reads
+// Critical -> Warning -> Information rather than six equally-weighted boxes.
+function TierHead({ tone, label }) {
+  const dot = { red: "bg-rose-500", amber: "bg-amber-500", slate: "bg-slate-400" }[tone] || "bg-slate-400";
+  return (
+    <div className="mb-2 flex items-center gap-2">
+      <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />
+      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</span>
+    </div>
+  );
+}
+
 // Where the current figure sits between Min and Max. The track runs to the
 // maximum (or to the current figure when it is over), so a bar that overshoots
 // its marker is over-stocked and one that stops short of it is under — legible
@@ -1540,34 +1552,49 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
               </div>
             </div>
           ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <ActionTile tone="red" emoji="🚨" label="Zero Stock" value={stock.out_of_stock}
-              hint="Counted and found empty"
-              onClick={() => setDrill(stockDrill("Zero Stock", "Counted, and nothing on the shelf",
-                byStatus("Out of Stock"), "spares_zero_stock"))} />
-            <ActionTile tone="amber" emoji="⚠️" label="Below Minimum" value={stock.below_minimum}
-              hint="Under the minimum — order now"
-              onClick={() => setDrill(stockDrill("Below Minimum", "In stock has fallen under the minimum",
-                byStatus("Below Minimum"), "spares_below_minimum"))} />
-            <ActionTile tone="orange" emoji="🛒" label="Reorder" value={stock.reorder}
-              hint="At/below reorder level"
-              onClick={() => setDrill(stockDrill("Reorder", "At or below the reorder level — time to order",
-                byStatus("Reorder"), "spares_reorder"))} />
-            <ActionTile tone="blue" emoji="📈" label="Excess Parts" value={ops.excess.length}
-              hint="Money tied up on the shelf"
-              onClick={() => setDrill({
-                title: "Excess Parts", subtitle: "Above the maximum, furthest over first",
-                rows: ops.excess, columns: EXCESS_COLUMNS, onRowClick: onStockClick,
-                exportName: "spares_excess",
-              })} />
-            <ActionTile tone="violet" emoji="📝" label="SRV Pending" value={ops.pending?.total ?? 0}
-              hint="Awaiting SRV or engineer clearance"
-              onClick={() => setPendingOpen(true)} />
-            <ActionTile tone="slate" emoji="❓" label="Never Counted" value={stock.uncounted_parts}
-              hint="No stock figure at all yet"
-              onClick={() => setDrill(stockDrill("Never Counted",
-                "No count has ever been recorded — these are not judged against Min/Max",
-                ops.uncounted, "spares_never_counted"))} />
+          <div className="space-y-4">
+            <div>
+              <TierHead tone="red" label="Critical" />
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                <ActionTile tone="red" emoji="🚨" label="Zero Stock" value={stock.out_of_stock}
+                  hint="Counted and found empty"
+                  onClick={() => setDrill(stockDrill("Zero Stock", "Counted, and nothing on the shelf",
+                    byStatus("Out of Stock"), "spares_zero_stock"))} />
+                <ActionTile tone="violet" emoji="📝" label="SRV Pending" value={ops.pending?.total ?? 0}
+                  hint="Awaiting SRV or engineer clearance"
+                  onClick={() => setPendingOpen(true)} />
+              </div>
+            </div>
+            <div>
+              <TierHead tone="amber" label="Warning" />
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                <ActionTile tone="amber" emoji="⚠️" label="Below Minimum" value={stock.below_minimum}
+                  hint="Under the minimum — order now"
+                  onClick={() => setDrill(stockDrill("Below Minimum", "In stock has fallen under the minimum",
+                    byStatus("Below Minimum"), "spares_below_minimum"))} />
+                <ActionTile tone="orange" emoji="🛒" label="Reorder" value={stock.reorder}
+                  hint="At/below reorder level"
+                  onClick={() => setDrill(stockDrill("Reorder", "At or below the reorder level — time to order",
+                    byStatus("Reorder"), "spares_reorder"))} />
+                <ActionTile tone="blue" emoji="📈" label="Excess Parts" value={ops.excess.length}
+                  hint="Money tied up on the shelf"
+                  onClick={() => setDrill({
+                    title: "Excess Parts", subtitle: "Above the maximum, furthest over first",
+                    rows: ops.excess, columns: EXCESS_COLUMNS, onRowClick: onStockClick,
+                    exportName: "spares_excess",
+                  })} />
+              </div>
+            </div>
+            <div>
+              <TierHead tone="slate" label="For information" />
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                <ActionTile tone="slate" emoji="❓" label="Never Counted" value={stock.uncounted_parts}
+                  hint="No stock figure at all yet"
+                  onClick={() => setDrill(stockDrill("Never Counted",
+                    "No count has ever been recorded — these are not judged against Min/Max",
+                    ops.uncounted, "spares_never_counted"))} />
+              </div>
+            </div>
           </div>
           )}
         </section>
