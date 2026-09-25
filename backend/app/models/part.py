@@ -93,6 +93,8 @@ class Part(BaseModel):
     __table_args__ = (
         db.CheckConstraint("part_type IN ('DOL','OTHER','TOOL_ROOM')", name="ck_part_type"),
         db.CheckConstraint(f"category IS NULL OR category IN ({','.join(repr(c) for c in CATEGORIES)})", name="ck_part_category"),
+        # Every stock list filters (store_code, is_active) and sorts by part_no.
+        db.Index("ix_parts_store_active_no", "store_code", "is_active", "part_no"),
     )
 
     def __repr__(self):

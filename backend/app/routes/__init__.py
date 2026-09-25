@@ -38,6 +38,7 @@ def register_routes(app):
     from app.routes.admin_routes import bp as admin_bp
     from app.routes.assistant_routes import bp as assistant_bp
     from app.routes.events_routes import bp as events_bp
+    from app.routes.spare_dashboard_routes import bp as spare_dashboard_bp
 
     app.register_blueprint(supplier_bp)
     app.register_blueprint(part_bp)
@@ -75,6 +76,7 @@ def register_routes(app):
     app.register_blueprint(admin_bp)
     app.register_blueprint(assistant_bp)
     app.register_blueprint(events_bp)
+    app.register_blueprint(spare_dashboard_bp)
 
     @app.route("/api/v1/health", methods=["GET"])
     def health_check():

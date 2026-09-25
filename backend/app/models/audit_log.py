@@ -26,6 +26,7 @@ class AuditLog(BaseModel):
 
     __table_args__ = (
         db.CheckConstraint(f"user IN ({','.join(repr(u) for u in AUDIT_USERS)})", name="ck_audit_user"),
+        db.Index("ix_audit_logs_created_at", "created_at"),   # newest-first paging
     )
 
     def __repr__(self):

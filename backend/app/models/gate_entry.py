@@ -26,6 +26,12 @@ class GateEntry(BaseModel):
     qty = db.Column(db.Numeric(14, 2), nullable=True)
     hsn = db.Column(db.String(30), nullable=True)
 
+    # A part's arrivals are matched case-insensitively (upper(item_code) =
+    # part_no), which the plain item_code index cannot serve.
+    __table_args__ = (
+        db.Index("ix_gate_entries_item_code_upper", db.func.upper(item_code)),
+    )
+
     def to_dict(self):
         return {
             "id": self.id, "store_code": self.store_code,

@@ -286,6 +286,22 @@ def _patch_schema():
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_txn_created ON spare_stock_ledger (txn_type, created_at)"))
         db.session.commit()
 
+    # Hot-path composites found by the query audit (the models declare the same
+    # names, so a fresh DB gets them from create_all and this is a no-op there):
+    #  - every stock list filters parts on (store_code, is_active), sorted by part_no;
+    #  - a part's ledger / last-issue lookups filter part_id and order by date;
+    #  - the audit trail pages newest-first on created_at;
+    #  - a part's gate history matches upper(item_code), which the plain
+    #    item_code index cannot serve.
+    for ddl in (
+        "CREATE INDEX IF NOT EXISTS ix_parts_store_active_no ON parts (store_code, is_active, part_no)",
+        "CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_part_created ON spare_stock_ledger (part_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_created_at ON audit_logs (created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_gate_entries_item_code_upper ON gate_entries (upper(item_code))",
+    ):
+        db.session.execute(text(ddl))
+    db.session.commit()
+
     # Admin user-management additions: a readable password copy (so the admin
     # screen can show it) and the per-module rights map. Both nullable/additive.
     user_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(users)")).fetchall()]

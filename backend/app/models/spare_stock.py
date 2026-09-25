@@ -144,6 +144,11 @@ class SpareStockLedger(BaseModel):
             f"txn_type IN ({','.join(repr(t) for t in TXN_TYPES)})",
             name="ck_spare_stock_ledger_txn_type",
         ),
+        # Time-window queries (today, trends, date ranges), ISSUE-then-date
+        # consumption scans, and a part's own history / last issue.
+        db.Index("ix_spare_stock_ledger_created_at", "created_at"),
+        db.Index("ix_spare_stock_ledger_txn_created", "txn_type", "created_at"),
+        db.Index("ix_spare_stock_ledger_part_created", "part_id", "created_at"),
     )
 
     def __repr__(self):
