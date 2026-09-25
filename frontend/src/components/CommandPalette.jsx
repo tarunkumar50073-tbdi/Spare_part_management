@@ -16,10 +16,10 @@ const NAV = [
   { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },
   { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data" },
   { label: "Suppliers", to: "/suppliers", keywords: "vendor supplier master" },
-  { label: "Reports", to: "/reports", keywords: "excel pdf export daily monthly consumption" },
-  { label: "Live Dashboard (HMI)", to: "/live-dashboard", keywords: "wallboard tv hmi big screen" },
+  { label: "Reports", to: "/reports", mod: "reports", keywords: "excel pdf export daily monthly consumption" },
+  { label: "Live Dashboard (HMI)", to: "/live-dashboard", mod: "live_dashboard", keywords: "wallboard tv hmi big screen" },
   { label: "All Services", to: "/services", keywords: "menu launcher screens" },
-  { label: "Audit Trail", to: "/audit-trail", keywords: "log who what when history" },
+  { label: "Audit Trail", to: "/audit-trail", mod: "audit_trail", keywords: "log who what when history" },
   { label: "User Management", to: "/admin", admin: true, keywords: "users roles permissions rbac" },
   { label: "Settings", to: "/settings", admin: true, keywords: "config barcode label store section" },
 ];

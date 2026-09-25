@@ -14,7 +14,7 @@ from app.schemas.srv_schema import (
 from app.utils.validators import validate_payload
 from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import success_response, paginated_response
-from app.utils.authz import machine_required
+from app.utils.authz import machine_required, permission_required
 
 bp = Blueprint("store_srvs", __name__, url_prefix="/api/v1/store")
 service = SRVService()
@@ -159,6 +159,7 @@ def put_away_pending():
 
 
 @bp.route("/srvs/<int:srv_id>/put-away/confirm", methods=["POST"])
+@permission_required("child_store", "edit")
 def put_away_confirm(srv_id):
     """Put Away — scan rack, scan part, confirm. The server (not just the
     UI) validates the scanned part matches this SRV's own part before

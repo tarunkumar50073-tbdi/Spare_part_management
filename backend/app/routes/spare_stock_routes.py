@@ -215,6 +215,7 @@ def erp_sync_pending_list():
 
 
 @bp.route("/erp-sync", methods=["POST"])
+@permission_required("store_stock", "edit")
 def erp_sync():
     return success_response(service.sync_pending_to_erp(_store_code()))
 

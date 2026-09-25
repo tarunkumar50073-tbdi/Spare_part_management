@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { settingsService } from "../services/settingsService.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useStores } from "../context/StoreContext.jsx";
 import Glyph from "../components/Glyph.jsx";
 
 // Shortcuts to the admin-manageable screens that already exist — one place to
@@ -16,7 +17,8 @@ const HUB = [
   { to: "/departments", label: "Department Emails", desc: "Reorder / low-stock mail recipients", icon: Mail },
   { to: "/report-recipients", label: "Report Recipients", desc: "Who gets the daily window-time sheet", icon: FileText },
   { to: "/parts", label: "Part Master", desc: "Min / reorder / max, rate, category", icon: Boxes },
-  { to: "/rack-bins", label: "Rack / Bin Master", desc: "Bin capacity, block / unblock", icon: Grid3x3 },
+  // Child Parts Store only — hidden while that store is switched off.
+  { to: "/rack-bins", label: "Rack / Bin Master", desc: "Bin capacity, block / unblock", icon: Grid3x3, store: "CHILD_PART" },
   { to: "/suppliers", label: "Supplier Master", desc: "Supplier list and details", icon: Factory },
 ];
 
@@ -74,6 +76,8 @@ function Row({ label, children }) {
 
 export default function Settings() {
   const { user } = useAuth();
+  const { stores: liveStores } = useStores();
+  const hub = HUB.filter((h) => !h.store || liveStores.some((s) => s.code === h.store));
   const [status, setStatus] = useState(null);
   const [visibility, setVisibility] = useState([]);
   const [label, setLabel] = useState(null);
@@ -156,7 +160,7 @@ export default function Settings() {
       <div className="card">
         <SectionHead icon={ServerCog} title="Admin & masters" hint="Open any management screen" />
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {HUB.map(({ to, label: l, desc, icon: Icon }) => (
+          {hub.map(({ to, label: l, desc, icon: Icon }) => (
             <Link key={to} to={to}
               className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3
                 hover:border-toyotared/50 hover:shadow-sm dark:border-navy-800 dark:bg-navy-900">

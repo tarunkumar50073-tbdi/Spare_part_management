@@ -30,10 +30,15 @@ PERMISSION_MODULES = [
     {"key": "scan_audit", "label": "Scan Audit"},
     {"key": "departments", "label": "Department Emails"},
     {"key": "reports", "label": "Reports"},
+    {"key": "audit_trail", "label": "Audit Trail"},
     {"key": "live_dashboard", "label": "Live Dashboard"},
     {"key": "gate_entry", "label": "Gate Entry"},
     {"key": "vehicle_in_out", "label": "Vehicle In / Out"},
     {"key": "admin", "label": "Admin — user management"},
+    # Child Parts Store write screens (put-away, holding transfer, daily count,
+    # rack alerts). The store is switched off in Spare-only mode; the right exists
+    # so those endpoints are not open to every signed-in user in the meantime.
+    {"key": "child_store", "label": "Child Parts Store — operations"},
 ]
 
 

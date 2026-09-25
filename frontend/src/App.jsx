@@ -9,6 +9,7 @@ import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { StoreProvider, storeHome, useStores } from "./context/StoreContext.jsx";
 import RequirePermission from "./components/RequirePermission.jsx";
+import StoreRoute from "./components/StoreRoute.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { ConfirmProvider } from "./components/ConfirmDialog.jsx";
 
@@ -23,6 +24,7 @@ const PutAway = React.lazy(() => import("./pages/PutAway.jsx"));
 const HoldingArea = React.lazy(() => import("./pages/HoldingArea.jsx"));
 const AuditTrail = React.lazy(() => import("./pages/AuditTrail.jsx"));
 const Reports = React.lazy(() => import("./pages/Reports.jsx"));
+const NotFound = React.lazy(() => import("./pages/NotFound.jsx"));
 const PartMaster = React.lazy(() => import("./pages/PartMaster.jsx"));
 const SpareStock = React.lazy(() => import("./pages/SpareStock.jsx"));
 const ScanPart = React.lazy(() => import("./pages/ScanPart.jsx"));
@@ -106,7 +108,7 @@ function AuthenticatedApp() {
           {/* Stores are navigated from the sidebar, so / opens whichever one is
               in scope rather than putting a chooser in the way. */}
           <Route path="/" element={<StoreHome />} />
-          <Route path="/dashboard" element={<StoreDashboard />} />
+          <Route path="/dashboard" element={<StoreRoute store="CHILD_PART"><StoreDashboard /></StoreRoute>} />
           <Route path="/store/MAINTENANCE" element={<RequirePermission mod="spare_store"><MaintenanceStore /></RequirePermission>} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/settings" element={<Settings />} />
@@ -115,19 +117,19 @@ function AuthenticatedApp() {
               it and the browser's back button behaves. */}
           <Route path="/store/MAINTENANCE/:sectionId" element={<RequirePermission mod="spare_store"><MaintenanceStore /></RequirePermission>} />
           <Route path="/gate-entry" element={<RequirePermission mod="gate_entry"><GateEntry /></RequirePermission>} />
-          <Route path="/srvs" element={<SRVWorkflow />} />
-          <Route path="/store-stock" element={<StoreStock />} />
-          <Route path="/put-away" element={<PutAway />} />
-          <Route path="/holding-area" element={<HoldingArea />} />
-          <Route path="/audit-trail" element={<AuditTrail />} />
-          <Route path="/reports" element={<Reports />} />
+          <Route path="/srvs" element={<StoreRoute store="CHILD_PART"><SRVWorkflow /></StoreRoute>} />
+          <Route path="/store-stock" element={<StoreRoute store="CHILD_PART"><StoreStock /></StoreRoute>} />
+          <Route path="/put-away" element={<StoreRoute store="CHILD_PART"><PutAway /></StoreRoute>} />
+          <Route path="/holding-area" element={<StoreRoute store="CHILD_PART"><HoldingArea /></StoreRoute>} />
+          <Route path="/audit-trail" element={<RequirePermission mod="audit_trail"><AuditTrail /></RequirePermission>} />
+          <Route path="/reports" element={<RequirePermission mod="reports"><Reports /></RequirePermission>} />
           <Route path="/parts" element={<RequirePermission mod="part_master"><PartMaster /></RequirePermission>} />
           <Route path="/departments" element={<RequirePermission mod="departments"><DepartmentMaster /></RequirePermission>} />
           <Route path="/report-recipients" element={<ReportRecipientMaster />} />
-          <Route path="/part-history" element={<PartHistory />} />
+          <Route path="/part-history" element={<StoreRoute store="CHILD_PART"><PartHistory /></StoreRoute>} />
           <Route path="/vehicle-in-out" element={<RequirePermission mod="vehicle_in_out"><VehicleInOut /></RequirePermission>} />
           <Route path="/window-time" element={<WindowTimeBoard />} />
-          <Route path="/current-stock" element={<CurrentStock />} />
+          <Route path="/current-stock" element={<StoreRoute store="CHILD_PART"><CurrentStock /></StoreRoute>} />
           {/* Distinct from Child Parts' /store-stock — this is the Spare
               Parts Store's own on-hand screen. */}
           <Route path="/store-stock-spare" element={<RequirePermission mod="store_stock"><SpareStock /></RequirePermission>} />
@@ -137,19 +139,21 @@ function AuthenticatedApp() {
           <Route path="/spare-part-history" element={<RequirePermission mod="part_ledger"><SparePartHistory /></RequirePermission>} />
           <Route path="/spare-erp-gap" element={<RequirePermission mod="erp_gap"><SpareErpGap /></RequirePermission>} />
           <Route path="/suppliers" element={<SupplierMaster />} />
-          <Route path="/stock-count" element={<StockCount />} />
-          <Route path="/rack-bins" element={<RackBinMaster />} />
-          <Route path="/live-stock" element={<LiveStock />} />
-          <Route path="/short-parts" element={<ShortParts />} />
-          <Route path="/excess-parts" element={<ExcessParts />} />
-          <Route path="/quarterly-inventory" element={<QuarterlyInventory />} />
-          <Route path="/erp-gap" element={<ERPGap />} />
-          <Route path="/erp-ledger-import" element={<ERPLedgerImport />} />
-          <Route path="/inventory-overview" element={<InventoryOverview />} />
+          <Route path="/stock-count" element={<StoreRoute store="CHILD_PART"><StockCount /></StoreRoute>} />
+          <Route path="/rack-bins" element={<StoreRoute store="CHILD_PART"><RackBinMaster /></StoreRoute>} />
+          <Route path="/live-stock" element={<StoreRoute store="CHILD_PART"><LiveStock /></StoreRoute>} />
+          <Route path="/short-parts" element={<StoreRoute store="CHILD_PART"><ShortParts /></StoreRoute>} />
+          <Route path="/excess-parts" element={<StoreRoute store="CHILD_PART"><ExcessParts /></StoreRoute>} />
+          <Route path="/quarterly-inventory" element={<StoreRoute store="CHILD_PART"><QuarterlyInventory /></StoreRoute>} />
+          <Route path="/erp-gap" element={<StoreRoute store="CHILD_PART"><ERPGap /></StoreRoute>} />
+          <Route path="/erp-ledger-import" element={<StoreRoute store="CHILD_PART"><ERPLedgerImport /></StoreRoute>} />
+          <Route path="/inventory-overview" element={<StoreRoute store="CHILD_PART"><InventoryOverview /></StoreRoute>} />
           <Route path="/supplier-vehicles" element={<SupplierVehicleManagement />} />
           {/* Window Schedule was merged into Supplier Vehicle Management —
               redirect so existing links/bookmarks keep working. */}
           <Route path="/supplier-window-schedule" element={<Navigate to="/supplier-vehicles" replace />} />
+          {/* Anything else: say so, instead of an empty page inside the layout. */}
+          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
       </Suspense>

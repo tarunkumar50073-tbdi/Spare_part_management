@@ -7,6 +7,7 @@ from app.schemas.stock_count_schema import StockCountSubmitSchema
 from app.utils.validators import validate_payload
 from app.utils.exceptions import BadRequestError
 from app.utils.response import success_response
+from app.utils.authz import permission_required
 
 bp = Blueprint("stock_count", __name__, url_prefix="/api/v1/stock-count")
 service = StockCountService()
@@ -28,6 +29,7 @@ def get_sheet():
 
 
 @bp.route("/submit", methods=["POST"])
+@permission_required("child_store", "edit")
 def submit():
     data = validate_payload(StockCountSubmitSchema(), request.get_json(force=True) or {})
     count = service.submit(data["count_date"], data["entries"])
@@ -49,6 +51,7 @@ def export_sheet():
 
 
 @bp.route("/import", methods=["POST"])
+@permission_required("child_store", "edit")
 def import_counts():
     count_date = _parse_date_param() or date.today()
     file = request.files.get("file")

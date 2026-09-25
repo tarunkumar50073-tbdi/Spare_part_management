@@ -73,7 +73,7 @@ SERVICES = [
 
     # --- Reports ---
     {"key": "reports", "title": "Reports", "route": "/reports",
-     "category": "Reports", "icon": "📑",
+     "category": "Reports", "icon": "📑", "mod": "reports",
      "keywords": ["report", "export", "excel", "download", "print"]},
 
     # --- System (admin) ---

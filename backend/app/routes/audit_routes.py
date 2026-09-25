@@ -3,12 +3,14 @@ from flask import Blueprint, request
 from app.services.audit_log_service import AuditLogService
 from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import paginated_response
+from app.utils.authz import permission_required
 
 bp = Blueprint("audit_logs", __name__, url_prefix="/api/v1/audit-logs")
 service = AuditLogService()
 
 
 @bp.route("", methods=["GET"])
+@permission_required("audit_trail", "view")
 def list_audit_logs():
     query = service.list_all(
         entity_type=request.args.get("entity_type"),

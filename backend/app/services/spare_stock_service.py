@@ -9,6 +9,9 @@ import threading
 import time
 from datetime import datetime, timedelta
 
+from sqlalchemy import event
+from sqlalchemy.orm import Session as OrmSession
+
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.part import Part
@@ -39,6 +42,18 @@ REQUIRED_FIELDS = ["part_no", "qty_on_hand"]
 # once; the TTL only bounds staleness if a write path ever bypasses _write.
 _STOCK_CACHE = {}
 _STOCK_CACHE_TTL = 5.0
+
+
+def _clear_after_commit(session):
+    """A stock write clears the cache at once AND again once its transaction
+    commits: between the two, a concurrent read can rebuild the list from the
+    not-yet-committed (old) rows and cache them for 5 s — this second clear
+    drops that stale copy."""
+    if session.info.pop("spare_stock_dirty", False):
+        _STOCK_CACHE.clear()
+
+
+event.listen(OrmSession, "after_commit", _clear_after_commit)
 
 
 def invalidate_stock_cache():
@@ -111,8 +126,10 @@ class SpareStockService:
                 returnable=returnable, return_of_id=return_of_id,
                 **(extra or {}),
             )
-        # Stock just changed — drop the cached lists so the next read is fresh.
+        # Stock just changed — drop the cached lists so the next read is fresh,
+        # and flag the session so they are dropped again after the commit.
         _STOCK_CACHE.clear()
+        db.session.info["spare_stock_dirty"] = True
         return row, delta
 
     def set_quantity(self, part_id, qty, txn_type="ADJUSTMENT", reference=None,

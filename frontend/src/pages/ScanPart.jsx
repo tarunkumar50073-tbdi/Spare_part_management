@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { ArrowDownToLine, ArrowUpFromLine, CircleCheck, MapPin, Search, TriangleAlert, Undo2 } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, CircleCheck, MapPin, Search, TriangleAlert, Undo2, XCircle } from "lucide-react";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import ScanPanel from "../components/ScanPanel.jsx";
@@ -67,7 +67,10 @@ export default function ScanPart() {
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); clearInterval(id); };
   }, []);
 
-  const reset = () => { setPart(null); setForm({}); setPending([]); setMode("LOOKUP"); };
+  // A scan that resolves to nothing: shown in place of the part card, so a
+  // failed read can never leave the PREVIOUS part on screen to be issued.
+  const [scanError, setScanError] = useState(null);   // { code, message }
+  const reset = () => { setPart(null); setForm({}); setPending([]); setMode("LOOKUP"); setScanError(null); };
 
   // Scan-first: a scan just resolves the part and shows its details; the user
   // then picks what to do with it. So every scan enters neutral LOOKUP.
@@ -83,12 +86,19 @@ export default function ScanPart() {
       // A newer scan started while this resolve was in flight — drop the stale
       // result instead of resurrecting the old part.
       if (reqSeqRef.current !== seq) return;
+      setScanError(null);
       setPart(res.data.data);
       setMode("LOOKUP");
       setForm({});
       setPending([]);
-    } catch {
-      /* interceptor toasts the message (unknown/inactive/no-access) */
+    } catch (err) {
+      // The interceptor also toasts it; this keeps the answer on screen.
+      if (reqSeqRef.current !== seq) return;
+      setPart(null);
+      setForm({});
+      setPending([]);
+      setMode("LOOKUP");
+      setScanError({ code, message: err?.response?.data?.message || "No part in this store for that code" });
     } finally {
       setBusy(false);
       resolvingRef.current = false;
@@ -237,7 +247,18 @@ export default function ScanPart() {
       {/* One scan box for everything — scan a part, then choose what to do with
           it. No mode is picked first; the actions appear on the resolved part. */}
       <ScanPanel onCode={handleCode} busy={busy}
-        hint="Scan or enter Part No., then Enter — issue, receive, return… appear next" />
+        hint="Scan the part’s barcode — issue, receive, return… appear next" />
+
+      {scanError && !part && (
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-rose-300 bg-rose-50 p-4 dark:border-rose-500/40 dark:bg-rose-500/10">
+          <XCircle size={28} className="shrink-0 text-rose-600 dark:text-rose-400" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="text-base font-bold text-rose-800 dark:text-rose-200">Not found — <span className="font-mono">{scanError.code}</span></p>
+            <p className="text-sm text-rose-700 dark:text-rose-300">{scanError.message}</p>
+            <p className="mt-1 text-xs text-rose-600/80 dark:text-rose-300/80">Nothing was selected. Check the label and scan again.</p>
+          </div>
+        </div>
+      )}
 
       {part && (
         <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">

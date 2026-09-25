@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, BarChart, Bar, Line, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
+  XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
 } from "recharts";
 import {
   Box, Database, AlertTriangle, Boxes, ClipboardList, ShoppingCart,
@@ -25,6 +25,13 @@ const REFRESH_MS = 120000;
 // Live on top of the poll: re-run `fn` when the server pushes a stock change
 // (SSE → `dx:realtime`, see hooks/useRealtime), debounced so a burst of
 // movements costs one refetch. Returns the cleanup.
+// Local calendar dates (the plant's day), not UTC — toISOString() would roll
+// the month back for the first 5½ hours of the 1st in IST.
+const localISO = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const todayISO = () => localISO(new Date());
+const monthStartISO = () => { const d = new Date(); return localISO(new Date(d.getFullYear(), d.getMonth(), 1)); };
+
 function onStockPush(fn) {
   let t;
   const handler = (e) => {
@@ -302,7 +309,9 @@ export default function TvDashboard() {
         g(spareStockService.today("MAINTENANCE", sec)),
         g(spareStockService.list({ store_code: "MAINTENANCE", section_id: sec })),
         g(spareStockService.consumptionByPeriod("MAINTENANCE", "month", sec)),
-        g(spareStockService.consumption("MAINTENANCE", "department", sec)),
+        // Labelled "This Month" on the board, so ask for exactly this month —
+        // the bare call returns all-time totals under a monthly heading.
+        g(spareStockService.consumption("MAINTENANCE", "department", sec, undefined, monthStartISO(), todayISO())),
       ]);
       if (!alive) return;
       setData((d) => ({ ...d, sum, ana, today, list: Array.isArray(list) ? list : [], monthly: monthly || [], dept: dept || [] }));
@@ -454,7 +463,6 @@ export default function TvDashboard() {
   const erpGapCount = (P.erpSum?.short || 0) + (P.erpSum?.excess || 0);
   const erpSyncedAt = erpRows.find((r) => r.erp_synced_at)?.erp_synced_at;
 
-  const activeSection = sections.find((s) => s.id === sectionId);
   const nameOf = (id) => (id === ALL_SECTIONS ? "All Sections" : (sections.find((s) => s.id === id)?.name || "—"));
   const activeName = nameOf(sectionId);
   // The section list drops from a fixed layer (the header clips overflow), so it
@@ -688,7 +696,7 @@ export default function TvDashboard() {
             Today's Issue. */}
         <Kpi icon={Box} title="Total Parts" value={fmtInt(total)} trend={P.today?.received_lines ? `+${P.today.received_lines}` : null}
           sub="Active parts in store" color={C.blue} />
-        <Kpi icon={Database} title="Stock Value" value={fmtMoney(P.sum?.stock_value)} sub="As per ERP (Live)" color={C.green} />
+        <Kpi icon={Database} title="Stock Value" value={fmtMoney(P.sum?.stock_value)} sub="Physical qty × std rate" color={C.green} />
         <Kpi icon={AlertTriangle} title="Short Parts" value={fmtInt(short)} sub="Below minimum stock" color={C.red} />
         <Kpi icon={Boxes} title="Excess Parts" value={fmtInt(excess)} sub={`${fmtMoney(excessValue)} over max`} color={C.amber} />
         <Kpi icon={ClipboardList} title="Pending ERP" value={fmtInt(P.erpPend?.pending ?? 0)} sub="Movements pending in ERP" color={C.purple} />

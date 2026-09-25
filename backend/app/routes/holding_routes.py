@@ -4,6 +4,7 @@ from app.services.holding_service import HoldingService
 from app.schemas.holding_schema import TransferSchema
 from app.utils.validators import validate_payload
 from app.utils.response import success_response
+from app.utils.authz import permission_required
 
 bp = Blueprint("holding", __name__, url_prefix="/api/v1/holding")
 service = HoldingService()
@@ -17,6 +18,7 @@ def list_holding():
 
 
 @bp.route("/<int:holding_entry_id>/transfer", methods=["POST"])
+@permission_required("child_store", "edit")
 def transfer(holding_entry_id):
     data = validate_payload(TransferSchema(), request.get_json(force=True) or {})
     entry = service.transfer_to_rack(

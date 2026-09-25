@@ -25,6 +25,21 @@ const MAP = {
   "Normal": "badge-success",
   "OutOfStock": "badge-danger",
   "Healthy": "badge-success",
+  // Spare stock statuses (spare_stock_service._row_dict) — the same severity
+  // order as the dashboard: out > below min > reorder > above max.
+  "Out of Stock": "badge-danger",
+  "Below Minimum": "badge-danger",
+  "Reorder": "badge-warning",
+  "Above Maximum": "badge-info",
+  "Not Counted": "badge-neutral",
+  // Two-stage issue lifecycle (spare_stock_ledger.status)
+  "PENDING_USER_CONFIRMATION": "badge-warning",
+  "ISSUED_BY_STORE": "badge-info",
+  "INSTALLED": "badge-success",
+  "PARTIALLY_USED": "badge-success",
+  "RETURNED": "badge-neutral",
+  "PARTIALLY_RETURNED": "badge-neutral",
+  "CANCELLED": "badge-neutral",
   "Unknown": "badge-neutral",
   "Dead Stock": "badge-neutral",
   // Supplier Vehicle Management arrival statuses, in order of severity.

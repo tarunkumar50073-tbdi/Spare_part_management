@@ -9,6 +9,7 @@ import { partService } from "../services/partService.js";
 import { storeDashboardService } from "../services/storeDashboardService.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { can } from "../utils/permissions.js";
 
 // The coming multi-plant switch. Today the app serves one plant, so Plant 1 is
 // the live data and Plant 2 is a disabled placeholder. When the second site's
@@ -376,6 +377,7 @@ export default function Topbar({ title, showSearch = true }) {
               </div>
             )}
           </div>
+          {can(user, "reports") && (
           <Link
             to="/reports"
             className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-[#ff2a3c] to-toyotared px-2.5 py-1.5 text-xs font-semibold
@@ -384,6 +386,7 @@ export default function Topbar({ title, showSearch = true }) {
           >
             <FileDown size={14} /> <span className="hidden lg:inline">Report</span>
           </Link>
+          )}
 
           {/* Settings — admins only (the page is admin-gated anyway). */}
           {user?.is_admin && (
