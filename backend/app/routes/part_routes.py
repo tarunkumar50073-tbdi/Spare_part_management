@@ -7,6 +7,16 @@ from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import success_response, paginated_response
 from app.utils.exceptions import BadRequestError
 from app.utils.authz import current_user, permission_required
+from app.utils.event_bus import publish
+from app.services.spare_stock_service import invalidate_stock_cache
+
+
+def _parts_changed(**data):
+    """A part's name, limits, rate or location are part of every stock row, so a
+    part-master write refreshes the stock screens the same way a movement does:
+    drop the cached rows first, then push the "stock" event."""
+    invalidate_stock_cache()
+    publish("stock", {"action": "parts", **data})
 
 bp = Blueprint("parts", __name__, url_prefix="/api/v1/parts")
 service = PartService()
@@ -53,6 +63,7 @@ def get_part(part_id):
 def create_part():
     data = validate_payload(PartCreateSchema(), request.get_json(force=True) or {})
     part = service.create(data)
+    _parts_changed(part_id=part.id)
     return success_response(part.to_dict(), "Part created", 201)
 
 
@@ -61,6 +72,7 @@ def create_part():
 def update_part(part_id):
     data = validate_payload(PartUpdateSchema(), request.get_json(force=True) or {})
     part = service.update(part_id, data)
+    _parts_changed(part_id=part.id)
     return success_response(part.to_dict(), "Part updated")
 
 
@@ -68,6 +80,7 @@ def update_part(part_id):
 @permission_required("part_master", "edit")
 def delete_part(part_id):
     service.delete(part_id)
+    _parts_changed(part_id=part_id)
     return success_response(None, "Part deleted")
 
 
@@ -113,6 +126,8 @@ def import_parts():
         filename=file.filename,
         sheet_name=request.form.get("sheet_name") or None,
     )
+    if report.get("inserted") or report.get("updated"):
+        _parts_changed(import_rows=report.get("inserted", 0) + report.get("updated", 0))
     return success_response(
         report,
         f"{report.get('inserted', 0)} added, {report.get('updated', 0)} updated, "
@@ -137,4 +152,8 @@ def derive_categories():
     store_code = data.get("store_code") or request.args.get("store_code")
     if not store_code:
         raise BadRequestError("store_code is required")
-    return success_response(service.derive_component_types(store_code, dry_run=bool(data.get("dry_run"))))
+    dry_run = bool(data.get("dry_run"))
+    result = service.derive_component_types(store_code, dry_run=dry_run)
+    if not dry_run:
+        _parts_changed(store_code=store_code)
+    return success_response(result)

@@ -39,6 +39,13 @@ REQUIRED_FIELDS = ["part_no", "qty_on_hand"]
 # once; the TTL only bounds staleness if a write path ever bypasses _write.
 _STOCK_CACHE = {}
 _STOCK_CACHE_TTL = 5.0
+
+
+def invalidate_stock_cache():
+    """Drop the cached stock lists. For writes that change what a stock row shows
+    without going through _write — a part's location, limits, rate or name —
+    so the refresh their "stock" push triggers doesn't read the old rows back."""
+    _STOCK_CACHE.clear()
 # Per-key build locks for single-flight. A dashboard load fires ~6 endpoints that
 # each need the whole stock list AT THE SAME INSTANT (Promise.all), so all six
 # miss the TTL cache together and each rebuilds ~4,800 rows. The lock makes the
@@ -253,6 +260,7 @@ class SpareStockService:
                 reason=(reason or "").strip() or None,
                 qty=(round(float(qty), 2) if qty is not None else None), moved_by=user,
             ))
+        invalidate_stock_cache()  # the stock rows carry the location
         return {
             "part_id": part.id, "part_no": part.part_no,
             "old_location": old_location, "new_location": new_location,

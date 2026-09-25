@@ -338,6 +338,7 @@ def set_quantity(part_id):
         reference=data.get("reference"), remarks=data.get("remarks"),
         user=_username(),
     )
+    publish("stock", {"part_id": part_id, "action": "count"})
     return success_response(row, "Stock updated")
 
 
@@ -416,6 +417,7 @@ def update_location(part_id):
         qty=(float(data["qty"]) if data.get("qty") is not None else None),
         user=_username(),
     )
+    publish("stock", {"part_id": part_id, "action": "location"})
     return success_response(result, "Location updated")
 
 
@@ -469,4 +471,6 @@ def import_stock():
         file.stream, store_code=store_code,
         user=_username(), sheet_name=request.form.get("sheet_name") or None,
     )
+    if report.get("updated"):
+        publish("stock", {"store_code": store_code, "action": "import"})
     return success_response(report, f"{report.get('updated', 0)} part(s) updated", 201)

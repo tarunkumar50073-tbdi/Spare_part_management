@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { NO_ROWS, fetchStockList, stockKeys } from "../lib/stockQueries.js";
 import {
   ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bolt, CalendarDays, ChartColumn, ChartPie, CircleCheck,
   CircleHelp, ClipboardList, Download, Factory, FilePen, FlaskConical, Gem, HardHat, HeartPulse,
@@ -368,66 +369,59 @@ function SparePartDetail({ part, onClose, onTrace }) {
 
 // Stock is fetched apart from the parts list: nothing else on this page needs
 // it, and a store with no count yet must still draw the rest of the dashboard
-// rather than fail whole. sectionId scopes both calls to one section.
-// Bumps whenever the server pushes a stock change (SSE → `dx:realtime`, see
-// hooks/useRealtime), debounced so a burst of movements costs one refetch. The
-// data hooks below depend on it, so the dashboard refreshes live after an
-// issue/receive/return instead of waiting for the next visit.
-function useStockTick() {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let t;
-    const onEvent = (e) => {
-      if (e.detail?.event !== "stock") return;
-      clearTimeout(t);
-      t = setTimeout(() => setTick((n) => n + 1), 800);
-    };
-    window.addEventListener("dx:realtime", onEvent);
-    return () => { window.removeEventListener("dx:realtime", onEvent); clearTimeout(t); };
-  }, []);
-  return tick;
-}
+// rather than fail whole. sectionId scopes all three calls to one section.
+//
+// On the shared stock cache (lib/stockQueries): the list is the same cached copy
+// Store Stock, Part Ledger and Ctrl+K read, and a server "stock" push (SSE)
+// invalidates it all, so the dashboard refreshes live after an issue / receipt
+// / count and comes back instantly from another page instead of reloading.
+//
+// First load lands all three together, as the old Promise.all did, so no
+// figure is drawn against a list that hasn't arrived; after that each keeps its
+// last value while it refreshes. A failed call reads as "none", never as a
+// crash — the rest of the dashboard still draws.
+const combineStock = ([sum, low, list]) => {
+  const settled = [sum, low, list].every((q) => q.isSuccess || q.isError);
+  return {
+    stock: settled ? sum.data ?? null : null,
+    belowMin: settled ? low.data ?? NO_ROWS : NO_ROWS,
+    stockRows: settled ? list.data ?? NO_ROWS : NO_ROWS,
+  };
+};
 
 function useSpareStock(sectionId, enabled = true) {
-  const tick = useStockTick();
-  const [stock, setStock] = useState(null);
-  const [belowMin, setBelowMin] = useState([]);
-  const [stockRows, setStockRows] = useState([]);
-
-  useEffect(() => {
-    if (!enabled) return undefined;
-    let live = true;
-    Promise.all([
-      spareStockService.summary(STORE_CODE, sectionId).then((r) => r.data.data).catch(() => null),
-      spareStockService.belowMinimum(STORE_CODE, 50, sectionId).then((r) => r.data.data).catch(() => []),
+  const sid = sectionId ?? null;
+  return useQueries({
+    queries: [
+      {
+        queryKey: stockKeys.summary(STORE_CODE, sid),
+        queryFn: () => spareStockService.summary(STORE_CODE, sectionId).then((r) => r.data.data),
+        enabled,
+      },
+      {
+        queryKey: stockKeys.belowMin(STORE_CODE, sid),
+        queryFn: () => spareStockService.belowMinimum(STORE_CODE, 50, sectionId).then((r) => r.data.data || []),
+        enabled,
+      },
       // The full list, for the lists behind each stock figure. The summary and
       // the below-minimum sort stay server-side rather than being recomputed
       // here — the status rules live in one place and this screen reads them.
-      spareStockService.list({ store_code: STORE_CODE, section_id: sectionId })
-        .then((r) => r.data.data).catch(() => []),
-    ]).then(([sum, low, rows]) => {
-      if (!live) return;
-      setStock(sum);
-      setBelowMin(low || []);
-      setStockRows(rows || []);
-    });
-    return () => { live = false; };
-  }, [sectionId, enabled, tick]);
-
-  return { stock, belowMin, stockRows };
+      { queryKey: stockKeys.list(STORE_CODE, sid), queryFn: () => fetchStockList(STORE_CODE, sid), enabled },
+    ],
+    combine: combineStock,
+  });
 }
 
 // The store's operational picture: what is moving, what is stuck, what just
 // happened. Deliberately store-level and never section-scoped — a section
 // screen showing the whole store's receipts would be quoting someone else's
-// figures under its own heading.
+// figures under its own heading. One cached bundle; each call inside still
+// falls back on its own, so one slow endpoint never blanks the others.
 function useSpareOps(enabled = true) {
-  const tick = useStockTick();
-  const [ops, setOps] = useState(null);
-
-  const reload = useCallback(() => {
-    if (!enabled) return;
-    Promise.all([
+  const { data } = useQuery({
+    queryKey: stockKeys.ops(STORE_CODE),
+    enabled,
+    queryFn: () => Promise.all([
       spareStockService.today(STORE_CODE).then((r) => r.data.data).catch(() => null),
       spareStockService.flow(STORE_CODE).then((r) => r.data.data).catch(() => null),
       spareStockService.pending(STORE_CODE).then((r) => r.data.data).catch(() => null),
@@ -440,11 +434,9 @@ function useSpareOps(enabled = true) {
       spareStockService.consumption(STORE_CODE, "type").then((r) => r.data.data).catch(() => []),
       spareStockService.consumptionComparison(STORE_CODE).then((r) => r.data.data).catch(() => null),
     ]).then(([today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption, comparison]) =>
-      setOps({ today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption, comparison }));
-  }, [enabled]);
-
-  useEffect(() => { reload(); }, [reload, tick]);
-  return ops;
+      ({ today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption, comparison })),
+  });
+  return data ?? null;
 }
 
 const STOCK_STATUS_TONE = {
@@ -1344,7 +1336,7 @@ function TrendArea({ data }) {
 // the bars and the total still reconcile. A bar opens exactly its parts.
 function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick }) {
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["value-by-supplier", STORE_CODE, sectionId ?? null],
+    queryKey: stockKeys.valueBySupplier(STORE_CODE, sectionId),
     queryFn: () => spareStockService.valueBySupplier(STORE_CODE, sectionId).then((r) => r.data.data),
     staleTime: 60_000,
   });

@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, CornerDownLeft, Package, Search } from "lucide-react";
 import Badge from "./Badge.jsx";
-import { spareStockService } from "../services/spareStockService.js";
+import { useStockList } from "../lib/stockQueries.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { can } from "../utils/permissions.js";
@@ -37,15 +36,10 @@ export default function CommandPalette() {
   const inputRef = useRef(null);
   const listRef = useRef(null);
 
-  // The active store's parts — cached + deduped via React Query, fetched only
-  // once the palette is opened and then shared with any other consumer of the
-  // same key. (Replaces a manual load + `loadedFor` cache ref.)
-  const { data: parts, isPending: loading } = useQuery({
-    queryKey: ["spare-parts", activeCode],
-    queryFn: () => spareStockService.list({ store_code: activeCode }).then((r) => r.data.data || []),
-    enabled: open && !!activeCode,
-    staleTime: 60_000,
-  });
+  // The active store's parts — the shared cached stock list (lib/stockQueries),
+  // the same copy the dashboard, Store Stock and Part Ledger read. Fetched only
+  // once the palette opens, and usually already there from the screen behind it.
+  const { data: parts, isPending: loading } = useStockList(activeCode, null, { enabled: open });
 
   // Ctrl/Cmd+K toggles the palette from anywhere.
   useEffect(() => {

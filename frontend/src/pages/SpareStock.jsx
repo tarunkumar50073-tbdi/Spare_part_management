@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import toast from "react-hot-toast";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check, CircleCheck, ClipboardList, Hourglass, IndianRupee, Package, ShoppingCart, Undo2, Wrench, X,
 } from "lucide-react";
@@ -11,6 +12,7 @@ import Can, { useCan } from "../components/Can.jsx";
 import UploadReportModal from "../components/UploadReportModal.jsx";
 import { useConfirm } from "../components/ConfirmDialog.jsx";
 import { spareStockService } from "../services/spareStockService.js";
+import { NO_ROWS, invalidateStock, stockKeys, useStockList } from "../lib/stockQueries.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { downloadFile } from "../utils/download.js";
 
@@ -65,36 +67,41 @@ export default function SpareStock() {
   // toolbar's Add button, from a view-only user; Template/Export stay visible.
   const canEditStock = useCan("store_stock", "edit");
   const confirm = useConfirm();
-  const [rows, setRows] = useState([]);
-  const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
   const [filter, setFilter] = useState("");
   const [report, setReport] = useState(null);
   // {partId} of the row being typed into, and the value typed so far.
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState("");
-  const [returnables, setReturnables] = useState([]);    // outstanding returnable issues
-  const [reorder, setReorder] = useState(null);          // reorder list {items,count,total}
-  const [erpPending, setErpPending] = useState(0);       // movements awaiting ERP push
   const [erpSyncing, setErpSyncing] = useState(false);
 
-  const load = useCallback(() => {
-    if (!activeCode) return;
-    setLoading(true);
-    Promise.all([
-      spareStockService.list({ store_code: activeCode }).then((r) => r.data.data).catch(() => []),
-      spareStockService.summary(activeCode).then((r) => r.data.data).catch(() => null),
-      spareStockService.returnables(activeCode).then((r) => r.data.data).catch(() => []),
-      spareStockService.reorder(activeCode).then((r) => r.data.data).catch(() => null),
-      spareStockService.erpPending(activeCode).then((r) => r.data.data?.pending ?? 0).catch(() => 0),
-    ])
-      .then(([list, sum, ret, ro, ep]) => {
-        setRows(list); setSummary(sum); setReturnables(ret); setReorder(ro); setErpPending(ep);
-      })
-      .finally(() => setLoading(false));
-  }, [activeCode]);
-
-  useEffect(() => { load(); }, [load]);
+  // On the shared stock cache (lib/stockQueries): the list is the same copy the
+  // dashboard and Part Ledger read, so arriving from there is instant, and a
+  // server "stock" push refreshes this screen live — a count made on another
+  // PC, or an issue at the scan gun, shows here without a reload.
+  const on = Boolean(activeCode);
+  const listQ = useStockList(activeCode);
+  const { data: summary = null } = useQuery({
+    queryKey: stockKeys.summary(activeCode, null), enabled: on,
+    queryFn: () => spareStockService.summary(activeCode).then((r) => r.data.data),
+  });
+  const { data: returnables = NO_ROWS } = useQuery({    // outstanding returnable issues
+    queryKey: stockKeys.returnables(activeCode), enabled: on,
+    queryFn: () => spareStockService.returnables(activeCode).then((r) => r.data.data || []),
+  });
+  const { data: reorder = null } = useQuery({           // reorder list {items,count,total}
+    queryKey: stockKeys.reorder(activeCode), enabled: on,
+    queryFn: () => spareStockService.reorder(activeCode).then((r) => r.data.data),
+  });
+  const { data: erpPending = 0 } = useQuery({           // movements awaiting ERP push
+    queryKey: stockKeys.erpPending(activeCode), enabled: on,
+    queryFn: () => spareStockService.erpPending(activeCode).then((r) => r.data.data?.pending ?? 0),
+  });
+  const rows = listQ.data ?? NO_ROWS;
+  const loading = listQ.isPending;
+  // After a write from this screen: refresh every stock view, here and on any
+  // other open screen that reads the same cache.
+  const load = useCallback(() => invalidateStock(qc), [qc]);
 
   const handleUpload = async (file) => {
     try {

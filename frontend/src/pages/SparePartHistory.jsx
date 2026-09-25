@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Download, Search } from "lucide-react";
 import { useStores } from "../context/StoreContext.jsx";
 import { spareStockService } from "../services/spareStockService.js";
+import { NO_ROWS, stockKeys, useStockList } from "../lib/stockQueries.js";
 import { downloadXlsx } from "../utils/excel.js";
 
 // Part Ledger rendered as the ERP "Stock Ledger (Valuation)": search/scan a part,
@@ -32,10 +34,10 @@ export default function SparePartHistory() {
 
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const [allParts, setAllParts] = useState([]);
-  const [part, setPart] = useState(null);
-  const [rows, setRows] = useState([]);
-  const [locs, setLocs] = useState([]);
+  // The picked part is held as picked, but read back from the live list below,
+  // so its header figures (in stock, rate) follow a movement instead of freezing
+  // at the moment it was picked.
+  const [picked, setPicked] = useState(null);
   // ERP-style: no type/department/machine filters — the full ledger shows on pick;
   // an optional From/To date range narrows it (and adds an opening-balance row).
   // `dateDraft` holds what's typed in the inputs; it only takes effect (into
@@ -43,20 +45,28 @@ export default function SparePartHistory() {
   const [filters, setFilters] = useState({ from: "", to: "" });
   const [dateDraft, setDateDraft] = useState({ from: "", to: "" });
 
-  useEffect(() => {
-    spareStockService.list({ store_code: storeCode }).then((r) => setAllParts(r.data.data || [])).catch(() => {});
-  }, [storeCode]);
+  // The search list is the shared cached stock list (lib/stockQueries) — the
+  // same copy the dashboard and Store Stock read, so it is usually already here.
+  const { data: allParts = NO_ROWS } = useStockList(storeCode);
+  const part = useMemo(
+    () => (picked ? allParts.find((p) => p.part_id === picked.part_id) || picked : null),
+    [picked, allParts]);
 
-  // Fetch every movement once; the filters below are applied instantly on the
-  // client so changing a dropdown updates the table with no re-fetch / Apply.
-  const loadHistory = async (partId) => {
-    const [h, l] = await Promise.all([
-      spareStockService.history(partId, 500),
-      spareStockService.locationHistory(partId),
-    ]);
-    setRows(h.data.data || []);
-    setLocs(l.data.data || []);
-  };
+  // Every movement, fetched once per part; the date range below is applied on
+  // the client with no re-fetch. Kept under the "stock" key, so a movement
+  // anywhere (an issue at the scan gun, a receipt) refreshes an open ledger live.
+  const partId = picked?.part_id ?? null;
+  const historyQ = useQuery({
+    queryKey: stockKeys.history(partId), enabled: partId != null,
+    queryFn: () => spareStockService.history(partId, 500).then((r) => r.data.data || []),
+  });
+  const { data: locs = NO_ROWS } = useQuery({
+    queryKey: stockKeys.locations(partId), enabled: partId != null,
+    queryFn: () => spareStockService.locationHistory(partId).then((r) => r.data.data || []),
+  });
+  const rows = historyQ.data ?? NO_ROWS;
+  // Only the first load of a part — a live refresh keeps showing the old rows.
+  const historyLoading = partId != null && historyQ.isPending;
 
   // Partial, case-insensitive match on part no / name / ref (old) no — so a
   // search finds EVERY matching part, not just one exact code.
@@ -68,13 +78,12 @@ export default function SparePartHistory() {
       .slice(0, 50);
   }, [query, allParts]);
 
-  const pick = async (p) => {
-    setPart(p);
+  const pick = (p) => {
+    setPicked(p);
     setQuery(p.part_no);   // reflect the chosen part in the search box
     setOpen(false);        // and close the suggestion list
     setDateDraft({ from: "", to: "" });   // a fresh part starts on its full ledger
     setFilters({ from: "", to: "" });
-    await loadHistory(p.part_id);
   };
 
   // Search = apply the typed date range; Reset = clear the date range (full
@@ -82,10 +91,8 @@ export default function SparePartHistory() {
   const runSearch = () => setFilters({ ...dateDraft });
   const resetDates = () => { setDateDraft({ from: "", to: "" }); setFilters({ from: "", to: "" }); };
   const clearAll = () => {
-    setPart(null);
+    setPicked(null);
     setQuery("");
-    setRows([]);
-    setLocs([]);
     resetDates();
   };
 
@@ -290,7 +297,9 @@ export default function SparePartHistory() {
                     </tr>
                   ))}
                   {ledger.length === 0 && (
-                    <tr><td colSpan={19} className="py-6 text-center text-slate-400">No movements yet for this part.</td></tr>
+                    <tr><td colSpan={19} className="py-6 text-center text-slate-400">
+                      {historyLoading ? "Loading the ledger…" : "No movements yet for this part."}
+                    </td></tr>
                   )}
                 </tbody>
                 {ledger.length > 0 && (
