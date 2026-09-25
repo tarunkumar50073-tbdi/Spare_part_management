@@ -162,6 +162,11 @@ def consumption_trend():
     ))
 
 
+@bp.route("/consumption-comparison", methods=["GET"])
+def consumption_comparison():
+    return success_response(service.consumption_comparison(_store_code(), section_id=_section()))
+
+
 @bp.route("/top-consumed", methods=["GET"])
 def top_consumed():
     date_from, date_to = _date_range()

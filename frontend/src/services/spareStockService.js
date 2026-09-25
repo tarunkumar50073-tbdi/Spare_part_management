@@ -60,6 +60,9 @@ export const spareStockService = {
   consumptionTrend: (storeCode, days = 7, sectionId, from, to) =>
     api.get("/spare-stock/consumption-trend",
       { params: { store_code: storeCode, days, section_id: sectionId, from, to } }),
+  consumptionComparison: (storeCode, sectionId) =>
+    api.get("/spare-stock/consumption-comparison",
+      { params: { store_code: storeCode, section_id: sectionId } }),
   topConsumed: (storeCode, limit = 5, days = 30, from, to) =>
     api.get("/spare-stock/top-consumed", { params: { store_code: storeCode, limit, days, from, to } }),
   scan: (storeCode, code) => api.get("/spare-stock/scan", { params: { store_code: storeCode, code } }),

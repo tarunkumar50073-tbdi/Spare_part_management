@@ -426,8 +426,9 @@ function useSpareOps(enabled = true) {
       spareStockService.consumption(STORE_CODE).then((r) => r.data.data).catch(() => []),
       spareStockService.consumption(STORE_CODE, "machine").then((r) => r.data.data).catch(() => []),
       spareStockService.consumption(STORE_CODE, "type").then((r) => r.data.data).catch(() => []),
-    ]).then(([today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption]) =>
-      setOps({ today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption }));
+      spareStockService.consumptionComparison(STORE_CODE).then((r) => r.data.data).catch(() => null),
+    ]).then(([today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption, comparison]) =>
+      setOps({ today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption, comparison }));
   }, [enabled]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -509,6 +510,33 @@ function TierHead({ tone, label }) {
     <div className="mb-2 flex items-center gap-2">
       <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />
       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</span>
+    </div>
+  );
+}
+
+// This calendar month's issued quantity with month-over-month and year-over-year
+// deltas. Direction is shown but left colour-neutral in tone — more or less
+// consumption is not inherently good or bad — with a "—" where a baseline of
+// zero makes a percentage meaningless (no invented number).
+function ConsumptionCompare({ c }) {
+  const cur = c.current?.value || 0;
+  const Chip = ({ label, pct }) => (
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-navy-800 dark:text-slate-400">
+      {label}
+      {pct == null ? (
+        <span className="text-slate-400">—</span>
+      ) : (
+        <span className={pct > 0 ? "text-amber-600 dark:text-amber-400" : pct < 0 ? "text-emerald-600 dark:text-emerald-400" : ""}>
+          {pct > 0 ? "▲" : pct < 0 ? "▼" : ""}{Math.abs(pct)}%
+        </span>
+      )}
+    </span>
+  );
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+      <span className="font-semibold text-slate-700 dark:text-slate-200">This month: {num(cur)} issued</span>
+      <Chip label="vs last month" pct={c.previous?.change_pct} />
+      <Chip label="vs last year" pct={c.year_ago?.change_pct} />
     </div>
   );
 }
@@ -1783,6 +1811,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
             <div>
               <h3 className="section-title">Consumption</h3>
               <p className="text-xs font-medium text-slate-400 dark:text-slate-500">Spare Parts Store Analytics · {consRangeTitle}</p>
+              {ops.comparison && <ConsumptionCompare c={ops.comparison} />}
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               {/* Filter purely by a calendar From–To range; clear it (✕) for

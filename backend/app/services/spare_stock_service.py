@@ -888,6 +888,30 @@ class SpareStockService:
         )
         return [{"name": k, "value": round(float(v or 0), 2)} for k, v in rows if k][-months:]
 
+    def consumption_comparison(self, store_code, section_id=None):
+        """This calendar month's issued quantity against the previous month and
+        the same month a year ago — derived from monthly_consumption mapped by
+        YYYY-MM. A month with no issues is 0; the % change is None when its
+        baseline is 0 (no honest percentage off nothing)."""
+        from datetime import date, timedelta
+        series = {r["name"]: r["value"] for r in self.monthly_consumption(store_code, months=15, section_id=section_id)}
+        today = date.today()
+        cur_key = today.strftime("%Y-%m")
+        prev_key = (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        yoy_key = f"{today.year - 1}-{today.month:02d}"
+        cur = float(series.get(cur_key, 0))
+        prev = float(series.get(prev_key, 0))
+        yoy = float(series.get(yoy_key, 0))
+
+        def pct(now, base):
+            return round((now - base) / base * 100, 1) if base > 0 else None
+
+        return {
+            "current": {"key": cur_key, "value": cur},
+            "previous": {"key": prev_key, "value": prev, "change_pct": pct(cur, prev)},
+            "year_ago": {"key": yoy_key, "value": yoy, "change_pct": pct(cur, yoy)},
+        }
+
     def _consumption_window(self, days=None, date_from=None, date_to=None):
         """Filter clauses scoping the ledger to a window on `created_at`. An
         explicit calendar range (`date_from`/`date_to`, ISO 'YYYY-MM-DD' from the
