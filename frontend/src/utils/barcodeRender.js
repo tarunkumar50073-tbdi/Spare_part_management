@@ -23,26 +23,44 @@ export function barcodeSvgString(value, { barWidth = 2, height = 60 } = {}) {
   return new XMLSerializer().serializeToString(svg);
 }
 
-// Build a self-contained print document: `copies` labels, each exactly
-// width_mm x height_mm, showing barcode + Part No + short description only.
-export function buildLabelHtml({ barcodeValue, partNo, description, config, copies = 1 }) {
-  const w = Number(config?.width_mm) || 100;
+// One label's markup: barcode + Part No + short description only.
+function labelMarkup({ barcodeValue, partNo, description }, config) {
   const h = Number(config?.height_mm) || 50;
   const maxChars = Number(config?.description_max_chars) || 48;
   const showPn = config?.show_part_no !== false;
   const showDs = config?.show_description !== false;
   const desc = (description || "").slice(0, maxChars);
   const svg = barcodeSvgString(barcodeValue, { barWidth: 2, height: Math.round(h * 2.4) });
-
-  const pnPt = Math.max(9, Math.round(h * 0.16));
-  const dsPt = Math.max(6, Math.round(h * 0.09));
-  const one = `<div class="lbl">
+  return `<div class="lbl">
       <div class="bc">${svg}</div>
       ${showPn ? `<div class="pn">${escapeHtml(partNo)}</div>` : ""}
       ${showDs ? `<div class="ds">${escapeHtml(desc)}</div>` : ""}
     </div>`;
-  const body = Array.from({ length: Math.max(1, copies) }, () => one).join("");
+}
 
+// Many different parts' labels in ONE print job (the stock list's bulk
+// action): `labels` = [{ barcode_value, part_no, part_name, copies }], each
+// label exactly width_mm x height_mm, one per page.
+export function buildLabelsHtml(labels, config) {
+  const body = labels.map((l) => Array.from({ length: Math.max(1, l.copies || 1) },
+    () => labelMarkup({ barcodeValue: l.barcode_value, partNo: l.part_no, description: l.part_name }, config))
+    .join("")).join("");
+  return labelDocument(body, config);
+}
+
+// Build a self-contained print document: `copies` labels, each exactly
+// width_mm x height_mm, showing barcode + Part No + short description only.
+export function buildLabelHtml({ barcodeValue, partNo, description, config, copies = 1 }) {
+  const one = labelMarkup({ barcodeValue, partNo, description }, config);
+  const body = Array.from({ length: Math.max(1, copies) }, () => one).join("");
+  return labelDocument(body, config);
+}
+
+function labelDocument(body, config) {
+  const w = Number(config?.width_mm) || 100;
+  const h = Number(config?.height_mm) || 50;
+  const pnPt = Math.max(9, Math.round(h * 0.16));
+  const dsPt = Math.max(6, Math.round(h * 0.09));
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     @page { size: ${w}mm ${h}mm; margin: 0; }
     * { box-sizing: border-box; }

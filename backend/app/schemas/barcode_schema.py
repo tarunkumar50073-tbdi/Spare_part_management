@@ -22,6 +22,16 @@ class BarcodeResolveSchema(Schema):
     )
 
 
+class BulkLabelPrintSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
+    part_ids = fields.List(fields.Integer(validate=validate.Range(min=1)), required=True,
+                           validate=validate.Length(min=1, max=300))
+    copies = fields.Integer(load_default=1, validate=validate.Range(min=1, max=10))
+    reason = fields.String(allow_none=True, validate=validate.Length(max=255))
+
+
 class LabelPrintSchema(Schema):
     class Meta:
         unknown = EXCLUDE

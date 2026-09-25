@@ -10,6 +10,9 @@ export const barcodeService = {
       store_code: storeCode, code, scan_source: scanSource, scan_mode: scanMode,
     }),
   print: (payload) => api.post("/barcode/print", payload), // {part_id, copies, is_reprint, reason}
+  // Up to 300 parts' labels at once; reprints are skipped unless a reason is given.
+  printBulk: (partIds, { copies = 1, reason } = {}) =>
+    api.post("/barcode/print-bulk", { part_ids: partIds, copies, reason }),
   printHistory: (partId, limit) =>
     api.get("/barcode/print-history", { params: { part_id: partId, limit } }),
   partBarcodes: (partId) => api.get(`/barcode/part/${partId}/barcodes`),

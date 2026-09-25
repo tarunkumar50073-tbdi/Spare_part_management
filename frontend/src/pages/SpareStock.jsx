@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,6 +16,12 @@ import { spareStockService } from "../services/spareStockService.js";
 import { NO_ROWS, invalidateStock, stockKeys, useStockList } from "../lib/stockQueries.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { downloadFile } from "../utils/download.js";
+import { downloadXlsx } from "../utils/excel.js";
+import { buildLabelsHtml, printLabels } from "../utils/barcodeRender.js";
+import { storeService } from "../services/storeService.js";
+import { barcodeService } from "../services/barcodeService.js";
+import { GAP_FILTERS, STATUS_RANK, fmtDay, matchesGap, splitLocation, typeOf } from "../lib/inventory.js";
+import { BulkBar, InventoryFilters, SavedViews } from "../components/spare/InventoryToolbar.jsx";
 
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN"));
 const money = (v) =>
@@ -69,21 +75,28 @@ export default function SpareStock() {
   const canEditStock = useCan("store_stock", "edit");
   const confirm = useConfirm();
   const qc = useQueryClient();
-  // The status filter lives in the URL (?status=Below Minimum), so the
-  // dashboard's "Open list" buttons land here pre-filtered and the view can be
-  // bookmarked or sent to someone.
+  // Every filter lives in the URL (?status=Below Minimum&section=3&type=Sensor
+  // &gap=rate), so the dashboard's "Open list" buttons land here pre-filtered,
+  // the browser's back button undoes a filter, and a view can be sent to someone.
   const [params, setParams] = useSearchParams();
-  const urlStatus = FILTERS.some((f) => f.key === params.get("status")) ? params.get("status") : "";
-  const [filter, setFilterState] = useState(urlStatus);
-  useEffect(() => { setFilterState(urlStatus); }, [urlStatus]);
-  const setFilter = (key) => {
-    setFilterState(key);
-    setParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (key) next.set("status", key); else next.delete("status");
-      return next;
-    }, { replace: true });
-  };
+  const filter = FILTERS.some((f) => f.key === params.get("status")) ? params.get("status") : "";
+  const section = params.get("section") || "";
+  const type = params.get("type") || "";
+  const gap = GAP_FILTERS.some((g) => g.key === params.get("gap")) ? params.get("gap") : "";
+  const setParam = (key, value) => setParams((prev) => {
+    const next = new URLSearchParams(prev);
+    if (value) next.set(key, value); else next.delete(key);
+    return next;
+  }, { replace: true });
+  const setFilter = (key) => setParam("status", key);
+  const applyView = (f) => setParams(() => {
+    const next = new URLSearchParams();
+    Object.entries(f || {}).forEach(([k, v]) => { if (v) next.set(k, v); });
+    return next;
+  }, { replace: true });
+  // Bulk selection, by part_id — kept across filter changes, cleared on demand.
+  const [selected, setSelected] = useState(() => new Set());
+  const [printing, setPrinting] = useState(false);
   const [report, setReport] = useState(null);
   // {partId} of the row being typed into, and the value typed so far.
   const [editing, setEditing] = useState(null);
@@ -114,6 +127,19 @@ export default function SpareStock() {
   });
   const rows = listQ.data ?? NO_ROWS;
   const loading = listQ.isPending;
+  const { data: sections = NO_ROWS } = useQuery({
+    queryKey: ["sections", activeCode], enabled: on, staleTime: 5 * 60_000,
+    queryFn: () => storeService.sections(activeCode).then((r) => r.data.data || []),
+  });
+  // Last issue / 90-day issued / last gate supplier per part (keyed by part_id).
+  const { data: facts = {} } = useQuery({
+    queryKey: stockKeys.facts(activeCode), enabled: on,
+    queryFn: () => spareStockService.partFacts(activeCode).then((r) => r.data.data || {}),
+  });
+  const { data: labelConfig = null } = useQuery({
+    queryKey: ["label-config"], staleTime: 10 * 60_000,
+    queryFn: () => barcodeService.labelConfig().then((r) => r.data.data),
+  });
   // After a write from this screen: refresh every stock view, here and on any
   // other open screen that reads the same cache.
   const load = useCallback(() => invalidateStock(qc), [qc]);
@@ -183,26 +209,93 @@ export default function SpareStock() {
     }
   };
 
+  const sectionName = useMemo(
+    () => Object.fromEntries(sections.map((sc) => [sc.id, sc.name])), [sections]);
+  // Each row with what the table shows beside the master: section name, rack /
+  // bin split out of the location, and the per-part facts.
+  const enriched = useMemo(() => rows.map((r) => ({
+    ...r,
+    section_name: sectionName[r.section_id] || null,
+    type_name: typeOf(r),
+    ...splitLocation(r.location),
+    ...(facts[r.part_id] || {}),
+  })), [rows, sectionName, facts]);
+  const types = useMemo(() => {
+    const by = {};
+    enriched.forEach((r) => { by[r.type_name] = (by[r.type_name] || 0) + 1; });
+    return Object.entries(by).map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [enriched]);
+  // Section / type / data-gap first; the status chips count within that, so
+  // "Below Min 12" means twelve of the rows the other filters left.
+  const scoped = useMemo(() => enriched.filter((r) =>
+    (!section || String(r.section_id) === section)
+    && (!type || r.type_name === type)
+    && matchesGap(r, gap)), [enriched, section, type, gap]);
   const visible = useMemo(
-    () => (filter ? rows.filter((r) => r.status === filter) : rows),
-    [rows, filter],
+    () => (filter ? scoped.filter((r) => r.status === filter) : scoped),
+    [scoped, filter],
   );
-
   const counts = useMemo(() => {
     const by = {};
-    rows.forEach((r) => { by[r.status] = (by[r.status] || 0) + 1; });
+    scoped.forEach((r) => { by[r.status] = (by[r.status] || 0) + 1; });
     return by;
-  }, [rows]);
+  }, [scoped]);
+  const filtersActive = Boolean(filter || section || type || gap);
 
+  // ---- bulk actions on the selected parts ----
+  const selectedRows = useMemo(
+    () => enriched.filter((r) => selected.has(r.part_id)), [enriched, selected]);
+  const exportSelected = () => {
+    const headers = ["Part No", "Description", "Type", "Section", "Location", "In Stock", "Min",
+      "Reorder", "Max", "UoM", "Rate", "Stock Value", "Status", "Last issue", "Last supplier (gate)", "Last counted"];
+    const body = selectedRows.map((r) => [
+      r.part_no, r.part_name || "", r.type_name, r.section_name || "", r.location || "",
+      r.qty_on_hand ?? "", r.min_stock_level ?? "", r.reorder_level ?? "", r.max_stock_level ?? "",
+      r.uom || "", r.unit_price ?? "", r.stock_value ?? "", r.status,
+      fmtDay(r.last_issue_at) || "", r.supplier || "", fmtDay(r.last_counted_at) || "",
+    ]);
+    downloadXlsx(`spare_selected_${new Date().toISOString().slice(0, 10)}`, headers, body, "Selected");
+  };
+  const printSelected = async () => {
+    const ids = selectedRows.map((r) => r.part_id);
+    if (!ids.length || ids.length > 300) return;
+    setPrinting(true);
+    try {
+      const res = await barcodeService.printBulk(ids);
+      const { printed, skipped } = res.data.data;
+      if (printed.length) printLabels(buildLabelsHtml(printed, labelConfig));
+      if (skipped.length) {
+        toast(`${printed.length} label${printed.length === 1 ? "" : "s"} sent · ${skipped.length} skipped — `
+          + "already labelled (reprint one from Part Master with a reason)", { duration: 6000 });
+      } else {
+        toast.success(`${printed.length} label${printed.length === 1 ? "" : "s"} sent to the printer`);
+      }
+    } catch {
+      /* interceptor toasts the server message */
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  const dash = <span className="text-slate-300 dark:text-slate-600">—</span>;
   const columns = [
     { key: "part_no", label: "Part No", sortable: true },
     { key: "part_name", label: "Description", sortable: true },
-    { key: "location", label: "Location", render: (r) => r.location || "—" },
-    { key: "uom", label: "UoM", render: (r) => r.uom || "—" },
+    { key: "type_name", label: "Type", sortable: true },
+    { key: "section_name", label: "Section", sortable: true, render: (r) => r.section_name || dash },
+    { key: "rack", label: "Rack", sortable: true, render: (r) => r.rack || dash },
+    { key: "bin", label: "Shelf · Bin", render: (r) => r.bin || dash },
+    { key: "location", label: "Location", render: (r) => r.location || dash },
+    { key: "uom", label: "UoM", render: (r) => r.uom || dash },
     { key: "min_stock_level", label: "Min", align: "right", sortable: true, render: (r) => num(r.min_stock_level) },
     {
-      key: "max_stock_level", label: "Max", align: "right",
-      render: (r) => (r.max_stock_level == null ? "—" : num(r.max_stock_level)),
+      key: "reorder_level", label: "Reorder", align: "right", sortable: true,
+      render: (r) => (r.reorder_level == null ? dash : num(r.reorder_level)),
+    },
+    {
+      key: "max_stock_level", label: "Max", align: "right", sortable: true,
+      render: (r) => (r.max_stock_level == null ? dash : num(r.max_stock_level)),
     },
     {
       key: "qty_on_hand", label: "In Stock", align: "right", sortable: true,
@@ -261,11 +354,29 @@ export default function SpareStock() {
       render: (r) => (r.stock_value == null ? "—" : money(r.stock_value)),
     },
     {
-      key: "status", label: "Status",
+      key: "status", label: "Status", sortable: true, sortValue: (r) => STATUS_RANK[r.status] ?? 9,
       render: (r) => (
         <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap
           ${STATUS_TONE[r.status] || STATUS_TONE["Not Counted"]}`}>{r.status}</span>
       ),
+    },
+    {
+      key: "last_issue_at", label: "Last issue", sortable: true, sortValue: (r) => r.last_issue_at || "",
+      exportValue: (r) => fmtDay(r.last_issue_at) || "",
+      render: (r) => (r.last_issue_at
+        ? <span title={`${num(r.issued_90d)} issued in the last 90 days`}>{fmtDay(r.last_issue_at)}</span>
+        : dash),
+    },
+    {
+      key: "supplier", label: "Last supplier (gate)", sortable: true,
+      render: (r) => (r.supplier
+        ? <span title={`${r.supplier_code || ""} · last arrived ${fmtDay(r.last_arrival) || "—"}`}>{r.supplier}</span>
+        : dash),
+    },
+    {
+      key: "last_counted_at", label: "Last counted", sortable: true, sortValue: (r) => r.last_counted_at || "",
+      exportValue: (r) => fmtDay(r.last_counted_at) || "",
+      render: (r) => fmtDay(r.last_counted_at) || dash,
     },
   ];
 
@@ -356,17 +467,33 @@ export default function SpareStock() {
             </button>
           ))}
         </div>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <InventoryFilters
+            sections={sections} types={types} section={section} type={type} gap={gap}
+            onChange={setParam} active={filtersActive} onClear={() => applyView({})} />
+          <SavedViews current={{ status: filter, section, type, gap }} onApply={applyView} canSave={filtersActive} />
+        </div>
+        <div className="mb-3">
+          <BulkBar count={selected.size} onExport={exportSelected} onPrint={printSelected}
+            printing={printing} canPrint={canEditStock} onClear={() => setSelected(new Set())} />
+        </div>
         <Table
           columns={columns}
           rows={visible}
           loading={loading}
-          searchable="Search part no, description or location…"
+          searchable="Search part no, description, rack or supplier…"
           pageSize={0}
           maxHeight="60vh"
           exportName="spare_store_stock"
           columnToggle
+          defaultHidden={["location", "uom"]}
+          stickyFirst
+          selectable
+          selected={selected}
+          onSelectedChange={setSelected}
+          rowKey={(r) => r.part_id}
           virtualize
-          emptyMessage="No part matches this filter"
+          emptyMessage={filtersActive ? "No part matches these filters" : "No parts in this store yet"}
         />
       </div>
 

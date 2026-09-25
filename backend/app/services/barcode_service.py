@@ -181,6 +181,23 @@ class BarcodeService:
             cfg.update({k: v for k, v in override.items() if k in LABEL_DEFAULTS})
         return cfg
 
+    def record_bulk_print(self, part_ids, copies=1, user=None, reason=None):
+        """Print labels for many parts at once (the stock list's bulk action).
+
+        Each part goes through record_print, so the same rules hold: an inactive
+        part is refused and a REPRINT needs a reason. Without a reason, parts that
+        already have a label are skipped and named — never silently reprinted."""
+        printed, skipped = [], []
+        for pid in dict.fromkeys(part_ids):          # de-duplicated, order kept
+            try:
+                printed.append(self.record_print(pid, copies=copies, user=user,
+                                                 is_reprint=False, reason=reason))
+            except (ValidationError, NotFoundError, BadRequestError) as exc:
+                part = self.part_repo.get_by_id(pid)
+                skipped.append({"part_id": pid, "part_no": part.part_no if part else None,
+                                "why": str(getattr(exc, "message", exc))})
+        return {"printed": printed, "skipped": skipped}
+
     def record_print(self, part_id, copies=1, user=None, is_reprint=False, reason=None):
         """Record a label print/reprint and return the data the label needs.
 

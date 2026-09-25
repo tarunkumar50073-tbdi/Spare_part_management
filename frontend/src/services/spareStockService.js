@@ -66,6 +66,9 @@ export const spareStockService = {
   consumptionComparison: (storeCode, sectionId) =>
     api.get("/spare-stock/consumption-comparison",
       { params: { store_code: storeCode, section_id: sectionId } }),
+  // Per-part facts for the inventory table: last issue, 90-day issued qty,
+  // last gate-entry supplier. Keyed by part_id; absent = nothing recorded.
+  partFacts: (storeCode) => api.get("/spare-stock/part-facts", { params: { store_code: storeCode } }),
   // On-hand value grouped by each part's LAST gate-entry supplier (approximation).
   valueBySupplier: (storeCode, sectionId, top = 10) =>
     api.get("/spare-stock/value-by-supplier",

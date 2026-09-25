@@ -20,6 +20,7 @@ export const stockKeys = {
   erpPending: (code) => ["stock", "erp-pending", code],
   history: (partId) => ["stock", "history", partId],
   locations: (partId) => ["stock", "locations", partId],
+  facts: (code) => ["stock", "facts", code],
 };
 
 // A shared empty list, so "no data yet" is the same array every render and

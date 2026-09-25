@@ -26,6 +26,14 @@ import { downloadCsv, downloadXlsx } from "../utils/excel.js";
  *   align        "right" for numeric columns
  *
  * onRowClick     (row) => void — makes the whole row a drill-through
+ *
+ * Opt-in extras (used by the big inventory list)
+ *   selectable     checkbox column; `selected` (a Set of row keys) +
+ *                  `onSelectedChange(nextSet)`; "select all" takes every row
+ *                  passing the current search, not just the rows in view
+ *   rowKey         (row) => stable key (default row.id ?? row.part_id)
+ *   stickyFirst    keep the first column in view while scrolling sideways
+ *   defaultHidden  column keys hidden until turned on in the Columns menu
  */
 export default function Table({
   columns,
@@ -47,11 +55,18 @@ export default function Table({
   // Opt-in row virtualization for very large, unpaginated lists — only the rows
   // near the viewport render. Uses a bounded scroll box (maxHeight, default 70vh).
   virtualize = false,
+  selectable = false,
+  selected = null,
+  onSelectedChange,
+  rowKey = (r) => r.id ?? r.part_id,
+  stickyFirst = false,
+  defaultHidden = [],
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState({ key: null, dir: "asc" });
   const [page, setPage] = useState(1);
-  const [hiddenCols, setHiddenCols] = useState(() => new Set());
+  const [hiddenCols, setHiddenCols] = useState(() => new Set(defaultHidden));
+  const selectAllRef = useRef(null);
   const [menu, setMenu] = useState(null); // "export" | "columns" | null
   const scrollRef = useRef(null);
   const shownColumns = useMemo(() => columns.filter((c) => !hiddenCols.has(c.key)), [columns, hiddenCols]);
@@ -168,6 +183,34 @@ export default function Table({
   const exportXlsx = () => { const { headers, body, name } = buildExport(); downloadXlsx(name, headers, body, "Export"); setMenu(null); };
   const exportCsv = () => { const { headers, body, name } = buildExport(); downloadCsv(name, headers, body); setMenu(null); };
 
+  // ---- bulk selection (opt-in) ----
+  const sel = selectable ? (selected || new Set()) : null;
+  const allKeys = selectable ? sorted.map(rowKey) : [];
+  const selectedInView = selectable ? allKeys.filter((k) => sel.has(k)).length : 0;
+  const allSelected = selectable && allKeys.length > 0 && selectedInView === allKeys.length;
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selectedInView > 0 && !allSelected;
+    }
+  });
+  const toggleAll = () => {
+    const next = new Set(sel);
+    if (allSelected) allKeys.forEach((k) => next.delete(k));
+    else allKeys.forEach((k) => next.add(k));
+    onSelectedChange?.(next);
+  };
+  const toggleOne = (k) => {
+    const next = new Set(sel);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    onSelectedChange?.(next);
+  };
+  const extraCols = selectable ? 1 : 0;
+  // Sticky first data column (after the checkbox column when there is one).
+  const stickyLeft = selectable ? "left-10" : "left-0";
+  const stickyTh = (i) => (stickyFirst && i === 0 ? `sticky ${stickyLeft} z-20 bg-slate-50 dark:bg-navy-800` : "");
+  const stickyTd = (i) => (stickyFirst && i === 0
+    ? `sticky ${stickyLeft} z-[1] bg-white dark:bg-navy-900 shadow-[1px_0_0_rgba(148,163,184,0.25)]` : "");
+
   if (loading) {
     return (
       <div className="space-y-2">
@@ -183,7 +226,7 @@ export default function Table({
 
   const renderRow = (row, idx, style) => (
     <tr
-      key={row.id ?? row.part_id ?? idx}
+      key={rowKey(row) ?? idx}
       style={style}
       role={onRowClick ? "button" : undefined}
       tabIndex={onRowClick ? 0 : undefined}
@@ -191,8 +234,15 @@ export default function Table({
       onKeyDown={onRowClick ? (e) => e.key === "Enter" && onRowClick(row) : undefined}
       className={`hover:bg-slate-50 dark:hover:bg-navy-800/60 transition-colors ${onRowClick ? "cursor-pointer" : ""} ${rowClassName ? rowClassName(row) : ""}`}
     >
-      {shownColumns.map((col) => (
-        <td key={col.key} className={`px-3 py-3 ${cellWrap} ${col.align === "right" ? "text-right tabular" : ""}`}>
+      {selectable && (
+        <td className="sticky left-0 z-[1] w-10 bg-white px-3 py-3 dark:bg-navy-900" onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" className="h-4 w-4 cursor-pointer accent-toyotared"
+            aria-label={`Select ${row.part_no || "row"}`}
+            checked={sel.has(rowKey(row))} onChange={() => toggleOne(rowKey(row))} />
+        </td>
+      )}
+      {shownColumns.map((col, i) => (
+        <td key={col.key} className={`px-3 py-3 ${cellWrap} ${col.align === "right" ? "text-right tabular" : ""} ${stickyTd(i)}`}>
           {col.render ? col.render(row) : row[col.key]}
         </td>
       ))}
@@ -278,7 +328,14 @@ export default function Table({
               — the header must stay opaque or rows show through it. */}
           <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-navy-800 text-slate-600 dark:text-slate-300">
             <tr>
-              {shownColumns.map((col) => {
+              {selectable && (
+                <th className="sticky left-0 z-20 w-10 border-b border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-navy-700 dark:bg-navy-800">
+                  <input ref={selectAllRef} type="checkbox" className="h-4 w-4 cursor-pointer accent-toyotared"
+                    aria-label={allSelected ? "Clear selection" : `Select all ${allKeys.length} rows`}
+                    checked={allSelected} onChange={toggleAll} disabled={allKeys.length === 0} />
+                </th>
+              )}
+              {shownColumns.map((col, i) => {
                 const canSort = sortableCols.has(col.key);
                 const active = sort.key === col.key;
                 return (
@@ -286,7 +343,7 @@ export default function Table({
                     key={col.key}
                     onClick={() => toggleSort(col.key)}
                     aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
-                    className={`text-[11px] font-semibold uppercase tracking-wide px-3 py-2.5 border-b border-slate-200 dark:border-navy-700 ${cellWrap}
+                    className={`text-[11px] font-semibold uppercase tracking-wide px-3 py-2.5 border-b border-slate-200 dark:border-navy-700 ${cellWrap} ${stickyTh(i)}
                       ${col.align === "right" ? "text-right" : "text-left"}
                       ${canSort ? "cursor-pointer select-none hover:text-slate-900 dark:hover:text-white" : ""}`}
                   >
@@ -303,16 +360,16 @@ export default function Table({
           <tbody className="divide-y divide-slate-100 dark:divide-navy-800 bg-white dark:bg-navy-900">
             {visible.length === 0 && (
               <tr>
-                <td colSpan={shownColumns.length} className="text-center text-slate-400 py-8">
+                <td colSpan={shownColumns.length + extraCols} className="text-center text-slate-400 py-8">
                   {query ? `Nothing matches “${query}”` : emptyMessage}
                 </td>
               </tr>
             )}
             {vOn ? (
               <>
-                {padTop > 0 && <tr aria-hidden="true" style={{ height: padTop }}><td className="p-0" colSpan={shownColumns.length} /></tr>}
+                {padTop > 0 && <tr aria-hidden="true" style={{ height: padTop }}><td className="p-0" colSpan={shownColumns.length + extraCols} /></tr>}
                 {sorted.slice(startIndex, endIndex).map((row, i) => renderRow(row, startIndex + i, { height: ROW_H }))}
-                {padBottom > 0 && <tr aria-hidden="true" style={{ height: padBottom }}><td className="p-0" colSpan={shownColumns.length} /></tr>}
+                {padBottom > 0 && <tr aria-hidden="true" style={{ height: padBottom }}><td className="p-0" colSpan={shownColumns.length + extraCols} /></tr>}
               </>
             ) : (
               visible.map((row, idx) => renderRow(row, idx))

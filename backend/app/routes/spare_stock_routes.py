@@ -168,6 +168,11 @@ def consumption_comparison():
     return success_response(service.consumption_comparison(_store_code(), section_id=_section()))
 
 
+@bp.route("/part-facts", methods=["GET"])
+def part_facts():
+    return success_response(service.part_facts(_store_code()))
+
+
 @bp.route("/value-by-supplier", methods=["GET"])
 def value_by_supplier():
     return success_response(service.stock_value_by_last_supplier(

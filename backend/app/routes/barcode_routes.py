@@ -9,7 +9,7 @@ from flask import Blueprint, request, session
 
 from app.repositories.part_repository import PartRepository
 from app.schemas.barcode_schema import (
-    BarcodeResolveSchema, LabelPrintSchema, SupplierBarcodeMapSchema,
+    BarcodeResolveSchema, BulkLabelPrintSchema, LabelPrintSchema, SupplierBarcodeMapSchema,
 )
 from app.services.auth_service import AuthService
 from app.services.barcode_service import BarcodeService
@@ -71,6 +71,19 @@ def print_label():
         is_reprint=data.get("is_reprint", False), reason=data.get("reason"),
     )
     return success_response(result, "Label print recorded", 201)
+
+
+@bp.route("/print-bulk", methods=["POST"])
+def print_labels_bulk():
+    """Record labels for up to 300 parts in one go (the stock list's bulk
+    action). Every part is store-checked first, so one foreign id refuses the
+    whole batch rather than printing part of it."""
+    data = validate_payload(BulkLabelPrintSchema(), request.get_json(force=True) or {})
+    for pid in data["part_ids"]:
+        _require_part_store(pid)
+    result = service.record_bulk_print(data["part_ids"], copies=data["copies"],
+                                       user=_username(), reason=data.get("reason"))
+    return success_response(result, f"{len(result['printed'])} label(s) recorded", 201)
 
 
 @bp.route("/print-history", methods=["GET"])

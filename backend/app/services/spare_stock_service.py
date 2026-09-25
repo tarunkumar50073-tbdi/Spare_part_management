@@ -937,6 +937,70 @@ class SpareStockService:
             "year_ago": {"key": yoy_key, "value": yoy, "change_pct": pct(cur, yoy)},
         }
 
+    @staticmethod
+    def latest_gate_suppliers():
+        """{ITEM_CODE_UPPER: (ven_cd, name, last_gate_date)} — each part's most
+        recent gate-entry vendor, in ONE pass over the gate entries (newest
+        first, first wins). NULL dates sort last in DESC on SQLite, so dated
+        entries win. A gate row with no vendor on it is skipped, so an older row
+        that names one still counts. The supplier of a spare is derived from the
+        gate, never stored on the part (one part = many suppliers over time)."""
+        from app.extensions import db
+        from app.models.gate_entry import GateEntry
+
+        latest = {}
+        q = (db.session.query(GateEntry.item_code, GateEntry.ven_cd, GateEntry.ven_name,
+                              GateEntry.gate_entry_dt)
+             .filter(GateEntry.item_code.isnot(None))
+             .order_by(GateEntry.gate_entry_dt.desc(), GateEntry.id.desc()))
+        for code, ven_cd, ven_name, dt in q:
+            k = (code or "").strip().upper()
+            ven_cd = (ven_cd or "").strip() or None
+            name = (ven_name or "").strip() or ven_cd
+            if k and name and k not in latest:
+                latest[k] = (ven_cd, name, dt)
+        return latest
+
+    def part_facts(self, store_code):
+        """Per-part facts the inventory table shows beside the on-hand figure,
+        from set queries (never one per row): the last ISSUE and the quantity
+        issued in the last 90 days (ledger), and the latest gate-entry supplier.
+        Only parts with at least one fact are returned — an absent part means
+        "no issue recorded, never seen at the gate", not zero."""
+        from datetime import timedelta
+        from sqlalchemy import case, func
+        from app.extensions import db
+        from app.models.spare_stock import SpareStockLedger
+
+        since = utcnow() - timedelta(days=90)
+        facts = {}
+        issues = (
+            db.session.query(
+                SpareStockLedger.part_id,
+                func.max(SpareStockLedger.created_at),
+                func.sum(case((SpareStockLedger.created_at >= since, -SpareStockLedger.qty_delta), else_=0)),
+            )
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE")
+            .group_by(SpareStockLedger.part_id)
+        )
+        for pid, last_at, qty90 in issues:
+            facts[pid] = {
+                "last_issue_at": last_at.isoformat() if last_at else None,
+                "issued_90d": round(float(qty90 or 0), 2),
+            }
+        suppliers = self.latest_gate_suppliers()
+        if suppliers:
+            parts = (db.session.query(Part.id, Part.part_no)
+                     .filter(Part.store_code == store_code, Part.is_active.is_(True)))
+            for pid, pno in parts:
+                hit = suppliers.get((pno or "").strip().upper())
+                if hit:
+                    f = facts.setdefault(pid, {})
+                    f["supplier_code"], f["supplier"] = hit[0], hit[1]
+                    f["last_arrival"] = hit[2].isoformat() if hit[2] else None
+        return {str(k): v for k, v in facts.items()}
+
     def stock_value_by_last_supplier(self, store_code, section_id=None, top=10):
         """On-hand stock value attributed to each part's MOST RECENT gate-entry
         supplier.
@@ -957,20 +1021,7 @@ class SpareStockService:
 
         top = max(1, min(int(top or 10), 50))
 
-        # Latest vendor per item code in ONE pass (newest first → first wins).
-        # NULL dates sort last in DESC on SQLite, so dated entries win. A gate
-        # row with no vendor on it is skipped, so an older row that names one
-        # still counts rather than the part falling to "unattributed".
-        latest = {}
-        q = (db.session.query(GateEntry.item_code, GateEntry.ven_cd, GateEntry.ven_name)
-             .filter(GateEntry.item_code.isnot(None))
-             .order_by(GateEntry.gate_entry_dt.desc(), GateEntry.id.desc()))
-        for code, ven_cd, ven_name in q:
-            k = (code or "").strip().upper()
-            ven_cd = (ven_cd or "").strip() or None
-            name = (ven_name or "").strip() or ven_cd
-            if k and name and k not in latest:
-                latest[k] = (ven_cd, name)
+        latest = {k: (v[0], v[1]) for k, v in self.latest_gate_suppliers().items()}
 
         agg = {}
         none = {"value": 0.0, "parts": 0, "part_ids": []}
