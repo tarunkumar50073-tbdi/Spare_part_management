@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { StoreProvider, storeHome, useStores } from "./context/StoreContext.jsx";
 import RequirePermission from "./components/RequirePermission.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
+import { ConfirmProvider } from "./components/ConfirmDialog.jsx";
 
 // Route pages are code-split: each loads its own chunk on demand, so opening the
 // app no longer downloads all ~35 screens (plus recharts / xlsx / zxing) up
@@ -177,8 +178,10 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Toaster position="top-right" toastOptions={{ duration: 3500 }} />
-        <AuthenticatedApp />
+        <ConfirmProvider>
+          <Toaster position="top-right" toastOptions={{ duration: 3500 }} />
+          <AuthenticatedApp />
+        </ConfirmProvider>
       </AuthProvider>
     </ThemeProvider>
   );

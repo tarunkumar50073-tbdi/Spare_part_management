@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Eye, EyeOff, KeyRound, Pencil, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import Modal from "../components/Modal.jsx";
+import { useConfirm } from "../components/ConfirmDialog.jsx";
 import { adminService } from "../services/adminService.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useStores } from "../context/StoreContext.jsx";
@@ -37,6 +38,7 @@ function PasswordCell({ value }) {
 export default function Admin() {
   const { user } = useAuth();
   const { stores } = useStores();
+  const confirm = useConfirm();
   const [users, setUsers] = useState([]);
   const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -115,7 +117,7 @@ export default function Admin() {
   };
 
   const remove = async (u) => {
-    if (!window.confirm(`Delete user "${u.username}"? This cannot be undone.`)) return;
+    if (!(await confirm({ title: "Delete user", message: `Delete user "${u.username}"? This cannot be undone.`, confirmText: "Delete" }))) return;
     try {
       await adminService.deleteUser(u.id);
       toast.success("User deleted");

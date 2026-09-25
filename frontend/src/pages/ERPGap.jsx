@@ -4,6 +4,7 @@ import { Scale, Trash2 } from "lucide-react";
 import Badge from "../components/Badge.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
 import UploadReportModal from "../components/UploadReportModal.jsx";
+import { useConfirm } from "../components/ConfirmDialog.jsx";
 import { erpGapService } from "../services/erpGapService.js";
 import { useStoreCategories } from "../constants/categories.js";
 import { downloadFile } from "../utils/download.js";
@@ -26,6 +27,7 @@ function GapCell({ value }) {
 
 export default function ERPGap() {
   const CATEGORIES = useStoreCategories();
+  const confirm = useConfirm();
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -68,7 +70,7 @@ export default function ERPGap() {
   };
 
   const handleRemovePhysical = async () => {
-    if (!window.confirm("Remove today's uploaded physical stock? ERP data is untouched.")) return;
+    if (!(await confirm({ title: "Remove physical stock", message: "Remove today's uploaded physical stock? ERP data is untouched.", confirmText: "Remove" }))) return;
     setClearing(true);
     try {
       const res = await erpGapService.clearPhysical();

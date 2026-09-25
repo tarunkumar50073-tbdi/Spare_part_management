@@ -4,6 +4,7 @@ import { Pencil, Trash2, Warehouse, Lock, Unlock } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
+import { useConfirm } from "../components/ConfirmDialog.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
 import UploadReportModal from "../components/UploadReportModal.jsx";
 import { rackBinService } from "../services/rackBinService.js";
@@ -13,6 +14,7 @@ import { downloadFile } from "../utils/download.js";
 const EMPTY_FORM = { location: "", rack_no: "", part_no: "", bin_capacity: "", bins_allocated: "" };
 
 export default function RackBinMaster() {
+  const confirm = useConfirm();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [parts, setParts] = useState([]);
@@ -80,7 +82,7 @@ export default function RackBinMaster() {
   };
 
   const handleDelete = async (row) => {
-    if (!window.confirm(`Delete ${row.location}/${row.rack_no} — ${row.part_no}?`)) return;
+    if (!(await confirm({ title: "Delete rack/bin", message: `Delete ${row.location}/${row.rack_no} — ${row.part_no}?`, confirmText: "Delete" }))) return;
     await rackBinService.remove(row.id);
     toast.success("Rack/Bin entry deleted");
     load();

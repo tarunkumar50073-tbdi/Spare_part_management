@@ -188,3 +188,24 @@ export function downloadXlsx(filename, headers, rows, sheetName = "Sheet1") {
   link.remove();
   URL.revokeObjectURL(url);
 }
+
+// A plain CSV alongside the .xlsx — some downstream tools (older ERP imports,
+// quick diffs) want raw comma-separated text. RFC-4180 quoting, and a UTF-8 BOM
+// so Excel opens it in the right encoding. `rows` cells may be strings or numbers.
+export function downloadCsv(filename, headers, rows) {
+  const esc = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers.map(esc).join(",")];
+  for (const r of rows) lines.push(r.map(esc).join(","));
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename.toLowerCase().endsWith(".csv") ? filename : `${filename}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}

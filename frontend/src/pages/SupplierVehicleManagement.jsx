@@ -4,6 +4,7 @@ import { Plus, Pencil, Trash2, Truck, Clock, FileSpreadsheet, Mail } from "lucid
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
+import { useConfirm } from "../components/ConfirmDialog.jsx";
 import { supplierVehicleService } from "../services/supplierVehicleService.js";
 import { supplierWindowScheduleService } from "../services/supplierWindowScheduleService.js";
 import { supplierService } from "../services/supplierService.js";
@@ -35,6 +36,7 @@ function fmtTime(t) {
 }
 
 export default function SupplierVehicleManagement() {
+  const confirm = useConfirm();
   const [vehicles, setVehicles] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -141,7 +143,7 @@ export default function SupplierVehicleManagement() {
   };
 
   const handleVehicleDelete = async (row) => {
-    if (!window.confirm(`Delete vehicle window for ${row.vehicle_no}?`)) return;
+    if (!(await confirm({ title: "Delete vehicle window", message: `Delete vehicle window for ${row.vehicle_no}?`, confirmText: "Delete" }))) return;
     await supplierVehicleService.remove(row.id);
     toast.success("Vehicle window deleted");
     load();
@@ -218,7 +220,7 @@ export default function SupplierVehicleManagement() {
   };
 
   const handleScheduleDelete = async (row) => {
-    if (!window.confirm(`Delete this window slot for ${row.supplier_name}?`)) return;
+    if (!(await confirm({ title: "Delete window slot", message: `Delete this window slot for ${row.supplier_name}?`, confirmText: "Delete" }))) return;
     await supplierWindowScheduleService.remove(row.id);
     toast.success("Window schedule deleted");
     load();

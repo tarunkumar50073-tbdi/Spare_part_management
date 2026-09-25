@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
-import { downloadXlsx } from "../utils/excel.js";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, Download, Search } from "lucide-react";
+import { downloadCsv, downloadXlsx } from "../utils/excel.js";
 
 /**
  * Shared data table.
@@ -42,10 +42,15 @@ export default function Table({
   exportName = "",
   maxHeight = "",
   toolbar = null,
+  // Opt-in: adds a "Columns" menu to show/hide columns (for the big lists).
+  columnToggle = false,
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState({ key: null, dir: "asc" });
   const [page, setPage] = useState(1);
+  const [hiddenCols, setHiddenCols] = useState(() => new Set());
+  const [menu, setMenu] = useState(null); // "export" | "columns" | null
+  const shownColumns = useMemo(() => columns.filter((c) => !hiddenCols.has(c.key)), [columns, hiddenCols]);
 
   // Memoised so an undefined `rows` doesn't hand the memos below a brand new
   // array on every render and make them recompute for nothing.
@@ -107,19 +112,21 @@ export default function Table({
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
   };
 
-  const exportXlsx = () => {
-    // Numbers stay numeric so Excel can sum/sort them; everything else becomes
-    // text. React elements (a rendered <Badge/> etc.) have no place in a cell,
-    // so a column that renders one should set exportValue to the plain value.
+  // Export the visible columns, in the current sort/filter order. Numbers stay
+  // numeric so Excel can sum/sort them; a rendered <Badge/> etc. has no place in
+  // a cell, so such a column should set exportValue to the plain value.
+  const buildExport = () => {
     const cellVal = (col, row) => {
       const raw = col.exportValue ? col.exportValue(row) : row[col.key];
       if (raw == null || typeof raw === "object") return "";
       return typeof raw === "number" ? raw : String(raw);
     };
-    const headers = columns.map((c) => c.label);
-    const body = sorted.map((row) => columns.map((col) => cellVal(col, row)));
-    downloadXlsx(`${exportName}_${new Date().toISOString().slice(0, 10)}`, headers, body, "Export");
+    const headers = shownColumns.map((c) => c.label);
+    const body = sorted.map((row) => shownColumns.map((col) => cellVal(col, row)));
+    return { headers, body, name: `${exportName}_${new Date().toISOString().slice(0, 10)}` };
   };
+  const exportXlsx = () => { const { headers, body, name } = buildExport(); downloadXlsx(name, headers, body, "Export"); setMenu(null); };
+  const exportCsv = () => { const { headers, body, name } = buildExport(); downloadCsv(name, headers, body); setMenu(null); };
 
   if (loading) {
     return (
@@ -132,10 +139,11 @@ export default function Table({
   }
 
   const cellWrap = noScroll ? "break-words" : "whitespace-nowrap";
-  const showToolbar = searchable || exportName || toolbar;
+  const showToolbar = searchable || exportName || toolbar || columnToggle;
 
   return (
     <div className="space-y-3">
+      {menu && <div className="fixed inset-0 z-20" onClick={() => setMenu(null)} />}
       {showToolbar && (
         <div className="flex flex-wrap items-center gap-2">
           {searchable && (
@@ -150,16 +158,54 @@ export default function Table({
             </div>
           )}
           {toolbar}
-          {exportName && (
-            <button
-              onClick={exportXlsx}
-              disabled={sorted.length === 0}
-              className="btn-secondary py-1.5 text-[13px] ml-auto disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Download these rows as Excel"
-            >
-              <Download size={14} /> Export
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {columnToggle && (
+              <div className="relative">
+                <button type="button" onClick={() => setMenu((m) => (m === "columns" ? null : "columns"))}
+                  className="btn-secondary py-1.5 text-[13px]" title="Show or hide columns">
+                  <Columns3 size={14} /> Columns <ChevronDown size={13} className="opacity-60" />
+                </button>
+                {menu === "columns" && (
+                  <div className="absolute right-0 z-30 mt-1 max-h-72 w-56 overflow-auto rounded-lg border border-slate-200 bg-white p-1 shadow-cardHover dark:border-navy-700 dark:bg-navy-900">
+                    {columns.map((c) => {
+                      const on = !hiddenCols.has(c.key);
+                      const lastOne = on && shownColumns.length === 1;
+                      return (
+                        <label key={c.key}
+                          className={`flex items-center gap-2 rounded px-2 py-1.5 text-[13px] ${lastOne ? "opacity-40" : "cursor-pointer hover:bg-slate-50 dark:hover:bg-navy-800"}`}>
+                          <input type="checkbox" checked={on} disabled={lastOne}
+                            onChange={() => setHiddenCols((prev) => {
+                              const next = new Set(prev);
+                              if (on) next.add(c.key); else next.delete(c.key);
+                              return next;
+                            })} />
+                          <span className="truncate">{c.label || c.key}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            {exportName && (
+              <div className="relative">
+                <button type="button" onClick={() => setMenu((m) => (m === "export" ? null : "export"))}
+                  disabled={sorted.length === 0}
+                  className="btn-secondary py-1.5 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Download these rows">
+                  <Download size={14} /> Export <ChevronDown size={13} className="opacity-60" />
+                </button>
+                {menu === "export" && (
+                  <div className="absolute right-0 z-30 mt-1 w-40 rounded-lg border border-slate-200 bg-white p-1 shadow-cardHover dark:border-navy-700 dark:bg-navy-900">
+                    <button type="button" onClick={exportXlsx}
+                      className="flex w-full items-center rounded px-2 py-1.5 text-left text-[13px] hover:bg-slate-50 dark:hover:bg-navy-800">Excel (.xlsx)</button>
+                    <button type="button" onClick={exportCsv}
+                      className="flex w-full items-center rounded px-2 py-1.5 text-left text-[13px] hover:bg-slate-50 dark:hover:bg-navy-800">CSV (.csv)</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -172,7 +218,7 @@ export default function Table({
               — the header must stay opaque or rows show through it. */}
           <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-navy-800 text-slate-600 dark:text-slate-300">
             <tr>
-              {columns.map((col) => {
+              {shownColumns.map((col) => {
                 const canSort = sortableCols.has(col.key);
                 const active = sort.key === col.key;
                 return (
@@ -197,7 +243,7 @@ export default function Table({
           <tbody className="divide-y divide-slate-100 dark:divide-navy-800 bg-white dark:bg-navy-900">
             {visible.length === 0 && (
               <tr>
-                <td colSpan={columns.length} className="text-center text-slate-400 py-8">
+                <td colSpan={shownColumns.length} className="text-center text-slate-400 py-8">
                   {query ? `Nothing matches “${query}”` : emptyMessage}
                 </td>
               </tr>
@@ -213,7 +259,7 @@ export default function Table({
                   onRowClick ? "cursor-pointer" : ""
                 } ${rowClassName ? rowClassName(row) : ""}`}
               >
-                {columns.map((col) => (
+                {shownColumns.map((col) => (
                   <td
                     key={col.key}
                     className={`px-3 py-3 ${cellWrap} ${col.align === "right" ? "text-right tabular" : ""}`}

@@ -4,6 +4,7 @@ import { Pencil, Trash2, Search } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
+import { useConfirm } from "../components/ConfirmDialog.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
 import UploadReportModal from "../components/UploadReportModal.jsx";
@@ -13,6 +14,7 @@ import { downloadFile } from "../utils/download.js";
 const EMPTY_FORM = { vendor_code: "", supplier_name: "", status: "Active" };
 
 export default function SupplierMaster() {
+  const confirm = useConfirm();
   const [rows, setRows] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -72,7 +74,7 @@ export default function SupplierMaster() {
   };
 
   const handleDelete = async (row) => {
-    if (!window.confirm(`Delete supplier ${row.supplier_name}?`)) return;
+    if (!(await confirm({ title: "Delete supplier", message: `Delete supplier ${row.supplier_name}?`, confirmText: "Delete" }))) return;
     await supplierService.remove(row.id);
     toast.success("Supplier deleted");
     load(page, keyword);

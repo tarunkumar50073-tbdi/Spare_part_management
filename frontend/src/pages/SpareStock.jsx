@@ -7,6 +7,7 @@ import KpiCard from "../components/KpiCard.jsx";
 import Table from "../components/Table.jsx";
 import Can, { useCan } from "../components/Can.jsx";
 import UploadReportModal from "../components/UploadReportModal.jsx";
+import { useConfirm } from "../components/ConfirmDialog.jsx";
 import { spareStockService } from "../services/spareStockService.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { downloadFile } from "../utils/download.js";
@@ -42,6 +43,7 @@ export default function SpareStock() {
   // Import (opening stock upload) is a store_stock write — hide it, and the
   // toolbar's Add button, from a view-only user; Template/Export stay visible.
   const canEditStock = useCan("store_stock", "edit");
+  const confirm = useConfirm();
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -127,7 +129,7 @@ export default function SpareStock() {
   };
 
   const handleReturn = async (ledgerId, partNo) => {
-    if (!window.confirm(`Return ${partNo} to store?`)) return;
+    if (!(await confirm({ title: "Return to store", message: `Return ${partNo} to store?`, confirmText: "Return", danger: false }))) return;
     try {
       const res = await spareStockService.returnItem(ledgerId, { reason: "Returnable tool/die returned" });
       const slip = res?.data?.data?.return_no;
@@ -319,6 +321,7 @@ export default function SpareStock() {
           pageSize={0}
           maxHeight="60vh"
           exportName="spare_store_stock"
+          columnToggle
           emptyMessage="No part matches this filter"
         />
       </div>

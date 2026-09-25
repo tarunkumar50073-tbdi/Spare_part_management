@@ -5,6 +5,7 @@ import { Pencil, Trash2, Search, Printer } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
+import { useConfirm } from "../components/ConfirmDialog.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
 import Can, { useCan } from "../components/Can.jsx";
@@ -53,6 +54,7 @@ export default function PartMaster() {
   const [searchParams] = useSearchParams();
   const urlKeyword = searchParams.get("keyword") || "";
 
+  const confirm = useConfirm();
   const [rows, setRows] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -279,7 +281,7 @@ export default function PartMaster() {
   };
 
   const handleDelete = async (row) => {
-    if (!window.confirm(`Delete part ${row.part_no}?`)) return;
+    if (!(await confirm({ title: "Delete part", message: `Delete part ${row.part_no}?`, confirmText: "Delete" }))) return;
     await partService.remove(row.id);
     toast.success("Part deleted");
     load(page, keyword, missing);
@@ -423,7 +425,7 @@ export default function PartMaster() {
       </div>
 
       <div className="card">
-        <Table columns={columns} rows={rows} loading={loading} />
+        <Table columns={columns} rows={rows} loading={loading} columnToggle />
         <Pagination meta={meta} onPageChange={(p) => { setPage(p); load(p, keyword, missing); }} />
       </div>
 
