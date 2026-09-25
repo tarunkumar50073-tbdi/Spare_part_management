@@ -1,4 +1,5 @@
 import React from "react";
+import { Inbox } from "lucide-react";
 
 // For a panel whose figure the database cannot answer yet.
 //
@@ -11,7 +12,7 @@ export default function NotCaptured({ what, needs, endpoint }) {
   return (
     <div className="rounded-xl border border-dashed border-slate-300 dark:border-navy-700
       bg-slate-50/60 dark:bg-navy-800/40 px-4 py-5 text-center">
-      <p className="text-2xl leading-none mb-2" aria-hidden="true">📭</p>
+      <Inbox size={26} strokeWidth={1.6} className="mx-auto mb-2 text-slate-300 dark:text-slate-600" aria-hidden="true" />
       <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{what}</p>
       {needs && <p className="text-[11px] text-slate-400 mt-1.5 max-w-md mx-auto leading-relaxed">{needs}</p>}
       {endpoint && (

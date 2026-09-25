@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { Pencil, Trash2, Search, Printer } from "lucide-react";
+import { Pencil, Trash2, Search, Printer, Repeat2 } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
@@ -322,7 +322,7 @@ export default function PartMaster() {
         r.rework_location ? (
           <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full
             bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-            🔁 {r.rework_location}
+            <Repeat2 size={12} aria-hidden="true" /> {r.rework_location}
           </span>
         ) : (
           <span className="text-slate-300 dark:text-slate-600">—</span>

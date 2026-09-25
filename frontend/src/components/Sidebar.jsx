@@ -1,7 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, useLocation } from "react-router-dom";
-import { LogOut, Moon, PanelLeftClose, PanelLeftOpen, Sun } from "lucide-react";
+import {
+  Activity, Archive, Barcode, BookOpen, Bolt, Boxes, Calculator, CalendarRange, Circle, ClipboardCheck,
+  ClipboardList, Clock3, Container, Database, Factory, FileChartColumn, Grid3x3, History, Layers,
+  LayoutGrid, LogOut, Mail, Mails, MonitorPlay, Moon, Package, PanelLeftClose, PanelLeftOpen, Scale,
+  ScanBarcode, ScanSearch, ScrollText, Search, Settings, Siren, Store, Sun, TrafficCone, TrendingUp,
+  Truck, UserCog, Warehouse,
+} from "lucide-react";
+import Glyph, { sectionIcon } from "./Glyph.jsx";
 import { storeHome, useStores } from "../context/StoreContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -27,10 +34,10 @@ const SHARED_GROUPS = [
   {
     label: "Receiving",
     items: [
-      { to: "/gate-entry", label: "Gate Entry", emoji: "🚚", mod: "gate_entry" },
+      { to: "/gate-entry", label: "Gate Entry", icon: Truck, mod: "gate_entry" },
       // The ERP-fed gate arrivals / vehicle in-out live here so they stay
       // reachable even when the Child store nav is off (Spare-only mode).
-      { to: "/vehicle-in-out", label: "Vehicle In / Out", emoji: "🚦", mod: "vehicle_in_out" },
+      { to: "/vehicle-in-out", label: "Vehicle In / Out", icon: TrafficCone, mod: "vehicle_in_out" },
     ],
   },
 ];
@@ -44,45 +51,45 @@ const NAV_BY_STORE = {
     {
       label: "Receiving & Management",
       items: [
-        { to: "/gate-entry", label: "Gate Entry", emoji: "🚚" },
-        { to: "/supplier-vehicles", label: "Supplier Vehicle Management", emoji: "🚛" },
-        { to: "/window-time", label: "Window Time", emoji: "🕒" },
-        { to: "/srvs", label: "SRV Workflow", emoji: "📋" },
-        { to: "/put-away", label: "Pending Rack Allocation", emoji: "📦" },
-        { to: "/holding-area", label: "Holding Area", emoji: "🗄️" },
-        { to: "/part-history", label: "Part History", emoji: "🔎" },
-        { to: "/vehicle-in-out", label: "Vehicle In / Out", emoji: "🚦" },
+        { to: "/gate-entry", label: "Gate Entry", icon: Truck },
+        { to: "/supplier-vehicles", label: "Supplier Vehicle Management", icon: Container },
+        { to: "/window-time", label: "Window Time", icon: Clock3 },
+        { to: "/srvs", label: "SRV Workflow", icon: ClipboardList },
+        { to: "/put-away", label: "Pending Rack Allocation", icon: Grid3x3 },
+        { to: "/holding-area", label: "Holding Area", icon: Archive },
+        { to: "/part-history", label: "Part History", icon: Search },
+        { to: "/vehicle-in-out", label: "Vehicle In / Out", icon: TrafficCone },
       ],
     },
     {
       label: "Inventory",
       items: [
-        { to: "/inventory-overview", label: "Inventory Overview", emoji: "🧮" },
-        { to: "/live-stock", label: "Live Stock", emoji: "⚡" },
-        { to: "/short-parts", label: "Short Parts", emoji: "🚨" },
-        { to: "/excess-parts", label: "Excess Parts", emoji: "📈" },
-        { to: "/store-stock", label: "Store Stock", emoji: "🏬" },
-        { to: "/quarterly-inventory", label: "Quarterly Inventory", emoji: "🗓️" },
-        { to: "/erp-gap", label: "ERP vs Physical Gap", emoji: "⚖️" },
-        { to: "/erp-ledger-import", label: "ERP Ledger Import", emoji: "📚" },
-        { to: "/current-stock", label: "Current Stock (ERP)", emoji: "📦" },
-        { to: "/stock-count", label: "Daily Stock Count", emoji: "📝" },
+        { to: "/inventory-overview", label: "Inventory Overview", icon: Calculator },
+        { to: "/live-stock", label: "Live Stock", icon: Activity },
+        { to: "/short-parts", label: "Short Parts", icon: Siren },
+        { to: "/excess-parts", label: "Excess Parts", icon: TrendingUp },
+        { to: "/store-stock", label: "Store Stock", icon: Store },
+        { to: "/quarterly-inventory", label: "Quarterly Inventory", icon: CalendarRange },
+        { to: "/erp-gap", label: "ERP vs Physical Gap", icon: Scale },
+        { to: "/erp-ledger-import", label: "ERP Ledger Import", icon: BookOpen },
+        { to: "/current-stock", label: "Current Stock (ERP)", icon: Warehouse },
+        { to: "/stock-count", label: "Daily Stock Count", icon: ClipboardCheck },
       ],
     },
     {
       label: "Masters",
       items: [
-        { to: "/parts", label: "Part Master", emoji: "🔩" },
-        { to: "/suppliers", label: "Supplier Master", emoji: "🏭" },
-        { to: "/rack-bins", label: "Rack/Bin Master", emoji: "🗃️" },
-        { to: "/report-recipients", label: "Report Recipients", emoji: "📧" },
+        { to: "/parts", label: "Part Master", icon: Bolt },
+        { to: "/suppliers", label: "Supplier Master", icon: Factory },
+        { to: "/rack-bins", label: "Rack/Bin Master", icon: Boxes },
+        { to: "/report-recipients", label: "Report Recipients", icon: Mails },
       ],
     },
     {
       label: "Reports & System",
       items: [
-        { to: "/reports", label: "Reports", emoji: "📑" },
-        { to: "/audit-trail", label: "Audit Trail", emoji: "🕘" },
+        { to: "/reports", label: "Reports", icon: FileChartColumn },
+        { to: "/audit-trail", label: "Audit Trail", icon: History },
       ],
     },
   ],
@@ -99,19 +106,19 @@ const NAV_BY_STORE = {
       // nothing to compare against.
       label: "Inventory",
       items: [
-        { to: "/scan-part", label: "Scan Part", emoji: "📷", mod: "scan_part" },
-        { to: "/store-stock-spare", label: "Store Stock", emoji: "📦", mod: "store_stock" },
-        { to: "/spare-part-history", label: "Part Ledger", emoji: "📜", mod: "part_ledger" },
-        { to: "/spare-erp-gap", label: "ERP vs Physical Gap", emoji: "⚖️", mod: "erp_gap" },
+        { to: "/scan-part", label: "Scan Part", icon: ScanBarcode, mod: "scan_part" },
+        { to: "/store-stock-spare", label: "Store Stock", icon: Package, mod: "store_stock" },
+        { to: "/spare-part-history", label: "Part Ledger", icon: ScrollText, mod: "part_ledger" },
+        { to: "/spare-erp-gap", label: "ERP vs Physical Gap", icon: Scale, mod: "erp_gap" },
       ],
     },
     {
       label: "Masters",
       items: [
-        { to: "/parts", label: "Part Master", emoji: "🔩", mod: "part_master" },
-        { to: "/supplier-barcodes", label: "Supplier Barcodes", emoji: "🏷️", mod: "supplier_barcodes" },
-        { to: "/scan-audit", label: "Scan Audit", emoji: "🧾", mod: "scan_audit" },
-        { to: "/departments", label: "Department Emails", emoji: "✉️", mod: "departments" },
+        { to: "/parts", label: "Part Master", icon: Bolt, mod: "part_master" },
+        { to: "/supplier-barcodes", label: "Supplier Barcodes", icon: Barcode, mod: "supplier_barcodes" },
+        { to: "/scan-audit", label: "Scan Audit", icon: ScanSearch, mod: "scan_audit" },
+        { to: "/departments", label: "Department Emails", icon: Mail, mod: "departments" },
       ],
     },
     ...SHARED_GROUPS,
@@ -121,22 +128,6 @@ const NAV_BY_STORE = {
 // A store added later — Consumables — is navigable from the day its master row
 // exists, with the shared screens, before anyone writes a menu for it.
 const navFor = (code) => NAV_BY_STORE[code] || SHARED_GROUPS;
-
-// Same glyph rule the Spare Parts Store page uses, so a section reads the same
-// in the rail as it does on its own card.
-const SECTION_EMOJI = [
-  [/press|stamp/i, "🔨"],
-  [/nut|bolt/i, "🔩"],
-  [/thin|recliner/i, "💺"],
-  [/bin|wash/i, "🚿"],
-  [/maint/i, "🔧"],
-  [/tool/i, "🛠️"],
-  [/seat|slider/i, "💺"],
-  [/weld/i, "🔥"],
-  [/paint|coat/i, "🎨"],
-  [/electric|electr/i, "⚡"],
-];
-const sectionEmoji = (name) => (SECTION_EMOJI.find(([re]) => re.test(name || "")) || [null, "🧰"])[1];
 
 // A store's sections become nav items of their own — Press Shop today, Tool
 // Room and Seat Slider whenever their rows are added. Nothing here is
@@ -150,7 +141,8 @@ const sectionGroup = (store) => {
     items: sections.map((s) => ({
       to: `${storeHome(store.code)}/${s.id}`,
       label: s.name,
-      emoji: sectionEmoji(s.name),
+      // Same glyph rule as the section's own card (Glyph.sectionIcon).
+      icon: sectionIcon(s.name),
       mod: "spare_store",
     })),
   };
@@ -170,10 +162,10 @@ function Flyout({ children }) {
 // One glyph that stands for a whole nav group on the squeezed rail; falls back
 // to the group's first item so a new group still gets an icon.
 const GROUP_ICONS = {
-  "Sections": "🗂️", "Inventory": "📦", "Masters": "🗄️",
-  "Receiving": "🚚", "Receiving & Management": "🚚", "Reports & System": "📑",
+  "Sections": Layers, "Inventory": Package, "Masters": Database,
+  "Receiving": Truck, "Receiving & Management": Truck, "Reports & System": FileChartColumn,
 };
-const groupIcon = (label, items) => GROUP_ICONS[label] || items[0]?.emoji || "▫️";
+const groupIcon = (label, items) => GROUP_ICONS[label] || items[0]?.icon || Circle;
 
 // A squeezed nav group: one icon, and on hover a submenu panel (heading + every
 // item) that opens to the right. The panel is portalled to <body> and
@@ -202,7 +194,7 @@ function CollapsedGroupIcon({ group, items }) {
             ? "bg-gradient-to-b from-[#ff2a3c] to-toyotared text-white shadow-[0_4px_12px_rgba(235,10,30,0.35)]"
             : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-navy-800 hover:text-slate-900 dark:hover:text-white"}`}
       >
-        <span className="text-base leading-none">{groupIcon(group.label, items)}</span>
+        <Glyph icon={groupIcon(group.label, items)} size={18} />
       </NavLink>
 
       {rect && createPortal(
@@ -227,7 +219,7 @@ function CollapsedGroupIcon({ group, items }) {
                     ? "bg-toyotared/10 font-semibold text-toyotared"
                     : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-navy-800"}`}
               >
-                <span className="w-[18px] text-center text-base leading-none">{it.emoji}</span>
+                <Glyph icon={it.icon} size={16} className="shrink-0" />
                 <span className="truncate">{it.label}</span>
               </NavLink>
             ))}
@@ -254,7 +246,8 @@ function StoreTab({ store, active, collapsed, onSelect }) {
           ? "bg-toyotared/[0.08] dark:bg-toyotared/15 text-slate-900 dark:text-white ring-1 ring-inset ring-toyotared/30"
           : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-navy-900"}`}
     >
-      <span className="text-lg leading-none shrink-0">{store.icon || "🏬"}</span>
+      {/* stores.icon is still an emoji in the master; Glyph maps it to a line icon. */}
+      <Glyph icon={store.icon || Store} size={18} className="shrink-0" />
       {!collapsed && <span className="flex-1 min-w-0 text-[13px] font-semibold truncate">{store.name}</span>}
       {!collapsed && active && <span className="h-1.5 w-1.5 rounded-full bg-toyotared shrink-0" />}
       {collapsed && <Flyout>{store.name}</Flyout>}
@@ -337,7 +330,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           ))}
           {can(user, "live_dashboard") && (
             <NavLink to="/live-dashboard" title={collapsed ? "Live Dashboard" : undefined} className={liveClass}>
-              <span className="text-lg leading-none shrink-0">🖥️</span>
+              <MonitorPlay size={18} className="shrink-0" aria-hidden="true" />
               {!collapsed && <span className="flex-1 min-w-0 text-[13px] font-semibold truncate">Live Dashboard</span>}
               {collapsed && <Flyout>Live Dashboard</Flyout>}
             </NavLink>
@@ -348,7 +341,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
       <nav className={`flex-1 overflow-y-auto overflow-x-hidden ${collapsed ? "px-2 py-3 space-y-2" : "px-3 py-3 space-y-3"}`}>
         {/* One launcher for every screen — pinned at the top of the menu. */}
         <NavLink to="/services" className={navItemClass} title={collapsed ? "All Services" : undefined}>
-          <span className="text-base leading-none w-[18px] text-center shrink-0">🧩</span>
+          <LayoutGrid size={18} className="shrink-0" aria-hidden="true" />
           {!collapsed && <span className="truncate">All Services</span>}
           {collapsed && <Flyout>All Services</Flyout>}
         </NavLink>
@@ -364,9 +357,9 @@ export default function Sidebar({ collapsed = false, onToggle }) {
             <div key={group.label}>
               <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{group.label}</p>
               <div className="space-y-1">
-                {items.map(({ to, label, emoji, end }) => (
+                {items.map(({ to, label, icon, end }) => (
                   <NavLink key={to} to={to} end={end} className={navItemClass}>
-                    <span className="text-base leading-none w-[18px] text-center shrink-0">{emoji}</span>
+                    <Glyph icon={icon} size={18} className="shrink-0" />
                     <span className="truncate">{label}</span>
                   </NavLink>
                 ))}
@@ -389,12 +382,12 @@ export default function Sidebar({ collapsed = false, onToggle }) {
               ? <div className="mx-1.5 mb-1 border-t border-slate-200/70 dark:border-navy-800" />
               : <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">System</p>}
             <NavLink to="/admin" className={navItemClass} title={collapsed ? "User Management" : undefined}>
-              <span className="text-base leading-none w-[18px] text-center shrink-0">🛡️</span>
+              <UserCog size={18} className="shrink-0" aria-hidden="true" />
               {!collapsed && <span className="truncate">User Management</span>}
               {collapsed && <Flyout>User Management</Flyout>}
             </NavLink>
             <NavLink to="/settings" className={navItemClass} title={collapsed ? "Settings" : undefined}>
-              <span className="text-base leading-none w-[18px] text-center shrink-0">⚙️</span>
+              <Settings size={18} className="shrink-0" aria-hidden="true" />
               {!collapsed && <span className="truncate">Settings</span>}
               {collapsed && <Flyout>Settings</Flyout>}
             </NavLink>

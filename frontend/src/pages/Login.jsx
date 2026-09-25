@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { LogIn, Eye, EyeOff, RefreshCw, Mail, Phone, Wrench } from "lucide-react";
+import { LogIn, Eye, EyeOff, RefreshCw, Mail, Phone, Wrench, KeyRound } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -66,7 +66,7 @@ export default function Login() {
   const forgot = (e) => {
     e.preventDefault();
     toast("Ask your store administrator to reset it — User Management → reset password.",
-      { icon: "🔑", duration: 5000 });
+      { icon: <KeyRound size={18} className="text-amber-500 shrink-0" />, duration: 5000 });
   };
 
   return (

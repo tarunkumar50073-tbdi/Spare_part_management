@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import { ArrowDownToLine, ArrowUpFromLine, CircleCheck, MapPin, Search, TriangleAlert, Undo2 } from "lucide-react";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import ScanPanel from "../components/ScanPanel.jsx";
@@ -11,12 +12,12 @@ import { supplierService } from "../services/supplierService.js";
 import Can from "../components/Can.jsx";
 
 const MODES = [
-  { key: "LOOKUP", label: "Lookup", emoji: "🔎" },
-  { key: "ISSUE", label: "Issue", emoji: "📤" },
-  { key: "RECEIVE", label: "Receive", emoji: "📥" },
-  { key: "RETURN", label: "Return", emoji: "↩️" },
-  { key: "UPDATE_LOCATION", label: "Location", emoji: "📍" },
-  { key: "CONFIRM", label: "Confirm", emoji: "✅" },
+  { key: "LOOKUP", label: "Lookup", icon: Search },
+  { key: "ISSUE", label: "Issue", icon: ArrowUpFromLine },
+  { key: "RECEIVE", label: "Receive", icon: ArrowDownToLine },
+  { key: "RETURN", label: "Return", icon: Undo2 },
+  { key: "UPDATE_LOCATION", label: "Location", icon: MapPin },
+  { key: "CONFIRM", label: "Confirm", icon: CircleCheck },
   // History is deliberately NOT here — a part's full timeline lives on the
   // dedicated Part Ledger screen, so it isn't duplicated on the scan gun.
 ];
@@ -272,7 +273,7 @@ export default function ScanPart() {
 
           {part.data_status?.warning && (
             <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
-              ⚠️ {part.data_status.warning}
+              <TriangleAlert size={13} className="inline-block align-[-2px] mr-1" aria-hidden="true" />{part.data_status.warning}
               {part.data_status?.write && !part.data_status.write.active && (
                 <span className="ml-1">· ERP stock write is off — issue/receive stay in the app for now.</span>
               )}
@@ -286,7 +287,7 @@ export default function ScanPart() {
               <button key={m.key} type="button" onClick={() => selectAction(m.key)} disabled={busy}
                 className={`rounded-lg py-3 text-sm font-semibold transition-colors ${
                   mode === m.key ? "bg-toyotared text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-navy-800 dark:text-slate-200 dark:hover:bg-navy-700"}`}>
-                <span className="mr-1">{m.emoji}</span>{m.label}
+                <m.icon size={16} className="inline-block align-[-3px] mr-1.5" aria-hidden="true" />{m.label}
               </button>
             ))}
           </div>

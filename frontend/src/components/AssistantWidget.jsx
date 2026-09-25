@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, Send, X, ArrowUpRight, CornerDownRight } from "lucide-react";
+import Glyph from "./Glyph.jsx";
 import { assistantService } from "../services/assistantService.js";
 
 const GREETING = {
@@ -116,7 +117,7 @@ export default function AssistantWidget() {
                             className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1
                               text-[12px] font-medium text-slate-600 hover:border-toyotared hover:text-toyotared transition
                               dark:border-navy-700 dark:bg-navy-900 dark:text-slate-300">
-                            {s.icon && <span>{s.icon}</span>} {s.title}
+                            {s.icon && <Glyph icon={s.icon} size={13} className="shrink-0" />} {s.title}
                             <ArrowUpRight size={12} />
                           </button>
                         ))}

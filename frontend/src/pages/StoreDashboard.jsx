@@ -3,7 +3,8 @@ import { useNavigate, Link } from "react-router-dom";
 import {
   AlertTriangle, TrendingUp, Boxes, Clock,
   Package, Layers, Globe, ArrowRight, ClipboardCheck, History, FileSpreadsheet, Wrench,
-  Activity,
+  Activity, ArrowDownToLine, ArrowUpFromLine, Bolt, ChartColumn, CircleCheck, ClipboardList,
+  IndianRupee, Siren, Truck, Zap,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend, LineChart, Line,
@@ -213,7 +214,7 @@ function LiveStatusTicker({ shortRows, excessCount, excessAddedToday, excessVsYe
       </div>
       <div ref={boxRef} className="overflow-hidden relative flex-1">
         {items.length === 0 ? (
-          <p className="px-4 py-3.5 text-sm text-emerald-600 dark:text-emerald-400 font-medium">✅ All systems normal — no active alerts</p>
+          <p className="px-4 py-3.5 text-sm text-emerald-600 dark:text-emerald-400 font-medium"><CircleCheck size={15} className="inline-block align-[-3px] mr-1.5" aria-hidden="true" />All systems normal — no active alerts</p>
         ) : (
           <div
             className={`inline-flex h-full items-center ${needsScroll ? "ticker-track-x" : ""}`}
@@ -287,7 +288,7 @@ function StatDistributionBar({ title, data, colors, loading, viewDetailsTo }) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   return (
     <div className="card">
-      <CardHead icon="📊" tone="violet" title={title} hint="Every active part, by how it is holding" />
+      <CardHead icon={ChartColumn} tone="violet" title={title} hint="Every active part, by how it is holding" />
       {loading ? (
         <div className="skeleton h-9 w-full" />
       ) : total === 0 ? (
@@ -372,7 +373,7 @@ function severityFor(count) {
 function RiskMatrixPanel({ alerts, lastSync, loading }) {
   return (
     <div className="card">
-      <CardHead icon="⚠️" tone="red" title="Risk Matrix" hint="Open exceptions and how stale the ERP feed is" />
+      <CardHead icon={AlertTriangle} tone="red" title="Risk Matrix" hint="Open exceptions and how stale the ERP feed is" />
       {loading ? (
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-8 w-full" />)}
@@ -404,7 +405,7 @@ function RiskMatrixPanel({ alerts, lastSync, loading }) {
 function InventoryTrendChart({ rows, loading }) {
   return (
     <div className="card">
-      <CardHead icon="📈" tone="blue" title="Inventory Trend" hint="Total vs short parts, last 7 days" />
+      <CardHead icon={TrendingUp} tone="blue" title="Inventory Trend" hint="Total vs short parts, last 7 days" />
       {loading ? (
         <div className="skeleton h-64 w-full" />
       ) : rows.length === 0 ? (
@@ -431,7 +432,7 @@ function ReceiptTrendChart({ rows, loading, days }) {
   return (
     <div className="card">
       <CardHead
-        icon="📥" tone="green" title="Receipt vs Issue"
+        icon={ArrowDownToLine} tone="green" title="Receipt vs Issue"
         hint="Issue side isn't fed by ERP here yet"
         action={<span className="text-[11px] text-slate-400">Last {days} Days</span>}
       />
@@ -457,7 +458,7 @@ function ReceiptTrendChart({ rows, loading, days }) {
 function QuickActionsCard() {
   return (
     <div className="card">
-      <CardHead icon="⚡" tone="amber" title="Quick Actions" hint="The screens this store opens most" />
+      <CardHead icon={Zap} tone="amber" title="Quick Actions" hint="The screens this store opens most" />
       {/* Laid out across the width rather than as a tall stack: this card now
           closes the page as its own band, where a single column of six links
           would leave most of the row empty. */}
@@ -650,7 +651,7 @@ function RackUtilizationPanel({ pct, rows, loading }) {
 
   return (
     <div className="card">
-      <CardHead icon="🗃️" tone="navy" title="Rack Utilization" hint="Average bin fill rate across allocated racks" />
+      <CardHead icon={Boxes} tone="navy" title="Rack Utilization" hint="Average bin fill rate across allocated racks" />
       {loading ? (
         <div className="skeleton h-40 w-full mt-3" />
       ) : (
@@ -751,7 +752,7 @@ function StoreActivitiesCard({ summary, loading }) {
   const NO_DATA = ["Stock Adjustment", "Returns", "Cycle Count"];
   return (
     <div className="card">
-      <CardHead icon="📋" tone="blue" title="Store Activities — Today" hint="What has moved through the store since midnight" />
+      <CardHead icon={ClipboardList} tone="blue" title="Store Activities — Today" hint="What has moved through the store since midnight" />
       {loading ? (
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-6 w-full" />)}
@@ -795,7 +796,7 @@ function SupplierPerformanceCard({ rows, loading }) {
 
   return (
     <div className="card">
-      <CardHead icon="🚛" tone="green" title="Supplier Performance" hint="How today's vehicles landed against their windows" />
+      <CardHead icon={Truck} tone="green" title="Supplier Performance" hint="How today's vehicles landed against their windows" />
       {loading ? (
         <div className="skeleton h-32 w-full" />
       ) : rows.length === 0 ? (
@@ -836,7 +837,7 @@ function VehicleStatusTable({ rows, loading }) {
   return (
     <div className="card">
       <CardHead
-        icon="🚚" tone="blue" title="Today's Vehicle Status"
+        icon={Truck} tone="blue" title="Today's Vehicle Status"
         hint="Planned window against the real ERP gate in/out times"
         action={
           <Link to="/supplier-vehicles" className="text-xs font-medium text-toyotared hover:underline">
@@ -907,7 +908,7 @@ function TodaysVehiclesSummary({ scheduledRows, adhocRows, loading }) {
   return (
     <div className="card">
       <CardHead
-        icon="🚛" tone="amber" title="Today's Vehicles"
+        icon={Truck} tone="amber" title="Today's Vehicles"
         hint="Standard schedule plus today's ad-hoc entries"
         action={
           <Link to="/supplier-vehicles" className="text-xs font-medium text-toyotared hover:underline">
@@ -974,7 +975,7 @@ const AUDIT_ACTION_LABELS = {
 function LiveActivityFeed({ rows, loading }) {
   return (
     <div className="card">
-      <CardHead icon="🕘" tone="violet" title="Live Activity" hint="Latest entries from the audit trail" />
+      <CardHead icon={History} tone="violet" title="Live Activity" hint="Latest entries from the audit trail" />
       {loading ? (
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-8 w-full" />)}
@@ -1697,29 +1698,29 @@ export default function StoreDashboard() {
           was clipped mid-number, which is worse than a longer row. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         <KpiCard
-          label="Total Active Parts" icon="🔩" tone="navy" loading={!loaded.summary}
+          label="Total Active Parts" icon={Bolt} tone="navy" loading={!loaded.summary}
           value={summary?.total_parts ?? "—"}
           delta={summary?.vs_yesterday?.total_parts ?? null}
           onClick={() => navigate("/live-stock")}
         />
         <KpiCard
-          label="Total Stock Qty" icon="📦" tone="navy" unit="pcs" loading={!loaded.liveStock}
+          label="Total Stock Qty" icon={Package} tone="navy" unit="pcs" loading={!loaded.liveStock}
           value={totalLiveStock}
           hint="Combined units across all parts"
           onClick={() => navigate("/live-stock")}
         />
         <KpiCard
-          label="Pending SRV" icon="📋" tone="amber" loading={!loaded.summary}
+          label="Pending SRV" icon={ClipboardList} tone="amber" loading={!loaded.summary}
           value={summary?.pending_srv ?? 0}
           onClick={() => setShowPendingSrv(true)}
         />
         <KpiCard
-          label="Today's Receipt" icon="📥" tone="navy" loading={!loaded.summary}
+          label="Today's Receipt" icon={ArrowDownToLine} tone="navy" loading={!loaded.summary}
           value={summary?.todays_srv ?? 0}
           onClick={() => setShowTodaysReceipts(true)}
         />
         <KpiCard
-          label="Today's Issue" icon="📤" tone="navy" loading={!loaded.summary}
+          label="Today's Issue" icon={ArrowUpFromLine} tone="navy" loading={!loaded.summary}
           value={summary?.todays_issue ?? 0}
           onClick={() => setShowTodaysIssues(true)}
         />
@@ -1728,14 +1729,14 @@ export default function StoreDashboard() {
             excess as its own drill-through chip), so a card each was duplicate
             surface. Quick Access below still links to both screens. */}
         <KpiCard
-          label="Inventory Value" icon="💰" tone="navy" loading={!loaded.liveStock}
+          label="Inventory Value" icon={IndianRupee} tone="navy" loading={!loaded.liveStock}
           value={hasValueData ? formatINR(totalInventoryValue) : "—"}
           hint={hasValueData
             ? `₹${Math.round(totalInventoryValue).toLocaleString("en-IN")}`
             : "Unit Price not set for any part yet"}
         />
         <KpiCard
-          label="Rack Utilization" icon="🗃️" tone="navy" loading={!loaded.summary}
+          label="Rack Utilization" icon={Boxes} tone="navy" loading={!loaded.summary}
           value={summary?.rack_utilization != null ? `${summary.rack_utilization}%` : "—"}
           hint={summary?.rack_utilization == null ? "No racks with bins allocated yet" : undefined}
         />
@@ -1770,7 +1771,7 @@ export default function StoreDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <TopPartsTable
           title="Top Short Parts"
-          icon="🚨" tone="red" hint="Lowest coverage first — click a row for detail"
+          icon={Siren} tone="red" hint="Lowest coverage first — click a row for detail"
           rows={topShort}
           loading={!loaded.liveStock}
           emptyMessage="No short parts right now"
@@ -1787,7 +1788,7 @@ export default function StoreDashboard() {
         />
         <TopPartsTable
           title="Top Excess Parts"
-          icon="📈" tone="amber" hint="Holding well above target — click a row for detail"
+          icon={TrendingUp} tone="amber" hint="Holding well above target — click a row for detail"
           rows={topExcess}
           loading={!loaded.liveStock}
           emptyMessage="No excess parts right now"

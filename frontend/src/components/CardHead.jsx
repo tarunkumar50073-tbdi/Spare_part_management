@@ -1,4 +1,5 @@
 import React from "react";
+import Glyph from "./Glyph.jsx";
 
 // Card header: a small tinted glyph chip, the title, and a one-line subtitle.
 // The chip is what makes a wall of cards scannable from a distance — you find
@@ -18,7 +19,7 @@ export default function CardHead({ icon, tone = "navy", title, hint, action }) {
       <div className="flex items-center gap-2.5 min-w-0">
         {icon && (
           <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-base leading-none ${HEAD_TONES[tone]}`}>
-            {icon}
+            <Glyph icon={icon} size={16} />
           </span>
         )}
         <div className="min-w-0">

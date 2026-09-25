@@ -1,6 +1,7 @@
 import React from "react";
 import clsx from "clsx";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
+import Glyph, { iconForEmoji } from "./Glyph.jsx";
 import Sparkline from "./Sparkline.jsx";
 import { useCountUp } from "../hooks/useCountUp.js";
 
@@ -151,14 +152,17 @@ export default function KpiCard({
   );
 
   const chip = CHIP[tone] || CHIP.navy;
-  const badge = typeof Icon === "string" ? (
+  // An emoji with a line icon behind it gets the same tinted chip as a Lucide
+  // component; only an unmapped emoji keeps the old bare-glyph look.
+  const bareEmoji = typeof Icon === "string" && !iconForEmoji(Icon);
+  const badge = bareEmoji ? (
     <span className={clsx("shrink-0 leading-none", featured
       ? `w-10 h-10 rounded-xl ${chip} flex items-center justify-center text-lg`
       : "text-base")} aria-hidden="true">{Icon}</span>
   ) : Icon ? (
     <span className={clsx("flex items-center justify-center shrink-0 rounded-lg",
-      featured ? `w-10 h-10 ${chip}` : `w-7 h-7 ${colors.icon}`)}>
-      <Icon size={featured ? 18 : 15} strokeWidth={2} />
+      featured ? `w-10 h-10 rounded-xl ${chip}` : `w-7 h-7 ${colors.icon}`)}>
+      <Glyph icon={Icon} size={featured ? 18 : 15} />
     </span>
   ) : null;
 

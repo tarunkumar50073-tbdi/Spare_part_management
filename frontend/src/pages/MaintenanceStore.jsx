@@ -2,7 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Printer, X } from "lucide-react";
+import {
+  ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bolt, CalendarDays, ChartColumn, ChartPie, CircleCheck,
+  CircleHelp, ClipboardList, Download, Factory, FilePen, FlaskConical, Gem, HardHat, HeartPulse,
+  IndianRupee, Link2, MapPin, Package, Pencil, Printer, ReceiptText, Repeat2, Search, Settings,
+  ShoppingCart, Siren, Store, TrendingUp, TriangleAlert, Truck, Undo2, Wrench, X,
+} from "lucide-react";
+import Glyph, { sectionIcon } from "../components/Glyph.jsx";
 import Badge from "../components/Badge.jsx";
 import CardHead from "../components/CardHead.jsx";
 import DonutChart from "../components/DonutChart.jsx";
@@ -22,22 +28,6 @@ import { srvService } from "../services/srvService.js";
 
 const STORE_CODE = "MAINTENANCE";
 
-// A glyph per section, matched on its name so a section added later still
-// gets one without a code change. Emoji rather than an icon set, to stay with
-// the vocabulary the sidebar and the KPI cards already use.
-const SECTION_EMOJI = [
-  [/press|stamp|misumi|die/i, "🔨"],
-  [/nut|bolt|fasten/i, "🔩"],
-  [/thin|recliner|rec\b/i, "💺"],
-  [/bin|wash/i, "🚿"],
-  [/maint/i, "🔧"],
-  [/tool/i, "🛠️"],
-  [/seat|slider/i, "💺"],
-  [/weld/i, "🔥"],
-  [/paint|coat/i, "🎨"],
-  [/electric|electr/i, "⚡"],
-];
-const emojiFor = (name) => (SECTION_EMOJI.find(([re]) => re.test(name || "")) || [null, "🧰"])[1];
 
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN"));
 const money = (v) =>
@@ -153,7 +143,7 @@ const SECTION_COLUMNS = [
     key: "name", label: "Section", sortable: true,
     render: (r) => (
       <span className="flex items-center gap-2 font-medium text-slate-800 dark:text-white">
-        <span className="text-base leading-none">{emojiFor(r.name)}</span>
+        <Glyph icon={sectionIcon(r.name)} size={16} className="text-slate-500 dark:text-slate-400 shrink-0" />
         {r.name}
       </span>
     ),
@@ -239,7 +229,7 @@ function SparePartDetail({ part, onClose, onTrace }) {
                 text-xs font-medium text-slate-600 dark:text-slate-300 hover:border-toyotared
                 hover:text-toyotared transition-colors flex items-center justify-center gap-1.5"
             >
-              🔗 Trace this part — supplier to consumption
+              <Link2 size={14} aria-hidden="true" /> Trace this part — supplier to consumption
             </button>
           )}
           <div>
@@ -250,7 +240,7 @@ function SparePartDetail({ part, onClose, onTrace }) {
                 label="Rework Location"
                 value={part.rework_location
                   ? <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full
-                      bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">🔁 {part.rework_location}</span>
+                      bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"><Repeat2 size={12} aria-hidden="true" /> {part.rework_location}</span>
                   : null}
               />
               <DetailRow label="Minimum Stock" value={num(part.min_stock_level)} />
@@ -506,7 +496,7 @@ const ACTION_TONE = {
 // meant to act on, so the number carries the colour rather than the card
 // carrying a chip. A zero stays coloured — "nothing below minimum" is a
 // reading worth seeing, not an absence worth greying out.
-function ActionTile({ tone, emoji, label, value, hint, onClick }) {
+function ActionTile({ tone, icon, label, value, hint, onClick }) {
   return (
     <button
       type="button"
@@ -516,7 +506,7 @@ function ActionTile({ tone, emoji, label, value, hint, onClick }) {
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-semibold uppercase tracking-wide truncate">{label}</span>
-        <span className="text-sm leading-none shrink-0" aria-hidden="true">{emoji}</span>
+        <Glyph icon={icon} size={15} className="shrink-0 opacity-80" />
       </div>
       <p className="text-2xl font-bold tabular mt-1.5 leading-none">{num(value)}</p>
       <p className="text-[10px] opacity-75 mt-1 truncate">{hint}</p>
@@ -645,7 +635,7 @@ function gaugeTone(pct, polarity, thresholds) {
 
 const DEFAULT_BADGE = { good: "OK", warn: "Watch", bad: "Alert" };
 
-function GaugeCard({ title, emoji, g, polarity, note, empty, thresholds, badges }) {
+function GaugeCard({ title, icon, g, polarity, note, empty, thresholds, badges }) {
   const pct = g?.pct ?? null;
   const measured = pct != null;
   const tone = gaugeTone(measured ? pct : null, polarity, thresholds);
@@ -658,7 +648,7 @@ function GaugeCard({ title, emoji, g, polarity, note, empty, thresholds, badges 
   return (
     <div className="card !p-4 flex flex-col items-center text-center">
       <div className="flex items-center gap-1.5 mb-1 min-w-0">
-        <span className="text-sm leading-none shrink-0" aria-hidden="true">{emoji}</span>
+        <Glyph icon={icon} size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />
         <h4 className="text-[12px] font-bold tracking-wide text-slate-700 dark:text-slate-200 truncate">
           {title}
         </h4>
@@ -712,10 +702,10 @@ const EXCESS_COLUMNS = [
 
 // A ledger type, said the way the store says it.
 const TXN_LABEL = {
-  OPENING: { label: "Opening Count", emoji: "📋", tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" },
-  RECEIPT: { label: "Material Received", emoji: "📥", tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
-  ISSUE: { label: "Part Issued", emoji: "📤", tone: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300" },
-  ADJUSTMENT: { label: "Stock Corrected", emoji: "✏️", tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
+  OPENING: { label: "Opening Count", icon: ClipboardList, tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" },
+  RECEIPT: { label: "Material Received", icon: ArrowDownToLine, tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
+  ISSUE: { label: "Part Issued", icon: ArrowUpFromLine, tone: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300" },
+  ADJUSTMENT: { label: "Stock Corrected", icon: Pencil, tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
 };
 
 // Times come off the ISO string as stored rather than through the browser's
@@ -742,12 +732,12 @@ const fmtWhen = (ts) => (!ts ? "—" : ts.length <= 10 ? fmtDate(ts) : fmtStamp(
 
 // One label per ledger event, said the way the store says it.
 const LEDGER_EVENT = {
-  GATE_ARRIVAL: { label: "Arrival", emoji: "🚚", tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
-  RECEIPT: { label: "Received", emoji: "📥", tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
-  OPENING: { label: "Opening", emoji: "📋", tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" },
-  ISSUE: { label: "Issued", emoji: "📤", tone: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300" },
-  RETURN: { label: "Returned", emoji: "↩️", tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
-  ADJUSTMENT: { label: "Corrected", emoji: "✏️", tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
+  GATE_ARRIVAL: { label: "Arrival", icon: Truck, tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
+  RECEIPT: { label: "Received", icon: ArrowDownToLine, tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
+  OPENING: { label: "Opening", icon: ClipboardList, tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" },
+  ISSUE: { label: "Issued", icon: ArrowUpFromLine, tone: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300" },
+  RETURN: { label: "Returned", icon: Undo2, tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
+  ADJUSTMENT: { label: "Corrected", icon: Pencil, tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
 };
 
 const ACTIVITY_COLUMNS = [
@@ -755,10 +745,10 @@ const ACTIVITY_COLUMNS = [
   {
     key: "txn_type", label: "Activity",
     render: (r) => {
-      const t = TXN_LABEL[r.txn_type] || { label: r.txn_type, emoji: "•", tone: "bg-slate-100 text-slate-600" };
+      const t = TXN_LABEL[r.txn_type] || { label: r.txn_type, icon: null, tone: "bg-slate-100 text-slate-600" };
       return (
         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${t.tone}`}>
-          <span aria-hidden="true">{t.emoji}</span>{t.label}
+          <Glyph icon={t.icon} size={12} />{t.label}
         </span>
       );
     },
@@ -806,13 +796,14 @@ const STOCK_VALUE_COLUMNS = [
 // One part's journey. Every step is drawn whether or not it has data — a gap
 // in the chain is the answer someone opened this to find, so a step with
 // nothing recorded says so instead of being quietly skipped.
-function TraceStep({ emoji, label, done, children, last }) {
+function TraceStep({ icon, label, done, children, last }) {
   return (
     <li className="flex gap-3">
       <div className="flex flex-col items-center shrink-0">
         <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm
           ${done ? "bg-emerald-50 dark:bg-emerald-500/15" : "bg-slate-100 dark:bg-navy-800"}`}>
-          <span className={done ? "" : "opacity-40 grayscale"} aria-hidden="true">{emoji}</span>
+          <Glyph icon={icon} size={15}
+            className={done ? "text-emerald-600 dark:text-emerald-300" : "text-slate-400 dark:text-slate-500"} />
         </span>
         {!last && <span className={`w-px flex-1 my-1 ${done ? "bg-emerald-200 dark:bg-emerald-500/30" : "bg-slate-200 dark:bg-navy-700"}`} />}
       </div>
@@ -847,10 +838,10 @@ const LEDGER_COLUMNS = [
     searchValue: (r) => LEDGER_EVENT[r.kind]?.label || r.kind,
     exportValue: (r) => LEDGER_EVENT[r.kind]?.label || r.kind,
     render: (r) => {
-      const ev = LEDGER_EVENT[r.kind] || { label: r.kind, emoji: "•", tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" };
+      const ev = LEDGER_EVENT[r.kind] || { label: r.kind, icon: null, tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" };
       return (
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${ev.tone}`}>
-          <span aria-hidden="true">{ev.emoji}</span>{ev.label}
+          <Glyph icon={ev.icon} size={12} />{ev.label}
         </span>
       );
     },
@@ -1079,7 +1070,7 @@ function Traceability({ part, onClose }) {
       ) : (
         <>
         <ol className="pt-1">
-          <TraceStep emoji="🏭" label="Supplier"
+          <TraceStep icon={Factory} label="Supplier"
             done={(data.gate_suppliers?.length > 0) || Boolean(receipt?.supplier_name || data.part.supplier_id)}>
             {data.gate_suppliers?.length > 0 ? (
               <div className="space-y-1">
@@ -1109,42 +1100,42 @@ function Traceability({ part, onClose }) {
               <span className="text-slate-400">No gate entry recorded for this part yet</span>
             )}
           </TraceStep>
-          <TraceStep emoji="🧾" label="Invoice" done={Boolean(receipt?.invoice_no)}>
+          <TraceStep icon={ReceiptText} label="Invoice" done={Boolean(receipt?.invoice_no)}>
             {receipt?.invoice_no || none}
           </TraceStep>
-          <TraceStep emoji="🚚" label="Gate Entry" done={Boolean(receipt?.gate_entry_time)}>
+          <TraceStep icon={Truck} label="Gate Entry" done={Boolean(receipt?.gate_entry_time)}>
             {receipt?.gate_entry_time
               ? `${receipt.gate_entry_no || "—"} · ${fmtStamp(receipt.gate_entry_time)}`
               : none}
           </TraceStep>
-          <TraceStep emoji="🔍" label="Material Verification" done={Boolean(receipt?.verified_at)}>
+          <TraceStep icon={Search} label="Material Verification" done={Boolean(receipt?.verified_at)}>
             {receipt?.verified_at ? fmtStamp(receipt.verified_at) : none}
           </TraceStep>
-          <TraceStep emoji="📝" label="SRV / GRN" done={Boolean(receipt?.srv_created_at)}>
+          <TraceStep icon={FilePen} label="SRV / GRN" done={Boolean(receipt?.srv_created_at)}>
             {receipt?.srv_created_at
               ? `${receipt.srv_no || "—"} · ${fmtStamp(receipt.srv_created_at)}`
               : none}
           </TraceStep>
-          <TraceStep emoji="🛠️" label="Engineer Clearance" done={Boolean(receipt?.tool_room_cleared_at)}>
+          <TraceStep icon={HardHat} label="Engineer Clearance" done={Boolean(receipt?.tool_room_cleared_at)}>
             {receipt?.tool_room_cleared_at
               ? `Tool Room cleared · ${fmtStamp(receipt.tool_room_cleared_at)}`
               : <span className="text-slate-400">
                   Not recorded — Tool Room clearance is captured, Maintenance clearance is not
                 </span>}
           </TraceStep>
-          <TraceStep emoji="🏬" label="Store Stock" done={data.stock.qty_on_hand != null}>
+          <TraceStep icon={Store} label="Store Stock" done={data.stock.qty_on_hand != null}>
             {data.stock.qty_on_hand != null
               ? <>In Stock <span className="font-semibold text-slate-700 dark:text-slate-200">{num(data.stock.qty_on_hand)}</span>
                   {data.stock.last_counted_at && ` · counted ${fmtStamp(data.stock.last_counted_at)}`}</>
               : <span className="text-slate-400">Never counted</span>}
           </TraceStep>
-          <TraceStep emoji="📤" label="Issued" done={issues.length > 0}>
+          <TraceStep icon={ArrowUpFromLine} label="Issued" done={issues.length > 0}>
             {issues.length > 0
               ? `${issues.length} issue${issues.length === 1 ? "" : "s"} · ${num(
                   issues.reduce((s, m) => s + Math.abs(m.qty_delta), 0))} out`
               : none}
           </TraceStep>
-          <TraceStep emoji="✅" label="ERP Consumption" done={Boolean(receipt?.consumed_at)} last>
+          <TraceStep icon={CircleCheck} label="ERP Consumption" done={Boolean(receipt?.consumed_at)} last>
             {receipt?.consumed_at ? fmtStamp(receipt.consumed_at) : none}
           </TraceStep>
         </ol>
@@ -1257,12 +1248,12 @@ function DrillDown({ drill, onClose }) {
           </p>
         </div>
         <button onClick={onClose} title="Close"
-          className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-2xl leading-none shrink-0">✕</button>
+          className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center shrink-0"><X size={20} aria-hidden="true" /></button>
       </div>
 
       {topValueRows.length > 0 && (
         <div className="card shrink-0">
-          <CardHead icon="💎" tone="blue" title="Top 10 by value"
+          <CardHead icon={Gem} tone="blue" title="Top 10 by value"
             hint="Highest stock value on the shelf — tap a bar to open the part" />
           <TopValueChart
             data={topValueRows}
@@ -1274,7 +1265,7 @@ function DrillDown({ drill, onClose }) {
       <div className={`flex-1 min-h-0 grid grid-cols-1 gap-4 ${hasStatus ? "xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]" : ""}`}>
         {hasStatus && (
           <div className="card h-fit">
-            <CardHead icon="📊" tone="violet" title="By status" hint="How this list splits up" />
+            <CardHead icon={ChartColumn} tone="violet" title="By status" hint="How this list splits up" />
             <DonutChart data={statusData} colors={statusColors} size={132}
               centerValue={num(rows.length)} centerLabel="parts" emptyMessage="—" />
           </div>
@@ -1377,7 +1368,7 @@ function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick }) {
 
   return (
     <div className="card">
-      <CardHead icon="🚚" tone="violet" title="Stock Value by Supplier"
+      <CardHead icon={Truck} tone="violet" title="Stock Value by Supplier"
         hint="Credited to each part's last gate-entry supplier" />
       {isLoading ? (
         <div className="space-y-2.5 py-2">
@@ -1585,9 +1576,9 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
   const consRangeTitle = custom ? `${consFrom} → ${consTo}` : "All time";
   // One config drives both the three page donuts and the drill each opens.
   const CONS_DIMS = [
-    { key: "department", icon: "🏭", tone: "violet", title: "By Department", pageTitle: "Department-wise", hint: "Share of issues by department", data: deptData, total: consTotal, empty: "Nothing issued in this range" },
-    { key: "machine", icon: "⚙️", tone: "green", title: "By Machine", pageTitle: "Machine-wise", hint: "Which machine eats the most spares", data: machineData, total: machineTotal, empty: "No machine recorded yet" },
-    { key: "type", icon: "🔩", tone: "amber", title: "By Part Type", pageTitle: "Part-type", hint: "Sensor · Cylinder · Pin · Punch …", data: typeData, total: typeTotal, empty: "No part-type consumption yet" },
+    { key: "department", icon: Factory, tone: "violet", title: "By Department", pageTitle: "Department-wise", hint: "Share of issues by department", data: deptData, total: consTotal, empty: "Nothing issued in this range" },
+    { key: "machine", icon: Settings, tone: "green", title: "By Machine", pageTitle: "Machine-wise", hint: "Which machine eats the most spares", data: machineData, total: machineTotal, empty: "No machine recorded yet" },
+    { key: "type", icon: Bolt, tone: "amber", title: "By Part Type", pageTitle: "Part-type", hint: "Sensor · Cylinder · Pin · Punch …", data: typeData, total: typeTotal, empty: "No part-type consumption yet" },
   ];
   const consFocus = CONS_DIMS.find((d) => d.key === consDrill) || null;
 
@@ -1657,12 +1648,12 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
             ~175px, and once the chip takes its column the label truncates to
             "TOT…" and the figure clips. A KPI you cannot read is not a KPI. */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <KpiCard featured tone="blue" label="Total Spare Parts" icon="🔧" value={stats.total}
+          <KpiCard featured tone="blue" label="Total Spare Parts" icon={Wrench} value={stats.total}
             onClick={opener(partsDrill("Total Spare Parts", "Every active part in this list", parts, "spares_all"))} />
-          <KpiCard featured tone="navy" label="Live Stock" icon="📦" value={stock ? stock.total_qty : 0} unit="pcs"
+          <KpiCard featured tone="navy" label="Live Stock" icon={Package} value={stock ? stock.total_qty : 0} unit="pcs"
             hint={stock ? `${num(stock.counted_parts)} of ${num(stock.total_parts)} counted` : ""}
             onClick={opener(stockDrill("Live Stock", "Counted parts and what is on the shelf", counted, "spare_live_stock"))} />
-          <KpiCard featured tone="green" label="Stock Value" icon="💰"
+          <KpiCard featured tone="green" label="Stock Value" icon={IndianRupee}
             value={compactMoney(stock?.stock_value || null)} valueTitle={money(stock?.stock_value)}
             hint={stock?.valued_parts ? `${num(stock.valued_parts)} carry a rate` : "No rated part counted yet"}
             onClick={opener({
@@ -1678,10 +1669,10 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
               until the data lands — no skeletons that could sit blank. Today
               Received / Issued simply stay 0 on a section page, which has no
               store-wide ops. */}
-          <KpiCard featured tone="green" label="Today Received" icon="📥"
+          <KpiCard featured tone="green" label="Today Received" icon={ArrowDownToLine}
             value={ops?.today?.received_qty ?? 0} unit="pcs"
             hint={`${ops?.today?.received_lines ?? 0} receipt line${ops?.today?.received_lines === 1 ? "" : "s"}`} />
-          <KpiCard featured tone="red" label="Today Issued" icon="📤"
+          <KpiCard featured tone="red" label="Today Issued" icon={ArrowUpFromLine}
             value={ops?.today?.issued_qty ?? 0} unit="pcs"
             hint={`${ops?.today?.issued_lines ?? 0} issue line${ops?.today?.issued_lines === 1 ? "" : "s"}`} />
         </div>
@@ -1707,7 +1698,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
           {stock.counted_parts === 0 ? (
             <div className="card border-amber-200 dark:border-amber-500/30 bg-amber-50/50 dark:bg-amber-500/[0.07]">
               <div className="flex flex-wrap items-center gap-4">
-                <span className="text-3xl leading-none" aria-hidden="true">📋</span>
+                <ClipboardList size={30} strokeWidth={1.75} className="shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-slate-800 dark:text-white">
                     No stock has been counted yet
@@ -1735,11 +1726,11 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
             <div>
               <TierHead tone="red" label="Critical" />
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                <ActionTile tone="red" emoji="🚨" label="Zero Stock" value={stock.out_of_stock}
+                <ActionTile tone="red" icon={Siren} label="Zero Stock" value={stock.out_of_stock}
                   hint="Counted and found empty"
                   onClick={() => setDrill(stockDrill("Zero Stock", "Counted, and nothing on the shelf",
                     byStatus("Out of Stock"), "spares_zero_stock"))} />
-                <ActionTile tone="violet" emoji="📝" label="SRV Pending" value={ops.pending?.total ?? 0}
+                <ActionTile tone="violet" icon={FilePen} label="SRV Pending" value={ops.pending?.total ?? 0}
                   hint="Awaiting SRV or engineer clearance"
                   onClick={() => setPendingOpen(true)} />
               </div>
@@ -1747,15 +1738,15 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
             <div>
               <TierHead tone="amber" label="Warning" />
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                <ActionTile tone="amber" emoji="⚠️" label="Below Minimum" value={stock.below_minimum}
+                <ActionTile tone="amber" icon={TriangleAlert} label="Below Minimum" value={stock.below_minimum}
                   hint="Under the minimum — order now"
                   onClick={() => setDrill(stockDrill("Below Minimum", "In stock has fallen under the minimum",
                     byStatus("Below Minimum"), "spares_below_minimum"))} />
-                <ActionTile tone="orange" emoji="🛒" label="Reorder" value={stock.reorder}
+                <ActionTile tone="orange" icon={ShoppingCart} label="Reorder" value={stock.reorder}
                   hint="At/below reorder level"
                   onClick={() => setDrill(stockDrill("Reorder", "At or below the reorder level — time to order",
                     byStatus("Reorder"), "spares_reorder"))} />
-                <ActionTile tone="blue" emoji="📈" label="Excess Parts" value={ops.excess.length}
+                <ActionTile tone="blue" icon={TrendingUp} label="Excess Parts" value={ops.excess.length}
                   hint="Money tied up on the shelf"
                   onClick={() => setDrill({
                     title: "Excess Parts", subtitle: "Above the maximum, furthest over first",
@@ -1767,7 +1758,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
             <div>
               <TierHead tone="slate" label="For information" />
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                <ActionTile tone="slate" emoji="❓" label="Never Counted" value={stock.uncounted_parts}
+                <ActionTile tone="slate" icon={CircleHelp} label="Never Counted" value={stock.uncounted_parts}
                   hint="No stock figure at all yet"
                   onClick={() => setDrill(stockDrill("Never Counted",
                     "No count has ever been recorded — these are not judged against Min/Max",
@@ -1794,20 +1785,20 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
                 quarterly stocktake, so those figures sit at a flat ~100% and
                 say nothing day to day. The Master Data Completeness section
                 below carries the gaps and opens the missing parts. */}
-            <GaugeCard title="Capacity Used" emoji="📦" g={ops.analytics.gauges.stock_utilisation}
+            <GaugeCard title="Capacity Used" icon={Package} g={ops.analytics.gauges.stock_utilisation}
               polarity="higher-worse" note="How full the store is against its max limit — over 100% means more in stock than the max says to hold"
               badges={{ good: "OK", warn: "High", bad: "Over Limit" }} />
-            <GaugeCard title="Inventory Health" emoji="🩺" g={ops.analytics.gauges.inventory_health}
+            <GaugeCard title="Inventory Health" icon={HeartPulse} g={ops.analytics.gauges.inventory_health}
               polarity="higher-better" note="Counted parts sitting inside Min/Max"
               badges={{ good: "Healthy", warn: "Fair", bad: "Low" }} />
-            <GaugeCard title="Critical Parts" emoji="🚨" g={ops.analytics.gauges.critical_parts}
+            <GaugeCard title="Critical Parts" icon={Siren} g={ops.analytics.gauges.critical_parts}
               polarity="higher-worse" note="Below minimum or empty"
               badges={{ good: "OK", warn: "Elevated", bad: "Critical" }} />
             {/* Tighter bands than the default 70/90: a store where a large
                 share of parts sit over their maximum is money tied up, so it
                 should read amber past 40% and red past 60%, not calm green —
                 and line up with Capacity Used rather than contradict it. */}
-            <GaugeCard title="Excess Stock" emoji="📈" g={ops.analytics.gauges.excess_stock}
+            <GaugeCard title="Excess Stock" icon={TrendingUp} g={ops.analytics.gauges.excess_stock}
               polarity="higher-worse" note="Counted parts above maximum"
               thresholds={{ amber: 40, red: 60 }}
               badges={{ good: "OK", warn: "Watch", bad: "High" }} />
@@ -1815,7 +1806,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
             <div className="card">
-              <CardHead icon="🍩" tone="green" title="Inventory Status Distribution"
+              <CardHead icon={ChartPie} tone="green" title="Inventory Status Distribution"
                 hint="Counted parts, by how they sit against Min/Max" />
               <DonutChart
                 data={ops.analytics.status_distribution}
@@ -1835,7 +1826,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
             </div>
 
             <div className="card">
-              <CardHead icon="💰" tone="amber" title="Stock Value Distribution"
+              <CardHead icon={IndianRupee} tone="amber" title="Stock Value Distribution"
                 hint="Where the money on the shelf is sitting" />
               <DonutChart
                 data={ops.analytics.value_distribution}
@@ -1851,7 +1842,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
                 where the status donut already lives. The two together are the
                 whole stock picture; apart, each half repeated the other. */}
             <div className="card">
-              <CardHead icon="📊" tone="blue" title="Min · Current · Max"
+              <CardHead icon={ChartColumn} tone="blue" title="Min · Current · Max"
                 hint="Counted parts, furthest out of band first"
                 action={counted.length > 5 ? (
                   <button type="button"
@@ -1901,7 +1892,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
           {/* One card, two halves — Tool Room and Maintenance side by side, each
               showing how many SRVs' quality clearance is pending at that end. */}
           <div className="card">
-            <CardHead icon="🧪" tone="violet" title="Pending Quality Clearance"
+            <CardHead icon={FlaskConical} tone="violet" title="Pending Quality Clearance"
               hint="SRVs waiting on the engineer's quality check after SRV making" />
             <div className="grid grid-cols-2 gap-3">
               <ClearanceStat label="Tool Room" value={ops.pending.tool_room.pending} tone="amber"
@@ -1929,7 +1920,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
             {onReorderExport && (
               <button className="btn-secondary py-1.5 text-[13px]" onClick={onReorderExport}
                 title="Reorder list, section & category-wise, with the quantity to order — for the concerned department">
-                ⬇ Excel (section &amp; category-wise, with order qty)
+                <Download size={14} aria-hidden="true" /> Excel (section &amp; category-wise, with order qty)
               </button>
             )}
           </div>
@@ -1965,10 +1956,10 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
               {ops.comparison && <ConsumptionCompare c={ops.comparison} />}
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {/* Filter purely by a calendar From–To range; clear it (✕) for
+              {/* Filter purely by a calendar From–To range; clear it (X) for
                   all-time. It scopes every chart, the drill and the Excel. */}
               <div className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 ${custom ? "border-toyotared bg-toyotared/5" : "border-slate-200 dark:border-navy-700"}`}>
-                <span className="text-[15px]" aria-hidden="true">📅</span>
+                <CalendarDays size={15} className="shrink-0 text-slate-400" aria-hidden="true" />
                 <input type={fromType} placeholder="From" value={consFrom} max={consTo || undefined}
                   aria-label="From date"
                   onFocus={(e) => { e.target.type = "date"; setFromType("date"); try { e.target.showPicker?.(); } catch { /* not user-activated */ } }}
@@ -1985,7 +1976,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
                 {custom && (
                   <button type="button" title="Clear the range — back to all-time"
                     onClick={() => { setConsFrom(""); setConsTo(""); setFromType("text"); setToType("text"); }}
-                    className="text-slate-400 hover:text-toyotared text-sm leading-none px-0.5">✕</button>
+                    className="text-slate-400 hover:text-toyotared leading-none px-0.5"><X size={14} aria-hidden="true" /></button>
                 )}
               </div>
               <button className="btn-secondary shrink-0"
@@ -1994,7 +1985,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
                   `spare_consumption_${custom ? `${consFrom}_${consTo}` : "all"}.xlsx`,
                   { store_code: STORE_CODE, from: qFrom, to: qTo },
                 )}>
-                ⬇ Excel
+                <Download size={14} aria-hidden="true" /> Excel
               </button>
             </div>
           </div>
@@ -2038,7 +2029,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
               racks this is a composition — what share of the store sits where —
               and the total belongs in the hole, not in a separate line. */}
           <div className="card">
-            <CardHead icon="📍" tone="blue" title="Parts by Rack" hint="Where the spares physically live" />
+            <CardHead icon={MapPin} tone="blue" title="Parts by Rack" hint="Where the spares physically live" />
             <DonutChart
               data={stats.racks.slice(0, 6)}
               colors={RACK_COLORS(stats.racks)}
@@ -2055,7 +2046,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
               has no stock figure at all yet. What it can honestly score is how
               much of its own master is filled in. */}
           <div className="card">
-            <CardHead icon="✅" tone="green" title="Master Data Completeness"
+            <CardHead icon={CircleCheck} tone="green" title="Master Data Completeness"
               hint="How much of the list is filled in — not a stock reading" />
             <div className="flex items-center gap-4">
               <RadialGauge value={completeness.score} size={110} label="complete" />
@@ -2091,7 +2082,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
           {/* Grouped by unit rate — a ring beside the rack ring, each band a slice,
               the rated-part total in the hole. */}
           <div className="card">
-            <CardHead icon="💰" tone="green" title="Parts by Price" hint="Grouped by unit price" />
+            <CardHead icon={IndianRupee} tone="green" title="Parts by Price" hint="Grouped by unit price" />
             <DonutChart
               data={stats.bands}
               colors={Object.fromEntries(stats.bands.map((b) => [b.name, b.color]))}
@@ -2164,10 +2155,10 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
               onClick={() => downloadFile("/spare-stock/consumption/export",
                 `spare_consumption_${custom ? `${consFrom}_${consTo}` : "all"}.xlsx`,
                 { store_code: STORE_CODE, from: qFrom, to: qTo })}>
-              ⬇ Excel
+              <Download size={14} aria-hidden="true" /> Excel
             </button>
             <button onClick={() => setConsDrill(null)} title="Close"
-              className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-2xl leading-none shrink-0">✕</button>
+              className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center shrink-0"><X size={20} aria-hidden="true" /></button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -2177,7 +2168,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
                 centerValue={num(consFocus.total)} centerLabel="pcs" emptyMessage={consFocus.empty} />
             </div>
             <div className="card">
-              <CardHead icon="📈" tone="blue" title="Consumption Trend"
+              <CardHead icon={TrendingUp} tone="blue" title="Consumption Trend"
                 hint={custom ? `Daily issued qty · ${consRangeTitle}` : "Daily issued qty · last 90 days"} />
               {consDetailLoading
                 ? <div className="h-56 flex items-center justify-center"><div className="skeleton h-40 w-full rounded-xl" /></div>
@@ -2187,7 +2178,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
 
           <div className="card">
             <div className="flex items-start justify-between gap-2">
-              <CardHead icon="📋" tone="violet" title="Consumed parts — by quantity"
+              <CardHead icon={ClipboardList} tone="violet" title="Consumed parts — by quantity"
                 hint="Ranked by quantity issued, labelled with the part description" />
               <button className="btn-secondary py-1.5 text-[13px] shrink-0"
                 onClick={() => downloadXlsx(
@@ -2196,7 +2187,7 @@ function SpareDashboard({ stats, loading, onPartClick, onStockClick, stock, belo
                   consumedParts.map((p) => [p.part_no, p.part_name || "", Number(p.qty) || 0]),
                   "Consumed",
                 )}>
-                ⬇ Excel (full list)
+                <Download size={14} aria-hidden="true" /> Excel (full list)
               </button>
             </div>
             {consDetailLoading ? (
@@ -2268,7 +2259,7 @@ const COLUMNS = [
       r.rework_location ? (
         <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full
           bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-          🔁 {r.rework_location}
+          <Repeat2 size={12} aria-hidden="true" /> {r.rework_location}
         </span>
       ) : (
         <span className="text-slate-300 dark:text-slate-600">—</span>
@@ -2470,7 +2461,7 @@ export default function MaintenanceStore() {
         footer={
           <div className="flex flex-wrap gap-2 justify-end">
             <button className="btn-secondary" onClick={downloadReorderExcel}>
-              ⬇ Excel (section &amp; category-wise, with order qty)
+              <Download size={14} aria-hidden="true" /> Excel (section &amp; category-wise, with order qty)
             </button>
             <button className="btn-primary" onClick={() => setReorderPopup(false)}>Got it</button>
           </div>
@@ -2479,7 +2470,7 @@ export default function MaintenanceStore() {
         <div className="-mx-5 -mt-4 mb-4 px-5 py-4 text-white"
           style={{ background: "linear-gradient(120deg,#8f0713 0%,#eb0a1e 55%,#ff6a3d 100%)" }}>
           <div className="flex items-center gap-3">
-            <span className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center text-2xl shrink-0">⚠️</span>
+            <span className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0"><TriangleAlert size={24} aria-hidden="true" /></span>
             <div className="min-w-0">
               <h3 className="text-2xl font-extrabold leading-tight">Needs Reordering</h3>
               <p className="text-sm text-white/80">

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { PackageSearch, CheckCircle2, AlertTriangle, MapPin } from "lucide-react";
+import { PackageSearch, CheckCircle2, AlertTriangle, MapPin, Archive } from "lucide-react";
 import Table from "../components/Table.jsx";
 import BarcodeScanInput from "../components/BarcodeScanInput.jsx";
 import { putAwayService } from "../services/putAwayService.js";
@@ -46,7 +46,7 @@ export default function PutAway() {
     }
     setScannedRack(match);
     if (match.is_blocked || match.available_bins <= 0) {
-      toast(`Rack ${match.location}/${match.rack_no} has no space — will be sent to Holding Area if confirmed`, { icon: "⚠️" });
+      toast(`Rack ${match.location}/${match.rack_no} has no space — will be sent to Holding Area if confirmed`, { icon: <AlertTriangle size={18} className="text-amber-500 shrink-0" /> });
     } else {
       toast.success(`Rack ${match.location}/${match.rack_no} matched — ${match.available_bins} bin(s) available`);
     }
@@ -57,7 +57,7 @@ export default function PutAway() {
       const res = await putAwayService.confirm(active.id, scannedRack.id, code.trim());
       const status = res.data.data.put_away_status;
       if (status === "HOLDING") {
-        toast(`${active.part_no}: rack full — moved to Holding Area`, { icon: "📦" });
+        toast(`${active.part_no}: rack full — moved to Holding Area`, { icon: <Archive size={18} className="text-slate-500 shrink-0" /> });
       } else {
         toast.success(`${active.part_no} allocated to ${scannedRack.location}/${scannedRack.rack_no}`);
       }

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Download, Search } from "lucide-react";
 import { useStores } from "../context/StoreContext.jsx";
 import { spareStockService } from "../services/spareStockService.js";
 import { downloadXlsx } from "../utils/excel.js";
@@ -219,7 +220,7 @@ export default function SparePartHistory() {
                 <Field label="Sub Group" value={part.sub_category || "—"} />
                 <Field label="Std Rate (₹)" value={part.unit_price != null ? m2(part.unit_price) : "—"} />
               </div>
-              <button className="btn-secondary shrink-0" onClick={exportLedger} disabled={!ledger.length}>⬇ Export Excel</button>
+              <button className="btn-secondary shrink-0" onClick={exportLedger} disabled={!ledger.length}><Download size={14} aria-hidden="true" /> Export Excel</button>
             </div>
 
             {/* Optional date range + ERP-style actions (Search / Reset / Clear). */}
@@ -234,7 +235,7 @@ export default function SparePartHistory() {
                 onChange={(e) => setDateDraft((d) => ({ ...d, to: e.target.value }))}
                 onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
                 className="input-field text-sm" />
-              <button className="btn-primary text-sm" onClick={runSearch}>🔍 Search</button>
+              <button className="btn-primary text-sm" onClick={runSearch}><Search size={14} aria-hidden="true" /> Search</button>
               <button className="btn-secondary text-sm" onClick={resetDates}>Reset</button>
               <button className="btn-secondary text-sm" onClick={clearAll}>Clear</button>
             </div>

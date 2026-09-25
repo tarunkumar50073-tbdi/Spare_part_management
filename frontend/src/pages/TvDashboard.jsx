@@ -1385,7 +1385,7 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh] h-full">
       <Card className="p-[1.6vh] flex flex-col">
-        <h3 className="dx-radiant mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">Biggest ERP ↔ Physical gaps</h3>
+        <h3 className="dx-radiant mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">Biggest ERP vs Physical gaps</h3>
         <div className="min-h-[30vh] flex-1">
           {top.length ? (
             <ResponsiveContainer width="100%" height="100%">

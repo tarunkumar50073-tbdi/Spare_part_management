@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
+import { Camera, Flashlight, Play, ScanLine, SwitchCamera } from "lucide-react";
 
 // One scan surface for the Spare store, two ways in:
 //  • Scanner gun (USB/Bluetooth HID) — types the barcode into a focused field
@@ -187,19 +188,19 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
           <button type="button" onClick={() => setMethod("gun")} disabled={busy}
             className={`flex-1 rounded-lg py-2.5 text-sm font-semibold ${
               method === "gun" ? "bg-toyotared text-white" : "bg-slate-100 text-slate-700 dark:bg-navy-800 dark:text-slate-200"}`}>
-            📠 Scanner gun
+            <ScanLine size={16} className="inline-block align-[-3px] mr-1.5" aria-hidden="true" />Scanner gun
           </button>
           <button type="button" onClick={() => setMethod("camera")} disabled={busy}
             className={`flex-1 rounded-lg py-2.5 text-sm font-semibold ${
               method === "camera" ? "bg-toyotared text-white" : "bg-slate-100 text-slate-700 dark:bg-navy-800 dark:text-slate-200"}`}>
-            📷 Tablet camera
+            <Camera size={16} className="inline-block align-[-3px] mr-1.5" aria-hidden="true" />Tablet camera
           </button>
         </div>
       )}
 
       {method === "gun" ? (
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="text-5xl" aria-hidden="true">📠</div>
+          <ScanLine size={48} strokeWidth={1.5} className="text-slate-400 dark:text-slate-500" aria-hidden="true" />
           <div className="text-lg font-semibold text-slate-800 dark:text-white">
             Scan a barcode with the gun
           </div>
@@ -247,18 +248,18 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
             {paused && (
               <button type="button" onClick={() => { setPaused(false); startCamera(deviceIdRef.current); }}
                 className="absolute inset-0 flex items-center justify-center bg-black/60 text-lg font-semibold text-white">
-                ▶ Scan next part
+                <Play size={18} className="mr-2" aria-hidden="true" />Scan next part
               </button>
             )}
           </div>
           <div className="mt-3 flex justify-center gap-2">
             {torchSupported && (
               <button type="button" onClick={toggleTorch} className="btn-secondary">
-                {torchOn ? "🔦 Torch off" : "🔦 Torch on"}
+                <Flashlight size={15} aria-hidden="true" />{torchOn ? "Torch off" : "Torch on"}
               </button>
             )}
             {multiCam && (
-              <button type="button" onClick={switchCamera} className="btn-secondary">🔄 Switch camera</button>
+              <button type="button" onClick={switchCamera} className="btn-secondary"><SwitchCamera size={15} aria-hidden="true" />Switch camera</button>
             )}
           </div>
           <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">

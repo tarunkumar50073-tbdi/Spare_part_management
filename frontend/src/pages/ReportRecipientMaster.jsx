@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Mail, Plus, Check, Send } from "lucide-react";
+import { Mail, Plus, Check, Send, TriangleAlert } from "lucide-react";
 import { reportRecipientService } from "../services/reportRecipientService.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -109,7 +109,7 @@ export default function ReportRecipientMaster() {
         )}
         {flaggedNoAddress.length > 0 && (
           <span className="text-amber-600 dark:text-amber-400">
-            ⚠ {flaggedNoAddress.map((r) => r.name).join(", ")} — no address, will be skipped
+            <TriangleAlert size={13} className="inline-block align-[-2px] mr-1" aria-hidden="true" />{flaggedNoAddress.map((r) => r.name).join(", ")} — no address, will be skipped
           </span>
         )}
       </div>

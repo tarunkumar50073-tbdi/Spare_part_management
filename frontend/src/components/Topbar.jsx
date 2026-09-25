@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { FileDown, Home, LogOut, Maximize2, Minimize2, Settings as SettingsIcon } from "lucide-react";
+import { Bell, FileDown, Home, LogOut, Maximize2, Minimize2, Search, Settings as SettingsIcon } from "lucide-react";
 import Badge from "./Badge.jsx";
 import { notificationService } from "../services/notificationService.js";
 import { liveStockService } from "../services/liveStockService.js";
@@ -246,7 +246,7 @@ export default function Topbar({ title, showSearch = true }) {
             <div ref={searchRef} className="relative hidden lg:block w-48 xl:w-64">
               <form onSubmit={handleSearch}>
                 <div className="relative">
-                  <span className="absolute left-3 top-1.5 text-sm pointer-events-none">🔍</span>
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" aria-hidden="true" />
                   <input
                     className="w-full rounded-full border border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 pl-9 pr-4 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-toyotared/40 focus:border-toyotared transition"
                     placeholder={childParts
@@ -346,7 +346,7 @@ export default function Topbar({ title, showSearch = true }) {
               className="relative h-8 w-8 flex items-center justify-center text-base hover:opacity-70 transition-opacity"
               title="Notifications"
             >
-              🔔
+              <Bell size={18} aria-hidden="true" />
               {notifications.length > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 bg-toyotared text-white text-[10px] font-bold rounded-full min-w-[15px] h-[15px] px-0.5 flex items-center justify-center">
                   {notifications.length}

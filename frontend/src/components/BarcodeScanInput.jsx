@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ScanLine, Camera, Keyboard } from "lucide-react";
+import { ScanLine, Camera, Keyboard, Play } from "lucide-react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 
 /** Compact barcode input with two ways in:
@@ -169,7 +169,7 @@ export default function BarcodeScanInput({ onScan, placeholder = "Scan a barcode
             {paused && (
               <button type="button" onClick={() => { setPaused(false); startCamera(); }}
                 className="absolute inset-0 flex items-center justify-center bg-black/60 text-base font-semibold text-white">
-                ▶ Scan next
+                <Play size={16} className="mr-2" aria-hidden="true" />Scan next
               </button>
             )}
           </div>

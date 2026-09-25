@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { BellRing } from "lucide-react";
+import { BellRing, TriangleAlert } from "lucide-react";
 import { departmentService } from "../services/departmentService.js";
 import Can, { useCan } from "../components/Can.jsx";
 
@@ -137,7 +137,7 @@ export default function DepartmentMaster() {
         </span>
         {flaggedNoAddress.length > 0 && (
           <span className="text-amber-600 dark:text-amber-400">
-            ⚠ {flaggedNoAddress.map((r) => r.name).join(", ")} flagged but no person — will be skipped
+            <TriangleAlert size={13} className="inline-block align-[-2px] mr-1" aria-hidden="true" />{flaggedNoAddress.map((r) => r.name).join(", ")} flagged but no person — will be skipped
           </span>
         )}
       </div>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
+import { Star } from "lucide-react";
 import { useStores } from "../context/StoreContext.jsx";
 import { barcodeService } from "../services/barcodeService.js";
 import { supplierService } from "../services/supplierService.js";
@@ -117,7 +118,7 @@ export default function SupplierBarcodeMapping() {
                     <td className="py-1 font-mono">{b.code}</td>
                     <td>{b.source}</td>
                     <td>{b.supplier_name || "—"}</td>
-                    <td>{b.is_primary ? "★" : ""}</td>
+                    <td>{b.is_primary ? <Star size={14} className="fill-amber-400 text-amber-400" aria-label="Primary" /> : ""}</td>
                     <td>{b.is_active ? "Active" : "Inactive"}</td>
                     <td className="text-right">
                       {b.source === "SUPPLIER" && (

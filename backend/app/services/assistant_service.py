@@ -132,7 +132,7 @@ class AssistantService:
             "Not Counted": "never counted",
         }.get(status, status.lower())
         answer = (f"{total} part{'s' if total != 1 else ''} {label}."
-                  if total else f"No parts are {label} right now. 👍")
+                  if total else f"No parts are {label} right now.")
         results = [self._row_result(r) for r in rows[:6]]
         # Every bucket lands on Store Stock, which has the matching filter chips.
         for r in results:

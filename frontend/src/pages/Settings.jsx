@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { settingsService } from "../services/settingsService.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import Glyph from "../components/Glyph.jsx";
 
 // Shortcuts to the admin-manageable screens that already exist — one place to
 // reach everything, instead of rebuilding them here.
@@ -182,7 +183,7 @@ export default function Settings() {
             <div key={s.code} className="rounded-xl border border-slate-200 dark:border-navy-800">
               <div className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-lg">{s.icon || "🏬"}</span>
+                  <Glyph icon={s.icon || StoreIcon} size={18} className="shrink-0 text-slate-500 dark:text-slate-400" />
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">{s.name}</p>
                     <p className="text-[11px] text-slate-400">{s.code}</p>

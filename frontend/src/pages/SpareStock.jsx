@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Check, X } from "lucide-react";
+import {
+  Check, CircleCheck, ClipboardList, Hourglass, IndianRupee, Package, ShoppingCart, Undo2, Wrench, X,
+} from "lucide-react";
 import CardHead from "../components/CardHead.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
 import KpiCard from "../components/KpiCard.jsx";
@@ -135,7 +137,7 @@ export default function SpareStock() {
       const res = await spareStockService.erpSync(activeCode);
       const d = res.data.data;
       if (!d.configured) {
-        toast(`ERP endpoint not live yet — ${d.pending} movement${d.pending === 1 ? "" : "s"} will sync once it's set`, { icon: "⏳" });
+        toast(`ERP endpoint not live yet — ${d.pending} movement${d.pending === 1 ? "" : "s"} will sync once it's set`, { icon: <Hourglass size={18} className="text-amber-500 shrink-0" /> });
       } else {
         toast.success(`Pushed ${d.pushed} movement${d.pushed === 1 ? "" : "s"} to ERP`);
       }
@@ -287,7 +289,7 @@ export default function SpareStock() {
           the count is one column to type rather than 481 rows to retype. */}
       <div className="card bg-blue-50/50 dark:bg-blue-500/[0.07] border-blue-200 dark:border-blue-500/30">
         <div className="flex flex-wrap items-start gap-3">
-          <span className="text-2xl leading-none" aria-hidden="true">📋</span>
+          <ClipboardList size={24} strokeWidth={1.75} className="shrink-0 text-blue-600 dark:text-blue-400" aria-hidden="true" />
           <div className="min-w-0 flex-1 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
             <p className="font-semibold text-slate-800 dark:text-white mb-1">How to load opening stock</p>
             <p>
@@ -302,18 +304,18 @@ export default function SpareStock() {
 
       {summary && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KpiCard featured tone="blue" label="Parts in Store" icon="🔧" value={summary.total_parts} />
-          <KpiCard featured tone="green" label="Counted" icon="✅" value={summary.counted_parts}
+          <KpiCard featured tone="blue" label="Parts in Store" icon={Wrench} value={summary.total_parts} />
+          <KpiCard featured tone="green" label="Counted" icon={CircleCheck} value={summary.counted_parts}
             hint={`${num(summary.uncounted_parts)} still to count`} />
-          <KpiCard featured tone="navy" label="In Stock" icon="📦" value={summary.total_qty} unit="pcs" />
-          <KpiCard featured tone="amber" label="Stock Value" icon="💰"
+          <KpiCard featured tone="navy" label="In Stock" icon={Package} value={summary.total_qty} unit="pcs" />
+          <KpiCard featured tone="amber" label="Stock Value" icon={IndianRupee}
             value={summary.stock_value ? money(summary.stock_value) : "—"}
             hint={`${num(summary.valued_parts)} parts carry a rate`} />
         </div>
       )}
 
       <div className="card">
-        <CardHead icon="📦" tone="navy" title="Every part in this store"
+        <CardHead icon={Package} tone="navy" title="Every part in this store"
           hint="Click an In Stock figure to count that part" />
         <div className="flex flex-wrap gap-2 mb-3">
           {FILTERS.map((f) => (
@@ -348,7 +350,7 @@ export default function SpareStock() {
 
       {reorder && reorder.items && reorder.items.length > 0 && (
         <div className="card">
-          <CardHead icon="🛒" tone="red" title={`Reorder list — ${reorder.count} part${reorder.count === 1 ? "" : "s"} at or below minimum`}
+          <CardHead icon={ShoppingCart} tone="red" title={`Reorder list — ${reorder.count} part${reorder.count === 1 ? "" : "s"} at or below minimum`}
             hint={reorder.total_reorder_value ? `Est. ${money(reorder.total_reorder_value)} to restock everything to maximum` : "Order these before they run out"} />
           <Table
             columns={REORDER_COLUMNS}
@@ -365,7 +367,7 @@ export default function SpareStock() {
 
       {returnables.length > 0 && (
         <div className="card">
-          <CardHead icon="↩️" tone="amber" title="Out on the floor — returnable tools"
+          <CardHead icon={Undo2} tone="amber" title="Out on the floor — returnable tools"
             hint="Returnable issues still to come back" />
           <div className="rounded-xl border border-slate-200 dark:border-navy-800 overflow-x-auto">
             <table className="w-full text-sm">

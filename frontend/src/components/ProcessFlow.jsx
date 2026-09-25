@@ -1,4 +1,5 @@
 import React from "react";
+import Glyph from "./Glyph.jsx";
 
 // The store's material flow as a row of stages with the count sitting at each.
 //
@@ -43,7 +44,7 @@ export default function ProcessFlow({ stages = [], onStageClick }) {
                   ${tone.tile} ${clickable ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-card" : "cursor-default"}`}
               >
                 <div className="flex items-center gap-1.5 mb-1.5">
-                  <span className="text-sm leading-none" aria-hidden="true">{s.emoji}</span>
+                  <Glyph icon={s.icon || s.emoji} size={14} className="text-slate-500 dark:text-slate-400" />
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 truncate">
                     {String(i + 1).padStart(2, "0")}
                   </span>

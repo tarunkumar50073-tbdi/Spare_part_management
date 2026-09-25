@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { Plus, Pencil, Trash2, Truck, Clock, FileSpreadsheet, Mail } from "lucide-react";
+import { Plus, Pencil, Trash2, Truck, Clock, FileSpreadsheet, Mail, TriangleAlert } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
@@ -165,7 +165,7 @@ export default function SupplierVehicleManagement() {
           report_build_failed: "report build failed",
           send_failed: "mail server rejected it",
         }[reason] || reason;
-        toast(`Not sent: ${why}`, { icon: "⚠️" });
+        toast(`Not sent: ${why}`, { icon: <TriangleAlert size={18} className="text-amber-500 shrink-0" /> });
       }
     } catch {
       /* api interceptor already toasts */

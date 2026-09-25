@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Search, Heart, ArrowRight } from "lucide-react";
+import Glyph from "../components/Glyph.jsx";
 import { assistantService } from "../services/assistantService.js";
 
 const CATEGORY_ORDER = ["Overview", "Inventory", "Masters", "Receiving", "Reports", "System"];
@@ -112,8 +113,9 @@ export default function AllServices() {
                 <Heart size={16} className={favs.has(s.key) ? "fill-toyotared text-toyotared" : ""} />
               </button>
 
-              <div className="grid h-14 w-14 place-items-center rounded-full bg-slate-100 text-2xl dark:bg-navy-800">
-                {s.icon}
+              <div className="grid h-14 w-14 place-items-center rounded-full bg-slate-100 text-2xl text-slate-600 dark:bg-navy-800 dark:text-slate-300">
+                {/* The catalogue names its icons as emoji; Glyph draws the line icon. */}
+                <Glyph icon={s.icon} size={26} strokeWidth={1.75} />
               </div>
               <h3 className="mt-3 text-base font-bold text-slate-800 dark:text-white">{s.title}</h3>
               <span className="mt-1 inline-block w-fit rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-navy-800 dark:text-slate-400">
