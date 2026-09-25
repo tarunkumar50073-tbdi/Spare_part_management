@@ -357,3 +357,17 @@ def build_export(columns, rows):
     wb.save(buf)
     buf.seek(0)
     return buf
+
+
+def build_csv(columns, rows):
+    """CSV counterpart of build_export — same (label, key) columns + list-of-dict
+    rows. Returns a BytesIO (UTF-8 with a BOM so Excel opens it in the right
+    encoding), with the same formula-injection guard as the Excel export."""
+    text = io.StringIO()
+    writer = csv.writer(text)
+    writer.writerow([label for label, _ in columns])
+    for row in rows:
+        writer.writerow([_excel_safe(row.get(key, "")) for _, key in columns])
+    buf = io.BytesIO(("﻿" + text.getvalue()).encode("utf-8"))
+    buf.seek(0)
+    return buf

@@ -1,11 +1,12 @@
 import React from "react";
-import { FileSpreadsheet, FileDown, FileText } from "lucide-react";
+import { FileSpreadsheet, FileDown, FileText, Sheet } from "lucide-react";
 import { REPORT_TYPES } from "../services/reportService.js";
 import { downloadFile } from "../utils/download.js";
 
 export default function Reports() {
+  const EXT = { excel: "xlsx", csv: "csv", pdf: "pdf" };
   const handleDownload = (reportKey, format) => {
-    downloadFile(`/reports/${reportKey}/${format}`, `${reportKey}_report.${format === "excel" ? "xlsx" : "pdf"}`);
+    downloadFile(`/reports/${reportKey}/${format}`, `${reportKey}_report.${EXT[format] || format}`);
   };
 
   return (
@@ -18,11 +19,14 @@ export default function Reports() {
         {REPORT_TYPES.map((r) => (
           <div key={r.key} className="card flex flex-col justify-between">
             <h3 className="font-semibold text-slate-800 dark:text-white mb-4">{r.label}</h3>
-            <div className="flex gap-2">
-              <button className="btn-secondary flex-1 justify-center" onClick={() => handleDownload(r.key, "excel")}>
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-secondary flex-1 justify-center min-w-[76px]" onClick={() => handleDownload(r.key, "excel")}>
                 <FileDown size={15} /> Excel
               </button>
-              <button className="btn-secondary flex-1 justify-center" onClick={() => handleDownload(r.key, "pdf")}>
+              <button className="btn-secondary flex-1 justify-center min-w-[76px]" onClick={() => handleDownload(r.key, "csv")}>
+                <Sheet size={15} /> CSV
+              </button>
+              <button className="btn-secondary flex-1 justify-center min-w-[76px]" onClick={() => handleDownload(r.key, "pdf")}>
                 <FileText size={15} /> PDF
               </button>
             </div>

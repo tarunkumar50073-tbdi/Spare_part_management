@@ -12,7 +12,7 @@ from app.repositories.supplier_repository import SupplierRepository
 from app.services.store_stock_service import StoreStockService
 from app.services.quarterly_inventory_service import QuarterlyInventoryService
 from app.services.live_stock_service import LiveStockService
-from app.utils.excel_io import build_export
+from app.utils.excel_io import build_export, build_csv
 from app.utils.pdf_io import build_pdf_table
 from app.utils.exceptions import BadRequestError
 
@@ -216,3 +216,7 @@ class ReportService:
     def export_pdf(self, report_type):
         title, row_fn, columns = self._resolve(report_type)
         return title, build_pdf_table(title, columns, row_fn(self))
+
+    def export_csv(self, report_type):
+        title, row_fn, columns = self._resolve(report_type)
+        return build_csv(columns, row_fn(self))

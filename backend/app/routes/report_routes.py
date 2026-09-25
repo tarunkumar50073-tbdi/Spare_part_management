@@ -18,3 +18,9 @@ def export_excel(report_type):
 def export_pdf(report_type):
     title, buf = service.export_pdf(report_type)
     return send_file(buf, as_attachment=True, download_name=f"{report_type}_report.pdf", mimetype="application/pdf")
+
+
+@bp.route("/<report_type>/csv", methods=["GET"])
+def export_csv(report_type):
+    buf = service.export_csv(report_type)
+    return send_file(buf, as_attachment=True, download_name=f"{report_type}_report.csv", mimetype="text/csv")
