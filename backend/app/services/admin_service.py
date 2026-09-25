@@ -4,17 +4,29 @@ Every operation here is ADMIN-only (enforced at the route with admin_required).
 The readable password lives on the User model as password_plain — see the note
 there; it is returned only through the admin user API.
 """
+from flask import g, has_request_context
+
 from app.extensions import db
 from app.models.user import PERMISSION_MODULES, ROLES, User, UserStoreAccess
 from app.repositories.user_repository import UserRepository
+from app.services.audit_log_service import AuditLogService
 from app.utils.exceptions import BadRequestError, NotFoundError
 
 MIN_PASSWORD_LEN = 4
 
 
+def _actor():
+    """The signed-in admin performing the action, recorded in the audit remark
+    (the AuditLog.user column itself is constrained to SYSTEM/STORE)."""
+    if has_request_context() and getattr(g, "current_user", None):
+        return g.current_user.username
+    return "system"
+
+
 class AdminService:
     def __init__(self):
         self.repo = UserRepository()
+        self.audit = AuditLogService()
 
     def modules(self):
         return PERMISSION_MODULES
@@ -68,6 +80,8 @@ class AdminService:
             self._apply_stores(user, data.get("stores"))
         db.session.add(user)
         db.session.commit()
+        self.audit.log(action="USER_CREATED", entity_type="user", entity_id=user.id,
+                       user="STORE", remarks=f"Created user '{username}' (role {role}) by {_actor()}"[:255])
         return user.to_admin_dict()
 
     def update_user(self, user_id, data):
@@ -81,18 +95,25 @@ class AdminService:
         if demoting and self._active_admin_count(exclude_id=user.id) == 0:
             raise BadRequestError("Can't remove the last active admin")
 
+        changes = []
         if "full_name" in data:
             user.full_name = (data.get("full_name") or "").strip() or None
         if "role" in data:
             role = (data.get("role") or user.role).upper()
             if role not in ROLES:
                 raise BadRequestError(f"Unknown role: {role}")
+            if role != user.role:
+                changes.append(f"role {user.role}→{role}")
             user.role = role
         if "is_active" in data:
-            user.is_active = bool(data.get("is_active"))
+            new_active = bool(data.get("is_active"))
+            if new_active != user.is_active:
+                changes.append("activated" if new_active else "deactivated")
+            user.is_active = new_active
         if data.get("password"):
             self._check_password(data["password"])
             user.set_password(data["password"])
+            changes.append("password changed")
 
         if user.role == "ADMIN":
             # An admin's rights/stores are implicit — clear any stored map so it
@@ -102,9 +123,13 @@ class AdminService:
         else:
             if "permissions" in data:
                 user.set_permissions(data.get("permissions") or {})
+                changes.append("permissions changed")
             if "stores" in data:
                 self._apply_stores(user, data.get("stores"))
+                changes.append("store access changed")
         db.session.commit()
+        self.audit.log(action="USER_UPDATED", entity_type="user", entity_id=user.id, user="STORE",
+                       remarks=f"Updated '{user.username}': {', '.join(changes) or 'no change'} by {_actor()}"[:255])
         return user.to_admin_dict()
 
     def reset_password(self, user_id, new_password):
@@ -112,6 +137,8 @@ class AdminService:
         user = self._get(user_id)
         user.set_password(new_password)
         db.session.commit()
+        self.audit.log(action="PASSWORD_RESET", entity_type="user", entity_id=user.id,
+                       user="STORE", remarks=f"Password reset for '{user.username}' by {_actor()}"[:255])
         return user.to_admin_dict()
 
     def delete_user(self, user_id, acting_user_id=None):
@@ -120,6 +147,9 @@ class AdminService:
             raise BadRequestError("You can't delete your own account")
         if user.is_admin and self._active_admin_count(exclude_id=user.id) == 0:
             raise BadRequestError("Can't remove the last active admin")
+        username = user.username
         db.session.delete(user)
         db.session.commit()
+        self.audit.log(action="USER_DELETED", entity_type="user", entity_id=user_id,
+                       user="STORE", remarks=f"Deleted user '{username}' by {_actor()}"[:255])
         return {"id": user_id}

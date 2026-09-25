@@ -26,6 +26,14 @@ class Config:
     # fully into memory, so an unbounded file could exhaust RAM.
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))  # 10 MB
 
+    # Throttle /auth/login so a stolen or guessed password can't be brute-forced
+    # (an unlimited login endpoint was the top security finding). In-process
+    # sliding window keyed by client IP; tuned generously so a legitimate
+    # operator mistyping a few times is never locked out. Tests disable it.
+    RATE_LIMIT_ENABLED = _env_bool("RATE_LIMIT_ENABLED", "true")
+    LOGIN_RATE_MAX = int(os.getenv("LOGIN_RATE_MAX", "10"))            # attempts...
+    LOGIN_RATE_WINDOW = int(os.getenv("LOGIN_RATE_WINDOW", "60"))     # ...per this many seconds, per IP
+
     # ERP SRV-submission API — outbound call that issues the official SRV
     # number (and short-note number, when short). Unset in dev: ERPClient
     # falls back to local mock generation until the real ERP endpoint is live.

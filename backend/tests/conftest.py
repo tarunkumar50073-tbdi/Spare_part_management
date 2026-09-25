@@ -37,6 +37,10 @@ def app():
     # the short-lived stock-list cache would hand one test the previous test's
     # rows. Off in tests; the cache is a runtime-only optimisation.
     app.config["SPARE_STOCK_CACHE_TTL"] = 0
+    # Tests log in many times a second from one client; the login rate limiter
+    # would trip and fail unrelated cases. The dedicated limiter test re-enables
+    # it locally.
+    app.config["RATE_LIMIT_ENABLED"] = False
     return app
 
 
