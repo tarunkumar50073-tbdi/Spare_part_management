@@ -7,6 +7,7 @@ import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { StoreProvider, storeHome, useStores } from "./context/StoreContext.jsx";
 import RequirePermission from "./components/RequirePermission.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 
 // Route pages are code-split: each loads its own chunk on demand, so opening the
 // app no longer downloads all ~35 screens (plus recharts / xlsx / zxing) up
@@ -92,6 +93,7 @@ function AuthenticatedApp() {
   return (
     <StoreProvider>
       <ScrollToTop />
+      <ErrorBoundary full>
       <Suspense fallback={<PageFallback />}>
       <Routes>
         {/* The 53" LED "Live Dashboard": behind login, but deliberately OUTSIDE
@@ -148,6 +150,7 @@ function AuthenticatedApp() {
         </Route>
       </Routes>
       </Suspense>
+      </ErrorBoundary>
     </StoreProvider>
   );
 }

@@ -5,6 +5,7 @@ import { useStores } from "../context/StoreContext.jsx";
 import Topbar from "../components/Topbar.jsx";
 import BackToTop from "../components/BackToTop.jsx";
 import AssistantWidget from "../components/AssistantWidget.jsx";
+import ErrorBoundary from "../components/ErrorBoundary.jsx";
 
 const TITLES = {
   "/dashboard": "Child Parts Store",
@@ -73,7 +74,9 @@ export default function MainLayout() {
             in the KPI tiles once they stretched edge to edge). */}
         <main className="flex-1 overflow-x-hidden">
           <div className="max-w-[1600px] mx-auto p-4 lg:p-8">
-            <Outlet />
+            <ErrorBoundary resetKey={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
           </div>
         </main>
       </div>
