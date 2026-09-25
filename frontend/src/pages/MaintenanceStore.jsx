@@ -378,7 +378,27 @@ function SparePartDetail({ part, onClose, onTrace }) {
 // Stock is fetched apart from the parts list: nothing else on this page needs
 // it, and a store with no count yet must still draw the rest of the dashboard
 // rather than fail whole. sectionId scopes both calls to one section.
+// Bumps whenever the server pushes a stock change (SSE → `dx:realtime`, see
+// hooks/useRealtime), debounced so a burst of movements costs one refetch. The
+// data hooks below depend on it, so the dashboard refreshes live after an
+// issue/receive/return instead of waiting for the next visit.
+function useStockTick() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let t;
+    const onEvent = (e) => {
+      if (e.detail?.event !== "stock") return;
+      clearTimeout(t);
+      t = setTimeout(() => setTick((n) => n + 1), 800);
+    };
+    window.addEventListener("dx:realtime", onEvent);
+    return () => { window.removeEventListener("dx:realtime", onEvent); clearTimeout(t); };
+  }, []);
+  return tick;
+}
+
 function useSpareStock(sectionId, enabled = true) {
+  const tick = useStockTick();
   const [stock, setStock] = useState(null);
   const [belowMin, setBelowMin] = useState([]);
   const [stockRows, setStockRows] = useState([]);
@@ -401,7 +421,7 @@ function useSpareStock(sectionId, enabled = true) {
       setStockRows(rows || []);
     });
     return () => { live = false; };
-  }, [sectionId, enabled]);
+  }, [sectionId, enabled, tick]);
 
   return { stock, belowMin, stockRows };
 }
@@ -411,6 +431,7 @@ function useSpareStock(sectionId, enabled = true) {
 // screen showing the whole store's receipts would be quoting someone else's
 // figures under its own heading.
 function useSpareOps(enabled = true) {
+  const tick = useStockTick();
   const [ops, setOps] = useState(null);
 
   const reload = useCallback(() => {
@@ -431,7 +452,7 @@ function useSpareOps(enabled = true) {
       setOps({ today, flow, pending, activity, excess, uncounted, analytics, consumption, machineConsumption, typeConsumption, comparison }));
   }, [enabled]);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { reload(); }, [reload, tick]);
   return ops;
 }
 
