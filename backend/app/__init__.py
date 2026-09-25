@@ -7,7 +7,7 @@ from flask import Flask, request
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from config import config_by_name
-from app.extensions import db, cors
+from app.extensions import db, cors, migrate
 from app.middleware.error_handler import register_error_handlers
 from app.routes import register_routes
 from app.utils.response import error_response
@@ -112,6 +112,9 @@ def create_app(env_name=None):
 
     db.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)
+    # Registers the `flask db ...` CLI (Alembic). No effect on the runtime boot
+    # below — migrations run only when the CLI is invoked.
+    migrate.init_app(app, db, render_as_batch=True)
 
     register_error_handlers(app)
     _register_auth_guard(app)
@@ -125,17 +128,21 @@ def create_app(env_name=None):
     # Ensure all models are imported so db.create_all() can discover them.
     from app import models  # noqa: F401
 
-    with app.app_context():
-        db.create_all()
-        _patch_schema()
-        # Portable (ORM + a plain UPDATE), so it runs on every dialect — not
-        # from inside _patch_schema, which returns early on non-SQLite and so
-        # would leave a fresh Postgres DB with no stores at all (audit
-        # finding PORT-1).
-        _seed_stores()
-        _seed_departments()
-        _seed_department_recipients()
-        _seed_report_recipients()
+    # SKIP_DB_INIT lets the migration CLI load the app WITHOUT auto-creating the
+    # schema, so `flask db migrate` can diff the models against an empty database.
+    # Unset in normal operation, so the runtime boot is exactly as it was.
+    if not os.getenv("SKIP_DB_INIT"):
+        with app.app_context():
+            db.create_all()
+            _patch_schema()
+            # Portable (ORM + a plain UPDATE), so it runs on every dialect — not
+            # from inside _patch_schema, which returns early on non-SQLite and so
+            # would leave a fresh Postgres DB with no stores at all (audit
+            # finding PORT-1).
+            _seed_stores()
+            _seed_departments()
+            _seed_department_recipients()
+            _seed_report_recipients()
 
     _start_erp_ledger_poller(app)
     _start_erp_sync_poller(app)
