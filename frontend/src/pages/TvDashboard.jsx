@@ -11,6 +11,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { spareStockService } from "../services/spareStockService.js";
 import { storeService } from "../services/storeService.js";
+import useRealtime from "../hooks/useRealtime.js";
 
 // A full-screen wallboard for a 64" PORTRAIT LED — no menu, no scroll, a tall
 // single-store (Spare) board. Real figures come from the spare-stock API; the
@@ -20,6 +21,20 @@ import { storeService } from "../services/storeService.js";
 // every chart (so clicks near a tick stalled). Store stock doesn't move that
 // fast — 2 minutes keeps it live enough at a quarter of the load.
 const REFRESH_MS = 120000;
+
+// Live on top of the poll: re-run `fn` when the server pushes a stock change
+// (SSE → `dx:realtime`, see hooks/useRealtime), debounced so a burst of
+// movements costs one refetch. Returns the cleanup.
+function onStockPush(fn) {
+  let t;
+  const handler = (e) => {
+    if (e.detail?.event !== "stock") return;
+    clearTimeout(t);
+    t = setTimeout(fn, 800);
+  };
+  window.addEventListener("dx:realtime", handler);
+  return () => { clearTimeout(t); window.removeEventListener("dx:realtime", handler); };
+}
 // Sentinel section: the combined view over the whole store (no section filter).
 const ALL_SECTIONS = "ALL";
 
@@ -218,6 +233,9 @@ function HeaderClock({ isDay, onToggle }) {
 
 export default function TvDashboard() {
   const navigate = useNavigate();
+  // The wallboard lives outside MainLayout, so it opens its own SSE connection —
+  // stock moves then refresh the TV immediately instead of on the 2-min poll.
+  useRealtime();
   const [data, setData] = useState({});
   const [hour, setHour] = useState(() => new Date().getHours()); // only for day/night auto — the ticking clock lives in <HeaderClock/> so it doesn't re-render the charts every second
   const [sections, setSections] = useState([]);
@@ -291,7 +309,8 @@ export default function TvDashboard() {
     };
     load();
     const id = setInterval(load, REFRESH_MS);
-    return () => { alive = false; clearInterval(id); };
+    const offPush = onStockPush(load);
+    return () => { alive = false; clearInterval(id); offPush(); };
   }, [sectionId]);
 
   // Store-wide data — fetched once (and on the refresh cadence), NOT per section,
@@ -323,7 +342,8 @@ export default function TvDashboard() {
     };
     load();
     const id = setInterval(load, REFRESH_MS);
-    return () => { alive = false; clearInterval(id); };
+    const offPush = onStockPush(load);
+    return () => { alive = false; clearInterval(id); offPush(); };
   }, []);
 
   const P = data;
