@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { FileDown, Home, LogOut, Maximize2, Minimize2, Settings as SettingsIcon } from "lucide-react";
 import Badge from "./Badge.jsx";
@@ -40,19 +41,15 @@ function PlantToggle() {
 // stock APIs, so whether that feed is alive belongs at the top of the screen
 // rather than buried in one card on one page.
 function ErpStatusPill() {
-  const [syncedAt, setSyncedAt] = useState(undefined); // undefined = not asked yet
+  // Cached + auto-refetched via React Query — no more hand-rolled setInterval,
+  // and the result is shared/deduped if anything else asks for ERP status.
+  const { data: syncedAt, isPending } = useQuery({
+    queryKey: ["erp-status"],
+    queryFn: () => storeDashboardService.erpStatus().then((res) => res.data.data.last_erp_sync),
+    refetchInterval: 120000,
+  });
 
-  useEffect(() => {
-    const load = () =>
-      storeDashboardService.erpStatus()
-        .then((res) => setSyncedAt(res.data.data.last_erp_sync))
-        .catch(() => setSyncedAt(null));
-    load();
-    const id = setInterval(load, 120000);
-    return () => clearInterval(id);
-  }, []);
-
-  if (syncedAt === undefined) return null;
+  if (isPending) return null;
 
   const live = Boolean(syncedAt);
   const label = live
@@ -152,22 +149,17 @@ export default function Topbar({ title, showSearch = true }) {
   const [matches, setMatches] = useState([]);
   const [searching, setSearching] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
-  const [notifications, setNotifications] = useState([]);
   const [bellOpen, setBellOpen] = useState(false);
   const bellRef = useRef(null);
   const searchRef = useRef(null);
 
-  const loadNotifications = () => {
-    notificationService.list()
-      .then((res) => setNotifications(res.data.data))
-      .catch(() => {});
-  };
-
-  useEffect(() => {
-    loadNotifications();
-    const id = setInterval(loadNotifications, 60000);
-    return () => clearInterval(id);
-  }, []);
+  // Live active notifications — cached + polled via React Query (was a manual
+  // setInterval). data defaults to [] before the first fetch lands.
+  const { data: notifications = [] } = useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => notificationService.list().then((res) => res.data.data),
+    refetchInterval: 60000,
+  });
 
   // Close the bell and the search results on any outside click.
   useEffect(() => {

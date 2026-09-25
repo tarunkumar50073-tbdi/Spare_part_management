@@ -1,6 +1,8 @@
 import React, { Suspense, useEffect } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "./lib/queryClient.js";
 import MainLayout from "./layouts/MainLayout.jsx";
 import Login from "./pages/Login.jsx";
 import { ThemeProvider } from "./context/ThemeContext.jsx";
@@ -176,13 +178,15 @@ function StoreHome() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <ConfirmProvider>
-          <Toaster position="top-right" toastOptions={{ duration: 3500 }} />
-          <AuthenticatedApp />
-        </ConfirmProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <AuthProvider>
+          <ConfirmProvider>
+            <Toaster position="top-right" toastOptions={{ duration: 3500 }} />
+            <AuthenticatedApp />
+          </ConfirmProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }

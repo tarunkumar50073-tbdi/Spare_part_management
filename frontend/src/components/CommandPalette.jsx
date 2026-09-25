@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, CornerDownLeft, Package, Search } from "lucide-react";
 import Badge from "./Badge.jsx";
@@ -32,12 +33,19 @@ export default function CommandPalette() {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [parts, setParts] = useState(null); // null = not loaded yet
-  const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
   const inputRef = useRef(null);
   const listRef = useRef(null);
-  const loadedFor = useRef(null);
+
+  // The active store's parts — cached + deduped via React Query, fetched only
+  // once the palette is opened and then shared with any other consumer of the
+  // same key. (Replaces a manual load + `loadedFor` cache ref.)
+  const { data: parts, isPending: loading } = useQuery({
+    queryKey: ["spare-parts", activeCode],
+    queryFn: () => spareStockService.list({ store_code: activeCode }).then((r) => r.data.data || []),
+    enabled: open && !!activeCode,
+    staleTime: 60_000,
+  });
 
   // Ctrl/Cmd+K toggles the palette from anywhere.
   useEffect(() => {
@@ -51,19 +59,13 @@ export default function CommandPalette() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Load the active store's parts once per store, the first time the palette is
-  // opened (cached on the server, so this is cheap on re-open).
+  // Reset the box and focus the input each time the palette opens.
   useEffect(() => {
-    if (!open || !activeCode) return;
+    if (!open) return undefined;
     setQuery(""); setActive(0);
-    setTimeout(() => inputRef.current?.focus(), 0);
-    if (loadedFor.current === activeCode) return;
-    setLoading(true);
-    spareStockService.list({ store_code: activeCode })
-      .then((res) => { setParts(res.data.data || []); loadedFor.current = activeCode; })
-      .catch(() => setParts([]))
-      .finally(() => setLoading(false));
-  }, [open, activeCode]);
+    const id = setTimeout(() => inputRef.current?.focus(), 0);
+    return () => clearTimeout(id);
+  }, [open]);
 
   const navResults = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -129,7 +131,7 @@ export default function CommandPalette() {
         </div>
 
         <div ref={listRef} className="max-h-[52vh] overflow-y-auto py-1">
-          {loading && parts === null && <p className="px-4 py-6 text-center text-sm text-slate-400">Loading…</p>}
+          {loading && !parts && <p className="px-4 py-6 text-center text-sm text-slate-400">Loading…</p>}
 
           {!loading && flat.length === 0 && (
             <p className="px-4 py-8 text-center text-sm text-slate-400">
