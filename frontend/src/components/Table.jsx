@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, Download, Search } from "lucide-react";
 import { downloadCsv, downloadXlsx } from "../utils/excel.js";
 
@@ -44,12 +44,16 @@ export default function Table({
   toolbar = null,
   // Opt-in: adds a "Columns" menu to show/hide columns (for the big lists).
   columnToggle = false,
+  // Opt-in row virtualization for very large, unpaginated lists — only the rows
+  // near the viewport render. Uses a bounded scroll box (maxHeight, default 70vh).
+  virtualize = false,
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState({ key: null, dir: "asc" });
   const [page, setPage] = useState(1);
   const [hiddenCols, setHiddenCols] = useState(() => new Set());
   const [menu, setMenu] = useState(null); // "export" | "columns" | null
+  const scrollRef = useRef(null);
   const shownColumns = useMemo(() => columns.filter((c) => !hiddenCols.has(c.key)), [columns, hiddenCols]);
 
   // Memoised so an undefined `rows` doesn't hand the memos below a brand new
@@ -107,6 +111,29 @@ export default function Table({
 
   const visible = pageSize > 0 ? sorted.slice((page - 1) * pageSize, page * pageSize) : sorted;
 
+  // Row virtualization (opt-in, dependency-free): render only the rows near the
+  // viewport out of a large, unpaginated list. A fixed row height keeps the
+  // top/bottom spacer maths exact. Seed the viewport height from the scroll box
+  // (60vh) so the very first render is already windowed, not the full 4,800 rows.
+  const ROW_H = 44;
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewH, setViewH] = useState(() => (virtualize && typeof window !== "undefined" ? Math.round(window.innerHeight * 0.6) : 0));
+  useEffect(() => {
+    if (!virtualize) return undefined;
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    setViewH(el.clientHeight);
+    const ro = new ResizeObserver(() => setViewH(el.clientHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [virtualize]);
+  const vOn = virtualize && viewH > 0 && sorted.length > 0;
+  const overscan = 10;
+  const startIndex = vOn ? Math.max(0, Math.floor(scrollTop / ROW_H) - overscan) : 0;
+  const endIndex = vOn ? Math.min(sorted.length, Math.ceil((scrollTop + viewH) / ROW_H) + overscan) : sorted.length;
+  const padTop = vOn ? startIndex * ROW_H : 0;
+  const padBottom = vOn ? (sorted.length - endIndex) * ROW_H : 0;
+
   const toggleSort = (key) => {
     if (!sortableCols.has(key)) return;
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
@@ -140,6 +167,24 @@ export default function Table({
 
   const cellWrap = noScroll ? "break-words" : "whitespace-nowrap";
   const showToolbar = searchable || exportName || toolbar || columnToggle;
+
+  const renderRow = (row, idx, style) => (
+    <tr
+      key={row.id ?? row.part_id ?? idx}
+      style={style}
+      role={onRowClick ? "button" : undefined}
+      tabIndex={onRowClick ? 0 : undefined}
+      onClick={onRowClick ? () => onRowClick(row) : undefined}
+      onKeyDown={onRowClick ? (e) => e.key === "Enter" && onRowClick(row) : undefined}
+      className={`hover:bg-slate-50 dark:hover:bg-navy-800/60 transition-colors ${onRowClick ? "cursor-pointer" : ""} ${rowClassName ? rowClassName(row) : ""}`}
+    >
+      {shownColumns.map((col) => (
+        <td key={col.key} className={`px-3 py-3 ${cellWrap} ${col.align === "right" ? "text-right tabular" : ""}`}>
+          {col.render ? col.render(row) : row[col.key]}
+        </td>
+      ))}
+    </tr>
+  );
 
   return (
     <div className="space-y-3">
@@ -210,8 +255,10 @@ export default function Table({
       )}
 
       <div
+        ref={scrollRef}
+        onScroll={virtualize ? (e) => setScrollTop(e.currentTarget.scrollTop) : undefined}
         className={`rounded-xl border border-slate-200 dark:border-navy-800 ${noScroll ? "" : "overflow-x-auto"}`}
-        style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}
+        style={(maxHeight || virtualize) ? { maxHeight: maxHeight || "70vh", overflowY: "auto" } : undefined}
       >
         <table className={`w-full text-sm ${noScroll ? "table-fixed" : "min-w-full"}`}>
           {/* Pinned so column names stay readable once a long list is scrolled
@@ -248,27 +295,15 @@ export default function Table({
                 </td>
               </tr>
             )}
-            {visible.map((row, idx) => (
-              <tr
-                key={row.id ?? row.part_id ?? idx}
-                role={onRowClick ? "button" : undefined}
-                tabIndex={onRowClick ? 0 : undefined}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                onKeyDown={onRowClick ? (e) => e.key === "Enter" && onRowClick(row) : undefined}
-                className={`hover:bg-slate-50 dark:hover:bg-navy-800/60 transition-colors ${
-                  onRowClick ? "cursor-pointer" : ""
-                } ${rowClassName ? rowClassName(row) : ""}`}
-              >
-                {shownColumns.map((col) => (
-                  <td
-                    key={col.key}
-                    className={`px-3 py-3 ${cellWrap} ${col.align === "right" ? "text-right tabular" : ""}`}
-                  >
-                    {col.render ? col.render(row) : row[col.key]}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {vOn ? (
+              <>
+                {padTop > 0 && <tr aria-hidden="true" style={{ height: padTop }}><td className="p-0" colSpan={shownColumns.length} /></tr>}
+                {sorted.slice(startIndex, endIndex).map((row, i) => renderRow(row, startIndex + i, { height: ROW_H }))}
+                {padBottom > 0 && <tr aria-hidden="true" style={{ height: padBottom }}><td className="p-0" colSpan={shownColumns.length} /></tr>}
+              </>
+            ) : (
+              visible.map((row, idx) => renderRow(row, idx))
+            )}
           </tbody>
         </table>
       </div>

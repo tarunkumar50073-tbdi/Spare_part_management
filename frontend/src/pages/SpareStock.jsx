@@ -35,6 +35,25 @@ const FILTERS = [
   { key: "Healthy", label: "Healthy" },
 ];
 
+// Reorder list — its own table (the parts at/below minimum, with the qty to
+// order). Rendered through the shared Table so it gets search / sort / export
+// and, crucially, virtualization: this list can run into the thousands.
+const REORDER_COLUMNS = [
+  { key: "part_no", label: "Part", sortable: true,
+    searchValue: (r) => `${r.part_no} ${r.part_name || ""}`,
+    exportValue: (r) => `${r.part_no}${r.part_name ? ` ${r.part_name}` : ""}`,
+    render: (r) => (<><span className="font-medium">{r.part_no}</span> <span className="text-slate-400">{r.part_name}</span></>) },
+  { key: "qty_on_hand", label: "In Stock", align: "right", sortable: true, render: (r) => num(r.qty_on_hand) },
+  { key: "min_stock_level", label: "Min", align: "right", sortable: true, render: (r) => num(r.min_stock_level) },
+  { key: "reorder_qty", label: "Reorder Qty", align: "right", sortable: true,
+    render: (r) => <span className="font-semibold text-amber-600 dark:text-amber-400">{r.reorder_qty == null ? "—" : num(r.reorder_qty)}</span> },
+  { key: "reorder_value", label: "Est. Value", align: "right", sortable: true,
+    exportValue: (r) => r.reorder_value ?? "",
+    render: (r) => (r.reorder_value == null ? "—" : money(r.reorder_value)) },
+  { key: "status", label: "Status",
+    render: (r) => <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${STATUS_TONE[r.status] || STATUS_TONE["Not Counted"]}`}>{r.status}</span> },
+];
+
 // Store Stock — the screen that turns a shelf count into the figure every
 // gauge, donut and health reading on the dashboard is built from. Until a
 // quantity exists here, Min and Max have nothing to be compared against.
@@ -322,6 +341,7 @@ export default function SpareStock() {
           maxHeight="60vh"
           exportName="spare_store_stock"
           columnToggle
+          virtualize
           emptyMessage="No part matches this filter"
         />
       </div>
@@ -330,40 +350,16 @@ export default function SpareStock() {
         <div className="card">
           <CardHead icon="🛒" tone="red" title={`Reorder list — ${reorder.count} part${reorder.count === 1 ? "" : "s"} at or below minimum`}
             hint={reorder.total_reorder_value ? `Est. ${money(reorder.total_reorder_value)} to restock everything to maximum` : "Order these before they run out"} />
-          <div className="rounded-xl border border-slate-200 dark:border-navy-800 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 dark:bg-navy-800 text-slate-600 dark:text-slate-300">
-                <tr>
-                  <th className="text-left font-semibold px-3 py-2.5">Part</th>
-                  <th className="text-right font-semibold px-3 py-2.5">In Stock</th>
-                  <th className="text-right font-semibold px-3 py-2.5">Min</th>
-                  <th className="text-right font-semibold px-3 py-2.5">Reorder Qty</th>
-                  <th className="text-right font-semibold px-3 py-2.5">Est. Value</th>
-                  <th className="text-left font-semibold px-3 py-2.5">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
-                {reorder.items.map((r) => (
-                  <tr key={r.part_id}>
-                    <td className="px-3 py-2.5">
-                      <span className="font-medium">{r.part_no}</span>{" "}
-                      <span className="text-slate-400">{r.part_name}</span>
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{num(r.qty_on_hand)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{num(r.min_stock_level)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-amber-600 dark:text-amber-400">
-                      {r.reorder_qty == null ? "—" : num(r.reorder_qty)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{r.reorder_value == null ? "—" : money(r.reorder_value)}</td>
-                    <td className="px-3 py-2.5">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap
-                        ${STATUS_TONE[r.status] || STATUS_TONE["Not Counted"]}`}>{r.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table
+            columns={REORDER_COLUMNS}
+            rows={reorder.items}
+            pageSize={0}
+            maxHeight="50vh"
+            virtualize
+            searchable={reorder.items.length > 10 ? "Search part no or name…" : false}
+            exportName="reorder_list"
+            emptyMessage="Nothing to reorder"
+          />
         </div>
       )}
 
