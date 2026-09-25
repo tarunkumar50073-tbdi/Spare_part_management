@@ -127,10 +127,23 @@ export default function Table({
     ro.observe(el);
     return () => ro.disconnect();
   }, [virtualize]);
+  // A search or sort starts the list over from the top. Without this, a query
+  // typed while scrolled far down keeps the old offset, the window lands past
+  // the end of the shorter list, and the table shows no rows at all.
+  useEffect(() => {
+    if (!virtualize) return;
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    setScrollTop(0);
+  }, [virtualize, query, sort.key, sort.dir]);
   const vOn = virtualize && viewH > 0 && sorted.length > 0;
   const overscan = 10;
-  const startIndex = vOn ? Math.max(0, Math.floor(scrollTop / ROW_H) - overscan) : 0;
-  const endIndex = vOn ? Math.min(sorted.length, Math.ceil((scrollTop + viewH) / ROW_H) + overscan) : sorted.length;
+  const perView = Math.ceil(viewH / ROW_H);
+  // Clamped to the last full screen, so a stale offset (the rows shrank under
+  // it — a live refresh, a filter from outside) still shows the tail of the
+  // list instead of an empty window.
+  const firstIndex = vOn ? Math.min(Math.floor(scrollTop / ROW_H), Math.max(0, sorted.length - perView)) : 0;
+  const startIndex = vOn ? Math.max(0, firstIndex - overscan) : 0;
+  const endIndex = vOn ? Math.min(sorted.length, firstIndex + perView + overscan) : sorted.length;
   const padTop = vOn ? startIndex * ROW_H : 0;
   const padBottom = vOn ? (sorted.length - endIndex) * ROW_H : 0;
 
