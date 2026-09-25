@@ -14,6 +14,7 @@ from app.schemas.spare_stock_schema import (
     SpareConfirmSchema, SpareLocationSchema, SpareReturnSchema,
 )
 from app.utils.authz import permission_required, require_store_access
+from app.utils.event_bus import publish
 from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
 from app.utils.validators import validate_payload
@@ -229,6 +230,7 @@ def return_issue(ledger_id):
         reason=data.get("reason"), note=data.get("note"),
         returned_by=data.get("returned_by"), user=_username(),
     )
+    publish("stock", {"ledger_id": ledger_id, "action": "return"})
     return success_response(result, f"Returned to store · slip {result.get('return_no')}")
 
 
@@ -347,6 +349,7 @@ def issue_part(part_id):
     )
     who = data.get("issued_to")
     where = data["department"] + (f" · {who}" if who else "")
+    publish("stock", {"part_id": part_id, "action": "issue"})
     return success_response(row, f"Issued to {where}")
 
 
@@ -365,6 +368,7 @@ def confirm_issue(ledger_id):
         actual_qty=(float(data["actual_qty"]) if data.get("actual_qty") is not None else None),
         user=_username(), remarks=data.get("remarks"),
     )
+    publish("stock", {"ledger_id": ledger_id, "action": "confirm"})
     return success_response(result, "Installation confirmed")
 
 
@@ -392,6 +396,7 @@ def receive_part(part_id):
         invoice_date=data.get("invoice_date"), check_result=data.get("check_result"),
         department=data.get("department"),
     )
+    publish("stock", {"part_id": part_id, "action": "receive"})
     return success_response(row, "Stock received")
 
 

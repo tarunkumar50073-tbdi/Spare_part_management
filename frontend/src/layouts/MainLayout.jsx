@@ -7,6 +7,7 @@ import BackToTop from "../components/BackToTop.jsx";
 import AssistantWidget from "../components/AssistantWidget.jsx";
 import ErrorBoundary from "../components/ErrorBoundary.jsx";
 import CommandPalette from "../components/CommandPalette.jsx";
+import useRealtime from "../hooks/useRealtime.js";
 
 const TITLES = {
   "/dashboard": "Child Parts Store",
@@ -50,6 +51,7 @@ export default function MainLayout() {
   });
 
   const location = useLocation();
+  useRealtime();   // one SSE connection for the whole shell
   const { activeStore } = useStores();
   // On a section page the heading is that section's own name (Press Shop …),
   // read from the store master by the id in the path.
