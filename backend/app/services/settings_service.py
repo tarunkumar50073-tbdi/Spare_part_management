@@ -1,5 +1,5 @@
-"""Admin Settings: the barcode-label editor, a read-only system-status view,
-and store/section visibility.
+"""Admin Settings: the label editor, the label printer, a read-only
+system-status view, and store/section visibility.
 
 Only non-secret, admin-tunable values live here. Real secrets and infra config
 (SMTP password, ERP DB credentials, API key, DB URL, CORS) stay in the
@@ -10,7 +10,10 @@ from flask import current_app
 
 from app.models.app_setting import AppSetting
 from app.models.store import Section, Store
-from app.services.barcode_service import LABEL_DEFAULTS, LABEL_SETTING_KEY, BarcodeService
+from app.services.barcode_service import (
+    LABEL_DEFAULTS, LABEL_SETTING_KEY, PRINTER_DEFAULTS, PRINTER_SETTING_KEY, BarcodeService,
+)
+from app.utils.exceptions import ValidationError
 
 
 class SettingsService:
@@ -28,6 +31,27 @@ class SettingsService:
         current = self.label_config()
         current.update({k: v for k, v in (data or {}).items() if k in LABEL_DEFAULTS})
         AppSetting.set_value(LABEL_SETTING_KEY, current, user)
+        return current
+
+    # ---- label printer ----
+
+    def label_printer(self):
+        return self.barcode.printer_config()
+
+    def set_label_printer(self, data, user=None):
+        """Merge the given fields over the saved printer and persist. The route
+        validates each field; the one cross-field rule is checked here, after
+        the merge, so a partial update is judged on the printer it produces: a
+        NETWORK printer needs an address, or its status could never be checked.
+        A BROWSER printer keeps any saved address for switching back."""
+        current = self.label_printer()
+        current.update({k: v for k, v in (data or {}).items() if k in PRINTER_DEFAULTS})
+        current["name"] = (current.get("name") or "").strip() or PRINTER_DEFAULTS["name"]
+        current["host"] = (current.get("host") or "").strip() or None
+        if current["connection"] == "NETWORK" and not current["host"]:
+            msg = "A network printer needs its IP address or host name"
+            raise ValidationError(msg, errors={"host": [msg]})
+        AppSetting.set_value(PRINTER_SETTING_KEY, current, user)
         return current
 
     # ---- read-only system status ----

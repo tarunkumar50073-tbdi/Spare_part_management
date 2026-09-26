@@ -6,7 +6,7 @@ was an explicit choice) — this endpoint is the only place it leaves the server
 """
 from flask import Blueprint, request
 
-from app.schemas.settings_schema import LabelConfigSchema
+from app.schemas.settings_schema import LabelConfigSchema, LabelPrinterSchema
 from app.services.admin_service import AdminService
 from app.services.settings_service import SettingsService
 from app.services.store_service import StoreService
@@ -71,7 +71,7 @@ def delete_user(user_id):
     return success_response(service.delete_user(user_id, acting.id if acting else None), "User deleted")
 
 
-# ---- Settings: system status (read-only), barcode label, store/section visibility ----
+# ---- Settings: system status (read-only), label template + printer, store/section visibility ----
 
 @bp.route("/system-status", methods=["GET"])
 @admin_required
@@ -90,6 +90,21 @@ def get_label_config():
 def set_label_config():
     data = validate_payload(LabelConfigSchema(), request.get_json(force=True) or {})
     return success_response(settings.set_label_config(data, _username()), "Label settings saved")
+
+
+@bp.route("/label-printer", methods=["GET"])
+@admin_required
+def get_label_printer():
+    """The configured label printer, address included (admin only — the
+    public /barcode/printer-status never echoes the host)."""
+    return success_response(settings.label_printer())
+
+
+@bp.route("/label-printer", methods=["PUT"])
+@admin_required
+def set_label_printer():
+    data = validate_payload(LabelPrinterSchema(), request.get_json(force=True) or {})
+    return success_response(settings.set_label_printer(data, _username()), "Label printer saved")
 
 
 @bp.route("/store-visibility", methods=["GET"])

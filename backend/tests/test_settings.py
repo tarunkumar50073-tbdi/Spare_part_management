@@ -47,7 +47,9 @@ def test_label_config_default(client, admin):
     resp = client.get("/api/v1/admin/label-config")
     assert resp.status_code == 200
     data = resp.get_json()["data"]
-    assert data["width_mm"] == 100 and data["symbology"] == "CODE128"
+    # QR since the traceability spec (label = QR + Part No + description + location).
+    assert data["width_mm"] == 100 and data["symbology"] == "QR"
+    assert data["show_location"] is True
 
 
 def test_label_config_put_persists_and_reflects_everywhere(client, admin):

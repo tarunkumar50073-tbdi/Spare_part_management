@@ -1,14 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ShieldCheck, Users, Mail, FileText, Boxes, Grid3x3, Factory,
-  Store as StoreIcon, Tag, ServerCog, ChevronRight, Lock,
+  Store as StoreIcon, Tag, ServerCog, ChevronRight, Lock, Printer,
 } from "lucide-react";
 import { settingsService } from "../services/settingsService.js";
+import { barcodeService } from "../services/barcodeService.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useStores } from "../context/StoreContext.jsx";
 import Glyph from "../components/Glyph.jsx";
+import BarcodeLabel from "../components/BarcodeLabel.jsx";
+import PrinterStatus from "../components/label/PrinterStatus.jsx";
+import { printerStatusKey } from "../components/label/usePrinterStatus.js";
 
 // Shortcuts to the admin-manageable screens that already exist — one place to
 // reach everything, instead of rebuilding them here.
@@ -22,7 +27,22 @@ const HUB = [
   { to: "/suppliers", label: "Supplier Master", desc: "Supplier list and details", icon: Factory },
 ];
 
-const SYMBOLOGIES = ["CODE128", "CODE39", "EAN13"];
+// QR is the internal label's code (it carries only the Part No.); the 1D codes
+// stay selectable for scanners that cannot read a QR.
+const SYMBOLOGIES = [
+  { key: "QR", label: "QR code" },
+  { key: "CODE128", label: "Code-128" },
+  { key: "CODE39", label: "Code-39" },
+];
+
+// The label preview shows the template on a sample part (spec 3's example),
+// not a real one — it is the layout being checked here, not a part's data.
+const SAMPLE = { partNo: "SP-10254", description: "Proximity Sensor", location: "A1-03" };
+
+const PRINTER_CONNECTIONS = [
+  { key: "BROWSER", label: "Browser print dialog" },
+  { key: "NETWORK", label: "Network printer (host + port)" },
+];
 
 function SectionHead({ icon: Icon, title, hint }) {
   return (
@@ -82,12 +102,17 @@ export default function Settings() {
   const [visibility, setVisibility] = useState([]);
   const [label, setLabel] = useState(null);
   const [savingLabel, setSavingLabel] = useState(false);
+  // Label printer: undefined = loading, null = could not load.
+  const [printer, setPrinter] = useState(undefined);
+  const [savingPrinter, setSavingPrinter] = useState(false);
+  const qc = useQueryClient();
 
   useEffect(() => {
     if (!user?.is_admin) return;
     settingsService.systemStatus().then((r) => setStatus(r.data.data)).catch(() => {});
     settingsService.storeVisibility().then((r) => setVisibility(r.data.data || [])).catch(() => {});
     settingsService.labelConfig().then((r) => setLabel(r.data.data)).catch(() => {});
+    barcodeService.labelPrinter().then((r) => setPrinter(r.data.data || null)).catch(() => setPrinter(null));
   }, [user?.is_admin]);
 
   const toggleStore = async (code, next) => {
@@ -122,9 +147,12 @@ export default function Settings() {
         symbology: label.symbology,
         show_part_no: !!label.show_part_no,
         show_description: !!label.show_description,
+        show_location: label.show_location !== false,
         description_max_chars: Number(label.description_max_chars),
       });
       setLabel(res.data.data);
+      // Every print dialog reads the template from this shared cache.
+      qc.invalidateQueries({ queryKey: ["label-config"] });
       toast.success("Label settings saved");
     } catch (e) {
       toast.error(e?.response?.data?.message || "Could not save label settings");
@@ -133,12 +161,42 @@ export default function Settings() {
     }
   };
 
-  // Preview box keeps the label's real width:height proportion.
-  const previewRatio = useMemo(() => {
-    const w = Number(label?.width_mm) || 100;
-    const h = Number(label?.height_mm) || 50;
-    return `${w} / ${h}`;
-  }, [label?.width_mm, label?.height_mm]);
+  const setPrinterField = (k, val) => setPrinter((p) => ({ ...p, [k]: val }));
+  const printerNetwork = printer?.connection === "NETWORK";
+
+  const savePrinter = async () => {
+    const name = (printer?.name || "").trim();
+    const host = (printer?.host || "").trim();
+    const port = Number(printer?.port);
+    if (!name) { toast.error("Give the printer a name"); return; }
+    if (printerNetwork && !host) { toast.error("A network printer needs its host (IP address or name)"); return; }
+    if (printerNetwork && !(Number.isInteger(port) && port >= 1 && port <= 65535)) {
+      toast.error("Port must be a whole number from 1 to 65535"); return;
+    }
+    setSavingPrinter(true);
+    try {
+      const res = await barcodeService.saveLabelPrinter({
+        name,
+        connection: printer.connection || "BROWSER",
+        host: host || null,
+        port: Number.isInteger(port) && port > 0 ? port : 9100,
+      });
+      if (res.data.data) setPrinter(res.data.data);
+      // Re-check with the new settings (a network printer is dialled again).
+      qc.invalidateQueries({ queryKey: printerStatusKey });
+      toast.success("Label printer saved");
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Could not save the label printer");
+    } finally {
+      setSavingPrinter(false);
+    }
+  };
+
+  // A saved symbology this screen no longer offers (e.g. an old EAN13) stays
+  // visible in the list rather than silently reading as something else.
+  const symbologies = label && !SYMBOLOGIES.some((s) => s.key === label.symbology) && label.symbology
+    ? [...SYMBOLOGIES, { key: label.symbology, label: `${label.symbology} (prints as Code-128)` }]
+    : SYMBOLOGIES;
 
   if (!user?.is_admin) {
     return (
@@ -220,7 +278,8 @@ export default function Settings() {
       {/* 3 — barcode label editor */}
       {label && (
         <div className="card">
-          <SectionHead icon={Tag} title="Barcode label" hint="The printed part-label template — size and what shows on it" />
+          <SectionHead icon={Tag} title="Part label"
+            hint="The printed internal label — QR (Part No. only) + Part No., description and location" />
           <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
             <div className="grid grid-cols-2 gap-3 max-w-lg">
               <label className="block">
@@ -237,7 +296,7 @@ export default function Settings() {
                 <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Symbology</span>
                 <select value={label.symbology} onChange={(e) => setLabelField("symbology", e.target.value)}
                   className="input-field mt-1 w-full">
-                  {SYMBOLOGIES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  {symbologies.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
                 </select>
               </label>
               <label className="block">
@@ -255,6 +314,13 @@ export default function Settings() {
                   onChange={(e) => setLabelField("show_description", e.target.checked)} className="accent-toyotared" />
                 <span className="text-sm text-slate-600 dark:text-slate-300">Show description on label</span>
               </label>
+              <label className="col-span-2 flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={label.show_location !== false}
+                  onChange={(e) => setLabelField("show_location", e.target.checked)} className="accent-toyotared" />
+                <span className="text-sm text-slate-600 dark:text-slate-300">
+                  Show location on label <span className="text-slate-400">(prints “Location: —” when a part has none)</span>
+                </span>
+              </label>
               <div className="col-span-2">
                 <button onClick={saveLabel} disabled={savingLabel} className="btn-primary">
                   {savingLabel ? "Saving…" : "Save label settings"}
@@ -262,31 +328,80 @@ export default function Settings() {
               </div>
             </div>
 
-            {/* live preview, at the label's real proportion */}
+            {/* live preview — the real label renderer, at the label's real proportion */}
             <div className="flex flex-col items-center gap-2">
-              <div className="rounded-lg border-2 border-dashed border-slate-300 dark:border-navy-700 bg-white p-3"
-                style={{ width: 260 }}>
-                <div className="flex flex-col items-center justify-center gap-1.5 rounded bg-white text-black"
-                  style={{ aspectRatio: previewRatio, minHeight: 90 }}>
-                  {label.show_part_no && <div className="font-mono text-xs font-bold tracking-wide">SPARE-00123</div>}
-                  <div className="flex h-8 items-end gap-[2px]" aria-hidden="true">
-                    {Array.from({ length: 34 }).map((_, i) => (
-                      <span key={i} className="bg-black"
-                        style={{ width: i % 3 === 0 ? 3 : 1.5, height: "100%" }} />
-                    ))}
-                  </div>
-                  {label.show_description && (
-                    <div className="max-w-[90%] truncate text-[10px] text-slate-700">
-                      {"Hex Bolt M10 x 40 Zinc".slice(0, Number(label.description_max_chars) || 48)}
-                    </div>
-                  )}
-                </div>
+              <div className="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-3 dark:border-navy-700 dark:bg-navy-800">
+                <BarcodeLabel value={SAMPLE.partNo} partNo={SAMPLE.partNo} description={SAMPLE.description}
+                  location={SAMPLE.location} config={label} maxWidth={280} maxHeight={170} />
               </div>
-              <span className="text-[11px] text-slate-400">{label.width_mm} × {label.height_mm} mm · {label.symbology}</span>
+              <span className="text-[11px] text-slate-400">
+                Sample part · {label.width_mm} × {label.height_mm} mm ·{" "}
+                {(symbologies.find((s) => s.key === label.symbology) || {}).label || label.symbology}
+              </span>
             </div>
           </div>
         </div>
       )}
+
+      {/* 3b — the store label printer + its live status */}
+      <div className="card">
+        <SectionHead icon={Printer} title="Label printer"
+          hint="The printer the part labels go to, and how the app checks it" />
+        {printer === undefined && <div className="skeleton h-24 w-full max-w-lg" />}
+        {printer === null && (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Could not load the label printer settings. Reload the page to try again.
+          </p>
+        )}
+        {printer && (
+          <div className="grid gap-6 lg:grid-cols-[1fr_minmax(0,22rem)]">
+            <div className="grid max-w-lg grid-cols-2 gap-3">
+              <label className="col-span-2 block">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Name</span>
+                <input value={printer.name || ""} maxLength={80}
+                  onChange={(e) => setPrinterField("name", e.target.value)}
+                  placeholder="Spare Parts Store Label Printer" className="input-field mt-1 w-full" />
+              </label>
+              <label className="col-span-2 block">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Connection</span>
+                <select value={printer.connection || "BROWSER"}
+                  onChange={(e) => setPrinterField("connection", e.target.value)} className="input-field mt-1 w-full">
+                  {PRINTER_CONNECTIONS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Host</span>
+                <input value={printer.host || ""} disabled={!printerNetwork}
+                  onChange={(e) => setPrinterField("host", e.target.value)}
+                  placeholder="e.g. 192.168.1.50" className="input-field mt-1 w-full disabled:opacity-50" />
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Port</span>
+                <input type="number" min="1" max="65535" value={printer.port ?? 9100} disabled={!printerNetwork}
+                  onChange={(e) => setPrinterField("port", e.target.value)}
+                  className="input-field mt-1 w-full disabled:opacity-50" />
+              </label>
+              <div className="col-span-2">
+                <button onClick={savePrinter} disabled={savingPrinter} className="btn-primary">
+                  {savingPrinter ? "Saving…" : "Save label printer"}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-slate-200 p-4 dark:border-navy-800">
+              <p className="kpi-label">Live status</p>
+              <PrinterStatus />
+              <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                Labels always print through the browser's print dialog. With <b>Browser</b> the app cannot
+                see the printer, so no status is shown. With <b>Network</b> the server tries a connection to
+                host:port (a label printer's raw port is usually 9100) and shows <b>Reachable</b> or{" "}
+                <b>Not reachable</b> with the time it checked — reachable means the printer answered on the
+                network, not that it has labels loaded. Save first; the status shows the saved settings.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* 4 — read-only system status */}
       {status && (

@@ -17,7 +17,7 @@ import { NO_ROWS, invalidateStock, stockKeys, useStockList } from "../lib/stockQ
 import { useStores } from "../context/StoreContext.jsx";
 import { downloadFile } from "../utils/download.js";
 import { downloadXlsx } from "../utils/excel.js";
-import { buildLabelsHtml, printLabels } from "../utils/barcodeRender.js";
+import BulkLabelPrintModal from "../components/label/BulkLabelPrintModal.jsx";
 import { storeService } from "../services/storeService.js";
 import { barcodeService } from "../services/barcodeService.js";
 import { GAP_FILTERS, STATUS_RANK, fmtDay, matchesGap, splitLocation, typeOf } from "../lib/inventory.js";
@@ -98,7 +98,8 @@ export default function SpareStock() {
   }, { replace: true });
   // Bulk selection, by part_id — kept across filter changes, cleared on demand.
   const [selected, setSelected] = useState(() => new Set());
-  const [printing, setPrinting] = useState(false);
+  // The selected parts whose labels are being printed (the bulk print dialog).
+  const [printParts, setPrintParts] = useState(null);
   const [report, setReport] = useState(null);
   // {partId} of the row being typed into, and the value typed so far.
   const [editing, setEditing] = useState(null);
@@ -259,25 +260,14 @@ export default function SpareStock() {
     ]);
     downloadXlsx(`spare_selected_${new Date().toISOString().slice(0, 10)}`, headers, body, "Selected");
   };
-  const printSelected = async () => {
-    const ids = selectedRows.map((r) => r.part_id);
-    if (!ids.length || ids.length > 300) return;
-    setPrinting(true);
-    try {
-      const res = await barcodeService.printBulk(ids);
-      const { printed, skipped } = res.data.data;
-      if (printed.length) printLabels(buildLabelsHtml(printed, labelConfig));
-      if (skipped.length) {
-        toast(`${printed.length} label${printed.length === 1 ? "" : "s"} sent · ${skipped.length} skipped — `
-          + "already labelled (reprint one from Part Master with a reason)", { duration: 6000 });
-      } else {
-        toast.success(`${printed.length} label${printed.length === 1 ? "" : "s"} sent to the printer`);
-      }
-    } catch {
-      /* interceptor toasts the server message */
-    } finally {
-      setPrinting(false);
-    }
+  // Labels are printed first and recorded only after the operator confirms
+  // they came out (source STORE_STOCK) — the dialog owns that flow, including
+  // which parts already carry a label and need a reprint reason.
+  const printSelected = () => {
+    if (!selectedRows.length || selectedRows.length > 300) return;
+    setPrintParts(selectedRows.map((r) => ({
+      part_id: r.part_id, part_no: r.part_no, part_name: r.part_name, location: r.location,
+    })));
   };
 
   const dash = <span className="text-slate-300 dark:text-slate-600">—</span>;
@@ -477,7 +467,7 @@ export default function SpareStock() {
         </div>
         <div className="mb-3">
           <BulkBar count={selected.size} onExport={exportSelected} onPrint={printSelected}
-            printing={printing} canPrint={canEditStock} onClear={() => setSelected(new Set())} />
+            printing={Boolean(printParts)} canPrint={canEditStock} onClear={() => setSelected(new Set())} />
         </div>
         <Table
           columns={columns}
@@ -561,6 +551,10 @@ export default function SpareStock() {
       )}
 
       <UploadReportModal report={report} onClose={() => setReport(null)} />
+      {printParts && (
+        <BulkLabelPrintModal parts={printParts} config={labelConfig}
+          onClose={() => setPrintParts(null)} />
+      )}
     </div>
   );
 }

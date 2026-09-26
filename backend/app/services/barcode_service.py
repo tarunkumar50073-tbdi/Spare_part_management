@@ -2,15 +2,20 @@
 
 Camera, scanner gun and manual entry all resolve through ONE method here
 (``resolve``), so every scan is validated, store-scoped and audited the same
-way. The internal barcode payload is only the stable Part No.; all part detail
-is fetched from the DB (and, later, ERP) after resolving — never encoded in the
-barcode. Nothing here fakes ERP data: stock is reported as MANUAL until an ERP
-Current-Stock source lands (see the erp-integration plan).
+way. The internal QR payload is only the stable Part No.; all part detail is
+fetched from the DB (and, later, ERP) after resolving — never encoded in the
+code. Nothing here fakes ERP data: stock is reported as MANUAL until an ERP
+Current-Stock source lands (see the erp-integration plan), and the label
+printer is reported REACHABLE only after a real network connect to it.
 """
+import socket
+import threading
+import time
 from datetime import timezone
 
 from app.models.base import utcnow
 from app.models.erp_stock import ERPStock
+from app.models.label_print_audit import PRINT_SOURCES
 from app.models.part_barcode import SYMBOLOGIES
 from app.models.scan_audit import SCAN_MODES, SCAN_SOURCES
 from app.repositories.barcode_repository import (
@@ -29,20 +34,69 @@ from app.utils.exceptions import (
 # 24h suits the hourly ERP poller; a missed sync then shows honestly as stale.
 STALE_AFTER_HOURS = 24
 
+# The longest code that can identify a part: the width of part_barcodes.code
+# (a mapped supplier barcode or the internal Part No.) and of
+# scan_audit.scanned_code. A Part No. itself is shorter still.
+SCAN_CODE_MAX = 80
+
 # The label template. 100mm x 50mm is only the starting default because the
 # label-roll size may change; the frontend reads these values rather than
 # hardcoding a size. An admin edits them on the Settings page — the override is
 # stored under LABEL_SETTING_KEY in app_settings and merged over these below, so
 # a roll change is a setting change, not a code change.
+#
+# The label is QR + Part No. + description + location (spec 3 / 29) and nothing
+# else. The QR is the default because the whole traceability flow scans it from
+# a tablet camera as well as a gun; Code-128 / Code-39 stay selectable for a
+# store whose guns only read linear codes. The payload is the Part No. either way.
 LABEL_DEFAULTS = {
     "width_mm": 100,
     "height_mm": 50,
-    "symbology": "CODE128",
+    "symbology": "QR",
     "show_part_no": True,
     "show_description": True,
+    "show_location": True,
     "description_max_chars": 48,
 }
 LABEL_SETTING_KEY = "barcode_label"
+
+# What the label renderer can print for the internal code. EAN-13 was dropped:
+# it carries 12 digits + a check digit only, so it cannot encode an alphanumeric
+# Part No. such as CNTR2025. A template saved with it before falls back to the
+# default (see label_config) instead of rendering a label that cannot scan.
+LABEL_SYMBOLOGIES = ("QR", "CODE128", "CODE39")
+
+# The store's label printer. Printing goes through the browser print dialog, and
+# a browser cannot tell whether a USB / driver printer is on — so the default
+# (BROWSER) never claims a status. An admin may register a NETWORK printer
+# (host + raw-print port, 9100 by convention); only then is there something the
+# server can really check, with a TCP connect (printer_status).
+PRINTER_SETTING_KEY = "label_printer"
+PRINTER_CONNECTIONS = ("BROWSER", "NETWORK")
+PRINTER_DEFAULTS = {
+    "name": "Spare Parts Store Label Printer",
+    "connection": "BROWSER",
+    "host": None,
+    "port": 9100,
+}
+# Kept short: the status check runs inside a request the print dialog waits on.
+# Each TCP connect gets at most PRINTER_CONNECT_TIMEOUT_S, and the whole check —
+# the host-name lookup included — answers within PRINTER_CHECK_DEADLINE_S (see
+# BarcodeService._probe_printer for why the lookup needs its own bound).
+PRINTER_CONNECT_TIMEOUT_S = 2
+PRINTER_CHECK_DEADLINE_S = 2.5
+
+# Workstation sources (spec 8): the operator has material in hand and has just
+# identified it, so the label is for those pieces — new material of a part that
+# was labelled before still gets a new label, not a "reprint", and no reason is
+# asked. REPRINT is the explicit reprint action (reason required); PART_MASTER /
+# STORE_STOCK and legacy callers with no source keep the old rule (a part printed
+# before is a reprint).
+FRESH_LABEL_SOURCES = ("SUPPLIER_BARCODE", "ERP_SEARCH", "MANUAL_ENTRY", "QR_SCAN")
+
+# Print history is read on the part drawer / print dialog; this caps what one
+# request can pull back.
+PRINT_HISTORY_MAX = 200
 
 
 class BarcodeService:
@@ -65,13 +119,31 @@ class BarcodeService:
             scan_mode=scan_mode, result=result, user=user, store_code=store_code,
         )
 
+    @staticmethod
+    def _scan_failure(exc_class, message, result, code):
+        """A failed resolve, with the outcome in ``errors`` so the Scan Part
+        screen can branch on it — only UNKNOWN_BARCODE offers "Map to Part"
+        (spec 5); an inactive / other-store / blank / over-long scan must not.
+
+        ``result`` is finer than the audit row's: OTHER_STORE, CODE_TOO_LONG and
+        INACTIVE_PART are audited as UNKNOWN_BARCODE / UNKNOWN_BARCODE /
+        INACTIVE_BARCODE because the scan_audit CHECK constraint only knows
+        SCAN_RESULTS."""
+        return exc_class(message, errors={"result": result, "code": code})
+
     def resolve(self, store_code, code, scan_source="MANUAL_ENTRY",
                 scan_mode="LOOKUP", user=None):
         """Resolve a scanned value to a spare part in this store and audit it.
 
         Order (spec §17): active barcode mapping first, then a direct Part No. /
         Part.barcode fallback. Supplier barcodes live in the mapping table so
-        they resolve here too. Every outcome is written to the scan audit.
+        they resolve here too. Every outcome is written to the scan audit, and
+        a success carries that audit row's id (``scan_id``) so the action that
+        follows can point back at the scan that identified the part.
+
+        A failure raises with ``errors = {"result", "code"}``; result is one of
+        UNKNOWN_BARCODE, INACTIVE_BARCODE, OTHER_STORE, INACTIVE_PART,
+        CODE_TOO_LONG, FAILED. ``code`` is the value as scanned (trimmed).
         """
         if scan_source not in SCAN_SOURCES:
             scan_source = "MANUAL_ENTRY"
@@ -82,7 +154,22 @@ class BarcodeService:
         code = (code or "").strip()
         if not code:
             self._audit("", "FAILED", scan_source, scan_mode, user, store_code)
-            raise BadRequestError("No code scanned")
+            raise self._scan_failure(BadRequestError, "No code scanned", "FAILED", "")
+
+        if len(code) > SCAN_CODE_MAX:
+            # Nothing this long can name a part: a Part No. or mapped barcode is
+            # at most SCAN_CODE_MAX characters — typically this is a vendor QR
+            # that also carries lot and quantity. It is not UNKNOWN_BARCODE,
+            # because "Map to Part" could never store it (same width), so the
+            # operator is pointed to a Part No. search instead. The audit column
+            # has that width too, so the audit row keeps the first
+            # SCAN_CODE_MAX characters; the answer echoes the whole read.
+            self._audit(code[:SCAN_CODE_MAX], "UNKNOWN_BARCODE", scan_source, scan_mode, user, store_code)
+            raise self._scan_failure(
+                NotFoundError,
+                f"This code is {len(code)} characters long — a Part No. or mapped barcode is at "
+                f"most {SCAN_CODE_MAX}, so it cannot identify a part. Search the Part No. instead.",
+                "CODE_TOO_LONG", code)
 
         mapping = self.pb_repo.get_active_by_code(code)
         part = mapping.part if mapping else self.part_repo.get_by_scan_code(code)
@@ -93,23 +180,29 @@ class BarcodeService:
             inactive = self.pb_repo.get_by_code(code)
             result = "INACTIVE_BARCODE" if inactive else "UNKNOWN_BARCODE"
             self._audit(code, result, scan_source, scan_mode, user, store_code)
-            raise NotFoundError(f"No part found for code '{code}'")
+            message = (f"Barcode '{code}' has been deactivated" if inactive
+                       else f"No part found for code '{code}'")
+            raise self._scan_failure(NotFoundError, message, result, code)
 
         if part.store_code != store_code:
-            # Do not leak another store's part id through this store's scanner.
+            # Do not leak another store's part id through this store's scanner:
+            # the audit row carries no part, and the error names no part either.
             self._audit(code, "UNKNOWN_BARCODE", scan_source, scan_mode, user, store_code)
-            raise NotFoundError(f"No part in this store for code '{code}'")
+            raise self._scan_failure(
+                NotFoundError, f"No part in this store for code '{code}'", "OTHER_STORE", code)
 
         if not part.is_active:
             self._audit(code, "INACTIVE_BARCODE", scan_source, scan_mode, user, store_code, part_id=part.id)
-            raise NotFoundError(f"Part '{part.part_no}' is inactive")
+            raise self._scan_failure(
+                NotFoundError, f"Part '{part.part_no}' is inactive", "INACTIVE_PART", code)
 
-        self._audit(code, "SUCCESS", scan_source, scan_mode, user, store_code, part_id=part.id)
+        audit = self._audit(code, "SUCCESS", scan_source, scan_mode, user, store_code, part_id=part.id)
 
         payload = self.spare_service.get_for_part(part.id)
         payload["scanned_code"] = code
         payload["resolved_by"] = mapping.source if mapping else "PART_NO"
         payload["scan_mode"] = scan_mode
+        payload["scan_id"] = audit.id
         payload.update(self._data_status(part))
         return payload
 
@@ -145,13 +238,25 @@ class BarcodeService:
 
     # ---- internal barcode allocation ----
 
-    def ensure_internal_barcode(self, part, user=None):
-        """Guarantee a primary INTERNAL Code-128 barcode exists for the part,
-        with the Part No. as its payload. Idempotent."""
+    def ensure_internal_barcode(self, part, user=None, symbology=None):
+        """Guarantee a primary INTERNAL barcode exists for the part, with the
+        Part No. as its payload, recorded in the symbology the label template
+        prints (QR by default, or a linear code an admin chose). Idempotent.
+
+        A template change re-stamps the existing row's symbology on the next
+        print: the payload is unchanged, so labels printed earlier in the other
+        symbology still resolve; each print's own symbology stays in
+        label_print_audit."""
+        symbology = symbology or self.label_config()["symbology"]
         existing = self.pb_repo.primary_internal(part.id)
         if existing:
+            changes = {}
             if not existing.is_active:
-                self.pb_repo.update(existing, is_active=True)
+                changes["is_active"] = True
+            if existing.symbology != symbology:
+                changes["symbology"] = symbology
+            if changes:
+                self.pb_repo.update(existing, **changes)
             return existing
 
         clash = self.pb_repo.get_by_code(part.part_no)
@@ -162,26 +267,141 @@ class BarcodeService:
         if clash and clash.part_id == part.id:
             return self.pb_repo.update(
                 clash, source="INTERNAL", is_primary=True, is_active=True,
-                symbology="CODE128", created_by=clash.created_by or user,
+                symbology=symbology, created_by=clash.created_by or user,
             )
         return self.pb_repo.create(
-            part_id=part.id, code=part.part_no, symbology="CODE128",
+            part_id=part.id, code=part.part_no, symbology=symbology,
             source="INTERNAL", is_primary=True, is_active=True, created_by=user,
         )
 
-    # ---- label print / reprint ----
+    # ---- label template + printer ----
 
     def label_config(self):
         """The effective label template: the built-in defaults with any
-        admin-saved override merged over them (only known keys are honoured)."""
+        admin-saved override merged over them (only known keys are honoured).
+        A symbology the renderer no longer offers (EAN13 from an older saved
+        template) falls back to the default rather than printing a label that
+        cannot carry the Part No."""
         from app.models.app_setting import AppSetting
         cfg = dict(LABEL_DEFAULTS)
         override = AppSetting.get_value(LABEL_SETTING_KEY) or {}
         if isinstance(override, dict):
             cfg.update({k: v for k, v in override.items() if k in LABEL_DEFAULTS})
+        if cfg.get("symbology") not in LABEL_SYMBOLOGIES:
+            cfg["symbology"] = LABEL_DEFAULTS["symbology"]
         return cfg
 
-    def record_bulk_print(self, part_ids, copies=1, user=None, reason=None):
+    def printer_config(self):
+        """The label printer an admin set in Settings, over PRINTER_DEFAULTS
+        (only known keys honoured; an unknown connection reads as BROWSER, the
+        one mode that claims nothing)."""
+        from app.models.app_setting import AppSetting
+        cfg = dict(PRINTER_DEFAULTS)
+        override = AppSetting.get_value(PRINTER_SETTING_KEY) or {}
+        if isinstance(override, dict):
+            cfg.update({k: v for k, v in override.items() if k in PRINTER_DEFAULTS})
+        if cfg.get("connection") not in PRINTER_CONNECTIONS:
+            cfg["connection"] = "BROWSER"
+        return cfg
+
+    def printer_status(self):
+        """What the print dialog may honestly say about the printer (spec 8 —
+        no fake Online / Offline):
+
+        - NOT_DETECTABLE: printing goes through the browser print dialog, which
+          cannot report the printer's state; nothing is checked (checked_at null).
+        - REACHABLE / UNREACHABLE: a NETWORK printer, checked right now by a real
+          TCP connect from this server to host:port. Reachable means the printer
+          answered on its port — not that it has labels loaded.
+
+        The host itself is not echoed: any signed-in user may ask for the status,
+        and only an admin needs the printer's address (admin label-printer API)."""
+        cfg = self.printer_config()
+        out = {"name": cfg["name"], "connection": cfg["connection"]}
+        if cfg["connection"] != "NETWORK":
+            return {**out, "status": "NOT_DETECTABLE", "checked_at": None,
+                    "detail": "Status can't be detected — printing uses the browser print dialog"}
+        host, port = cfg.get("host"), cfg.get("port")
+        if not host or not port:
+            return {**out, "status": "NOT_DETECTABLE", "checked_at": None,
+                    "detail": "No network address is set for this printer — printing uses the browser print dialog"}
+
+        failure = self._probe_printer(host, port)
+        if failure is not None:
+            return {**out, "status": "UNREACHABLE", "checked_at": utcnow().isoformat(),
+                    "detail": f"Not reachable on the network ({self._connect_failure(failure)}) — "
+                              "check the printer is switched on and connected"}
+        return {**out, "status": "REACHABLE", "checked_at": utcnow().isoformat(),
+                "detail": "Printer answered on the network"}
+
+    @staticmethod
+    def _probe_printer(host, port):
+        """One real reachability check of host:port — None when a TCP connect
+        succeeded, else the exception that says why not.
+
+        Bounded in total by PRINTER_CHECK_DEADLINE_S. socket.create_connection
+        would not be: its timeout covers each connect but not the host-name
+        lookup (getaddrinfo can block for several seconds on a Windows domain
+        network while LLMNR / NetBIOS fall back), and it restarts that timeout
+        for every address the name resolves to. So the name is looked up once
+        and the resolved addresses are tried in order, each connect limited to
+        PRINTER_CONNECT_TIMEOUT_S or the time left, whichever is less — a name
+        with an IPv6 and an IPv4 address still reaches a printer that only
+        listens on IPv4. All of it runs in a daemon worker the request waits on
+        until the deadline only: a lookup still running then is abandoned (it
+        ends on its own and holds no request thread) and reported as no answer.
+        REACHABLE still needs a connect that really succeeded."""
+        deadline = time.monotonic() + PRINTER_CHECK_DEADLINE_S
+        # Fails closed: only the worker's successful connect replaces this.
+        outcome = {"failure": TimeoutError()}
+
+        def probe():
+            try:
+                addresses = socket.getaddrinfo(host, int(port), type=socket.SOCK_STREAM)
+                failure = None
+                for family, socktype, proto, _canon, address in addresses:
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        failure = TimeoutError()
+                        break
+                    try:
+                        with socket.socket(family, socktype, proto) as sock:
+                            sock.settimeout(min(PRINTER_CONNECT_TIMEOUT_S, left))
+                            sock.connect(address)
+                        outcome["failure"] = None
+                        return
+                    except OSError as exc:
+                        failure = exc
+                outcome["failure"] = failure or TimeoutError()
+            except Exception as exc:  # noqa: BLE001 — any error is a failed check
+                # Caught broadly on purpose: an error left to escape would end
+                # the worker silently and read as a timeout below.
+                outcome["failure"] = exc
+
+        worker = threading.Thread(target=probe, name="label-printer-check", daemon=True)
+        worker.start()
+        worker.join(max(0.0, deadline - time.monotonic()))
+        if worker.is_alive():
+            return TimeoutError()
+        return outcome["failure"]
+
+    @staticmethod
+    def _connect_failure(exc):
+        """A short, operator-readable reason for a failed connect (no address)."""
+        if isinstance(exc, (socket.timeout, TimeoutError)):
+            return f"no answer within {PRINTER_CONNECT_TIMEOUT_S} s"
+        if isinstance(exc, ConnectionRefusedError):
+            return "connection refused"
+        if isinstance(exc, socket.gaierror):
+            return "host name not found"
+        if isinstance(exc, ValueError):
+            return "invalid printer address"
+        return "network error"
+
+    # ---- label print / reprint ----
+
+    def record_bulk_print(self, part_ids, copies=1, user=None, reason=None,
+                          source="STORE_STOCK", printer_name=None):
         """Print labels for many parts at once (the stock list's bulk action).
 
         Each part goes through record_print, so the same rules hold: an inactive
@@ -191,18 +411,32 @@ class BarcodeService:
         for pid in dict.fromkeys(part_ids):          # de-duplicated, order kept
             try:
                 printed.append(self.record_print(pid, copies=copies, user=user,
-                                                 is_reprint=False, reason=reason))
+                                                 is_reprint=False, reason=reason,
+                                                 source=source, printer_name=printer_name))
             except (ValidationError, NotFoundError, BadRequestError) as exc:
                 part = self.part_repo.get_by_id(pid)
                 skipped.append({"part_id": pid, "part_no": part.part_no if part else None,
                                 "why": str(getattr(exc, "message", exc))})
         return {"printed": printed, "skipped": skipped}
 
-    def record_print(self, part_id, copies=1, user=None, is_reprint=False, reason=None):
+    def record_print(self, part_id, copies=1, user=None, is_reprint=False, reason=None,
+                     source=None, printer_name=None):
         """Record a label print/reprint and return the data the label needs.
 
+        The print dialog calls this only after the operator confirms the label
+        came out (the browser cannot know), so the audit is what was printed.
+        Printing touches no receipt and no stock: a label adds nothing,
+        completes no GRN and clears no quality (spec 9).
+
         Blocks printing for an inactive part (an admin must reactivate it first,
-        per spec). A reprint requires a reason.
+        per spec). Whether it is a reprint (which needs a reason) follows the
+        source — see FRESH_LABEL_SOURCES:
+          REPRINT                                  -> reprint, reason required
+          SUPPLIER_BARCODE / ERP_SEARCH /
+          MANUAL_ENTRY / QR_SCAN                   -> a label for material in hand, never a reprint
+          PART_MASTER / STORE_STOCK / no source    -> reprint if the part was printed before
+        The printed location is kept as a snapshot: a later move makes that
+        label's location stale, which the scan result can then point out.
         """
         part = self.part_repo.get_by_id(part_id)
         if not part:
@@ -217,18 +451,32 @@ class BarcodeService:
             raise BadRequestError("copies must be a whole number")
         if copies < 1:
             raise BadRequestError("copies must be at least 1")
+        if source is not None and source not in PRINT_SOURCES:
+            raise BadRequestError(f"Unknown label print source '{source}'")
 
-        already_printed = self.print_repo.has_any_for_part(part_id)
-        effective_reprint = bool(is_reprint) or already_printed
+        if source == "REPRINT":
+            effective_reprint = True
+        elif source in FRESH_LABEL_SOURCES:
+            effective_reprint = False
+        else:
+            effective_reprint = bool(is_reprint) or self.print_repo.has_any_for_part(part_id)
         reason = (reason or "").strip() or None
         if effective_reprint and not reason:
             raise ValidationError("A reprint reason is required")
 
+        # Unknown stays None: a caller that doesn't say which printer it used is
+        # not credited with the configured one.
+        printer_name = (printer_name or "").strip()[:80] or None
+        location = (part.location or "").strip() or None
+        symbology = self.label_config()["symbology"]
+
         with atomic():
-            barcode = self.ensure_internal_barcode(part, user=user)
+            barcode = self.ensure_internal_barcode(part, user=user, symbology=symbology)
             audit = self.print_repo.create(
                 part_id=part.id, barcode_value=barcode.code, copies=copies,
                 printed_by=user, is_reprint=effective_reprint, reason=reason,
+                source=source, printer_name=printer_name,
+                symbology=barcode.symbology, location_printed=location,
             )
 
         return {
@@ -236,11 +484,14 @@ class BarcodeService:
             "part_id": part.id,
             "part_no": part.part_no,
             "part_name": part.part_name,
+            "location": location,
             "barcode_value": barcode.code,
             "symbology": barcode.symbology,
             "copies": copies,
             "is_reprint": effective_reprint,
             "reason": reason,
+            "source": source,
+            "printer_name": printer_name,
             "printed_by": user,
             "printed_at": audit.created_at.isoformat() if audit.created_at else None,
         }
@@ -249,6 +500,7 @@ class BarcodeService:
         part = self.part_repo.get_by_id(part_id)
         if not part:
             raise NotFoundError(f"Part {part_id} not found")
+        limit = max(1, min(int(limit or 50), PRINT_HISTORY_MAX))
         return [{
             "id": r.id,
             "barcode_value": r.barcode_value,
@@ -256,6 +508,10 @@ class BarcodeService:
             "printed_by": r.printed_by,
             "is_reprint": r.is_reprint,
             "reason": r.reason,
+            "source": r.source,
+            "printer_name": r.printer_name,
+            "symbology": r.symbology,
+            "location_printed": r.location_printed,
             "printed_at": r.created_at.isoformat() if r.created_at else None,
         } for r in self.print_repo.list_for_part(part_id, limit=limit)]
 

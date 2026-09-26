@@ -1,8 +1,11 @@
 """Barcodes mapped to a spare part.
 
-DX Store's own internal Code-128 label is the default/primary barcode for every
-spare — its payload is only the stable internal Part No. (e.g. CNTR2025), never
-any description/price/stock. Most spares arrive with no supplier barcode, so the
+DX Store's own internal label is the default/primary code for every spare — a
+QR by default (Code-128 / Code-39 if an admin picks a linear code in the label
+settings). Its payload is only the stable internal Part No. (e.g. CNTR2025),
+never any description/price/stock/location: the label prints the description
+and location as text, and everything dynamic (issue, line / machine, RGP, stock)
+is read from the DB on scan. Most spares arrive with no supplier barcode, so the
 internal label is the norm; where a supplier barcode IS available, unique and
 readable, an admin may map it to the same internal part here.
 
@@ -17,10 +20,12 @@ Deactivated mappings are kept (``is_active=False``) for history, never deleted.
 from app.extensions import db
 from app.models.base import BaseModel
 
-# INTERNAL = DX Store's own Code-128 label (payload = Part No.). SUPPLIER = a
-# barcode printed by the vendor that an admin has mapped to this part.
+# INTERNAL = DX Store's own label (payload = Part No.). SUPPLIER = a barcode
+# printed by the vendor that an admin has mapped to this part.
 BARCODE_SOURCES = ("INTERNAL", "SUPPLIER")
-# Code-128 is the internal default; supplier labels may be other symbologies.
+# What a mapped SUPPLIER code may be recorded as. An INTERNAL row carries the
+# label template's symbology instead (QR / CODE128 / CODE39 — see
+# barcode_service.LABEL_SYMBOLOGIES); the column has no DB CHECK, so both fit.
 SYMBOLOGIES = ("CODE128", "EAN13", "EAN8", "UPC", "QR", "OTHER")
 
 
@@ -31,8 +36,12 @@ class PartBarcode(BaseModel):
 
     # The scannable value. Globally unique: one barcode value maps to exactly
     # one internal part (spec rule). For an INTERNAL row this equals the Part No.
+    # Its width is also the longest read the scan resolver looks up
+    # (barcode_service.SCAN_CODE_MAX) — change both together.
     code = db.Column(db.String(80), nullable=False, unique=True, index=True)
 
+    # INTERNAL: how the current label prints it (re-stamped on the next print
+    # after a template change). SUPPLIER: what the vendor's label is.
     symbology = db.Column(db.String(20), nullable=False, default="CODE128")
 
     # INTERNAL (our label) vs SUPPLIER (a vendor's barcode mapped in by an admin).
