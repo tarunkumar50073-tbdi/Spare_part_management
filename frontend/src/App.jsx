@@ -54,6 +54,12 @@ const TvDashboard = React.lazy(() => import("./pages/TvDashboard.jsx"));
 const Admin = React.lazy(() => import("./pages/Admin.jsx"));
 const Settings = React.lazy(() => import("./pages/Settings.jsx"));
 const AllServices = React.lazy(() => import("./pages/AllServices.jsx"));
+const ErpControlCenter = React.lazy(() => import("./pages/spare/ErpControlCenter.jsx"));
+const ReceivingMonitor = React.lazy(() => import("./pages/spare/ReceivingMonitor.jsx"));
+const InventoryControl = React.lazy(() => import("./pages/spare/InventoryControl.jsx"));
+const ConsumptionAnalytics = React.lazy(() => import("./pages/spare/ConsumptionAnalytics.jsx"));
+const DataQuality = React.lazy(() => import("./pages/spare/DataQuality.jsx"));
+const NotificationCenter = React.lazy(() => import("./pages/spare/NotificationCenter.jsx"));
 
 // SPA navigation (and browser reloads) don't reset scroll on their own, so
 // coming back from the Live Dashboard — or reopening the app — used to land
@@ -152,6 +158,13 @@ function AuthenticatedApp() {
           {/* Window Schedule was merged into Supplier Vehicle Management —
               redirect so existing links/bookmarks keep working. */}
           <Route path="/supplier-window-schedule" element={<Navigate to="/supplier-vehicles" replace />} />
+          {/* Spare Parts Store control screens (enterprise spec, phases 7-12). */}
+          <Route path="/erp-control" element={<RequirePermission mod="erp_gap"><ErpControlCenter /></RequirePermission>} />
+          <Route path="/receiving" element={<RequirePermission mod="spare_store"><ReceivingMonitor /></RequirePermission>} />
+          <Route path="/inventory-control" element={<RequirePermission mod="store_stock"><InventoryControl /></RequirePermission>} />
+          <Route path="/consumption" element={<RequirePermission mod="spare_store"><ConsumptionAnalytics /></RequirePermission>} />
+          <Route path="/data-quality" element={<RequirePermission mod="part_master"><DataQuality /></RequirePermission>} />
+          <Route path="/notifications" element={<NotificationCenter />} />
           {/* Anything else: say so, instead of an empty page inside the layout. */}
           <Route path="*" element={<NotFound />} />
         </Route>

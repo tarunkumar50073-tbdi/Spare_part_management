@@ -5,8 +5,8 @@ import {
   Activity, Archive, Barcode, BookOpen, Bolt, Boxes, Calculator, CalendarRange, Circle, ClipboardCheck,
   ClipboardList, Clock3, Container, Database, Factory, FileChartColumn, Grid3x3, History, Layers,
   LayoutGrid, LogOut, Mail, Mails, MonitorPlay, Moon, Package, PanelLeftClose, PanelLeftOpen, Scale,
-  ScanBarcode, ScanSearch, ScrollText, Search, Settings, Siren, Store, Sun, TrafficCone, TrendingUp,
-  Truck, UserCog, Warehouse,
+  Bell, PackageCheck, ScanBarcode, ScanSearch, ScrollText, Search, ServerCog, Settings, ShieldCheck, Siren,
+  Store, Sun, TrafficCone, TrendingUp, Truck, UserCog, Warehouse,
 } from "lucide-react";
 import Glyph, { sectionIcon } from "./Glyph.jsx";
 import { storeHome, useStores } from "../context/StoreContext.jsx";
@@ -98,30 +98,58 @@ const NAV_BY_STORE = {
   // rate" while Part Master lived only under Child Parts, so there was no
   // screen anywhere to fill those in from. Gate Entry is reused from
   // SHARED_GROUPS rather than repeated — one gate, both stores.
+  // The Spare Parts Store's menu, grouped the way the store works: do
+  // (operations), watch (inventory), receive, reconcile with ERP, keep the
+  // master clean, and review (reports / alerts). Each item is rights-gated.
   MAINTENANCE: [
     {
-      // Store Stock sits above the masters on purpose: it is the screen that
-      // turns this store's Min and Max into something that can be judged.
-      // Without a counted quantity, every health figure on the dashboard has
-      // nothing to compare against.
-      label: "Inventory",
+      label: "Operations",
       items: [
         { to: "/scan-part", label: "Scan Part", icon: ScanBarcode, mod: "scan_part" },
         { to: "/store-stock-spare", label: "Store Stock", icon: Package, mod: "store_stock" },
-        { to: "/spare-part-history", label: "Part Ledger", icon: ScrollText, mod: "part_ledger" },
-        { to: "/spare-erp-gap", label: "ERP vs Physical Gap", icon: Scale, mod: "erp_gap" },
       ],
     },
     {
-      label: "Masters",
+      label: "Inventory",
+      items: [
+        { to: "/inventory-control", label: "Critical · Reorder · Excess", icon: Siren, mod: "store_stock" },
+        { to: "/consumption", label: "Consumption", icon: TrendingUp, mod: "spare_store" },
+        { to: "/spare-part-history", label: "Part Ledger", icon: ScrollText, mod: "part_ledger" },
+      ],
+    },
+    {
+      label: "Receiving",
+      items: [
+        { to: "/receiving", label: "Receiving & GRN", icon: PackageCheck, mod: "spare_store" },
+        { to: "/gate-entry", label: "Gate Entry", icon: Truck, mod: "gate_entry" },
+        { to: "/vehicle-in-out", label: "Vehicle In / Out", icon: TrafficCone, mod: "vehicle_in_out" },
+      ],
+    },
+    {
+      label: "ERP",
+      items: [
+        { to: "/erp-control", label: "ERP Control Center", icon: ServerCog, mod: "erp_gap" },
+        { to: "/spare-erp-gap", label: "ERP vs Physical", icon: Scale, mod: "erp_gap" },
+      ],
+    },
+    {
+      label: "Master Data",
       items: [
         { to: "/parts", label: "Part Master", icon: Bolt, mod: "part_master" },
+        { to: "/data-quality", label: "Data Quality", icon: ShieldCheck, mod: "part_master" },
         { to: "/supplier-barcodes", label: "Supplier Barcodes", icon: Barcode, mod: "supplier_barcodes" },
         { to: "/scan-audit", label: "Scan Audit", icon: ScanSearch, mod: "scan_audit" },
         { to: "/departments", label: "Department Emails", icon: Mail, mod: "departments" },
       ],
     },
-    ...SHARED_GROUPS,
+    {
+      label: "Reports & Alerts",
+      items: [
+        { to: "/notifications", label: "Notifications", icon: Bell },
+        { to: "/reports", label: "Reports", icon: FileChartColumn, mod: "reports" },
+        { to: "/audit-trail", label: "Audit Trail", icon: History, mod: "audit_trail" },
+      ],
+    },
   ],
 };
 
@@ -162,8 +190,9 @@ function Flyout({ children }) {
 // One glyph that stands for a whole nav group on the squeezed rail; falls back
 // to the group's first item so a new group still gets an icon.
 const GROUP_ICONS = {
-  "Sections": Layers, "Inventory": Package, "Masters": Database,
-  "Receiving": Truck, "Receiving & Management": Truck, "Reports & System": FileChartColumn,
+  "Sections": Layers, "Operations": ScanBarcode, "Inventory": Package, "Masters": Database,
+  "Master Data": Database, "Receiving": Truck, "Receiving & Management": Truck, "ERP": ServerCog,
+  "Reports & System": FileChartColumn, "Reports & Alerts": Bell,
 };
 const groupIcon = (label, items) => GROUP_ICONS[label] || items[0]?.icon || Circle;
 
