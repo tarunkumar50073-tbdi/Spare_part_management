@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { NO_ROWS, stockKeys, useStockList, useStockOverview } from "../lib/stockQueries.js";
 import { AttentionBoard, ErpStatusStrip, HealthBar, ValuePanel } from "../components/spare/OverviewPanels.jsx";
 import { usePartDrawer } from "../context/PartDrawerContext.jsx";
-import { compactMoney, fmtStamp, money, num } from "../lib/format.js";
+import { compactMoney, fmtStamp, money, num, parseServerTime } from "../lib/format.js";
 import {
   ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bolt, CalendarDays, ChartColumn, CircleCheck,
   ClipboardList, Download, Factory, Gem, IndianRupee, MapPin, Package, Pencil, Repeat2,
@@ -309,7 +309,14 @@ const TXN_LABEL = {
 };
 
 const ACTIVITY_COLUMNS = [
-  { key: "at", label: "Time", sortable: true, render: (r) => <span className="tabular">{fmtStamp(r.at)}</span> },
+  {
+    key: "at", label: "Time", sortable: true,
+    render: (r) => <span className="tabular">{fmtStamp(r.at)}</span>,
+    // `at` is naive UTC from the server; export the local (IST) time, with the year.
+    exportValue: (r) => parseServerTime(r.at)?.toLocaleString("en-GB", {
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    }) || "",
+  },
   {
     key: "txn_type", label: "Activity",
     render: (r) => {

@@ -3,6 +3,7 @@ import toast from "react-hot-toast";
 import Modal from "./Modal.jsx";
 import { partService } from "../services/partService.js";
 import { downloadXlsx } from "../utils/excel.js";
+import { parseServerTime } from "../lib/format.js";
 
 // Part-master import with a preview step (spec §2): parse + validate first,
 // show the planned action per row (INSERT / UPDATE / ERROR) and counts, let the
@@ -124,7 +125,7 @@ export default function PartImportModal({ file, storeCode, sectionId, onClose, o
           <div className="max-h-28 overflow-auto text-xs text-slate-500">
             {history.map((h) => (
               <div key={h.id} className="flex justify-between py-0.5">
-                <span>{h.at ? new Date(h.at).toLocaleString("en-GB") : "—"} · {h.filename || "—"}</span>
+                <span>{parseServerTime(h.at)?.toLocaleString("en-GB") ?? "—"} · {h.filename || "—"}</span>
                 <span>+{h.inserted} ~{h.updated} ✕{h.failed} {h.imported_by ? `· ${h.imported_by}` : ""}</span>
               </div>
             ))}

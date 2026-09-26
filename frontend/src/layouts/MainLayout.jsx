@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "../components/Sidebar.jsx";
 import { useStores } from "../context/StoreContext.jsx";
@@ -37,7 +37,30 @@ const TITLES = {
   "/spare-erp-gap": "ERP vs Physical Gap",
   "/departments": "Department Emails",
   "/services": "All Services",
+  "/inventory-control": "Critical · Reorder · Excess",
+  "/consumption": "Consumption Analytics",
+  "/receiving": "Receiving & GRN",
+  "/erp-control": "ERP Control Center",
+  "/data-quality": "Data Quality",
+  "/notifications": "Notifications",
 };
+
+// Below this width the full rail (w-64) would leave a phone or small tablet a
+// sliver of page, so the rail starts squeezed there whatever was saved.
+const NARROW = "(max-width: 767px)";
+function useNarrow() {
+  const [narrow, setNarrow] = useState(() => {
+    try { return window.matchMedia(NARROW).matches; } catch { return false; }
+  });
+  useEffect(() => {
+    let mq;
+    try { mq = window.matchMedia(NARROW); } catch { return undefined; }
+    const on = (e) => setNarrow(e.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return narrow;
+}
 
 export default function MainLayout() {
   // A persistent rail that squeezes to an icon-only strip and expands back; the
@@ -45,11 +68,19 @@ export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem("dx_sidebar_collapsed") === "1"; } catch { return false; }
   });
-  const toggleSidebar = () => setCollapsed((c) => {
-    const next = !c;
-    try { localStorage.setItem("dx_sidebar_collapsed", next ? "1" : "0"); } catch { /* ignore */ }
-    return next;
-  });
+  // On a narrow screen the rail is squeezed by default and the toggle opens it
+  // for that visit only — the saved desktop preference is left alone.
+  const narrow = useNarrow();
+  const [narrowOpen, setNarrowOpen] = useState(false);
+  const toggleSidebar = () => {
+    if (narrow) { setNarrowOpen((o) => !o); return; }
+    setCollapsed((c) => {
+      const next = !c;
+      try { localStorage.setItem("dx_sidebar_collapsed", next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const railCollapsed = narrow ? !narrowOpen : collapsed;
 
   const location = useLocation();
   useRealtime();   // one SSE connection for the whole shell
@@ -71,7 +102,7 @@ export default function MainLayout() {
     // context/PartDrawerContext.
     <PartDrawerProvider>
     <div className="min-h-screen flex">
-      <Sidebar collapsed={collapsed} onToggle={toggleSidebar} />
+      <Sidebar collapsed={railCollapsed} onToggle={toggleSidebar} />
       <div className="flex-1 flex flex-col min-w-0">
         {/* The global part search is in the header on every screen — including
             sections — so the top bar reads the same everywhere. */}

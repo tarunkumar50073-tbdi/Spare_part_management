@@ -290,15 +290,6 @@ export default function SpareStock() {
     { key: "bin", label: "Shelf · Bin", render: (r) => r.bin || dash },
     { key: "location", label: "Location", render: (r) => r.location || dash },
     { key: "uom", label: "UoM", render: (r) => r.uom || dash },
-    { key: "min_stock_level", label: "Min", align: "right", sortable: true, render: (r) => num(r.min_stock_level) },
-    {
-      key: "reorder_level", label: "Reorder", align: "right", sortable: true,
-      render: (r) => (r.reorder_level == null ? dash : num(r.reorder_level)),
-    },
-    {
-      key: "max_stock_level", label: "Max", align: "right", sortable: true,
-      render: (r) => (r.max_stock_level == null ? dash : num(r.max_stock_level)),
-    },
     {
       key: "qty_on_hand", label: "In Stock", align: "right", sortable: true,
       render: (r) => (editing === r.part_id ? (
@@ -349,6 +340,15 @@ export default function SpareStock() {
           </button>
         </Can>
       )),
+    },
+    { key: "min_stock_level", label: "Min", align: "right", sortable: true, render: (r) => num(r.min_stock_level) },
+    {
+      key: "reorder_level", label: "Reorder", align: "right", sortable: true,
+      render: (r) => (r.reorder_level == null ? dash : num(r.reorder_level)),
+    },
+    {
+      key: "max_stock_level", label: "Max", align: "right", sortable: true,
+      render: (r) => (r.max_stock_level == null ? dash : num(r.max_stock_level)),
     },
     { key: "unit_price", label: "Rate", align: "right", render: (r) => money(r.unit_price) },
     {

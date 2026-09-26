@@ -1,3 +1,5 @@
+import { parseServerTime } from "./format.js";
+
 // Small, shared rules for reading a spare's master data on the inventory
 // screens. Kept here so the table, its filters and its export can't disagree.
 
@@ -32,7 +34,11 @@ export const STATUS_RANK = {
   "Out of Stock": 0, "Below Minimum": 1, "Reorder": 2, "Above Maximum": 3, "Healthy": 4, "Not Counted": 5,
 };
 
-export const fmtDay = (iso) =>
-  (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" }) : null);
+// A server timestamp's date in the plant's clock (the stamp is UTC — see
+// parseServerTime), so an issue at 01:00 IST lands on its own day.
+export const fmtDay = (iso) => {
+  const d = parseServerTime(iso);
+  return d ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" }) : null;
+};
 
 export const typeOf = (r) => (r.sub_category || "").trim() || "Uncategorised";

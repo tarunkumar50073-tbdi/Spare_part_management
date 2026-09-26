@@ -322,7 +322,9 @@ class SpareDashboardService:
              .join(Part, Part.id == SpareStockLedger.part_id)
              .filter(Part.store_code == store_code,
                      SpareStockLedger.txn_type == "ISSUE",
-                     SpareStockLedger.status == "PENDING_USER_CONFIRMATION"))
+                     # Same set the Scan Part queue and the alerts count, so the
+                     # dashboard, the bell and the queue never disagree.
+                     SpareStockLedger.status.in_(("PENDING_USER_CONFIRMATION", "ISSUED_BY_STORE"))))
         if section_id is not None:
             q = q.filter(Part.section_id == section_id)
         return q.scalar() or 0

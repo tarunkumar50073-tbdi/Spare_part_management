@@ -7,7 +7,7 @@ import Glyph from "../Glyph.jsx";
 import Modal from "../Modal.jsx";
 import Table from "../Table.jsx";
 import { spareStockService } from "../../services/spareStockService.js";
-import { escapeHtml, fmtDate, fmtStamp, fmtWhen, num } from "../../lib/format.js";
+import { escapeHtml, fmtDate, fmtStamp, fmtWhen, num, parseServerTime } from "../../lib/format.js";
 
 // A spare's journey, supplier to consumption: the nine-step trace and the
 // full part ledger (arrivals + movements on one timeline). Moved out of the
@@ -56,9 +56,35 @@ const ledgerFromTo = (e) =>
 
 const ledgerRef = (e) => [e.reference, e.invoice_no, e.po_no].filter(Boolean).join(" · ");
 
+// A ledger "ts" is either an ERP date-only string (gate / GRN date, plant-local
+// already) or a UTC store stamp with no zone. For sorting, "latest" and the
+// date filter both are brought to the plant's clock, so a 01:30 IST issue sits
+// on its IST day rather than the previous UTC one.
+const pad2 = (n) => String(n).padStart(2, "0");
+const ledgerKey = (ts) => {
+  if (!ts) return "";
+  if (ts.length <= 10) return ts;
+  const d = parseServerTime(ts);
+  if (!d) return ts;
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+    + `T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
+};
+
+// SRV.gate_entry_time is the ERP's own gate clock reading (plant wall clock,
+// compared as-is with the supplier windows on the backend), not a utcnow()
+// stamp — so it is shown literally, never shifted from UTC like fmtStamp does.
+const fmtPlantStamp = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(String(iso).trim().replace(" ", "T").replace(/(\.\d{3})\d+/, "$1"));
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+};
+
 const LEDGER_COLUMNS = [
   {
-    key: "ts", label: "Date", sortable: true, sortValue: (r) => r.ts || "",
+    key: "ts", label: "Date", sortable: true, sortValue: (r) => ledgerKey(r.ts),
     render: (r) => <span className="tabular">{fmtWhen(r.ts)}</span>,
     exportValue: (r) => (r.ts ? fmtWhen(r.ts) : ""),
   },
@@ -145,7 +171,7 @@ function PartLedger({ ledger, partNo, stock }) {
       if (e.direction === "in") inQty += Math.abs(e.qty || 0);
       else if (e.direction === "out") outQty += Math.abs(e.qty || 0);
       if (e.supplier_name) sup.add(e.supplier_name);
-      if (e.ts && (!lastTs || e.ts > lastTs)) lastTs = e.ts;
+      if (e.ts && (!lastTs || ledgerKey(e.ts) > ledgerKey(lastTs))) lastTs = e.ts;
     }
     const bal = ledger.find((e) => e.balance_after != null)?.balance_after;
     return { inQty, outQty, suppliers: sup.size, lastTs, balance: bal != null ? bal : (stock?.qty_on_hand ?? null) };
@@ -155,7 +181,7 @@ function PartLedger({ ledger, partNo, stock }) {
     () => ledger.filter((e) => {
       if (kind !== "ALL" && e.kind !== kind) return false;
       if (vendor !== "ALL" && e.supplier_name !== vendor) return false;
-      const d = (e.ts || "").slice(0, 10);
+      const d = ledgerKey(e.ts).slice(0, 10);
       if (from && d && d < from) return false;
       if (to && d && d > to) return false;
       return true;
@@ -334,7 +360,7 @@ export default function Traceability({ part, onClose }) {
           </TraceStep>
           <TraceStep icon={Truck} label="Gate Entry" done={Boolean(receipt?.gate_entry_time)}>
             {receipt?.gate_entry_time
-              ? `${receipt.gate_entry_no || "—"} · ${fmtStamp(receipt.gate_entry_time)}`
+              ? `${receipt.gate_entry_no || "—"} · ${fmtPlantStamp(receipt.gate_entry_time)}`
               : none}
           </TraceStep>
           <TraceStep icon={Search} label="Material Verification" done={Boolean(receipt?.verified_at)}>

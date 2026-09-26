@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import CardHead from "../CardHead.jsx";
 import HorizontalBars from "../HorizontalBars.jsx";
+import { parseServerTime } from "../../lib/format.js";
 
 // The top of the Spare Parts Store dashboard, drawn from ONE server response
 // (/dashboard/spare/overview). Built so a manager can answer, in seconds:
@@ -42,8 +43,9 @@ const SEVERITY = {
 };
 const SEV_ORDER = { critical: 0, warning: 1, info: 2, ok: 3 };
 
+// Server stamps are UTC (often zone-less) — parseServerTime reads them as UTC.
 const fmtStamp = (iso) =>
-  iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+  iso && parseServerTime(iso) ? parseServerTime(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
 
 // ---------------------------------------------------------------- status strip
 

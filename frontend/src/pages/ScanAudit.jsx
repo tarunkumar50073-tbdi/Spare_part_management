@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { barcodeService } from "../services/barcodeService.js";
+import { parseServerTime } from "../lib/format.js";
 
 // Admin-only scan-audit trail: every barcode scan (camera / gun / manual),
 // success or failure, across all modes — the /barcode/scan-audit endpoint.
@@ -80,7 +81,7 @@ export default function ScanAudit() {
           <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
             {rows.map((r) => (
               <tr key={r.id}>
-                <td className="px-3 py-1.5 whitespace-nowrap tabular-nums">{r.at ? new Date(r.at).toLocaleString("en-GB") : "—"}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap tabular-nums">{parseServerTime(r.at)?.toLocaleString("en-GB") || "—"}</td>
                 <td className="px-3 py-1.5 font-mono">{r.scanned_code}</td>
                 <td className="px-3 py-1.5">{r.part_no || "—"}</td>
                 <td className="px-3 py-1.5">{r.scan_mode}</td>

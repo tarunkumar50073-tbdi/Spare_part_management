@@ -15,7 +15,7 @@ import { spareStockService } from "../../services/spareStockService.js";
 import { barcodeService } from "../../services/barcodeService.js";
 import { invalidateStock } from "../../lib/stockQueries.js";
 import { splitLocation } from "../../lib/inventory.js";
-import { fmtDate, fmtStamp, money, num } from "../../lib/format.js";
+import { fmtDate, fmtStamp, money, num, parseServerTime } from "../../lib/format.js";
 
 // One spare, everything about it — the same drawer from the dashboard, the
 // stock list, the part ledger and Ctrl+K. Read from one server call
@@ -174,7 +174,10 @@ export default function PartDrawer({ partId, onClose }) {
               </div>
               <p className="mt-2 text-[11px] text-slate-400">
                 {st.shortfall != null && <>Short of max by <b>{num(st.shortfall)}</b> · </>}
-                Last counted {st.last_counted_at ? fmtStamp(st.last_counted_at) : "never"} · Reserved: {st.reserved_note.toLowerCase()}
+                {/* The opening upload loaded quantities without a count date, so a
+                    counted part can have no date — say "not recorded", not "never". */}
+                Last counted {st.last_counted_at ? fmtStamp(st.last_counted_at)
+                  : st.qty_on_hand == null ? "never" : "— date not recorded"} · Reserved: {st.reserved_note.toLowerCase()}
               </p>
             </Section>
 
@@ -207,7 +210,9 @@ export default function PartDrawer({ partId, onClose }) {
               </div>
               <p className="text-[11px] text-slate-400">
                 {ov.consumption.issues ? `${ov.consumption.issues} issue(s); last ${fmtStamp(ov.consumption.last_issue_at)}.` : "No issue recorded."}
-                {ov.consumption.ledger_since && ` The app's ledger starts ${fmtDate(ov.consumption.ledger_since)} — earlier months are not in it.`}
+                {/* ledger_since is the first ledger row's UTC created_at — mark it UTC
+                    so the plant-local day is shown, not the UTC one. */}
+                {ov.consumption.ledger_since && ` The app's ledger starts ${fmtDate(parseServerTime(ov.consumption.ledger_since))} — earlier months are not in it.`}
               </p>
             </Section>
 

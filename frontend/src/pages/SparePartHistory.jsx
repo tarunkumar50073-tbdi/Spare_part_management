@@ -7,6 +7,7 @@ import { useStores } from "../context/StoreContext.jsx";
 import { spareStockService } from "../services/spareStockService.js";
 import { NO_ROWS, stockKeys, useStockList } from "../lib/stockQueries.js";
 import { downloadXlsx } from "../utils/excel.js";
+import { parseServerTime } from "../lib/format.js";
 
 // Part Ledger rendered as the ERP "Stock Ledger (Valuation)": search/scan a part,
 // then its FULL ledger shows automatically (opening + every receipt + every issue
@@ -19,7 +20,21 @@ const fmt = (v) => (v == null || v === "" ? "—" : v);
 const DOC_TYPE = { OPENING: "OP", RECEIPT: "RC", ISSUE: "IS", RETURN: "RT", ADJUSTMENT: "AD" };
 const q3 = (n) => (Number(n) || 0).toFixed(3);   // quantities: 265.000
 const m2 = (n) => (Number(n) || 0).toFixed(2);   // rates / values: 11.19
-const erpDate = (v) => (v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "—");
+// Ledger stamps (`at`) are UTC from the server — parseServerTime reads them as
+// such, so a movement shows on its plant (IST) day; the date-only opening-balance
+// row (the From date) passes through unchanged.
+const erpDate = (v) => {
+  const d = v ? parseServerTime(v) : null;
+  return d ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "—";
+};
+// A server stamp's day ("YYYY-MM-DD") in the plant's clock, to compare against
+// the From/To date inputs (which are local days).
+const localDay = (v) => {
+  const d = parseServerTime(v);
+  if (!d) return String(v).slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const stampMs = (v) => parseServerTime(v)?.getTime() ?? 0;
 
 function Field({ label, value }) {
   return (
@@ -112,7 +127,7 @@ export default function SparePartHistory() {
   // client, no Apply/Enter. Everything else (every type, every department) shows.
   const shown = useMemo(() => rows.filter((r) => {
     if (r.at) {
-      const d = r.at.slice(0, 10);
+      const d = localDay(r.at);
       if (filters.from && d < filters.from) return false;
       if (filters.to && d > filters.to) return false;
     }
@@ -137,7 +152,7 @@ export default function SparePartHistory() {
       closingRate: rate,
     };
     const list = [...shown]
-      .sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0))
+      .sort((a, b) => stampMs(a.at) - stampMs(b.at))
       .map((r) => {
         const delta = Number(r.qty_delta) || 0;
         const closing = Number(r.balance_after) || 0;
@@ -164,9 +179,9 @@ export default function SparePartHistory() {
     // so "opening kitni thi" is always visible even when a date range hides the
     // original opening/receipts. Balance as of From = the last balance before it.
     if (filters.from) {
-      const before = rows.filter((r) => r.at && r.at.slice(0, 10) < filters.from);
+      const before = rows.filter((r) => r.at && localDay(r.at) < filters.from);
       if (before.length) {
-        const ob = Number([...before].sort((a, b) => new Date(b.at) - new Date(a.at))[0].balance_after) || 0;
+        const ob = Number([...before].sort((a, b) => stampMs(b.at) - stampMs(a.at))[0].balance_after) || 0;
         list.unshift({
           ...base, id: "opening-balance", tranDt: filters.from, docNo: "—", docType: "OB",
           tranType: "—", dest: "—", openingQty: ob, recvQty: 0, issueQty: 0,
@@ -347,7 +362,7 @@ export default function SparePartHistory() {
                 <tbody>
                   {locs.map((l) => (
                     <tr key={l.id} className="border-t border-slate-100 dark:border-navy-800">
-                      <td className="py-1 tabular-nums whitespace-nowrap">{l.at ? new Date(l.at).toLocaleString("en-GB") : "—"}</td>
+                      <td className="py-1 tabular-nums whitespace-nowrap">{parseServerTime(l.at)?.toLocaleString("en-GB") ?? "—"}</td>
                       <td>{fmt(l.old_location)}</td><td>{fmt(l.new_location)}</td>
                       <td>{fmt(l.reason)}</td><td>{fmt(l.moved_by)}</td>
                     </tr>

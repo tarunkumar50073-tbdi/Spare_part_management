@@ -19,11 +19,29 @@ export const compactMoney = (v) => {
   return money(n);
 };
 
-// Times come off the ISO string as stored rather than through the browser's
-// timezone — the same reason the vehicle in/out times are read literally.
+// Database times reach the browser as ISO strings with NO zone
+// ("2026-08-10T09:50:50.510103") but they are UTC — the backend stamps every row
+// with utcnow(). The browser reads a zone-less date-time as LOCAL time, which
+// showed every stamp 5½ hours early in IST. So a zone-less date-time is marked
+// UTC here; date-only strings and strings already carrying "Z" / an offset are
+// left alone. Do NOT use it for plant-local values (the shift-start "since",
+// supplier vehicle windows) — those are local by design.
+export const parseServerTime = (v) => {
+  if (v == null || v === "") return null;
+  if (v instanceof Date) return v;
+  const s = String(v).trim().replace(" ", "T");
+  const zoned = /(Z|[+-]\d{2}:?\d{2})$/i.test(s);
+  const hasTime = /T\d{2}:\d{2}/.test(s);
+  const norm = s.replace(/(\.\d{3})\d+/, "$1");   // Python sends 6 fraction digits
+  const d = new Date(hasTime && !zoned ? `${norm}Z` : norm);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+// A server timestamp in the plant's clock.
 export const fmtStamp = (iso) => {
   if (!iso) return "—";
-  const d = new Date(iso);
+  const d = parseServerTime(iso);
+  if (!d) return "—";
   return d.toLocaleString("en-GB", {
     day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
   });
