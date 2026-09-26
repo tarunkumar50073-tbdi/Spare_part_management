@@ -1,14 +1,21 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { ArrowDownToLine, ArrowUpFromLine, CircleCheck, MapPin, Search, TriangleAlert, Undo2, XCircle } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowDownToLine, ArrowUpFromLine, ChevronDown, CircleCheck, Hourglass, MapPin, Search, TriangleAlert, Undo2, X, XCircle,
+} from "lucide-react";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { usePartDrawer } from "../context/PartDrawerContext.jsx";
 import ScanPanel from "../components/ScanPanel.jsx";
 import Badge from "../components/Badge.jsx";
+import Table from "../components/Table.jsx";
+import IssueLifecycle, { IssueAge, isNoneUsed, issueAge, useMinuteClock, utcStamp } from "../components/spare/IssueLifecycle.jsx";
 import { barcodeService } from "../services/barcodeService.js";
 import { spareStockService } from "../services/spareStockService.js";
 import { departmentService } from "../services/departmentService.js";
 import { supplierService } from "../services/supplierService.js";
+import { fmtStamp, num, parseServerTime } from "../lib/format.js";
 import Can from "../components/Can.jsx";
 
 const MODES = [
@@ -38,9 +45,145 @@ function Field({ label, children }) {
   );
 }
 
+// The issue endpoint answers with the part's stock row, not the new ledger row,
+// so the new issue is picked out of the part's awaiting list: same qty,
+// department, person and issuer — the highest id is the newest.
+const findNewIssue = (rows, sent, username) =>
+  rows
+    .filter((r) => Math.abs(Number(r.qty) - sent.qty) <= 0.01
+      && r.department === sent.department
+      && (r.issued_to || null) === sent.issued_to
+      && (!username || r.issued_by === username))
+    .reduce((best, r) => (!best || r.id > best.id ? r : best), null);
+
+// The whole store's Stage-2 queue. Newest AWAITING_LIMIT only — the row dicts
+// are built one by one server-side, and a longer list would not be read here.
+// The server sends newest first, so a capped list is missing the OLDEST (the
+// longest-waiting) issues; one extra row is asked for to tell "exactly 500"
+// from "more than 500".
+const AWAITING_LIMIT = 500;
+const AWAITING_KEY = ["stock", "pending-confirmations"];
+
+function LoadFailed({ what, onRetry }) {
+  return (
+    <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+      Couldn&apos;t load {what}.{" "}
+      <button type="button" onClick={onRetry} className="font-semibold underline underline-offset-2">Retry</button>
+    </div>
+  );
+}
+
+// Every store issue the fitter has not yet confirmed (line + machine). Memoised
+// with its own minute clock, so the page's one-second clock doesn't redraw the
+// table every tick.
+const AwaitingConfirmation = memo(function AwaitingConfirmation({ storeCode }) {
+  const { openPart } = usePartDrawer();
+  const [open, setOpen] = useState(false);
+  const nowMs = useMinuteClock();
+  const { data, isPending, isError, isFetching, dataUpdatedAt, refetch } = useQuery({
+    queryKey: [...AWAITING_KEY, storeCode],
+    queryFn: () => spareStockService.pendingConfirmations(storeCode, AWAITING_LIMIT + 1).then((r) => r.data.data || []),
+    enabled: Boolean(storeCode),
+  });
+  const capped = (data?.length ?? 0) > AWAITING_LIMIT;
+  const rows = useMemo(() => (data || []).slice(0, AWAITING_LIMIT), [data]);
+  // Counted over the listed rows only — when capped, the unlisted older issues
+  // can only add to it, so it is a lower bound.
+  const overdue = useMemo(() => rows.filter((r) => issueAge(r.issued_at, nowMs)?.overdue).length, [rows, nowMs]);
+
+  const columns = useMemo(() => [
+    { key: "part_no", label: "Part No", sortable: true,
+      render: (r) => <span className="font-semibold text-slate-800 dark:text-white">{r.part_no || "—"}</span> },
+    { key: "part_name", label: "Description", sortable: true,
+      render: (r) => <span className="block max-w-[13rem] truncate text-slate-600 dark:text-slate-300" title={r.part_name || undefined}>{r.part_name || "—"}</span> },
+    { key: "qty", label: "Qty", align: "right", sortable: true, render: (r) => num(r.qty) },
+    { key: "department", label: "Department", sortable: true, render: (r) => r.department || "—" },
+    { key: "issued_to", label: "Handed to", sortable: true,
+      render: (r) => r.issued_to || <span className="text-slate-400">Not recorded</span> },
+    // Age before the stamp — how long it has waited is what gets chased.
+    { key: "age", label: "Age", sortValue: (r) => issueAge(r.issued_at, nowMs)?.ms ?? null,
+      render: (r) => <IssueAge at={r.issued_at} now={nowMs} prefix="" />,
+      exportValue: (r) => issueAge(r.issued_at, nowMs)?.text ?? "" },
+    // No status column: every row here is, by definition, awaiting confirmation.
+    { key: "issued_at", label: "Issued", sortable: true,
+      render: (r) => fmtStamp(utcStamp(r.issued_at)), exportValue: (r) => fmtStamp(utcStamp(r.issued_at)) },
+  ], [nowMs]);
+
+  // A failed refetch keeps the last list on screen; only a first load that
+  // failed has nothing to show.
+  const failed = isError && !data;
+  const stale = isError && Boolean(data);
+  const count = isPending ? "…" : failed ? "?" : capped ? `${AWAITING_LIMIT}+` : rows.length;
+  return (
+    <section className="overflow-hidden rounded-xl2 border border-slate-200 bg-white dark:border-navy-800 dark:bg-navy-900">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls="awaiting-confirmation-list"
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-navy-800/60">
+        <span className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
+            <Hourglass size={16} aria-hidden="true" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-slate-800 dark:text-white">Awaiting confirmation ({count})</span>
+            <span className="block text-[11px] leading-tight text-slate-400">Issued by the store, line + machine not yet confirmed by the fitter · whole store</span>
+            {capped && (
+              <span className="block text-[11px] font-semibold leading-tight text-amber-700 dark:text-amber-300">
+                Only the newest {AWAITING_LIMIT} are listed — the oldest, longest-waiting issues are not shown
+              </span>
+            )}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          {overdue > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+              <TriangleAlert size={12} aria-hidden="true" />{capped ? `At least ${overdue}` : overdue} over 2 days
+            </span>
+          )}
+          {failed && <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">Couldn&apos;t load</span>}
+          <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+        </span>
+      </button>
+      {/* Outside the toggle and shown open or closed: this screen stays up all
+          shift, and nothing else refetches the list on its own. */}
+      {stale && (
+        <div role="alert" className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-rose-100 bg-rose-50 px-4 py-2 text-xs text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300">
+          <span>
+            Couldn&apos;t refresh — this is the list as loaded at {fmtStamp(new Date(dataUpdatedAt))}, so issues written or confirmed since are not reflected.
+          </span>
+          <button type="button" onClick={() => refetch()} disabled={isFetching}
+            className="font-semibold underline underline-offset-2 disabled:no-underline disabled:opacity-60">
+            {isFetching ? "Retrying…" : "Retry"}
+          </button>
+        </div>
+      )}
+      {open && (
+        <div id="awaiting-confirmation-list" className="border-t border-slate-100 p-4 dark:border-navy-800">
+          {isPending ? (
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="skeleton h-10 w-full" />)}</div>
+          ) : failed ? (
+            <LoadFailed what="the confirmation queue" onRetry={() => refetch()} />
+          ) : (
+            <>
+              <Table columns={columns} rows={rows} searchable="Search part, department, person…"
+                exportName="awaiting_confirmation" maxHeight="50vh"
+                onRowClick={(r) => openPart(r.part_id)}
+                emptyMessage="Nothing is waiting for confirmation." />
+              <p className="mt-2 text-[11px] text-slate-400">
+                Click a row to open the part. To confirm an issue, scan the part and choose Confirm.
+                {capped ? ` Showing the newest ${AWAITING_LIMIT} only — older issues, the longest waiting, are not listed or exported here.` : ""}
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+});
+
 export default function ScanPart() {
   const { activeCode, activeStore } = useStores();
   const { user } = useAuth();
+  const { openPart } = usePartDrawer();
+  const qc = useQueryClient();
   const storeCode = activeCode || "MAINTENANCE";
 
   const [mode, setMode] = useState("LOOKUP");
@@ -48,12 +191,20 @@ export default function ScanPart() {
   const [part, setPart] = useState(null);
   const [form, setForm] = useState({});
   const [pending, setPending] = useState([]);
+  // Where the Confirm / Return pick-list load stands, so "nothing to confirm"
+  // is only said once the answer is actually in.
+  const [pendingLoad, setPendingLoad] = useState("idle"); // idle | loading | ready | error
+  // The lifecycle of the issue just written (Stage 1) or just confirmed
+  // (Stage 2), shown until the next scan: { kind, sent?, issue, state }.
+  const [lastResult, setLastResult] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [now, setNow] = useState(() => new Date());
   const resolvingRef = useRef(false);
   const reqSeqRef = useRef(0);   // invalidates a resolve whose mode changed mid-flight
+  const actionSeqRef = useRef(0); // drops a pick-list load for a mode / part no longer on screen
+  const resultSeqRef = useRef(0); // drops a lifecycle load once the operator has moved on
 
   useEffect(() => {
     departmentService.list(true).then((r) => setDepartments(r.data.data || [])).catch(() => {});
@@ -70,7 +221,9 @@ export default function ScanPart() {
   // A scan that resolves to nothing: shown in place of the part card, so a
   // failed read can never leave the PREVIOUS part on screen to be issued.
   const [scanError, setScanError] = useState(null);   // { code, message }
-  const reset = () => { setPart(null); setForm({}); setPending([]); setMode("LOOKUP"); setScanError(null); };
+  const clearPickList = () => { actionSeqRef.current++; setPending([]); setPendingLoad("idle"); };
+  const clearResult = () => { resultSeqRef.current++; setLastResult(null); };
+  const reset = () => { setPart(null); setForm({}); clearPickList(); setMode("LOOKUP"); setScanError(null); };
 
   // Scan-first: a scan just resolves the part and shows its details; the user
   // then picks what to do with it. So every scan enters neutral LOOKUP.
@@ -87,16 +240,18 @@ export default function ScanPart() {
       // result instead of resurrecting the old part.
       if (reqSeqRef.current !== seq) return;
       setScanError(null);
+      clearResult();
       setPart(res.data.data);
       setMode("LOOKUP");
       setForm({});
-      setPending([]);
+      clearPickList();
     } catch (err) {
       // The interceptor also toasts it; this keeps the answer on screen.
       if (reqSeqRef.current !== seq) return;
+      clearResult();
       setPart(null);
       setForm({});
-      setPending([]);
+      clearPickList();
       setMode("LOOKUP");
       setScanError({ code, message: err?.response?.data?.message || "No part in this store for that code" });
     } finally {
@@ -109,20 +264,27 @@ export default function ScanPart() {
   // data it needs (pending issues to confirm, issues still out for a return).
   const selectAction = async (m) => {
     if (busy) return;
+    clearPickList();
+    const seq = actionSeqRef.current;
     setMode(m);
     setForm(defaultForm(m));
-    setPending([]);
-    if (!part) return;
+    if (!part || (m !== "CONFIRM" && m !== "RETURN")) return;
+    setPendingLoad("loading");
     try {
-      if (m === "CONFIRM") {
-        const p = await spareStockService.partPendingConfirmations(part.part_id);
-        setPending(p.data.data || []);
-      } else if (m === "RETURN") {
-        const p = await spareStockService.returnableIssues(part.part_id);
-        setPending(p.data.data || []);
-      }
+      const p = m === "CONFIRM"
+        ? await spareStockService.partPendingConfirmations(part.part_id)
+        : await spareStockService.returnableIssues(part.part_id);
+      // Switched action or scanned another part meanwhile — this list is not
+      // for what is on screen now.
+      if (actionSeqRef.current !== seq) return;
+      const rows = p.data.data || [];
+      setPending(rows);
+      setPendingLoad("ready");
+      // One issue out on this part — pick it, so the fitter only fills the line.
+      if (m === "CONFIRM" && rows.length === 1) setForm((f) => ({ ...f, ledger_id: String(rows[0].id) }));
     } catch {
       /* interceptor toasts */
+      if (actionSeqRef.current === seq) setPendingLoad("error");
     }
   };
 
@@ -137,13 +299,21 @@ export default function ScanPart() {
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const submit = async (action) => {
+  // The awaiting queue changes with every issue / confirm / return. The server's
+  // "stock" push refreshes it too; this makes this screen's own write show at once.
+  const refreshAwaiting = () => qc.invalidateQueries({ queryKey: AWAITING_KEY });
+
+  // `after(response)` runs once the write has landed and the form is cleared —
+  // used to show the lifecycle of the issue just written.
+  const submit = async (action, after) => {
     if (busy) return;
     setBusy(true);
     try {
-      await action();
+      const res = await action();
       toast.success("Done — scan the next part");
       reset();
+      refreshAwaiting();
+      after?.(res);
     } catch {
       /* interceptor toasts */
     } finally {
@@ -151,15 +321,35 @@ export default function ScanPart() {
     }
   };
 
+  // Stage 1 done — find the new ISSUE row so its lifecycle (now at "Awaiting
+  // user confirmation") is shown as the server recorded it.
+  const loadNewIssue = async (sent) => {
+    const seq = ++resultSeqRef.current;
+    setLastResult({ kind: "issued", sent, issue: null, state: "loading" });
+    try {
+      const r = await spareStockService.partPendingConfirmations(sent.part_id);
+      if (resultSeqRef.current !== seq) return;
+      const mine = findNewIssue(r.data.data || [], sent, user?.username);
+      setLastResult({ kind: "issued", sent, issue: mine, state: mine ? "ready" : "missing" });
+    } catch {
+      if (resultSeqRef.current === seq) setLastResult({ kind: "issued", sent, issue: null, state: "error" });
+    }
+  };
+
   const doIssue = () => {
     if (!(Number(form.qty) > 0)) return toast.error("Enter a quantity");
     if (Number(form.qty) > Number(part.qty_on_hand ?? 0)) return toast.error(`Only ${fmt(part.qty_on_hand)} in stock`);
     if (!form.department) return toast.error("Choose a department");
+    const sent = {
+      part_id: part.part_id, part_no: part.part_no, part_name: part.part_name,
+      qty: Number(form.qty), department: form.department,
+      issued_to: (form.issued_to || "").trim() || null,
+    };
     return submit(() => spareStockService.issue(part.part_id, {
       qty: Number(form.qty), department: form.department,
       issued_to: form.issued_to || undefined, returnable: !!form.returnable,
       remarks: form.remarks || undefined,
-    }));
+    }), () => loadNewIssue(sent));
   };
 
   const doReceive = () => {
@@ -189,7 +379,12 @@ export default function ScanPart() {
       line_name: form.line_name || undefined, line_no: form.line_no || undefined,
       machine: form.machine || undefined,
       actual_qty: form.actual_qty !== "" ? Number(form.actual_qty) : undefined,
-    }));
+    }), (res) => {
+      // The confirm response is the updated ISSUE row — its finished lifecycle.
+      const issue = res?.data?.data;
+      resultSeqRef.current++;
+      setLastResult(issue ? { kind: "confirmed", issue, state: "ready" } : null);
+    });
   };
 
   // The issue picked in RETURN mode — its outstanding qty caps the return.
@@ -214,6 +409,7 @@ export default function ScanPart() {
       const slip = res?.data?.data?.return_no;
       toast.success(slip ? `Returned to store · slip ${slip}` : "Returned to store");
       reset();
+      refreshAwaiting();
     } catch {
       /* interceptor toasts */
     } finally {
@@ -224,6 +420,9 @@ export default function ScanPart() {
   const clock = useMemo(() =>
     `${now.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })} ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`,
   [now]);
+  const nowMs = now.getTime();
+  const selectedIssue = mode === "CONFIRM" ? pending.find((p) => String(p.id) === String(form.ledger_id)) : null;
+  const shown = lastResult && (lastResult.issue || lastResult.sent);
 
   return (
     <div className="space-y-4">
@@ -260,6 +459,54 @@ export default function ScanPart() {
         </div>
       )}
 
+      {/* The issue just written, until the next scan — Stage 1 lands at
+          "Awaiting user confirmation", Stage 2 shows the finished lifecycle. */}
+      {!part && lastResult && shown && (
+        <div aria-live="polite" className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
+          <div className="mb-3 flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                <CircleCheck size={13} aria-hidden="true" />
+                {lastResult.kind === "issued" ? "Issued"
+                  : isNoneUsed(lastResult.issue) ? "Confirmation recorded — none used" : "Installation confirmed"}
+              </p>
+              <button type="button" onClick={() => openPart(shown.part_id)}
+                className="block max-w-full truncate text-left text-base font-bold text-slate-900 hover:text-toyotared dark:text-white"
+                title="Open the part">
+                {shown.part_no}
+                {shown.part_name && <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">{shown.part_name}</span>}
+              </button>
+            </div>
+            <button type="button" onClick={clearResult} aria-label="Dismiss"
+              className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-800 dark:hover:text-slate-200">
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+          {lastResult.state === "loading" && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-16 w-full" />)}
+            </div>
+          )}
+          {lastResult.state === "ready" && (
+            <>
+              <IssueLifecycle issue={lastResult.issue} />
+              {lastResult.kind === "issued" && (
+                <p className="mt-3 text-xs text-slate-400">The fitter confirms the line and machine later: scan this part and choose Confirm.</p>
+              )}
+            </>
+          )}
+          {lastResult.state === "missing" && (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              The issue was recorded, but it is no longer in this part&apos;s awaiting list — it may already have been
+              confirmed or returned. The part&apos;s ledger has the full history.
+            </p>
+          )}
+          {lastResult.state === "error" && (
+            <LoadFailed what="the new issue's lifecycle (the issue itself was recorded)" onRetry={() => loadNewIssue(lastResult.sent)} />
+          )}
+        </div>
+      )}
+
       {part && (
         <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
           {/* resolved part header */}
@@ -287,7 +534,7 @@ export default function ScanPart() {
                 {part.data_status?.stock_source || "MANUAL"}
               </span>
               {part.data_status?.erp_last_sync && (
-                <span className="ml-1 text-xs text-slate-400">ERP sync {new Date(part.data_status.erp_last_sync).toLocaleString("en-GB")}</span>
+                <span className="ml-1 text-xs text-slate-400">ERP sync {parseServerTime(part.data_status.erp_last_sync)?.toLocaleString("en-GB") ?? "—"}</span>
               )}
             </Field>
           </div>
@@ -396,19 +643,48 @@ export default function ScanPart() {
 
             {mode === "CONFIRM" && (
               <div className="space-y-3">
-                {pending.length === 0 ? (
+                {pendingLoad === "loading" || pendingLoad === "idle" ? (
+                  <div className="space-y-2" aria-label="Loading issues awaiting confirmation">
+                    {Array.from({ length: 2 }).map((_, i) => <div key={i} className="skeleton h-24 w-full" />)}
+                  </div>
+                ) : pendingLoad === "error" ? (
+                  <LoadFailed what="this part's issues awaiting confirmation" onRetry={() => selectAction("CONFIRM")} />
+                ) : pending.length === 0 ? (
                   <p className="text-sm text-slate-500 dark:text-slate-400">No pending issues for this part to confirm.</p>
                 ) : (
                   <>
-                    <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Which issue *</span>
-                      <select value={form.ledger_id} onChange={(e) => set("ledger_id", e.target.value)} className="input-field mt-1 w-full">
-                        <option value="">Select the issue…</option>
-                        {pending.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {new Date(p.issued_at).toLocaleDateString("en-GB")} · {p.qty} to {p.department}{p.issued_to ? ` · ${p.issued_to}` : ""}
-                          </option>
-                        ))}
-                      </select></label>
+                    {/* Each issue with where it stands and how long it has been
+                        out — the oldest unconfirmed ones are the ones to chase. */}
+                    <fieldset>
+                      <legend className="text-sm text-slate-600 dark:text-slate-300">Which issue *</legend>
+                      <div className="mt-1 max-h-[55vh] space-y-2 overflow-y-auto pr-0.5">
+                        {pending.map((p) => {
+                          const on = String(form.ledger_id) === String(p.id);
+                          // The whole card picks the issue; the radio (and its
+                          // label line) is what a keyboard / screen reader uses.
+                          return (
+                            <div key={p.id} onClick={() => set("ledger_id", String(p.id))}
+                              className={`cursor-pointer rounded-lg border p-3 transition-colors ${on
+                                ? "border-toyotared bg-rose-50/40 ring-1 ring-toyotared dark:bg-rose-500/5"
+                                : "border-slate-200 hover:border-slate-300 dark:border-navy-700 dark:hover:border-navy-600"}`}>
+                              <label className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
+                                <input type="radio" name="confirm-issue" value={p.id} checked={on}
+                                  onChange={() => set("ledger_id", String(p.id))} className="h-4 w-4 accent-toyotared" />
+                                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                  {num(p.qty)} to {p.department || "—"}{p.issued_to ? ` · ${p.issued_to}` : ""}
+                                </span>
+                                <span className="text-xs text-slate-400">{fmtStamp(utcStamp(p.issued_at))}</span>
+                                <IssueAge at={p.issued_at} now={nowMs} />
+                              </label>
+                              <IssueLifecycle issue={p} className="mt-3" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </fieldset>
+                    <p className="text-xs text-slate-400">
+                      No stock moves here — it was deducted when the store issued it. This records where the part went.
+                    </p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Line name (seat slider / recliner…)</span>
                         <input value={form.line_name} onChange={(e) => set("line_name", e.target.value)} className="input-field mt-1 w-full" /></label>
@@ -417,7 +693,10 @@ export default function ScanPart() {
                       <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Machine no.</span>
                         <input value={form.machine} onChange={(e) => set("machine", e.target.value)} className="input-field mt-1 w-full" /></label>
                       <label className="block"><span className="text-sm text-slate-600 dark:text-slate-300">Actual used qty</span>
-                        <input type="number" min={0} value={form.actual_qty} onChange={(e) => set("actual_qty", e.target.value)} className="input-field mt-1 w-full" /></label>
+                        {/* Blank is taken as the whole issue used (confirm_installation). */}
+                        <input type="number" min={0} max={selectedIssue ? Number(selectedIssue.qty) : undefined}
+                          placeholder={selectedIssue ? `Blank = all ${num(selectedIssue.qty)} used` : undefined}
+                          value={form.actual_qty} onChange={(e) => set("actual_qty", e.target.value)} className="input-field mt-1 w-full" /></label>
                     </div>
                     <Can mod="scan_part" edit>
                       <button type="button" onClick={doConfirm} disabled={busy} className="btn-primary w-full py-3 text-lg">Confirm installation</button>
@@ -429,7 +708,11 @@ export default function ScanPart() {
 
             {mode === "RETURN" && (
               <div className="space-y-3">
-                {pending.length === 0 ? (
+                {pendingLoad === "loading" || pendingLoad === "idle" ? (
+                  <div className="skeleton h-12 w-full" aria-label="Loading issues still out" />
+                ) : pendingLoad === "error" ? (
+                  <LoadFailed what="the issues of this part still out" onRetry={() => selectAction("RETURN")} />
+                ) : pending.length === 0 ? (
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     No issued stock of this part is out on the floor — nothing to take back.
                   </p>
@@ -442,7 +725,7 @@ export default function ScanPart() {
                         <option value="">Select the issue…</option>
                         {pending.map((p) => (
                           <option key={p.id} value={p.id}>
-                            {new Date(p.issued_at).toLocaleDateString("en-GB")} · {p.outstanding_qty} out · {p.department}{p.issued_to ? ` · ${p.issued_to}` : ""}{p.returnable ? " · tool/die" : ""}
+                            {parseServerTime(p.issued_at)?.toLocaleDateString("en-GB") ?? "—"} · {p.outstanding_qty} out · {p.department}{p.issued_to ? ` · ${p.issued_to}` : ""}{p.returnable ? " · tool/die" : ""}
                           </option>
                         ))}
                       </select></label>
@@ -484,6 +767,8 @@ export default function ScanPart() {
           </div>
         </div>
       )}
+
+      <AwaitingConfirmation storeCode={storeCode} />
     </div>
   );
 }
