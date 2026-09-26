@@ -1,15 +1,20 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, FileDown, Home, LogOut, Maximize2, Minimize2, Search, Settings as SettingsIcon } from "lucide-react";
+import {
+  Bell, FileDown, Home, Info, LogOut, Maximize2, Minimize2, Search, Settings as SettingsIcon, Siren, TriangleAlert,
+} from "lucide-react";
 import Badge from "./Badge.jsx";
-import { notificationService } from "../services/notificationService.js";
 import { liveStockService } from "../services/liveStockService.js";
+import {
+  ALERTS_REFRESH_MS, alertsKey, alertsStoreFor, canOpenAction, fetchAlerts,
+} from "../services/spareAlertsService.js";
 import { partService } from "../services/partService.js";
 import { storeDashboardService } from "../services/storeDashboardService.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { can } from "../utils/permissions.js";
+import { parseServerTime } from "../lib/format.js";
 
 // The coming multi-plant switch. Today the app serves one plant, so Plant 1 is
 // the live data and Plant 2 is a disabled placeholder. When the second site's
@@ -54,7 +59,7 @@ function ErpStatusPill() {
 
   const live = Boolean(syncedAt);
   const label = live
-    ? `Last ERP data: ${new Date(syncedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
+    ? `Last ERP data: ${parseServerTime(syncedAt)?.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) ?? "—"}`
     : "No ERP data yet";
 
   return (
@@ -104,6 +109,14 @@ const asChildPartResult = (row, query) => ({
     : `${Number(row.live_stock).toLocaleString()}${row.cov_days == null ? "" : ` · ${row.cov_days}d`}`,
 });
 
+// Each severity by shape as well as colour, the way the Notification Center
+// marks it, so the bell does not rely on colour alone.
+const BELL_SEVERITY = {
+  critical: { Icon: Siren, tone: "text-rose-600 dark:text-rose-400" },
+  warning: { Icon: TriangleAlert, tone: "text-amber-500 dark:text-amber-400" },
+  info: { Icon: Info, tone: "text-blue-500 dark:text-blue-400" },
+};
+
 const asSpareResult = (row) => ({
   key: `sp-${row.id}`,
   partNo: row.part_no,
@@ -117,7 +130,7 @@ const asSpareResult = (row) => ({
 });
 
 // Top bar: page title left, global part search in the middle, notification
-// bell (real active notifications from the Rack Alert Engine) on the right.
+// bell (the Spare Parts Store's computed alerts) on the right.
 // This is the app's only search box — the dashboard used to carry a second one
 // of its own. Account controls (user, sign out, theme) sit at the foot of the
 // sidebar instead, since they belong to the session rather than to the page.
@@ -154,13 +167,29 @@ export default function Topbar({ title, showSearch = true }) {
   const bellRef = useRef(null);
   const searchRef = useRef(null);
 
-  // Live active notifications — cached + polled via React Query (was a manual
-  // setInterval). data defaults to [] before the first fetch lands.
-  const { data: notifications = [] } = useQuery({
-    queryKey: ["notifications"],
-    queryFn: () => notificationService.list().then((res) => res.data.data),
-    refetchInterval: 60000,
+  // The active store's alerts — the same cache entry the Notification Center
+  // reads. The badge counts the critical + warning alerts (headlines; the parts
+  // and issues listed under one are not counted again); info waits on the
+  // page. The old Child Parts rack feed is gone with that store.
+  const alertsCode = alertsStoreFor(activeCode);
+  const { data: alertData, isError: alertsFailed, refetch: refetchAlerts } = useQuery({
+    queryKey: alertsKey(alertsCode),
+    queryFn: () => fetchAlerts(alertsCode),
+    enabled: Boolean(alertsCode),
+    refetchInterval: ALERTS_REFRESH_MS,
   });
+  const alertList = alertData?.alerts || [];
+  const urgent = (alertData?.summary?.critical || 0) + (alertData?.summary?.warning || 0);
+  // Headlines first so the short list shows the breadth of what is wrong; the
+  // per-part / per-issue lines under them are on the page.
+  const bellAlerts = [...alertList.filter((a) => !a.parent), ...alertList.filter((a) => a.parent)].slice(0, 8);
+  const urgentLabel = `${urgent} ${urgent === 1 ? "alert needs" : "alerts need"} attention`;
+  // A screen this user has no right to would only say "Access restricted";
+  // the Notification Center still shows them the whole alert.
+  const openAlert = (a) => {
+    navigate(canOpenAction(user, a.action) ? a.action.to : "/notifications");
+    setBellOpen(false);
+  };
 
   // Close the bell and the search results on any outside click.
   useEffect(() => {
@@ -313,7 +342,10 @@ export default function Topbar({ title, showSearch = true }) {
             space between the two fixed groups and truncates rather than
             overlapping them. */}
         <h1
-          className="flex-1 min-w-0 text-center text-xl lg:text-2xl font-extrabold tracking-tight leading-none truncate px-2"
+          // Keeps its flex space on a phone (so the icons stay right-aligned)
+          // but isn't drawn there: squeezed to ~16px it read as a stray red mark,
+          // and every page carries its own heading anyway.
+          className="invisible sm:visible flex-1 min-w-0 text-center text-xl lg:text-2xl font-extrabold tracking-tight leading-none truncate px-2"
           style={{
             backgroundImage: "linear-gradient(92deg,#ff7a18 0%,#eb0a1e 48%,#c81d77 100%)",
             WebkitBackgroundClip: "text",
@@ -345,35 +377,72 @@ export default function Topbar({ title, showSearch = true }) {
             <button
               onClick={() => setBellOpen((o) => !o)}
               className="relative h-8 w-8 flex items-center justify-center text-base hover:opacity-70 transition-opacity"
-              title="Notifications"
+              title={urgent ? `Notifications: ${urgentLabel}` : "Notifications"}
+              aria-label={urgent ? `Notifications, ${urgentLabel}` : "Notifications"}
             >
               <Bell size={18} aria-hidden="true" />
-              {notifications.length > 0 && (
+              {urgent > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 bg-toyotared text-white text-[10px] font-bold rounded-full min-w-[15px] h-[15px] px-0.5 flex items-center justify-center">
-                  {notifications.length}
+                  {urgent > 99 ? "99+" : urgent}
                 </span>
               )}
             </button>
 
             {bellOpen && (
               <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-navy-900 rounded-xl shadow-lg border border-slate-200 dark:border-navy-800 overflow-hidden z-30">
-                <p className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100 dark:border-navy-800">
-                  Notifications
-                </p>
-                {notifications.length === 0 ? (
-                  <p className="px-4 py-6 text-sm text-slate-400 text-center">No active notifications</p>
+                <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-100 dark:border-navy-800">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Notifications</p>
+                  {alertData && alertData.summary.total > 0 && (
+                    <span className="text-[11px] text-slate-400 tabular" title="Alerts, not the parts or issues listed under them">
+                      {alertData.summary.critical} critical · {alertData.summary.warning} warning
+                    </span>
+                  )}
+                </div>
+                {!alertsCode ? (
+                  <p className="px-4 py-6 text-sm text-slate-400 text-center">Alerts cover the Spare Parts Store.</p>
+                ) : !alertData && alertsFailed ? (
+                  <div className="px-4 py-6 text-center">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Could not load the alerts.</p>
+                    <button type="button" onClick={() => refetchAlerts()} className="mt-1 text-xs font-semibold text-toyotared hover:underline">
+                      Retry
+                    </button>
+                  </div>
+                ) : !alertData ? (
+                  <p className="px-4 py-6 text-sm text-slate-400 text-center">Checking…</p>
+                ) : bellAlerts.length === 0 ? (
+                  <p className="px-4 py-6 text-sm text-slate-400 text-center">No alerts — nothing needs attention right now.</p>
                 ) : (
                   <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-navy-800">
-                    {notifications.map((n) => (
-                      <div key={n.id} className="px-4 py-2.5 text-sm">
-                        <p className="text-slate-700 dark:text-slate-200">{n.message}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          {n.created_at ? new Date(n.created_at).toLocaleString() : ""}
-                        </p>
-                      </div>
-                    ))}
+                    {bellAlerts.map((a) => {
+                      const sev = BELL_SEVERITY[a.severity] || BELL_SEVERITY.info;
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => openAlert(a)}
+                          className="w-full text-left px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-navy-800 transition-colors"
+                        >
+                          <span className="flex items-start gap-2">
+                            <sev.Icon size={14} className={`mt-0.5 shrink-0 ${sev.tone}`} aria-hidden="true" />
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium text-slate-700 dark:text-slate-200 truncate">
+                                <span className="sr-only">{a.severity}: </span>{a.title}
+                              </span>
+                              <span className="block text-[11px] text-slate-400 line-clamp-2">{a.message}</span>
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
+                <Link
+                  to="/notifications"
+                  onClick={() => setBellOpen(false)}
+                  className="block border-t border-slate-100 dark:border-navy-800 px-4 py-2 text-center text-xs font-semibold text-toyotared hover:bg-slate-50 dark:hover:bg-navy-800"
+                >
+                  View all{alertData?.summary.total ? ` (${alertData.summary.total})` : ""}
+                </Link>
               </div>
             )}
           </div>
