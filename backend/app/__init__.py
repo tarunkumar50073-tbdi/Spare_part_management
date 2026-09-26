@@ -329,6 +329,12 @@ def _patch_schema():
         if txn_cols and _col not in txn_cols:
             db.session.execute(text(f"ALTER TABLE spare_transactions ADD COLUMN {_col} {_type}"))
             db.session.commit()
+    # The models index employee_id on both tables; an ALTER-added column needs
+    # its index created here (IF NOT EXISTS: a no-op on every later boot).
+    for ddl in ("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_employee_id ON spare_stock_ledger (employee_id)",
+                "CREATE INDEX IF NOT EXISTS ix_spare_transactions_employee_id ON spare_transactions (employee_id)"):
+        db.session.execute(text(ddl))
+    db.session.commit()
 
     # Label print audit (spec 8): print source, printer, symbology and the
     # location that was printed. Nullable/additive — older rows keep NULLs.
