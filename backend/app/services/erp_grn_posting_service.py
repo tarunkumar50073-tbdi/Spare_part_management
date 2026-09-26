@@ -37,6 +37,7 @@ from app.extensions import db
 from app.models.app_setting import AppSetting
 from app.models.part import Part
 from app.models.receiving_register import ReceivingRegister
+from app.models.spare_flow import SpareTransaction
 from app.models.spare_stock import SpareStock, SpareStockLedger
 from app.services.spare_journal_service import SpareJournalService
 from app.services.spare_stock_service import SpareStockService
@@ -132,16 +133,36 @@ class ErpGrnPostingService:
         return out
 
     @staticmethod
-    def _posted(part_ids):
-        """(part_id, grn_no) -> qty already posted from ERP."""
+    def _key(grn_no):
+        """GRN numbers are matched trimmed and case-blind: a supervisor typed
+        some of them by hand."""
+        return (grn_no or "").strip().upper()
+
+    @classmethod
+    def _posted(cls, part_ids):
+        """(part_id, GRN no. key) -> qty already in store stock from that GRN,
+        whichever way it got there: this ERP posting (status ERP_GRN), the
+        short-lived in-app quality clearance (status STOCK_AVAILABLE, reference
+        = the GRN no. as typed), or an RGP GRN (its GRN no. is on the journal
+        row and the RGP, the ledger reference being the RGP no.). Without all
+        three an ERP line for the same GRN would be added a second time."""
         if not part_ids:
             return {}
-        q = (db.session.query(SpareStockLedger.part_id, SpareStockLedger.reference,
-                              func.sum(SpareStockLedger.qty_delta))
-             .filter(SpareStockLedger.part_id.in_(part_ids), SpareStockLedger.txn_type == "RECEIPT",
-                     SpareStockLedger.status == STATUS)
-             .group_by(SpareStockLedger.part_id, SpareStockLedger.reference))
-        return {(pid, ref): round(float(qty or 0), 2) for pid, ref, qty in q.all()}
+        out = defaultdict(float)
+        ledger = (db.session.query(SpareStockLedger.part_id, SpareStockLedger.reference,
+                                   func.sum(SpareStockLedger.qty_delta))
+                  .filter(SpareStockLedger.part_id.in_(part_ids), SpareStockLedger.txn_type == "RECEIPT",
+                          SpareStockLedger.status.in_((STATUS, "STOCK_AVAILABLE")))
+                  .group_by(SpareStockLedger.part_id, SpareStockLedger.reference))
+        for pid, ref, qty in ledger.all():
+            out[(pid, cls._key(ref))] += float(qty or 0)
+        rgp = (db.session.query(SpareTransaction.part_id, SpareTransaction.grn_no, func.sum(SpareTransaction.qty))
+               .filter(SpareTransaction.part_id.in_(part_ids), SpareTransaction.txn_type == "RGP_GRN",
+                       SpareTransaction.grn_no.isnot(None))
+               .group_by(SpareTransaction.part_id, SpareTransaction.grn_no))
+        for pid, grn, qty in rgp.all():
+            out[(pid, cls._key(grn))] += float(qty or 0)
+        return {k: round(v, 2) for k, v in out.items()}
 
     def lines(self, store_code, part_id=None):
         """Every ERP GRN line of the store's parts (in the mirror's window),
@@ -181,11 +202,17 @@ class ErpGrnPostingService:
             part = g["part"]
             accepted = round(g["accept"], 2) if g["accept"] is not None else None
             rejected = round(g["reject"], 2) if g["reject"] is not None else None
-            already = posted.get((pid, grn_no), 0.0)
+            already = posted.get((pid, self._key(grn_no)), 0.0)
             baseline, counted = base.get(pid, (None, False))
             grn_date = g.get("grn_date")
             state, reason, to_post = None, None, 0.0
-            if not accepted:
+            if not accepted and already > 0:
+                # Stock already came in from this GRN (in-app clearance / RGP GRN,
+                # or ERP later took the acceptance back) — never count it as
+                # quality pending again.
+                state, reason = "CHECK", (f"{already:g} already added to store stock from this GRN, but ERP "
+                                          f"shows no accepted qty — check with ERP")
+            elif not accepted:
                 if rejected:
                     state, reason = "REJECTED", "Rejected by quality in ERP — not stock"
                 else:
@@ -246,7 +273,7 @@ class ErpGrnPostingService:
             if line["state"] != "WILL_POST" or line["to_post"] <= 0:
                 continue
             with atomic():
-                already = self._posted([line["part_id"]]).get((line["part_id"], line["grn_no"]), 0.0)
+                already = self._posted([line["part_id"]]).get((line["part_id"], self._key(line["grn_no"])), 0.0)
                 qty = round((line["accept_qty"] or 0) - already, 2)
                 if qty <= 0:
                     continue

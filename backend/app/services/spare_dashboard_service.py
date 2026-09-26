@@ -15,10 +15,11 @@ Everything is read from real rows. Nothing is estimated or back-filled: a
 figure the data can't support is left out or returned as None, never shown as
 a confident zero.
 
-Material the store holds but may not issue is read from its own documents
-(models/spare_flow.py), never folded into on-hand: `receiving_pending`
-(receipts waiting for the ERP GRN / quality), `returns_pending` (returns
-waiting for the store inspection) and `rgp` (supplier rework).
+Material the store holds but may not issue is never folded into on-hand:
+`receiving_pending` (ERP GRN lines quality has not cleared in ERP — receiving
+is read from ERP, with the mirror's freshness), `returns_pending` (returns
+waiting for the store inspection) and `rgp` (supplier rework), the last two
+from the store's own documents (models/spare_flow.py).
 """
 from datetime import date, datetime, timezone
 
@@ -27,9 +28,10 @@ from sqlalchemy import and_, case, func
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.part import Part
-from app.models.spare_flow import RECEIPT_OPEN, RETURN_OPEN, RGP_OPEN, SpareReceipt, SpareReturn, SpareRgp
+from app.models.spare_flow import RETURN_OPEN, RGP_OPEN, SpareReturn, SpareRgp
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Section, Store
+from app.services.erp_grn_posting_service import ErpGrnPostingService
 from app.services.spare_stock_service import SpareStockService
 
 # Worst first — the order the health bar and the attention list read in.
@@ -74,9 +76,27 @@ def _as_date(value):
         return None
 
 
+def _erp_as_of(erp):
+    """The ERP GRN mirror's freshness (ErpGrnPostingService.mirror_freshness)
+    as a sentence on the plant clock, so a figure read from a stale mirror is
+    never taken for today's."""
+    synced = (erp or {}).get("synced_at")
+    if not synced:
+        return "No ERP GRN data has been read yet."
+    at = datetime.fromisoformat(synced)
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    text = f"ERP GRN data as read {at.astimezone().strftime('%d %b %Y %H:%M')}"
+    newest = _as_date(erp.get("newest_grn_date"))
+    if newest:
+        text += f", newest GRN {newest.strftime('%d %b %Y')}"
+    return text + "."
+
+
 class SpareDashboardService:
     def __init__(self):
         self.stock = SpareStockService()
+        self.erp_grn = ErpGrnPostingService()
 
     # ------------------------------------------------------------------ public
 
@@ -273,18 +293,17 @@ class SpareDashboardService:
         })
         if section_id is None:
             # Spec 1: a spare has no separate SRV step. What this line used to
-            # count (SRV records) is now the supplier receipts not yet in stock —
-            # waiting for the ERP GRN or for the Maintenance / Tool Room quality
-            # clearance. The key stays "srv_pending" so every screen reading it
-            # (the wallboard tile included) keeps working; like before, it is a
-            # store-level line.
+            # count (SRV records) is now the ERP GRN lines whose quality ERP
+            # has not cleared — receiving is read from ERP. The key stays
+            # "srv_pending" so every screen reading it (the wallboard tile
+            # included) keeps working; like before, it is a store-level line.
             items.append({
                 "key": "srv_pending", "label": "GRN / Quality pending",
                 "severity": "warning" if receiving["total"] else "ok",
-                "hint": ("Received material waiting for the ERP GRN or the Maintenance / Tool Room "
-                         "quality clearance — not issuable yet"),
+                "hint": ("ERP GRN lines waiting for the Maintenance / Tool Room quality clearance in "
+                         "ERP — not issuable yet. " + _erp_as_of(receiving["erp"])),
                 "count": receiving["total"], "value": None, "value_label": None, "sections": [],
-                "action": {"label": "Open Work Queue", "to": "/work-queue"},
+                "action": {"label": "Open Receiving & GRN", "to": "/receiving"},
             })
         items.append(stock_item("never_counted", "Never counted", "Not Counted", "info",
                                 "No physical count yet — its status is unknown"))
@@ -373,30 +392,41 @@ class SpareDashboardService:
 
     # ------------------------------------------------ held, not issuable
 
-    @staticmethod
-    def _receiving_pending(store_code, section_id):
-        """Supplier receipts not in available stock yet (spec 1 / 9), counted in
-        receipts with their quantity alongside: RECEIVED = waiting for the
-        supervisor's ERP GRN; QUALITY_PENDING = GRN recorded, with Maintenance /
-        Tool Room for the physical inspection. `oldest_at` is when the
-        longest-waiting one was received."""
-        q = (db.session.query(SpareReceipt.status, func.count(SpareReceipt.id),
-                              func.sum(SpareReceipt.qty_received), func.min(SpareReceipt.created_at))
-             .join(Part, Part.id == SpareReceipt.part_id)
-             .filter(Part.store_code == store_code, SpareReceipt.status.in_(RECEIPT_OPEN)))
+    def _receiving_pending(self, store_code, section_id):
+        """Receiving is read from ERP (spec 1 / 9, user decision 2026-09-26):
+        the store's ERP GRN lines, counted per (part, GRN no.) in the states
+        ErpGrnPostingService gives them — quality_pending = GRN created in ERP,
+        Maintenance / Tool Room have not accepted it in ERP yet (not issuable);
+        check = ERP now accepts less than the app already added; to_add =
+        accepted in ERP, to be added to store stock by the next sync. `total`
+        is what waits on quality. There is no "awaiting GRN" step to count any
+        more — the GRN is created in ERP before the app sees the line — so
+        awaiting_grn is None, not an invented zero. `erp` is the mirror's
+        freshness, which every one of these figures depends on."""
+        lines = self.erp_grn.lines(store_code)
         if section_id is not None:
-            q = q.filter(Part.section_id == section_id)
-        by = {s: (n, qty, oldest) for s, n, qty, oldest in q.group_by(SpareReceipt.status)}
-        grn = by.get("RECEIVED", (0, 0, None))
-        qc = by.get("QUALITY_PENDING", (0, 0, None))
-        oldest = [t for t in (grn[2], qc[2]) if t is not None]
+            in_section = {pid for (pid,) in db.session.query(Part.id).filter(
+                Part.store_code == store_code, Part.section_id == section_id)}
+            lines = [ln for ln in lines if ln["part_id"] in in_section]
+        by = {state: [ln for ln in lines if ln["state"] == state]
+              for state in ("QUALITY_PENDING", "CHECK", "WILL_POST")}
+        qc, check, to_add = by["QUALITY_PENDING"], by["CHECK"], by["WILL_POST"]
+
+        def oldest(rows):
+            return min((ln["grn_date"] for ln in rows if ln["grn_date"]), default=None)
+
         return {
-            "awaiting_grn": grn[0],
-            "quality_pending": qc[0],
-            "total": grn[0] + qc[0],
-            "qty": {"awaiting_grn": _q(grn[1]), "quality_pending": _q(qc[1]),
-                    "total": _q(_q(grn[1]) + _q(qc[1]))},
-            "oldest_at": _iso_utc(min(oldest)) if oldest else None,
+            "quality_pending": len(qc),
+            "check": len(check),
+            "to_add": len(to_add),
+            "total": len(qc),
+            "awaiting_grn": None,
+            "qty": {"quality_pending": _q(sum(ln["receipt_qty"] or 0 for ln in qc)),
+                    "to_add": _q(sum(ln["to_post"] or 0 for ln in to_add)),
+                    "total": _q(sum(ln["receipt_qty"] or 0 for ln in qc))},
+            "oldest_grn_date": oldest(qc),
+            "oldest_check_grn_date": oldest(check),
+            "erp": self.erp_grn.mirror_freshness(),
         }
 
     @staticmethod

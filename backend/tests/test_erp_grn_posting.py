@@ -141,6 +141,40 @@ def test_before_post_from_date_and_switched_off():
     assert _on_hand(p) == 10.0
 
 
+def test_stock_that_came_in_another_way_is_not_added_again():
+    """The in-app clearance (before receiving moved to ERP) and an RGP GRN both
+    already put a GRN's qty in stock; ERP then listing the same GRN adds nothing."""
+    svc = ErpGrnPostingService()
+    stock = SpareStockService()
+    p = _part()
+    # In-app clearance: RECEIPT, status STOCK_AVAILABLE, GRN typed by hand.
+    stock._write(p.id, 13, "RECEIPT", reference=" gia-1 ", user="old",
+                 extra={"status": "STOCK_AVAILABLE"})
+    db.session.commit()
+    _grn(p, "GIA-1", date(2026, 9, 5), receipt=3, accept=3)
+    # RGP GRN: stock-in referenced by the RGP no., GRN no. on the journal.
+    stock._write(p.id, 15, "RECEIPT", reference="RGP-2026-09999", user="old", extra={"status": "RGP_GRN"})
+    db.session.add(SpareTransaction(part_id=p.id, txn_type="RGP_GRN", qty=2, grn_no="RGPGRN-7"))
+    db.session.commit()
+    _grn(p, "RGPGRN-7", date(2026, 9, 6), receipt=2, accept=2)
+
+    svc.post("MAINTENANCE")
+    assert _on_hand(p) == 15.0
+    assert _line(svc, p, "GIA-1")["state"] == "POSTED"
+    assert _line(svc, p, "RGPGRN-7")["state"] == "POSTED"
+
+
+def test_stock_already_in_but_erp_shows_quality_pending_is_a_check():
+    svc = ErpGrnPostingService()
+    p = _part()
+    SpareStockService()._write(p.id, 14, "RECEIPT", reference="GQP-1", user="old",
+                               extra={"status": "STOCK_AVAILABLE"})
+    db.session.commit()
+    _grn(p, "GQP-1", date(2026, 9, 5), receipt=4)            # ERP: no accepted qty yet
+    line = _line(svc, p, "GQP-1")
+    assert line["state"] == "CHECK" and line["posted_qty"] == 4.0
+
+
 def test_erp_grn_rows_are_never_pushed_back_to_erp():
     stock = SpareStockService()
     before = stock.pending_erp_count("MAINTENANCE")

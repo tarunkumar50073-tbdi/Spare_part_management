@@ -197,37 +197,25 @@ def test_pending_confirmations_queue():
     assert not any(r["id"] == lid for r in svc.pending_confirmations("MAINTENANCE"))
 
 
-# ---- structured receiving (now a receipt waiting for GRN + quality, spec 9) ----
+# ---- receiving is read from ERP: no receive by hand ----
 
-def test_receive_structured_fields_stored():
-    from app.models.spare_flow import SpareReceipt
-    svc = SpareStockService()
-    p = _part(); _stock(p.id, 0)
-    svc.receive(p.id, 8, invoice_no="INV-9", check_result="ok", reference="GRN-1", user="sup")
-    receipt = SpareReceipt.query.filter_by(part_id=p.id).one()
-    assert receipt.invoice_no == "INV-9"
-    assert receipt.check_result == "OK"
-    assert receipt.status == "RECEIVED"
-    assert not SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").count()
-
-
-def test_receive_invalid_check_result_rejected():
-    svc = SpareStockService()
-    p = _part(); _stock(p.id, 0)
-    with pytest.raises(BadRequestError):
-        svc.receive(p.id, 1, check_result="BROKEN")
-
-
-def test_receive_plain_call_adds_no_stock():
-    """The simple qty+reference receive keeps working — as a receipt; the
-    shelf only grows when quality clears it."""
+def test_receive_by_hand_is_refused_and_adds_nothing(client):
+    """Receiving, the GRN and the quality clearance are done in ERP; the app
+    reads them (ErpGrnPostingService). The old receive answers 410 — through
+    the service and through the route — and moves nothing."""
     from app.models.spare_flow import SpareReceipt
     from app.models.spare_stock import SpareStock
+    from app.services.spare_receipt_service import ReceivingInErpError
     svc = SpareStockService()
     p = _part(); _stock(p.id, 5)
-    svc.receive(p.id, 3, reference="GRN-77")
+    with pytest.raises(ReceivingInErpError):
+        svc.receive(p.id, 3, invoice_no="INV-9", check_result="ok", reference="GRN-77")
+    _login(client, _store_user().id)
+    r = client.post(f"/api/v1/spare-stock/parts/{p.id}/receive", json={"qty": 3, "reference": "GRN-77"})
+    assert r.status_code == 410
     assert float(SpareStock.query.filter_by(part_id=p.id).first().qty_on_hand) == 5.0
-    assert float(SpareReceipt.query.filter_by(part_id=p.id).one().qty_received) == 3.0
+    assert SpareReceipt.query.filter_by(part_id=p.id).count() == 0
+    assert not SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").count()
 
 
 # ---- update location + history ----
@@ -316,7 +304,6 @@ def test_erp_write_disabled_by_default_movements_stay_pending():
     assert st["write_enabled"] is False and st["active"] is False
     p = _part(); _stock(p.id, 10)
     svc.issue(p.id, 2, "Maintenance")     # would be ERP minus
-    svc.receive(p.id, 5)                   # a receipt only — its stock-in comes via the ERP GRN
     res = svc.sync_pending_to_erp("MAINTENANCE")
     assert res["configured"] is False
     assert res["write_enabled"] is False   # nothing pushed — ERP untouched

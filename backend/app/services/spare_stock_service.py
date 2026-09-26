@@ -16,7 +16,7 @@ from app.extensions import db
 from app.models.base import utcnow
 from app.models.part import Part
 from app.models.spare_stock import (
-    CHECK_RESULTS, ERP_ORIGIN_RECEIPT_STATUSES, RETURN_ROW_INSPECTED, SpareStock,
+    ERP_ORIGIN_RECEIPT_STATUSES, RETURN_ROW_INSPECTED, SpareStock,
 )
 from app.repositories.supplier_window_schedule_repository import SHIFT_START
 from app.repositories.part_repository import PartRepository
@@ -323,53 +323,14 @@ class SpareStockService:
                        "outstanding_qty": outstanding})
         return result
 
-    def receive(self, part_id, qty, reference=None, remarks=None, user=None,
-                supplier_id=None, invoice_no=None, invoice_date=None,
-                check_result=None, department=None, ven_cd=None, ven_name=None,
-                supplier_source=None, scanned_code=None, scan_source=None):
-        """Physically receive supplier material (spec 1 / 9). This adds NO
-        stock: it records a receipt (SpareReceiptService) that waits for the
-        supervisor's ERP GRN and the Maintenance / Tool Room quality clearance,
-        and only that clearance puts the accepted quantity on the shelf. Kept so
-        the older direct-receive callers land in the same flow instead of adding
-        stock that quality never saw.
-
-        The older free-text `reference` and responsible `department` have no
-        column on a receipt (who inspects is chosen at the GRN step), so when
-        given they are kept word for word in the receipt remarks rather than
-        dropped or guessed into another field. The result is the part's stock
-        row (unchanged) plus `receipt`, the document now waiting for its GRN."""
-        from app.services.spare_receipt_service import SpareReceiptService
-        part = self.part_repo.get_by_id(part_id)
-        if not part:
-            raise NotFoundError(f"Part {part_id} not found")
-        qty = float(qty) if qty is not None else 0.0
-        if qty <= 0:
-            raise BadRequestError("Receive quantity must be greater than zero")
-        if check_result:
-            check_result = check_result.strip().upper()
-            if check_result not in CHECK_RESULTS:
-                raise BadRequestError(f"check_result must be one of {list(CHECK_RESULTS)}")
-        if department and department not in self._valid_department_names():
-            raise BadRequestError(f"Unknown department '{department}'")
-        notes = (f"Ref {_clean(reference)}" if _clean(reference) else None,
-                 f"Dept {department}" if department else None,
-                 _clean(remarks))
-        receipt_remarks = " · ".join(n for n in notes if n)[:255] or None
-
-        receipts = SpareReceiptService()
-        receipt = receipts.receive(
-            part.id, round(qty, 2), user=user, supplier_id=supplier_id,
-            ven_cd=ven_cd, ven_name=ven_name, supplier_source=supplier_source,
-            invoice_no=invoice_no, invoice_date=invoice_date,
-            check_result=check_result or None, remarks=receipt_remarks,
-            scanned_code=scanned_code, scan_source=scan_source,
-        )
-        if not isinstance(receipt, dict):
-            receipt = receipts.to_dict(receipt)
-        result = self._row_dict(part, self.repo.get_by_part(part.id))
-        result["receipt"] = receipt
-        return result
+    def receive(self, part_id, qty=None, **_):
+        """Receiving, the GRN and the Maintenance / Tool Room quality clearance
+        are done in ERP (user decision 2026-09-26). A GRN line whose quality ERP
+        accepted becomes store stock through ErpGrnPostingService, read by the
+        ERP sync — nothing is received by hand any more. A caller still on the
+        old path gets the same 410 the route answers, never a silent no-op."""
+        from app.services.spare_receipt_service import ReceivingInErpError
+        raise ReceivingInErpError()
 
     def update_location(self, part_id, new_location, reason=None, qty=None, user=None):
         """Move a spare to a new rack/shelf. Records the old + new location in the

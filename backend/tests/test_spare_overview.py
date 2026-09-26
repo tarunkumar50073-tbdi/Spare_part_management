@@ -109,26 +109,32 @@ def test_store_level_overview_adds_srv_and_erp_lines():
     ov = SpareDashboardService().overview(STORE)
     att = {a["key"]: a for a in ov["attention"]}
     assert "srv_pending" in att and "erp_pending" in att
-    # Spec 1: the spare store's "SRV pending" line now carries the receipts
-    # waiting for the GRN / quality (key kept for the screens that read it).
+    # Spec 1: the spare store's "SRV pending" line now carries the ERP GRN
+    # lines waiting for quality in ERP (key kept for the screens that read it).
     srv = att["srv_pending"]
     assert srv["label"] == "GRN / Quality pending"
     assert srv["count"] == ov["receiving_pending"]["total"]
-    assert srv["action"] == {"label": "Open Work Queue", "to": "/work-queue"}
+    assert srv["action"] == {"label": "Open Receiving & GRN", "to": "/receiving"}
+    assert "ERP GRN data" in srv["hint"]                      # with the mirror's freshness
 
 
 def test_document_blocks_for_a_section(seeded):
-    """Receipts / returns / RGPs of the section's parts, counted per document."""
+    """ERP GRN lines / returns / RGPs of the section's parts, counted per line /
+    document."""
     from datetime import date, timedelta
 
+    from app.models.receiving_register import ReceivingRegister
     from app.models.spare_flow import SpareReceipt, SpareReturn, SpareRgp
     from app.models.spare_stock import SpareStockLedger
 
     sec, p = seeded
     empty = SpareDashboardService().overview(STORE, section_id=sec.id)
-    assert empty["receiving_pending"] == {
-        "awaiting_grn": 0, "quality_pending": 0, "total": 0,
-        "qty": {"awaiting_grn": 0.0, "quality_pending": 0.0, "total": 0.0}, "oldest_at": None}
+    rp = empty["receiving_pending"]
+    assert {k: rp[k] for k in rp if k != "erp"} == {
+        "quality_pending": 0, "check": 0, "to_add": 0, "total": 0, "awaiting_grn": None,
+        "qty": {"quality_pending": 0.0, "to_add": 0.0, "total": 0.0},
+        "oldest_grn_date": None, "oldest_check_grn_date": None}
+    assert set(rp["erp"]) == {"synced_at", "newest_grn_date"}
     assert (empty["returns_pending"]["inspection"], empty["rgp"]["with_supplier"]) == (0, 0)
 
     part = p["E"]
@@ -137,10 +143,16 @@ def test_document_blocks_for_a_section(seeded):
     def doc(prefix, i):
         return f"{prefix}-OV-{n}-{i}"
 
-    for i, (status, qty) in enumerate((("RECEIVED", 2), ("RECEIVED", 1), ("QUALITY_PENDING", 4),
-                                       ("STOCK_AVAILABLE", 9), ("REJECTED", 9), ("CANCELLED", 9))):
+    # Receiving is read from ERP: two GRN lines quality has not accepted in ERP,
+    # one it rejected. In-app receipts from before the change count nowhere.
+    today = date.today()
+    for i, (receipt, reject) in enumerate(((2, None), (1, None), (9, 9))):
+        db.session.add(ReceivingRegister(store_code="CHILD_PART", grn_no=doc("GRN", i), item_cd=part.part_no,
+                                         grn_date=today - timedelta(days=3 + i), ven_cd="V-OV",
+                                         receipt_qty=receipt, reject_qty=reject))
+    for i, status in enumerate(("RECEIVED", "QUALITY_PENDING")):
         db.session.add(SpareReceipt(receipt_no=doc("RCV", i), part_id=part.id, store_code=STORE,
-                                    status=status, qty_received=qty))
+                                    status=status, qty_received=4))
     issue = SpareStockLedger(part_id=part.id, qty_delta=-5, balance_after=0, txn_type="ISSUE",
                              department="Maintenance", status="RETURNED")
     db.session.add(issue)
@@ -151,7 +163,6 @@ def test_document_blocks_for_a_section(seeded):
                       status="DAMAGED", qty=1, qty_damaged=1)
     db.session.add_all([both, dmg])
     db.session.flush()
-    today = date.today()
     for i, (out, back, grn, status, due) in enumerate((
             (2, 0, 0, "WITH_SUPPLIER", today - timedelta(days=4)),
             (3, 2, 0, "RGP_GRN_PENDING", today + timedelta(days=4)),
@@ -164,9 +175,9 @@ def test_document_blocks_for_a_section(seeded):
 
     ov = SpareDashboardService().overview(STORE, section_id=sec.id)
     rp = ov["receiving_pending"]
-    assert (rp["awaiting_grn"], rp["quality_pending"], rp["total"]) == (2, 1, 3)
-    assert rp["qty"] == {"awaiting_grn": 3.0, "quality_pending": 4.0, "total": 7.0}
-    assert rp["oldest_at"].endswith("+00:00")
+    assert (rp["awaiting_grn"], rp["quality_pending"], rp["check"], rp["total"]) == (None, 2, 0, 2)
+    assert rp["qty"] == {"quality_pending": 3.0, "to_add": 0.0, "total": 3.0}
+    assert rp["oldest_grn_date"] == (today - timedelta(days=4)).isoformat()
     assert ov["returns_pending"]["inspection"] == 1 and ov["returns_pending"]["hold"] == 1
     assert ov["returns_pending"]["damaged"] == 1
     assert ov["returns_pending"]["qty"] == {"inspection": 1.0, "hold": 2.0, "damaged": 1.0}

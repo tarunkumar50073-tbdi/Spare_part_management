@@ -7,6 +7,10 @@ there is no separate SRV step for a spare):
     -> GRN (supervisor, in ERP) -> Maintenance / Tool Room ERP ID
     -> Quality Clearance -> Store Stock -> Issue -> ERP Consumption
 
+Everything from the gate to the quality clearance happens in ERP and is READ
+here (gate entries, the GRN register); the accepted qty reaches store stock
+through ErpGrnPostingService.
+
 Every stage below is read from data that actually exists. One of them cannot
 be: see NOT_CAPTURED. Nothing here invents a count to fill a gap — a stage with
 no source reports that it has none, because a fabricated zero and a real zero
@@ -56,6 +60,12 @@ NOT_CAPTURED = {
         "SRV has a Tool Room forward and clearance timestamp but no Maintenance "
         "equivalent, so Maintenance pending/cleared cannot be split out yet.",
 }
+
+# RECEIPT ledger statuses booked against a supplier GRN (reference = the GRN
+# no.): ERP_GRN — the ERP sync added an ERP-accepted GRN line
+# (ErpGrnPostingService); STOCK_AVAILABLE — an in-app quality clearance of the
+# earlier flow. RGP_GRN is reworked material, not a supplier delivery.
+GRN_BOOKED_STATUSES = ("ERP_GRN", "STOCK_AVAILABLE")
 
 
 class SpareFlowService:
@@ -215,7 +225,9 @@ class SpareFlowService:
     def _grn_events(self, part_no):
         """The GRN / material-received events from the ERP receiving register —
         what was formally received into stores and how much was accepted vs
-        rejected. Keyed on item_cd = part_no, newest first."""
+        rejected. Keyed on item_cd = part_no, newest first. ERP leaves the
+        accepted qty empty until its quality accepts the line, so accept_qty is
+        None then — never the received qty standing in for it."""
         if not part_no:
             return []
         rows = (ReceivingRegister.query
@@ -224,13 +236,13 @@ class SpareFlowService:
                 .all())
         out = []
         for r in rows:
-            accept = r.accept_qty if r.accept_qty is not None else r.receipt_qty
             reject = float(r.reject_qty) if r.reject_qty is not None else 0.0
             out.append({
                 "ts": r.grn_date.isoformat() if r.grn_date else None,
                 "grn_no": r.grn_no, "challan_no": r.challan_no, "po_no": r.po_no,
                 "ven_cd": r.ven_cd, "ven_name": (r.ven_name or r.ven_cd),
-                "accept_qty": float(accept) if accept is not None else None,
+                "receipt_qty": float(r.receipt_qty) if r.receipt_qty is not None else None,
+                "accept_qty": float(r.accept_qty) if r.accept_qty is not None else None,
                 "reject_qty": reject,
             })
         return out
@@ -238,13 +250,14 @@ class SpareFlowService:
     @staticmethod
     def _booked_grns(movements):
         """The store's own GRN-backed RECEIPT rows and the GRN numbers they were
-        booked against: a quality clearance (its reference is the GRN no.) or an
-        RGP GRN (its journal row carries the GRN no.). ERP's GRN row with the
-        same number is that same receipt seen from ERP."""
+        booked against: an ERP-accepted GRN line the ERP sync added or an
+        in-app quality clearance (reference = the GRN no.), or an RGP GRN (its
+        journal row carries the GRN no.). ERP's GRN row with the same number is
+        that same receipt seen from ERP."""
         booked = [m for m in movements
                   if m.txn_type == "RECEIPT" and getattr(m, "status", None) in ERP_ORIGIN_RECEIPT_STATUSES]
         nos = {m.reference.strip().upper() for m in booked
-               if m.status == "STOCK_AVAILABLE" and m.reference}
+               if m.status in GRN_BOOKED_STATUSES and m.reference}
         ids = [m.id for m in booked]
         if ids:
             for (grn_no,) in (db.session.query(SpareTransaction.grn_no)
@@ -267,11 +280,14 @@ class SpareFlowService:
         (direction 'arrival', not summed). A part with no GRN keeps its gate
         arrivals as the counted inflow, so nothing is lost.
 
-        The same holds one step later: once the store books a GRN's accepted
-        quantity into stock (the quality clearance's RECEIPT row, which carries
-        the balance), ERP's RECEIVED row for that GRN number is the same material
+        The same holds one step later: once a GRN's accepted quantity is booked
+        into stock (the RECEIPT row the ERP sync writes for an ERP-accepted GRN
+        line — or an older in-app quality clearance — which carries the
+        balance), ERP's RECEIVED row for that GRN number is the same material
         again — it stays on the timeline as a marker (direction 'matched', not
-        summed), and a store-booked clearance counts as the GRN for the gate rule."""
+        summed), and a GRN-backed stock-in counts as the GRN for the gate rule.
+        A GRN line ERP's quality has not accepted is not stock at all: it shows
+        its received qty as 'pending' (or 'rejected'), never summed."""
         sup_ids = {m.supplier_id for m in movements if getattr(m, "supplier_id", None)}
         sup_map = {}
         if sup_ids:
@@ -280,8 +296,9 @@ class SpareFlowService:
 
         booked, booked_grns = self._booked_grns(movements)
         # RGP GRN rows are reworked material coming back, not a supplier
-        # delivery, so only a quality clearance stands in for a missing ERP GRN.
-        has_grn = bool(grn_events) or any(m.status == "STOCK_AVAILABLE" for m in booked)
+        # delivery, so only a GRN-backed stock-in stands in for a missing ERP
+        # GRN (the mirror keeps a limited window).
+        has_grn = bool(grn_events) or any(m.status in GRN_BOOKED_STATUSES for m in booked)
         entries = []
         for a in gate_arrivals:
             entries.append({
@@ -297,11 +314,21 @@ class SpareFlowService:
         for g in grn_events:
             rej = g["reject_qty"]
             matched = bool(g["grn_no"]) and g["grn_no"].strip().upper() in booked_grns
+            # A line ERP's quality has not accepted is not stock: shown with
+            # what was received, never summed as an inflow.
+            undecided = g["accept_qty"] is None
+            if matched:
+                direction = "matched"
+            elif undecided:
+                direction = "rejected" if rej else "pending"
+            else:
+                direction = "in"
             notes = [f"{int(rej) if rej == int(rej) else rej} rejected" if rej else None,
+                     "quality pending in ERP — not stock yet" if direction == "pending" else None,
                      "counted on the store's own stock-in row" if matched else None]
             entries.append({
-                "ts": g["ts"], "kind": "RECEIVED", "direction": "matched" if matched else "in",
-                "qty": g["accept_qty"], "balance_after": None,
+                "ts": g["ts"], "kind": "RECEIVED", "direction": direction,
+                "qty": g["receipt_qty"] if undecided else g["accept_qty"], "balance_after": None,
                 "supplier_name": g["ven_name"], "supplier_code": g["ven_cd"],
                 "reference": g["grn_no"], "po_no": g["po_no"],
                 "invoice_no": g["challan_no"],

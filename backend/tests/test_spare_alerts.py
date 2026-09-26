@@ -230,7 +230,7 @@ def test_other_counts_reorder_never_counted_missing_max(store):
     _part(s, sec, "M", 5, mn=2, mx=None, rate=2)                   # no max
     _issue(ro, status="ISSUED_BY_STORE", age_hours=5)             # also in the Scan Part queue
     # Spec 1: a spare has no separate SRV step, so SRV records no longer raise
-    # a spare alert — receipts do (next test).
+    # a spare alert — ERP's GRN lines do (test_erp_receiving).
     for status in ("PENDING_UNLOAD", "VERIFIED", "FORWARDED_TOOL_ROOM"):
         db.session.add(SRV(vendor_code="V1", supplier_name="Sup", part_id=ro.id, part_no=ro.part_no,
                            part_name=ro.part_name, qty_invoiced=1, status=status))
@@ -252,21 +252,17 @@ def _doc_no(prefix):
     return f"{prefix}-ALRT-{_next()}"
 
 
-def test_receipt_return_and_rgp_alerts(store):
+def test_return_and_rgp_alerts(store):
     s, sec = store
     p = _part(s, sec, "Q", 5, mn=2, mx=10, rate=1)
     issue = _issue(p, status="INSTALLED", age_hours=200)
     today = datetime.now().date()
 
-    def receipt(status, age_hours, qty=2):
+    # Receipts recorded in the app before receiving moved to ERP raise nothing:
+    # receiving alerts are read from ERP's GRN lines (test_erp_receiving).
+    for status in ("RECEIVED", "QUALITY_PENDING"):
         db.session.add(SpareReceipt(receipt_no=_doc_no("RCV"), part_id=p.id, store_code=s.code, status=status,
-                                    qty_received=qty, created_at=_now() - timedelta(hours=age_hours)))
-
-    receipt("RECEIVED", 72)
-    receipt("RECEIVED", 5)
-    receipt("QUALITY_PENDING", 30)
-    receipt("STOCK_AVAILABLE", 300)          # done: not pending
-    receipt("CANCELLED", 400)                # taken back: not pending
+                                    qty_received=2, created_at=_now() - timedelta(hours=72)))
 
     def ret(pending=0, hold=0, damaged=0, status="INSPECTION_PENDING", age_hours=10):
         r = SpareReturn(return_no=_doc_no("RET"), part_id=p.id, store_code=s.code, issue_id=issue.id,
@@ -300,11 +296,7 @@ def test_receipt_return_and_rgp_alerts(store):
     a = _by_id(res)
     work_queue = {"label": "Open Work Queue", "to": "/work-queue", "module": "scan_part"}
 
-    rc = a["receipts_pending"]
-    assert (rc["severity"], rc["count"], rc["awaiting_grn"], rc["quality_pending"]) == ("warning", 3, 2, 1)
-    assert "2 waiting for the ERP GRN" in rc["message"] and "1 with Maintenance / Tool Room" in rc["message"]
-    assert "Oldest received 3 days ago" in rc["message"] and rc["at"].endswith("+00:00")
-    assert rc["action"] == work_queue and "ERP updated" not in rc["message"]
+    assert "receipts_pending" not in a and "erp_grn_quality_pending" not in a
 
     rt = a["returns_inspection"]
     assert (rt["severity"], rt["count"], rt["inspection"], rt["hold"]) == ("warning", 1, 1, 1)
@@ -322,7 +314,7 @@ def test_receipt_return_and_rgp_alerts(store):
 
     # Headlines only, each once.
     heads = [x["id"] for x in res["alerts"] if x["parent"] is None]
-    for key in ("receipts_pending", "returns_inspection", "rgp_overdue", "rgp_grn_pending"):
+    for key in ("returns_inspection", "rgp_overdue", "rgp_grn_pending"):
         assert heads.count(key) == 1
 
 

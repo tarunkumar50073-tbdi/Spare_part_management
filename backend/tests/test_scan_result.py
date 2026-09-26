@@ -1,9 +1,10 @@
 """The one scan result, the part timeline and the work queues (spec 2 / 10 / 21 /
 22 / 27 / 30) — /api/v1/spare-flow/parts/<id>/scan-result, /timeline, /queues.
 
-Fixtures build the documents straight from the models (receipts / returns /
-RGPs / journal / ledger), plus SpareStockService for stock and issues, so these
-tests pin how the scan READS the documents — not how the other flows write them.
+Fixtures build the documents straight from the models (returns / RGPs / journal
+/ ledger / ERP GRN mirror rows), plus SpareStockService for stock and issues, so
+these tests pin how the scan READS the documents — not how the other flows write
+them. Receiving is read from ERP (test_erp_receiving.py covers it in depth).
 """
 from datetime import date, datetime, timedelta
 
@@ -26,17 +27,16 @@ from app.services.scan_result_service import (
 from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_journal_service import SpareJournalService
 from app.services.spare_part_overview_service import SparePartOverviewService
-from app.services.spare_receipt_service import SpareReceiptService
 from app.services.spare_return_service import SpareReturnService
 from app.services.spare_rgp_service import SpareRgpService
 from app.services.spare_stock_service import SpareStockService
 
 _seq = {"n": 0}
 
+# Issuance first; receiving (receive / GRN / quality) is read from ERP.
 ACTION_ORDER = [
-    "RGP_GRN", "RGP_RETURN", "QUALITY_CLEARANCE", "RECORD_GRN", "INSPECT", "ISSUE",
-    "RETURN", "UPDATE_INSTALLATION", "RGP_OUT", "RECEIVE", "PRINT_LABEL",
-    "UPDATE_LOCATION", "HISTORY",
+    "ISSUE", "RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN", "UPDATE_INSTALLATION", "RGP_OUT",
+    "PRINT_LABEL", "UPDATE_LOCATION", "HISTORY",
 ]
 
 
@@ -58,12 +58,26 @@ def _issue(part, qty, **kw):
     return db.session.get(SpareStockLedger, res["issue"]["id"])
 
 
-def _receipt(part, status, qty, **kw):
+def _legacy_receipt(part, status, qty, **kw):
+    """A receipt the store recorded in the app before receiving moved to ERP."""
     r = SpareReceipt(receipt_no=f"RCV-T-{_n():05d}", part_id=part.id, store_code=part.store_code,
                      status=status, qty_received=qty, **kw)
     db.session.add(r)
     db.session.commit()
     return r
+
+
+def _erp_grn(part, receipt, accept=None, reject=None, days_ago=3):
+    """An ERP GRN mirror row for the part. accept_qty empty = quality pending in
+    ERP. The part is counted today, so an accepted GRN dated before today is
+    already inside that count (never added again)."""
+    grn_no = f"GRN-SR-{_n():05d}"
+    db.session.add(ReceivingRegister(store_code="CHILD_PART", item_cd=part.part_no, grn_no=grn_no,
+                                     grn_date=date.today() - timedelta(days=days_ago), ven_cd="VA-1",
+                                     ven_name="ABC Engineering", receipt_qty=receipt, accept_qty=accept,
+                                     reject_qty=reject))
+    db.session.commit()
+    return grn_no
 
 
 def _return(part, issue, qty, **split):
@@ -137,10 +151,10 @@ def test_headline_and_primary_action_follow_the_documents():
     assert r["primary_status"]["key"] == "ISSUED" and r["primary_action"] == "RETURN"
     assert r["stock"]["status"] == "Out of Stock"
 
-    _receipt(p, "QUALITY_PENDING", 3, quality_by="Maintenance", grn_no="GRN-1")
+    _erp_grn(p, 3)                                    # GRN in ERP, quality pending there
     r = scan.build(p.id)
     assert r["primary_status"]["key"] == "QUALITY_PENDING"
-    assert r["primary_action"] == "QUALITY_CLEARANCE"
+    assert r["primary_action"] == "RETURN"            # quality is ERP's step, not the scan's
 
 
 def test_never_counted_part_with_nothing_open():
@@ -192,7 +206,7 @@ def test_with_supplier_offers_rgp_return_and_never_issue():
 def test_inactive_part_disables_every_write():
     p = _part(is_active=False)
     SpareStockService().set_quantity(p.id, 5, txn_type="OPENING")
-    _receipt(p, "QUALITY_PENDING", 2, quality_by="Tool Room")
+    _erp_grn(p, 2)
     r = ScanResultService().build(p.id)
     assert r["part"]["is_active"] is False
     for a in r["actions"]:
@@ -217,10 +231,11 @@ def test_buckets_sum_the_open_documents():
     r3 = _return(p, iss_c, 3, qty_rgp=3)
     g1 = _rgp(p, r3, 3, qty_returned=1, expected_return_date=date.today() - timedelta(days=2))
     _rgp(p, r3, 5, status="CANCELLED")                # cancelled: counts nowhere
-    _receipt(p, "RECEIVED", 2, ven_name="ABC Engineering")
-    _receipt(p, "QUALITY_PENDING", 3, quality_by="Tool Room", grn_no="GRN-9")
-    _receipt(p, "STOCK_AVAILABLE", 5)                 # closed receipts count nowhere
-    _receipt(p, "CANCELLED", 1)
+    grn_a = _erp_grn(p, 2, days_ago=4)                # quality pending in ERP
+    grn_b = _erp_grn(p, 3, days_ago=2)
+    _erp_grn(p, 5, accept=5)                          # accepted, inside today's count: nowhere
+    _erp_grn(p, 1, reject=1)                          # rejected by quality: nowhere
+    _legacy_receipt(p, "RECEIVED", 9)                 # in-app, before the change: nowhere either
 
     r = ScanResultService().build(p.id)
     assert r["buckets"] == {
@@ -245,7 +260,9 @@ def test_buckets_sum_the_open_documents():
     # every location quantity adds back up to the buckets
     assert round(sum(loc["qty"] for loc in r["locations"]), 2) == round(sum(r["buckets"].values()), 2)
 
-    assert len(r["open_receipts"]) == 2 and r["open_receipts"][0]["age_days"] == 0
+    quality = [loc for loc in r["locations"] if loc["kind"] == "QUALITY"]
+    assert [(loc["ref_id"], loc["qty"]) for loc in quality] == [(grn_b, 3.0), (grn_a, 2.0)]   # newest GRN first
+    assert [ln["grn_no"] for ln in r["erp_receiving"]["lines"]] == [grn_b, grn_a]
     assert {i["id"] for i in r["open_issues"]} == {iss_a.id, iss_b.id}
     b = next(i for i in r["open_issues"] if i["id"] == iss_b.id)
     assert (b["issued_qty"], b["returned_qty"], b["outstanding_qty"]) == (4.0, 3.0, 1.0)
@@ -255,12 +272,11 @@ def test_buckets_sum_the_open_documents():
     assert (r["open_rgps"][0]["qty_with_supplier"], r["open_rgps"][0]["qty_grn_pending"]) == (2.0, 1.0)
 
     acts = _acts(r)
-    counts = {k: acts[k]["count"] for k in ("RGP_GRN", "RGP_RETURN", "QUALITY_CLEARANCE",
-                                           "RECORD_GRN", "INSPECT", "RETURN", "RGP_OUT")}
-    assert counts == {"RGP_GRN": 1, "RGP_RETURN": 1, "QUALITY_CLEARANCE": 1, "RECORD_GRN": 1,
-                      "INSPECT": 2, "RETURN": 2, "RGP_OUT": 2}
+    counts = {k: acts[k]["count"] for k in ("RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN", "RGP_OUT")}
+    assert counts == {"RGP_GRN": 1, "RGP_RETURN": 1, "INSPECT": 2, "RETURN": 2, "RGP_OUT": 2}
     assert all(acts[k]["enabled"] for k in counts) and acts["ISSUE"]["enabled"]
-    assert r["primary_action"] == "RGP_GRN"
+    # Scanning is mainly for issuance: with stock on the rack, ISSUE leads.
+    assert r["primary_action"] == "ISSUE"
 
 
 # ---- label ----------------------------------------------------------------------
@@ -323,7 +339,8 @@ def test_timeline_merges_every_source_newest_first_without_duplicates():
                    issue_id=iss.id, department="Maintenance", line_no="03",
                    machine="Press 07", die_no="Die-12")
 
-    rec = _receipt(p, "RECEIVED", 4, ven_name="ABC Engineering", invoice_no="INV-9")
+    # The in-app receiving of the earlier flow stays in history as recorded.
+    rec = _legacy_receipt(p, "RECEIVED", 4, ven_name="ABC Engineering", invoice_no="INV-9")
     journal.record(p.id, "RECEIVE", 4, store_code=p.store_code, receipt_id=rec.id,
                    from_bucket="SUPPLIER", to_bucket="QUALITY_PENDING",
                    supplier_name="ABC Engineering", invoice_no="INV-9", new_status="RECEIVED")
@@ -373,8 +390,13 @@ def test_timeline_merges_every_source_newest_first_without_duplicates():
     assert "Installed – Seat Slider 2 / OP-30" in titles                # legacy, from the ISSUE row
     assert "Returned to store – Fitment Issue" in titles                # legacy wording mapped
     assert "Received from supplier – ABC Engineering" in titles
-    assert "GRN created – GRN-77" in titles and "GRN in ERP – GRN-77" in titles
+    assert "GRN created – GRN-77" in titles and "GRN created in ERP – GRN-77" in titles
+    assert "Received at gate – ABC Engineering" in titles
     assert "Location changed – A1-03 → B4-02" in titles
+    # The old receipt is still RECEIVED in the app, but its GRN / quality are
+    # ERP's now: the row does not claim it is waiting for anything.
+    receive = next(r for r in rows if r["kind"] == "RECEIVE")
+    assert receive["detail"] == "Invoice INV-9"
 
     # the clearance's RECEIPT row is shown once, as "Added to store stock",
     # right above the quality clearance that caused it
@@ -394,10 +416,11 @@ def test_timeline_merges_every_source_newest_first_without_duplicates():
 
 
 def test_waiting_notes_hold_only_while_the_document_still_waits():
-    """RECEIVE / RETURN_TO_STORE / RGP_RETURN rows say "waiting for …" only
-    while that is still true — never under the GRN / inspection / RGP GRN rows
-    that settled it. Driven through the real services end to end."""
+    """RETURN_TO_STORE / RGP_RETURN rows say "waiting for …" only while that is
+    still true — never under the inspection / RGP GRN rows that settled it.
+    Driven through the real services end to end."""
     p = _part(location="A1-03")
+    SpareStockService().set_quantity(p.id, 3, txn_type="OPENING")
     scan = ScanResultService()
 
     def row(kind, nth=0):
@@ -406,18 +429,6 @@ def test_waiting_notes_hold_only_while_the_document_still_waits():
 
     def detail(kind, nth=0):
         return row(kind, nth)["detail"] or ""
-
-    receipts = SpareReceiptService()
-    rcv = receipts.receive(p.id, 3, user="store1", ven_name="ABC Engineering", invoice_no="INV-1")
-    assert "Waiting for the GRN — not in store stock yet" in detail("RECEIVE")
-    receipts.record_grn(rcv["id"], "GRN-W1", quality_by="Maintenance", user="sup")
-    assert "Waiting" not in detail("RECEIVE")                       # the GRN row settles it
-    assert detail("RECEIVE") == "Invoice INV-1"
-    receipts.quality_clear(rcv["id"], 3, 0, user="qc")
-
-    gone = receipts.receive(p.id, 1, user="store1")
-    receipts.cancel(gone["id"], "Wrong part scanned", user="store1")
-    assert "Waiting" not in detail("RECEIVE", 1)                    # cancelled: waits for nothing
 
     iss = _issue(p, 3)
     ret = SpareReturnService().return_to_store(iss.id, 3, reason="Fitment Issue", user="store1")
@@ -442,7 +453,7 @@ def test_waiting_notes_hold_only_while_the_document_still_waits():
     # Everything is settled: no row anywhere claims something still waits.
     rows = scan.timeline(p.id)["rows"]
     assert not [r for r in rows if "waiting" in ((r["title"] or "") + (r["detail"] or "")).lower()]
-    assert [r["title"] for r in rows].count("Added to store stock") == 4   # clearance, GOOD, 2 RGP GRNs
+    assert [r["title"] for r in rows].count("Added to store stock") == 3   # GOOD, 2 RGP GRNs
 
 
 def test_rgp_return_partly_covered_by_its_grn_says_how_much_still_waits():
@@ -494,22 +505,25 @@ def test_queues_list_and_count_the_stores_open_work(queue_store):
     code = queue_store
     p = _part(store=code)
     SpareStockService().set_quantity(p.id, 10, txn_type="OPENING")
-    first = _receipt(p, "RECEIVED", 2)
-    _receipt(p, "QUALITY_PENDING", 3, quality_by="Maintenance")
-    _receipt(p, "STOCK_AVAILABLE", 1)                              # done: not queued
+    first = _erp_grn(p, 2, days_ago=6)                             # quality pending in ERP
+    _erp_grn(p, 3, days_ago=2)
+    _erp_grn(p, 1, accept=1)                                       # accepted: not queued
+    _legacy_receipt(p, "RECEIVED", 5)                              # in-app, before the change: not queued
     iss = _issue(p, 4)
     open_ret = _return(p, iss, 1, qty_pending=1)
     rgp_src = _return(p, iss, 3, qty_rgp=3)
     _rgp(p, rgp_src, 1)                                            # with the supplier
     _rgp(p, rgp_src, 2, qty_returned=2)                            # back, RGP GRN pending
     _issue(p, 1)                                                   # waits for line / machine
-    _receipt(_part(), "RECEIVED", 9)                               # another store's work
+    _erp_grn(_part(), 9)                                           # another store's work
 
     q = ScanResultService().queues(code)
     assert q["counts"] == {"quality": 2, "inspection": 1, "with_supplier": 1,
                            "rgp_grn_pending": 1, "awaiting_confirmation": 1}
-    assert q["quality"][0]["id"] == first.id                       # oldest first
+    assert q["quality"][0]["grn_no"] == first                      # oldest GRN first
+    assert q["quality"][0]["state"] == "QUALITY_PENDING" and q["quality"][0]["age_days"] == 6
     assert all(r["part_no"] == p.part_no for r in q["quality"] + q["inspection"])
+    assert set(q["erp"]) == {"synced_at", "newest_grn_date"}
     assert q["inspection"][0]["id"] == open_ret.id
     assert q["with_supplier"][0]["qty_with_supplier"] == 1.0
     assert q["rgp_grn_pending"][0]["qty_grn_pending"] == 2.0
@@ -520,7 +534,7 @@ def test_queues_list_and_count_the_stores_open_work(queue_store):
 
 def test_part_overview_carries_buckets_and_primary_status():
     p = _part()
-    _receipt(p, "QUALITY_PENDING", 3, quality_by="Maintenance")
+    _erp_grn(p, 3)                                                 # quality pending in ERP
     ov = SparePartOverviewService().overview(p.id)
     assert ov["buckets"]["quality_pending"] == 3.0 and ov["buckets"]["available"] == 0.0
     assert ov["primary_status"]["key"] == "QUALITY_PENDING"
@@ -600,9 +614,10 @@ def test_routes_are_store_scoped(client):
     assert res.status_code == 200
     data = res.get_json()["data"]
     assert data["part"]["part_no"] == mine.part_no
-    assert {"stock", "buckets", "primary_status", "statuses", "locations", "open_receipts",
+    assert {"stock", "buckets", "primary_status", "statuses", "locations", "erp_receiving",
             "open_issues", "open_returns", "open_rgps", "actions", "primary_action", "label",
             "timeline"} <= set(data)
+    assert "open_receipts" not in data
     assert client.get(f"{base}/parts/{theirs.id}/scan-result").status_code == 403
     assert client.get(f"{base}/parts/99999999/scan-result").status_code == 404
 

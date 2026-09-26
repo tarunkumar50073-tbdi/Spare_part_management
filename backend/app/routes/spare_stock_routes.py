@@ -8,9 +8,10 @@ from flask import Blueprint, request, send_file, session
 from app.repositories.part_repository import PartRepository
 from app.services.auth_service import AuthService
 from app.services.spare_flow_service import SpareFlowService
+from app.services.spare_receipt_service import ReceivingInErpError
 from app.services.spare_stock_service import SpareStockService
 from app.schemas.spare_stock_schema import (
-    SpareStockSetSchema, SpareIssueSchema, SpareReceiveSchema,
+    SpareStockSetSchema, SpareIssueSchema,
     SpareConfirmSchema, SpareLocationSchema, SpareReturnSchema,
 )
 from app.utils.authz import permission_required, require_store_access
@@ -413,26 +414,10 @@ def part_pending_confirmations(part_id):
 
 
 @bp.route("/parts/<int:part_id>/receive", methods=["POST"])
-@permission_required("scan_part", "edit")
 def receive_part(part_id):
-    """Physical receipt (spec 1 / 9) — records a receipt waiting for the ERP
-    GRN and the quality clearance; adds no stock. The response is the part's
-    (unchanged) stock row plus `receipt`."""
-    _require_part_store(part_id)
-    data = validate_payload(SpareReceiveSchema(), request.get_json(force=True) or {})
-    row = service.receive(
-        part_id, float(data["qty"]),
-        reference=data.get("reference"), remarks=data.get("remarks"), user=_username(),
-        supplier_id=data.get("supplier_id"), invoice_no=data.get("invoice_no"),
-        invoice_date=data.get("invoice_date"), check_result=data.get("check_result"),
-        department=data.get("department"), ven_cd=data.get("ven_cd"),
-        ven_name=data.get("ven_name"), supplier_source=data.get("supplier_source"),
-        scanned_code=data.get("scanned_code"), scan_source=data.get("scan_source"),
-    )
-    publish("stock", {"part_id": part_id, "action": "receive"})
-    receipt_no = (row.get("receipt") or {}).get("receipt_no")
-    return success_response(
-        row, f"Received · {receipt_no} — waiting for GRN and quality clearance (not in stock yet)")
+    """Receiving, the GRN and the quality clearance are done in ERP and read
+    from it (ErpGrnPostingService) — a manual receive answers 410 Gone."""
+    raise ReceivingInErpError()
 
 
 @bp.route("/parts/<int:part_id>/update-location", methods=["POST"])

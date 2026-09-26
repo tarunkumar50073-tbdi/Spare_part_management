@@ -48,7 +48,10 @@ def test_sync_maps_and_casts(monkeypatch):
 
     monkeypatch.setattr(svc.erp, "fetch_rows", fake_fetch)
     result = svc.sync_all()
-    assert result == {"gate_entry": 1, "receiving_register": 1}
+    assert {k: result[k] for k in ("gate_entry", "receiving_register")} == {"gate_entry": 1, "receiving_register": 1}
+    # Every sync also adds the ERP-accepted spare GRN lines to store stock
+    # (ErpGrnPostingService); CGPK0021 is no spare part, so nothing of this one.
+    assert isinstance(result["spare_grn_posted"], int)
 
     g = GateEntry.query.filter_by(gate_entry_no="2526/001/1").one()
     assert g.item_code == "7S111-X0000"        # ERP item_cd -> mirror item_code
@@ -64,7 +67,8 @@ def test_sync_maps_and_casts(monkeypatch):
     assert r.reject_qty is None                # None stays None, not 0
 
     # re-running replaces (idempotent) — still exactly one row, no double-count
-    assert svc.sync_all() == {"gate_entry": 1, "receiving_register": 1}
+    again = svc.sync_all()
+    assert (again["gate_entry"], again["receiving_register"]) == (1, 1)
     assert GateEntry.query.filter_by(store_code="CHILD_PART").count() == 1
 
 

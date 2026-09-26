@@ -13,6 +13,7 @@ from app.models.part import Part
 from app.models.spare_flow import SpareReceipt, SpareReturn
 from app.models.spare_stock import SpareStock, SpareStockLedger
 from app.models.user import User, UserStoreAccess
+from app.services.spare_receipt_service import ReceivingInErpError
 from app.services.spare_return_service import SpareReturnService
 from app.services.spare_stock_service import SpareStockService
 from app.utils.exceptions import BadRequestError, NotFoundError
@@ -292,19 +293,17 @@ def test_cancelled_issue_cannot_be_returned():
         svc.return_item(lid)
 
 
-def test_receive_records_a_receipt_and_adds_no_stock():
-    """Spec 9: physical receipt is not stock — it waits for the ERP GRN and the
-    quality clearance, which alone adds the accepted quantity."""
+def test_receive_by_hand_is_gone_and_adds_nothing():
+    """Receiving, the GRN and the quality clearance are done in ERP and read
+    from it (ErpGrnPostingService): a manual receive is refused (410) and
+    records nothing."""
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 5)
-    res = svc.receive(p.id, 8, reference="GRN-77", user="storeman")
+    with pytest.raises(ReceivingInErpError):
+        svc.receive(p.id, 8, reference="GRN-77", user="storeman")
     assert _on_hand(p.id) == 5.0
-    assert res["qty_on_hand"] == 5.0
     assert not SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").count()
-    receipt = SpareReceipt.query.filter_by(part_id=p.id).one()
-    assert receipt.status == "RECEIVED" and float(receipt.qty_received) == 8.0
-    assert res["receipt"]["id"] == receipt.id
-    assert "GRN-77" in (receipt.remarks or "")   # the typed reference is kept, not dropped
+    assert SpareReceipt.query.filter_by(part_id=p.id).count() == 0
 
 
 def test_scan_resolves_by_part_no_and_is_store_scoped():
@@ -337,7 +336,6 @@ def test_movements_are_pending_erp_until_synced():
     before = svc.pending_erp_count("MAINTENANCE")
 
     svc.issue(p.id, 2, "Maintenance")
-    svc.receive(p.id, 5, reference="GRN-1", user="storeman")   # a receipt, no ledger row
     _receipt_row(p.id, 3, "PHYSICALLY_RECEIVED")               # a legacy direct receive
     after = svc.pending_erp_count("MAINTENANCE")
     assert after - before == 2  # the ISSUE and the legacy RECEIPT are both pending

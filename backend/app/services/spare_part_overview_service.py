@@ -16,6 +16,7 @@ from app.models.base import utcnow
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Section
 from app.repositories.part_repository import PartRepository
+from app.services.erp_grn_posting_service import ErpGrnPostingService
 from app.services.scan_result_service import ScanResultService, primary_status
 from app.services.spare_dashboard_service import STALE_AFTER_HOURS
 from app.services.spare_flow_service import SpareFlowService
@@ -92,6 +93,8 @@ class SparePartOverviewService:
             },
             "buckets": buckets,
             "primary_status": primary_status(buckets, counted=row["qty_on_hand"] is not None),
+            # The quality-pending bucket is an ERP figure; its age rides with it.
+            "erp_receiving": {"erp": ErpGrnPostingService().mirror_freshness()},
             "location": {
                 "section": section.name if section else None, "section_id": part.section_id,
                 "location": part.location, "rework_location": part.rework_location,

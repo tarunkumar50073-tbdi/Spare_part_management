@@ -2,7 +2,7 @@
 
 Nothing here is stored, acknowledged or invented. Every alert is a reading of
 rows that exist right now (the stock list, the issue-confirmation queue, the
-receipt / return / RGP documents, the ERP snapshot), so an alert goes away the
+ERP GRN lines, the return / RGP documents, the ERP snapshot), so an alert goes away the
 moment the thing it reports is fixed. A type with nothing to report is left out
 rather than listed at zero: "0 parts out of stock" in a bell is noise. The
 exceptions are the two ERP states, which are conditions of the feed rather than
@@ -10,6 +10,7 @@ counts of parts.
 
 The stock, document and ERP figures come from SpareDashboardService.overview,
 so the bell, this screen and the dashboard's attention board cannot disagree.
+An alert built on ERP data says how current that data is.
 
 An alert is a headline; the per-part / per-issue lines listed under one (their
 `parent` names it) are its detail. The summary, and so the bell's badge, counts
@@ -71,9 +72,15 @@ def _erp_control():
 
 
 def _work_queue():
-    # Receipts, returns and RGPs are worked from the Work Queue (the Scan Part
-    # right), which deep-links each document into Scan Part.
+    # Returns and RGPs are worked from the Work Queue (the Scan Part right),
+    # which deep-links each document into Scan Part.
     return _go("Open Work Queue", "/work-queue", "scan_part")
+
+
+def _receiving():
+    # Receiving is read from ERP; Receiving & GRN shows every ERP GRN line and
+    # what the app did with it.
+    return _go("Open Receiving & GRN", "/receiving", "spare_store")
 
 
 def _naive_utc(value):
@@ -179,7 +186,7 @@ class SpareAlertsService:
         out += self._confirmations(store_code, now)
         out += self._reorder(att["reorder"])
         out += self._excess(store_code, att["excess"])
-        out += self._receipts(ov["receiving_pending"], now)
+        out += self._erp_grn(ov["receiving_pending"], now)
         out += self._returns(ov["returns_pending"], now)
         out += self._rgp_overdue(ov["rgp"])
         out += self._rgp_grn(ov["rgp"], now)
@@ -382,32 +389,57 @@ class SpareAlertsService:
 
     # ------------------------------------------------ held, not issuable
     #
-    # Spec 1: a spare has no separate SRV step — receiving is one flow
-    # (received -> ERP GRN -> quality -> stock), read from spare_receipts. The
-    # returns and RGP alerts read spare_returns / spare_rgps the same way. All
-    # four quote the overview's blocks, so the bell and the dashboard agree.
+    # Spec 1: a spare has no separate SRV step. Receiving, the GRN and the
+    # quality clearance are done in ERP and read from it (the overview's
+    # receiving_pending block counts the ERP GRN lines); the returns and RGP
+    # alerts read spare_returns / spare_rgps. All quote the overview's blocks,
+    # so the bell and the dashboard agree.
 
     @staticmethod
-    def _receipts(rp, now):
-        n = rp["total"]
-        if not n:
-            return []
-        parts = []
-        if rp["awaiting_grn"]:
-            parts.append(f"{rp['awaiting_grn']:,} waiting for the ERP GRN")
-        if rp["quality_pending"]:
-            parts.append(f"{rp['quality_pending']:,} with Maintenance / Tool Room for quality")
-        hours = _hours_since(rp["oldest_at"], now)
-        msg = "; ".join(parts) + ". Not issuable until quality clears them."
-        if hours is not None:
-            msg += f" Oldest received {_age(hours)} ago."
-        return [_alert(
-            "receipts_pending", "warning", "receipts_pending",
-            f"{_count(n, 'receipt')} awaiting GRN / quality", msg, n,
-            at=_iso(rp["oldest_at"]), age_hours=hours,
-            awaiting_grn=rp["awaiting_grn"], quality_pending=rp["quality_pending"],
-            action=_work_queue(),
-        )]
+    def _erp_freshness(erp, now):
+        """How current the ERP GRN mirror is, said with every ERP figure."""
+        if not erp.get("synced_at"):
+            return "No ERP GRN data has been read yet."
+        text = f"ERP GRN data last read {_age(_hours_since(erp['synced_at'], now))} ago"
+        if erp.get("newest_grn_date"):
+            text += f", newest GRN dated {erp['newest_grn_date']}"
+        return text + "."
+
+    @classmethod
+    def _erp_grn(cls, rp, now):
+        """ERP GRN lines quality has not cleared in ERP, and lines whose ERP
+        accepted qty fell below what the app already added — each with the
+        oldest GRN date and the mirror's freshness."""
+        today = datetime.now().date()
+        fresh = cls._erp_freshness(rp["erp"], now)
+
+        def oldest(d):
+            if not d:
+                return ""
+            days = (today - datetime.fromisoformat(d).date()).days
+            return f" Oldest GRN dated {d} ({_count(days, 'day')} ago)."
+
+        out = []
+        n = rp["quality_pending"]
+        if n:
+            out.append(_alert(
+                "erp_grn_quality_pending", "warning", "erp_grn_quality_pending",
+                f"{_count(n, 'ERP GRN line')} awaiting quality clearance",
+                (f"{_qty(rp['qty']['quality_pending'])} received against GRNs in ERP, not yet accepted by "
+                 "Maintenance / Tool Room quality in ERP — not issuable until ERP accepts it."
+                 + oldest(rp["oldest_grn_date"]) + " " + fresh),
+                n, oldest_grn_date=rp["oldest_grn_date"], erp=rp["erp"], action=_receiving(),
+            ))
+        n = rp["check"]
+        if n:
+            out.append(_alert(
+                "erp_grn_check", "warning", "erp_grn_check",
+                f"{_count(n, 'ERP GRN line')} to check",
+                ("ERP now accepts less on these GRNs than the app already added to store stock — "
+                 "check with ERP; nothing was reversed." + oldest(rp["oldest_check_grn_date"]) + " " + fresh),
+                n, oldest_grn_date=rp["oldest_check_grn_date"], erp=rp["erp"], action=_receiving(),
+            ))
+        return out
 
     @staticmethod
     def _returns(ret, now):

@@ -6,15 +6,24 @@ the part sits in each bucket (available, quality pending, issued out, returned
 for inspection, on hold, damaged, with a supplier, waiting for its RGP GRN), one
 headline status, the open documents behind those numbers and the actions valid
 for them. Nothing is stored twice: every bucket is summed from the documents
-(spare_receipts / spare_returns / spare_rgps / the ISSUE rows) and from
-spare_stock.qty_on_hand, so the screen can never disagree with the paperwork.
-It never says "this unit is on machine X" — it says which issue documents are
-still out, and where each one was recorded as fitted.
+(spare_returns / spare_rgps / the ISSUE rows), from spare_stock.qty_on_hand and
+— for quality pending — from ERP's own GRN register, so the screen can never
+disagree with the paperwork. It never says "this unit is on machine X" — it
+says which issue documents are still out, and where each one was recorded as
+fitted.
+
+Scanning is mainly for issuance (user decision 2026-09-26): ISSUE is the first
+action and the guided one whenever there is stock to issue. Receiving, the GRN
+and the quality clearance are done in ERP and only READ here
+(ErpGrnPostingService.lines): the part's GRN lines, what quality still holds and
+what was added to stock, each carrying the mirror's freshness. The app records
+no receipt by hand any more.
 
 Honest by construction: a bucket no document feeds is 0, an unknown is None,
-and a step the supervisor RECORDED here (the ERP GRN no., the quality
-clearance, the RGP GRN) is worded as recorded — never as "ERP updated". ERP's
-own gate / GRN feeds appear as ERP rows, read-only.
+and a step the supervisor RECORDED here (the RGP GRN) is worded as recorded —
+never as "ERP updated". ERP's own gate / GRN feeds appear as ERP rows,
+read-only; a gate entry is never tied to a GRN (ERP's GRN rows carry no gate
+entry no.).
 """
 from datetime import date, datetime, timezone
 
@@ -24,8 +33,9 @@ from app.extensions import db
 from app.models.base import utcnow
 from app.models.label_print_audit import LabelPrintAudit
 from app.models.location_history import SpareLocationHistory
+from app.models.part import Part
 from app.models.spare_flow import (
-    RECEIPT_OPEN, RETURN_OPEN, RGP_OPEN, SpareReceipt, SpareReturn, SpareRgp, SpareTransaction,
+    RETURN_OPEN, RGP_OPEN, SpareReceipt, SpareReturn, SpareRgp, SpareTransaction,
 )
 from app.models.spare_stock import (
     ERP_ORIGIN_RECEIPT_STATUSES, LEGACY_RETURN_REASONS, RETURN_ROW_INSPECTED, SpareStockLedger,
@@ -33,6 +43,7 @@ from app.models.spare_stock import (
 from app.models.store import Section
 from app.repositories.part_repository import PartRepository
 from app.repositories.spare_stock_repository import SpareStockRepository
+from app.services.erp_grn_posting_service import STATUS as ERP_GRN_STATUS, ErpGrnPostingService
 from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_stock_service import SpareStockService
 from app.utils.exceptions import NotFoundError
@@ -66,16 +77,23 @@ BUCKET_STATUS = (
 )
 BUCKET_KEYS = tuple(k for k, _ in BUCKET_STATUS)
 
-# The step the operator is guided to first (spec 28): whatever finishes a flow
-# already under way beats starting a new one, and material coming back into
-# stock beats material going out.
-PRIMARY_ACTIONS = (
-    "RGP_GRN", "RGP_RETURN", "QUALITY_CLEARANCE", "RECORD_GRN", "INSPECT", "ISSUE", "RETURN",
-)
+# The step the operator is guided to first. Scanning is mainly for issuance
+# (user decision 2026-09-26), so ISSUE wins whenever there is stock to issue;
+# otherwise whatever finishes a flow already under way, material coming back
+# into stock before material going out.
+PRIMARY_ACTIONS = ("ISSUE", "RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN")
 INACTIVE_REASON = "Part is inactive"
 
 SCAN_TIMELINE_ROWS = 30
 OPEN_ISSUES_MAX = 50
+
+# The part's ERP GRN lines the scan shows: the ones still in play, plus the
+# newest few already added to store stock (the full list is on Receiving & GRN).
+ERP_LINE_OPEN_STATES = ("QUALITY_PENDING", "WILL_POST", "CHECK")
+ERP_POSTED_SHOWN = 5
+# A queue holds what someone has to act on or look at: quality ERP has not
+# cleared yet, and lines whose ERP figures no longer match what was added.
+ERP_QUEUE_STATES = ("QUALITY_PENDING", "CHECK")
 
 # Every key an open-issue row carries in the payload (contract shape).
 ISSUE_FIELDS = (
@@ -159,6 +177,20 @@ def _age_days(created_at, now):
     return max(0, (now - at).days) if at else None
 
 
+def _grn_age_days(grn_date, today):
+    """Whole days since an ERP GRN date (a plant date, ISO text in a line)."""
+    try:
+        d = date.fromisoformat(grn_date[:10]) if grn_date else None
+    except ValueError:
+        return None
+    return max(0, (today - d).days) if d else None
+
+
+def _quality_pending(erp_lines):
+    """The part's ERP GRN lines whose quality ERP has not cleared yet."""
+    return [ln for ln in erp_lines if ln["state"] == "QUALITY_PENDING"]
+
+
 def _reason(r):
     """Spec 13 wording for a return reason; older wording stays as typed in
     history but reads under its current name."""
@@ -221,6 +253,7 @@ class ScanResultService:
     def __init__(self):
         self.stock = SpareStockService()
         self.flow = SpareFlowService()
+        self.erp_grn = ErpGrnPostingService()
         self.parts = PartRepository()
         self.stock_repo = SpareStockRepository()
 
@@ -232,11 +265,10 @@ class ScanResultService:
             raise NotFoundError(f"Part {part_id} not found")
         return part
 
-    @staticmethod
-    def _open_receipts(part_id):
-        return (SpareReceipt.query
-                .filter(SpareReceipt.part_id == part_id, SpareReceipt.status.in_(RECEIPT_OPEN))
-                .order_by(SpareReceipt.created_at.desc(), SpareReceipt.id.desc()).all())
+    def _erp_lines(self, part):
+        """This part's ERP GRN lines, each with what the app does with it
+        (ErpGrnPostingService owns those rules). Read once per request."""
+        return self.erp_grn.lines(part.store_code, part_id=part.id)
 
     @staticmethod
     def _open_returns(part_id):
@@ -268,10 +300,11 @@ class ScanResultService:
     # ------------------------------------------------------------------ buckets
 
     @staticmethod
-    def _sum_buckets(stock_row, receipts, issues, returns, rgps):
+    def _sum_buckets(stock_row, erp_lines, issues, returns, rgps):
         return {
             "available": _q(stock_row.qty_on_hand) if stock_row is not None else 0.0,
-            "quality_pending": _q(sum(float(r.qty_received or 0) for r in receipts)),
+            # What ERP received against a GRN and quality has not cleared yet.
+            "quality_pending": _q(sum(ln["receipt_qty"] or 0 for ln in _quality_pending(erp_lines))),
             # Installed parts count: they are on the line, and may still come back.
             "issued_out": _q(sum(max(0.0, float(i.get("outstanding_qty") or 0)) for i in issues)),
             "return_pending": _q(sum(r.q("qty_pending") for r in returns)),
@@ -283,10 +316,12 @@ class ScanResultService:
 
     def buckets(self, part_id):
         """Where every unit of this part is, per bucket — summed from the open
-        documents and spare_stock, never stored (see the module docstring)."""
+        documents, ERP's GRN lines and spare_stock, never stored (see the module
+        docstring)."""
+        part = self._part(part_id)
         return self._sum_buckets(
-            self.stock_repo.get_by_part(part_id), self._open_receipts(part_id),
-            self._open_issues(part_id), self._open_returns(part_id), self._open_rgps(part_id),
+            self.stock_repo.get_by_part(part.id), self._erp_lines(part),
+            self._open_issues(part.id), self._open_returns(part.id), self._open_rgps(part.id),
         )
 
     @staticmethod
@@ -295,24 +330,22 @@ class ScanResultService:
                 for k, st in BUCKET_STATUS if buckets[k] > 0]
 
     @staticmethod
-    def _locations(part, buckets, receipts, issues, returns, rgps):
+    def _locations(part, buckets, erp_lines, issues, returns, rgps):
         """Where the quantity physically is, one entry per document (spec 22
         CURRENT LOCATION). `kind` is the document family: STORE (available on
-        the rack), QUALITY (receipts), LINE (issues), RETURN_HOLD (returns held
-        in the store), SUPPLIER (RGPs — with the supplier, or back and waiting
-        for the RGP GRN; the label says which)."""
+        the rack), QUALITY (ERP GRN lines quality has not cleared), LINE
+        (issues), RETURN_HOLD (returns held in the store), SUPPLIER (RGPs —
+        with the supplier, or back and waiting for the RGP GRN; the label says
+        which)."""
         out = []
         if buckets["available"] > 0:
             out.append({"kind": "STORE",
                         "label": f"Store – {part.location}" if part.location else "Store – location not set",
                         "qty": buckets["available"]})
-        for r in receipts:
-            if r.status == "QUALITY_PENDING":
-                label = f"Quality inspection – {r.quality_by}" if r.quality_by else "Quality inspection pending"
-            else:
-                label = "Received in store – GRN pending"
-            out.append({"kind": "QUALITY", "label": label, "qty": _q(r.qty_received),
-                        "supplier": r.ven_name, "ref_type": "receipt", "ref_id": r.id})
+        for ln in _quality_pending(erp_lines):
+            out.append({"kind": "QUALITY", "label": f"GRN {ln['grn_no']} — quality pending in ERP",
+                        "qty": _q(ln["receipt_qty"]), "supplier": ln["ven_name"] or ln["ven_cd"],
+                        "ref_type": "erp_grn", "ref_id": ln["grn_no"]})
         for i in issues[:OPEN_ISSUES_MAX]:
             where = _where(i.get("line_name"), i.get("line_no"), i.get("machine"), i.get("die_no"))
             out.append({
@@ -348,15 +381,21 @@ class ScanResultService:
     # ----------------------------------------------------------- document dicts
 
     @staticmethod
-    def _receipt_dict(r, now):
-        return {
-            "id": r.id, "receipt_no": r.receipt_no, "status": r.status,
-            "qty_received": _q(r.qty_received), "ven_name": r.ven_name, "ven_cd": r.ven_cd,
-            "invoice_no": r.invoice_no, "invoice_date": _iso(r.invoice_date),
-            "check_result": r.check_result, "grn_no": r.grn_no, "grn_date": _iso(r.grn_date),
-            "quality_by": r.quality_by, "created_at": _iso(r.created_at),
-            "received_by": r.received_by, "age_days": _age_days(r.created_at, now),
-        }
+    def _erp_receiving(erp_lines, freshness):
+        """The part's ERP GRN lines still in play (quality pending, to be added,
+        to check) plus the newest few already added to store stock — the same
+        line shape ErpGrnPostingService.lines gives, with the mirror's
+        freshness so a stale ERP read is never taken for today's."""
+        lines, posted = [], 0
+        for ln in erp_lines:                      # newest GRN first
+            if ln["state"] == "POSTED":
+                posted += 1
+                if posted > ERP_POSTED_SHOWN:
+                    continue
+            elif ln["state"] not in ERP_LINE_OPEN_STATES:
+                continue
+            lines.append(ln)
+        return {"lines": lines, "erp": freshness}
 
     @staticmethod
     def _return_dict(r):
@@ -436,33 +475,30 @@ class ScanResultService:
     # ----------------------------------------------------------------- actions
 
     @staticmethod
-    def _actions(part, buckets, receipts, issues, returns, rgps, printed_count, history_count):
+    def _actions(part, buckets, issues, returns, rgps, printed_count, history_count):
         """Every action key, in the contract's order, each saying whether it is
         valid for the part's documents right now and — when not — why (spec 27 /
         28: only what fits the current state is offered, and a greyed button
-        explains itself). There is no RGP from fresh stock: RGP_OUT needs a
-        return held or damaged in the store."""
+        explains itself). ISSUE comes first: scanning is mainly for issuance.
+        There is no receive / GRN / quality clearance: those are done in ERP and
+        read from it. There is no RGP from fresh stock: RGP_OUT needs a return
+        held or damaged in the store."""
         n_rgp_grn = sum(1 for g in rgps if g.qty_grn_pending > 0)
         n_rgp_back = sum(1 for g in rgps if g.qty_with_supplier > 0)
-        n_quality = sum(1 for r in receipts if r.status == "QUALITY_PENDING")
-        n_grn = sum(1 for r in receipts if r.status == "RECEIVED")
         n_inspect = sum(1 for r in returns
                         if r.q("qty_pending") + r.q("qty_hold") + r.q("qty_damaged") > 0)
         n_rgp_out = sum(1 for r in returns if r.q("qty_hold") + r.q("qty_damaged") > 0)
         n_out = sum(1 for i in issues if (i.get("outstanding_qty") or 0) > 0)
         nothing_out = "Nothing issued is still out"
         rules = (
+            ("ISSUE", buckets["available"] > 0, None, "No stock available to issue"),
             ("RGP_GRN", n_rgp_grn > 0, n_rgp_grn, "No supplier return is waiting for its RGP GRN"),
             ("RGP_RETURN", n_rgp_back > 0, n_rgp_back, "Nothing is with a supplier for rework"),
-            ("QUALITY_CLEARANCE", n_quality > 0, n_quality, "No receipt is waiting for quality clearance"),
-            ("RECORD_GRN", n_grn > 0, n_grn, "No receipt is waiting for its GRN"),
             ("INSPECT", n_inspect > 0, n_inspect, "No returned material is waiting for inspection"),
-            ("ISSUE", buckets["available"] > 0, None, "No stock available to issue"),
             ("RETURN", n_out > 0, n_out, nothing_out),
             ("UPDATE_INSTALLATION", n_out > 0, n_out, nothing_out),
             ("RGP_OUT", n_rgp_out > 0, n_rgp_out,
              "RGP is only for returned material on hold or damaged — there is no direct RGP"),
-            ("RECEIVE", True, None, None),
             ("REPRINT_LABEL" if printed_count else "PRINT_LABEL", True,
              printed_count or None, None),
             ("UPDATE_LOCATION", True, None, None),
@@ -492,20 +528,19 @@ class ScanResultService:
         part = self._part(part_id)
         stock_row = self.stock_repo.get_by_part(part.id)
         health = SpareStockService._row_dict(part, stock_row)
-        receipts = self._open_receipts(part.id)
+        erp_lines = self._erp_lines(part)
         returns = self._open_returns(part.id)
         rgps = self._open_rgps(part.id)
         issues = self._open_issues(part.id)
-        buckets = self._sum_buckets(stock_row, receipts, issues, returns, rgps)
+        buckets = self._sum_buckets(stock_row, erp_lines, issues, returns, rgps)
         counted = stock_row is not None
 
         prints = self._prints(part.id)
-        history = self._timeline_rows(part, prints)
+        history = self._timeline_rows(part, prints, erp_lines)
         label = self._label_summary(part, prints)
-        actions = self._actions(part, buckets, receipts, issues, returns, rgps,
+        actions = self._actions(part, buckets, issues, returns, rgps,
                                 label["printed_count"], len(history))
         section = db.session.get(Section, part.section_id) if part.section_id else None
-        now = _now()
         today = datetime.now().date()
 
         return {
@@ -528,8 +563,10 @@ class ScanResultService:
             "buckets": buckets,
             "primary_status": primary_status(buckets, counted),
             "statuses": self._statuses(buckets),
-            "locations": self._locations(part, buckets, receipts, issues, returns, rgps),
-            "open_receipts": [self._receipt_dict(r, now) for r in receipts],
+            "locations": self._locations(part, buckets, erp_lines, issues, returns, rgps),
+            # Receiving is read from ERP: the part's GRN lines still in play and
+            # the latest ones added to store stock, with the mirror's freshness.
+            "erp_receiving": self._erp_receiving(erp_lines, self.erp_grn.mirror_freshness()),
             "open_issues": issues[:OPEN_ISSUES_MAX],
             "open_returns": [self._return_dict(r) for r in returns],
             "open_rgps": [self._rgp_dict(g, today) for g in rgps],
@@ -546,25 +583,30 @@ class ScanResultService:
         """The part's whole history, newest first (spec 21) — no fixed row cap;
         `limit` only pages it, and has_more says there is more."""
         part = self._part(part_id)
-        rows = self._timeline_rows(part)
+        rows = self._timeline_rows(part, erp_lines=self._erp_lines(part))
         limit = max(1, int(limit or 200))
         return {"rows": rows[:limit], "has_more": len(rows) > limit}
 
-    def _timeline_rows(self, part, prints=None):
+    def _timeline_rows(self, part, prints=None, erp_lines=()):
         """Merge every source of the part's history onto one timeline:
 
         * the journal (spare_transactions) — every business event since the QR
-          flow, with its before / after status;
+          flow, with its before / after status. An ERP GRN whose accepted qty
+          the app added to stock reads as "Quality accepted in ERP";
         * stock-ledger rows the journal does not explain — opening counts,
           adjustments, and receipts / issues / returns from before the journal;
           plus ONE "Added to store stock" row for each ledger row that put
-          quantity back on the rack (quality clearance, GOOD return inspection,
-          RGP GRN), so the moment it became issuable is visible;
+          quantity back on the rack (ERP-accepted GRN, GOOD return inspection,
+          RGP GRN, an older in-app quality clearance), so the moment it became
+          issuable is visible;
         * an installation recorded on an ISSUE row with no journal row for it;
-        * ERP gate entries and GRNs (read-only ERP feeds);
+        * the receiving history, read from ERP: gate entries and the part's GRN
+          lines (`erp_lines`, one per GRN no., from ErpGrnPostingService);
         * label prints and location moves.
 
-        A ledger row a journal row already points at is not shown twice."""
+        A ledger row a journal row already points at is not shown twice.
+        Receipts the store recorded in the app before receiving moved to ERP
+        stay in the history as they were recorded."""
         journal = (SpareTransaction.query.filter_by(part_id=part.id)
                    .order_by(SpareTransaction.created_at.asc(), SpareTransaction.id.asc()).all())
         ledger = SpareStockLedger.query.filter_by(part_id=part.id).all()
@@ -575,7 +617,7 @@ class ScanResultService:
         explained = {t.ledger_id for t in journal if t.ledger_id}
         installed_in_journal = {t.issue_id for t in journal
                                 if t.txn_type == "INSTALLATION" and t.issue_id}
-        waiting = self._still_waiting(journal, receipts, returns, rgps)
+        waiting = self._still_waiting(journal, returns, rgps)
 
         # (sort stamp, rank, id, row). Rank only breaks exact ties: the
         # "Added to store stock" row sits just above the event that caused it.
@@ -598,8 +640,8 @@ class ScanResultService:
         arrivals, _ = self.flow._gate_history(part.part_no)
         for a in arrivals:
             events.append((self._erp_day(a["gate_entry_dt"]), -1, 0, self._gate_row(a)))
-        for g in self.flow._grn_events(part.part_no):
-            events.append((self._erp_day(g["ts"]), -1, 0, self._erp_grn_row(g)))
+        for ln in erp_lines:
+            events.append((self._erp_day(ln["grn_date"]), -1, 0, self._erp_grn_row(ln)))
 
         for p in (prints if prints is not None else self._prints(part.id)):
             events.append((p.created_at, 0, p.id, self._label_row(p)))
@@ -617,16 +659,18 @@ class ScanResultService:
             return None
 
     @staticmethod
-    def _still_waiting(journal, receipts, returns, rgps):
-        """How much of each RECEIVE / RETURN_TO_STORE / RGP_RETURN event still
-        waits on the step after it, as {journal id: qty} (absent = nothing).
+    def _still_waiting(journal, returns, rgps):
+        """How much of each RETURN_TO_STORE / RGP_RETURN event still waits on
+        the step after it, as {journal id: qty} (absent = nothing).
 
         Those rows say "waiting for …", which is true only while the document
-        is still in that state; once the GRN, the inspection or the RGP GRN is
-        recorded, the rows above say so and the note must go. So the state is
-        read from the document as it is NOW, never assumed from the event:
+        is still in that state; once the inspection or the RGP GRN is recorded,
+        the rows above say so and the note must go. So the state is read from
+        the document as it is NOW, never assumed from the event:
 
-        * a receipt waits for its GRN while it is still RECEIVED;
+        * an in-app receipt (RECEIVE) waits for nothing here any more: its GRN
+          and quality clearance are done in ERP and appear as ERP rows, so a
+          receipt left RECEIVED in the app is history, not a pending step;
         * a return waits for the store inspection for its qty_pending (the
           part not inspected yet);
         * an RGP GRN is recorded against the RGP, not against one supplier
@@ -638,11 +682,7 @@ class ScanResultService:
         waiting = {}
         grn_left = {}
         for t in journal:
-            if t.txn_type == "RECEIVE":
-                rec = receipts.get(t.receipt_id)
-                if rec is not None and rec.status == "RECEIVED":
-                    waiting[t.id] = _q(rec.qty_received)
-            elif t.txn_type == "RETURN_TO_STORE":
+            if t.txn_type == "RETURN_TO_STORE":
                 ret = returns.get(t.return_id)
                 if ret is not None and ret.q("qty_pending") > 0:
                     waiting[t.id] = _q(ret.q("qty_pending"))
@@ -660,16 +700,28 @@ class ScanResultService:
 
     @staticmethod
     def _adds_available(led):
-        """A ledger row that put quantity back on the rack: a RECEIPT (quality
-        clearance / RGP GRN) or a RETURN (GOOD inspection)."""
+        """A ledger row that put quantity back on the rack: a RECEIPT (an
+        ERP-accepted GRN / an in-app quality clearance / RGP GRN) or a RETURN
+        (GOOD inspection)."""
         return led.txn_type in ("RECEIPT", "RETURN") and float(led.qty_delta) > 0
+
+    @staticmethod
+    def _erp_posting(t, led):
+        """The journal row ErpGrnPostingService writes when it adds an
+        ERP-accepted GRN line to stock: txn_type GRN over a RECEIPT row with
+        status ERP_GRN (remarks "ERP GRN …" when the ledger row is not loaded)."""
+        if t.txn_type != "GRN":
+            return False
+        if led is not None:
+            return led.status == ERP_GRN_STATUS
+        return (t.remarks or "").startswith("ERP GRN ")
 
     @staticmethod
     def _journal_row(t, led, receipts, returns, rgps, waiting=None):
         """One journal event as a timeline row. `waiting` is how much of it
         still waits on the next step (_still_waiting): a "waiting for …" note
         is added only while that is true, so an old row never contradicts the
-        GRN / inspection / RGP GRN rows recorded after it."""
+        inspection / RGP GRN rows recorded after it."""
         rec = receipts.get(t.receipt_id)
         ret = returns.get(t.return_id)
         rgp = rgps.get(t.rgp_id)
@@ -682,12 +734,24 @@ class ScanResultService:
         reference = (rec.receipt_no if rec else None) or (led.reference if led is not None else None)
         where = _where(t.line_name, t.line_no, t.machine, t.die_no)
         qty = _f(t.qty)
+        remarks = t.remarks
 
         if kind == "RECEIVE":
+            # A receipt recorded in the app before receiving moved to ERP —
+            # shown as recorded.
             title = f"Received from supplier – {supplier}" if supplier else "Received from supplier"
             detail = _join(t.invoice_no and f"Invoice {t.invoice_no}",
-                           rec and rec.check_result and f"Check {rec.check_result}",
-                           waiting and "Waiting for the GRN — not in store stock yet")
+                           rec and rec.check_result and f"Check {rec.check_result}")
+        elif ScanResultService._erp_posting(t, led):
+            # ERP's quality accepted the GRN line and the app's ERP sync added
+            # the accepted qty to stock. ERP gives no quality date: the row is
+            # stamped when the sync read it, and says so. Its remark only
+            # repeats that, so it is not shown.
+            kind = "QUALITY_CLEARANCE"
+            title = f"Quality accepted in ERP – GRN {grn_no}" if grn_no else "Quality accepted in ERP"
+            detail = _join(t.invoice_no and f"Invoice {t.invoice_no}",
+                           "Read from ERP by the app's sync — ERP gives no quality date")
+            remarks = None
         elif kind == "GRN":
             title = f"GRN created – {grn_no}" if grn_no else "GRN created"
             detail = _join("GRN no. recorded by the store supervisor",
@@ -752,7 +816,7 @@ class ScanResultService:
 
         # Remarks that only repeat what the detail already says (the RGP's
         # rework reason is also its remark) are not shown twice.
-        remarks = t.remarks if t.remarks and t.remarks not in (detail or "") else None
+        remarks = remarks if remarks and remarks not in (detail or "") else None
         # When the event put quantity back on the rack, the stock change is
         # shown once, on its own "Added to store stock" row — not here as well,
         # where it would read as a second +qty.
@@ -857,10 +921,12 @@ class ScanResultService:
 
     @staticmethod
     def _gate_row(a):
+        """An ERP gate entry of this part. ERP's GRN rows carry no gate entry
+        no., so the arrival is never tied to a GRN here."""
         who = a.get("ven_name") or a.get("ven_cd")
         return _row(
             at=a.get("gate_entry_dt"), kind="ERP_GATE",
-            title=f"Arrived at gate (ERP) – {who}" if who else "Arrived at gate (ERP)",
+            title=f"Received at gate – {who}" if who else "Received at gate",
             detail=_join(a.get("gate_entry_no") and f"Gate entry {a['gate_entry_no']}",
                          a.get("gate_entry_time") and f"Gate time {a['gate_entry_time']}",
                          a.get("bill_no") and f"Bill {a['bill_no']}",
@@ -869,18 +935,25 @@ class ScanResultService:
         )
 
     @staticmethod
-    def _erp_grn_row(g):
-        who = g.get("ven_name") or g.get("ven_cd")
-        accepted, rejected = g.get("accept_qty"), g.get("reject_qty")
+    def _erp_grn_row(ln):
+        """One ERP GRN line of this part (ErpGrnPostingService.lines — one per
+        GRN no.): what ERP received and what its quality decided. A line the
+        app has not added to stock (yet, or ever) says why; one it has added
+        is followed by its "Quality accepted in ERP" row."""
+        who = ln["ven_name"] or ln["ven_cd"]
+        accepted, rejected = ln["accept_qty"], ln["reject_qty"]
+        if ln["state"] == "QUALITY_PENDING":
+            verdict = f"received {_g(ln['receipt_qty'])} · quality pending"
+        else:
+            verdict = ", ".join(x for x in (accepted is not None and f"accepted {_g(accepted)}",
+                                            rejected and f"rejected {_g(rejected)}") if x) or None
+        why = ln["reason"] if ln["state"] in ("WILL_POST", "CHECK", "SKIPPED", "OFF") else None
         return _row(
-            at=g.get("ts"), kind="ERP_GRN",
-            title=f"GRN in ERP – {g['grn_no']}" if g.get("grn_no") else "GRN in ERP",
-            detail=_join(accepted is not None and f"{_g(accepted)} accepted",
-                         rejected and f"{_g(rejected)} rejected",
-                         who, g.get("challan_no") and f"Challan {g['challan_no']}",
-                         g.get("po_no") and f"PO {g['po_no']}"),
-            qty=accepted, supplier=who, grn_no=g.get("grn_no"), reference=g.get("grn_no"),
-            source="erp_grn",
+            at=ln["grn_date"], kind="ERP_GRN",
+            title=f"GRN created in ERP – {ln['grn_no']}",
+            detail=_join(verdict, why, who, ln["invoice_no"] and f"Invoice {ln['invoice_no']}"),
+            qty=ln["receipt_qty"], new_status=ln["state"], supplier=who,
+            grn_no=ln["grn_no"], reference=ln["grn_no"], source="erp_grn",
         )
 
     @staticmethod
@@ -909,15 +982,19 @@ class ScanResultService:
 
     def queues(self, store_code):
         """Everything in the store waiting on a step, oldest first so the queue
-        is worked in the order material arrived: receipts for GRN / quality,
-        returns for inspection, RGPs with a supplier or waiting for their RGP
-        GRN, and issues waiting for the user's line / machine confirmation."""
+        is worked in the order material arrived: ERP GRN lines quality has not
+        cleared in ERP (or whose ERP figures need a check) — read-only, the
+        step is ERP's —, returns for inspection, RGPs with a supplier or
+        waiting for their RGP GRN, and issues waiting for the user's line /
+        machine confirmation."""
         now = _now()
         today = datetime.now().date()
-        receipts = (SpareReceipt.query.options(joinedload(SpareReceipt.part))
-                    .filter(SpareReceipt.store_code == store_code,
-                            SpareReceipt.status.in_(RECEIPT_OPEN))
-                    .order_by(SpareReceipt.created_at.asc(), SpareReceipt.id.asc()).all())
+        # One read of the store's ERP GRN lines covers every part.
+        erp_lines = [ln for ln in self.erp_grn.lines(store_code) if ln["state"] in ERP_QUEUE_STATES]
+        erp_lines.sort(key=lambda ln: (ln["grn_date"] or "", ln["grn_no"]))
+        part_ids = {ln["part_id"] for ln in erp_lines}
+        erp_parts = ({p.id: p for p in Part.query.filter(Part.id.in_(part_ids)).all()}
+                     if part_ids else {})
         returns = (SpareReturn.query.options(joinedload(SpareReturn.part))
                    .filter(SpareReturn.store_code == store_code,
                            SpareReturn.status.in_(RETURN_OPEN))
@@ -926,7 +1003,11 @@ class ScanResultService:
                 .filter(SpareRgp.store_code == store_code, SpareRgp.status.in_(RGP_OPEN))
                 .order_by(SpareRgp.created_at.asc(), SpareRgp.id.asc()).all())
 
-        quality = [self._with_part(self._receipt_dict(r, now), r.part) for r in receipts]
+        quality = []
+        for ln in erp_lines:
+            d = self._with_part(dict(ln), erp_parts.get(ln["part_id"]))
+            d["age_days"] = _grn_age_days(ln["grn_date"], today)
+            quality.append(d)
         inspection = []
         for r in returns:
             d = self._with_part(self._return_dict(r), r.part)
@@ -948,4 +1029,6 @@ class ScanResultService:
                 "with_supplier": len(with_supplier), "rgp_grn_pending": len(grn_pending),
                 "awaiting_confirmation": len(awaiting),
             },
+            # How current the ERP GRN mirror behind `quality` is.
+            "erp": self.erp_grn.mirror_freshness(),
         }
