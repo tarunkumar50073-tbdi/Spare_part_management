@@ -246,7 +246,11 @@ export default function PrintBarcodeModal({
   } else if (step === "confirm") {
     footer = (
       <>
-        <button type="button" className="btn-secondary" onClick={() => setStep("setup")}>Cancel</button>
+        {/* Spec 8: [Cancel] [Confirm & Print] — Cancel drops the print; Back
+            returns to change the quantity / reason. */}
+        <button type="button" className="mr-auto text-sm font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400"
+          onClick={() => setStep("setup")}>Back</button>
+        <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
         <button type="button" className="btn-primary" onClick={confirmAndPrint}>
           <Printer size={16} aria-hidden="true" /> Confirm &amp; Print
         </button>
