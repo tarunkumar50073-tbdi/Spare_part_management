@@ -31,18 +31,42 @@ ISSUE_STATUSES = (
     "INSTALLED", "RETURNED", "PARTIALLY_RETURNED", "CANCELLED",
 )
 # Why a department sent an issued part back to the store — recorded on the
-# RETURN slip. Free text is still allowed (e.g. "Other"), so this is a
-# suggestion list for the UI, not a hard constraint.
+# return (spec 13). Damage is NOT a return reason any more: whether a part is
+# damaged is decided by the store inspection after it comes back (spec 14).
+# Free text is still accepted for "Other", so this is the UI list, not a DB
+# constraint.
 RETURN_REASONS = (
-    "Did not fit", "Wrong part", "Damaged / defective",
-    "Excess — not required", "Other",
+    "Fitment Issue", "Wrong Part", "Excess / Not Required",
+    "Machine Change", "Trial / Testing", "Other",
 )
-# Spare receiving lifecycle — deliberately no RQC and no Pending-Put-Away.
+# Reasons written before spec 13 stay in history as they were typed (history
+# is never rewritten); screens show them under the current wording.
+LEGACY_RETURN_REASONS = {
+    "Did not fit": "Fitment Issue",
+    "Wrong part": "Wrong Part",
+    "Excess — not required": "Excess / Not Required",
+    "Damaged / defective": "Damaged / defective",
+}
+# Status on a RECEIPT ledger row. Since the QR-traceability flow a RECEIPT row
+# is written only when quantity becomes AVAILABLE: STOCK_AVAILABLE after the
+# Maintenance / Tool Room quality clearance of a supplier receipt, RGP_GRN after
+# the RGP GRN of reworked material (the receipt / RGP documents in
+# models/spare_flow.py hold the steps before that). Both originate in ERP (the
+# supervisor's GRN), so they are never pushed to ERP again. The older values
+# stay readable on legacy rows written by the former direct receive.
 RECEIVE_STATUSES = (
+    "STOCK_AVAILABLE", "RGP_GRN",
     "PHYSICALLY_RECEIVED", "PENDING_SRV_GRN", "PENDING_DEPARTMENT_CLEARANCE",
     "ERP_STOCK_UPDATED", "IMMEDIATELY_ISSUED", "MOVED_TO_STORE_LOCATION",
     "REJECTED_OR_HOLD",
 )
+# RECEIPT rows whose stock-in already happened in ERP (the GRN) — excluded from
+# the ERP stock-write push, which would otherwise add them a second time.
+ERP_ORIGIN_RECEIPT_STATUSES = ("STOCK_AVAILABLE", "RGP_GRN")
+# A RETURN ledger row written by a GOOD return inspection (the qty went back to
+# available). Its return is counted from spare_returns, so it is NOT summed
+# again as a returned quantity against the issue.
+RETURN_ROW_INSPECTED = "INSPECTED_GOOD"
 # Physical-check result the store supervisor records against the invoice.
 CHECK_RESULTS = ("OK", "SHORT", "EXCESS", "DAMAGED")
 
@@ -126,6 +150,9 @@ class SpareStockLedger(BaseModel):
     # Stage 2: where the user actually fitted the part — production line + machine.
     line_name = db.Column(db.String(60), nullable=True)   # e.g. Seat Slider / Recliner
     line_no = db.Column(db.String(30), nullable=True)
+    # The die the part went into (spec 11/12) — like line and machine, optional
+    # at the store issue and filled in by the installation update.
+    die_no = db.Column(db.String(60), nullable=True)
     actual_qty = db.Column(db.Numeric(12, 2), nullable=True)  # actually used (Stage 2)
     confirmed_by = db.Column(db.String(60), nullable=True)
     confirmed_at = db.Column(db.DateTime(timezone=True), nullable=True)

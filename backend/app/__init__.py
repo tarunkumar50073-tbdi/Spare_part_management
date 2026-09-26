@@ -3,7 +3,7 @@ together (MVC + Repository pattern)."""
 import os
 from datetime import timedelta
 
-from flask import Flask, request
+from flask import Flask, current_app, request
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from config import config_by_name
@@ -263,6 +263,8 @@ def _patch_schema():
         # Store return slip (a department sending an issued part back).
         "return_no": "VARCHAR(40)", "return_reason": "VARCHAR(60)",
         "returned_by": "VARCHAR(80)",
+        # QR traceability: the die an issued part went into (spec 11/12).
+        "die_no": "VARCHAR(60)",
     }
     for _col, _type in _ledger_adds.items():
         if ledger_cols and _col not in ledger_cols:
@@ -274,6 +276,20 @@ def _patch_schema():
     if ledger_cols and "return_no" not in ledger_cols:
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_return_no ON spare_stock_ledger (return_no)"))
         db.session.commit()
+
+    # A ledger first created before RETURN joined TXN_TYPES still carries the
+    # four-value CHECK, which SQLite can't ALTER — every RETURN insert (the
+    # return slip, the GOOD return inspection) fails there with an
+    # IntegrityError. Rebuild it once with the model's DDL, keeping every row.
+    if ledger_cols:
+        db.session.commit()  # no open session transaction while the table is swapped
+        try:
+            if _rebuild_spare_ledger_if_check_stale(db.engine):
+                current_app.logger.warning("spare_stock_ledger rebuilt: txn_type CHECK now allows RETURN")
+        except Exception:
+            # Rolled back inside — the old table is untouched. Boot on; returns
+            # keep failing until the cause in the log is fixed.
+            current_app.logger.exception("spare_stock_ledger CHECK rebuild failed; old table kept")
 
     # created_at drives every time-window query (today's movements, the
     # consumption trend, the date-range filters) but was never indexed — so each
@@ -302,6 +318,15 @@ def _patch_schema():
         db.session.execute(text(ddl))
     db.session.commit()
 
+    # Label print audit (spec 8): print source, printer, symbology and the
+    # location that was printed. Nullable/additive — older rows keep NULLs.
+    lpa_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(label_print_audit)")).fetchall()]
+    for _col, _type in (("source", "VARCHAR(20)"), ("printer_name", "VARCHAR(80)"),
+                        ("symbology", "VARCHAR(10)"), ("location_printed", "VARCHAR(40)")):
+        if lpa_cols and _col not in lpa_cols:
+            db.session.execute(text(f"ALTER TABLE label_print_audit ADD COLUMN {_col} {_type}"))
+            db.session.commit()
+
     # Admin user-management additions: a readable password copy (so the admin
     # screen can show it) and the per-module rights map. Both nullable/additive.
     user_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(users)")).fetchall()]
@@ -325,6 +350,67 @@ def _patch_schema():
         db.session.commit()
         from app.models.rgp import RGP
         RGP.__table__.create(bind=db.engine, checkfirst=True)
+
+
+def _rebuild_spare_ledger_if_check_stale(engine):
+    """Bring spare_stock_ledger's txn_type CHECK up to the model, SQLite only.
+
+    The 12-step SQLite table change: with foreign keys off, create the table
+    from the model's own DDL under a temporary name, copy every row, drop the
+    old table, rename the new one into place, recreate the model's indexes,
+    check foreign keys, commit — all in ONE transaction, so a failure leaves
+    the old table untouched. Other tables reference spare_stock_ledger by name,
+    so their foreign keys point at the rebuilt table afterwards. Returns True
+    when it rebuilt, False when the CHECK was already current (the normal case,
+    and every DB built by create_all)."""
+    from sqlalchemy.schema import CreateIndex, CreateTable
+    from app.models.spare_stock import TXN_TYPES, SpareStockLedger
+
+    if engine.dialect.name != "sqlite":
+        return False
+    table = SpareStockLedger.__table__
+    raw = engine.raw_connection()
+    try:
+        con = raw.driver_connection
+        old_iso = con.isolation_level
+        con.isolation_level = None  # explicit BEGIN / COMMIT below
+        cur = con.cursor()
+        row = cur.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='spare_stock_ledger'").fetchone()
+        if not row or all(f"'{t}'" in (row[0] or "") for t in TXN_TYPES):
+            con.isolation_level = old_iso
+            return False
+        have = {r[1] for r in cur.execute("PRAGMA table_info(spare_stock_ledger)").fetchall()}
+        cols = ", ".join(c.name for c in table.columns if c.name in have)
+        ddl = str(CreateTable(table).compile(engine)).strip()
+        ddl = ddl.replace("CREATE TABLE spare_stock_ledger", "CREATE TABLE spare_stock_ledger__rebuild", 1)
+        cur.execute("PRAGMA foreign_keys=OFF")
+        try:
+            cur.execute("BEGIN IMMEDIATE")
+            before = cur.execute("SELECT COUNT(*) FROM spare_stock_ledger").fetchone()[0]
+            cur.execute(ddl)
+            cur.execute(f"INSERT INTO spare_stock_ledger__rebuild ({cols}) SELECT {cols} FROM spare_stock_ledger")
+            after = cur.execute("SELECT COUNT(*) FROM spare_stock_ledger__rebuild").fetchone()[0]
+            if after != before:
+                raise RuntimeError(f"ledger rebuild copied {after} of {before} rows")
+            cur.execute("DROP TABLE spare_stock_ledger")
+            cur.execute("ALTER TABLE spare_stock_ledger__rebuild RENAME TO spare_stock_ledger")
+            for idx in table.indexes:
+                cur.execute(str(CreateIndex(idx).compile(engine)).replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS", 1)
+                            .replace("CREATE UNIQUE INDEX", "CREATE UNIQUE INDEX IF NOT EXISTS", 1))
+            bad = cur.execute("PRAGMA foreign_key_check(spare_stock_ledger)").fetchall()
+            if bad:
+                raise RuntimeError(f"ledger rebuild left {len(bad)} foreign-key violation(s)")
+            cur.execute("COMMIT")
+        except Exception:
+            cur.execute("ROLLBACK")
+            raise
+        finally:
+            cur.execute("PRAGMA foreign_keys=ON")
+            con.isolation_level = old_iso
+        return True
+    finally:
+        raw.close()
 
 
 def _seed_stores():

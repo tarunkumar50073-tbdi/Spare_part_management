@@ -40,6 +40,7 @@ from app.models.label_print_audit import LabelPrintAudit
 from app.models.location_history import SpareLocationHistory
 from app.models.part_import_history import PartImportHistory
 from app.models.app_setting import AppSetting
+from app.models.spare_flow import SpareReceipt, SpareReturn, SpareRgp, SpareTransaction
 
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",
@@ -51,5 +52,5 @@ __all__ = [
     "CurrentStock", "PendingGRN", "StockValuation",
     "ReportRecipient", "MailSendLog",
     "PartBarcode", "ScanAudit", "LabelPrintAudit", "SpareLocationHistory", "PartImportHistory",
-    "AppSetting",
+    "AppSetting", "SpareReceipt", "SpareReturn", "SpareRgp", "SpareTransaction",
 ]
