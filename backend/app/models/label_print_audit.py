@@ -13,16 +13,21 @@ because it is a snapshot: a later move makes the printed one stale.
 A row is written only after the operator confirms the label actually came out
 of the printer (the browser cannot know), so the history is what was printed,
 not what was attempted.
+
+Labels printed for material that arrived on an ERP gate entry carry that gate
+entry no. in ``reference``, so the entry's list can say which of its parts are
+labelled already and how many copies were printed for it.
 """
 from app.extensions import db
 from app.models.base import BaseModel
 
 # How the part was identified when its label was printed (spec 8). REPRINT is
 # the explicit reprint action (needs a reason); PART_MASTER / STORE_STOCK are
-# the master-data screens that print outside the scan flow.
+# the master-data screens that print outside the scan flow; GATE_ENTRY is a
+# batch printed for an ERP gate entry's items (reference = the gate entry no.).
 PRINT_SOURCES = (
     "SUPPLIER_BARCODE", "ERP_SEARCH", "MANUAL_ENTRY", "QR_SCAN", "REPRINT",
-    "PART_MASTER", "STORE_STOCK",
+    "PART_MASTER", "STORE_STOCK", "GATE_ENTRY",
 )
 
 
@@ -47,6 +52,10 @@ class LabelPrintAudit(BaseModel):
     printer_name = db.Column(db.String(80), nullable=True)
     symbology = db.Column(db.String(10), nullable=True)
     location_printed = db.Column(db.String(40), nullable=True)
+
+    # The document the label was printed for — the ERP gate entry no. for a
+    # GATE_ENTRY print; NULL for a print from the part itself.
+    reference = db.Column(db.String(60), nullable=True)
 
     part = db.relationship("Part")
 

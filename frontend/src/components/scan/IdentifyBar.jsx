@@ -72,8 +72,12 @@ function ManualEntry({ onSubmit, busy }) {
  *                            closes, so the gun field is ready for the next scan
  * compact                    a part is on screen — the scan box drops its how-to
  *                            text so the part and its actions fit on screen
+ * narrow                     the bar sits in a side column (Receive & Label):
+ *                            the tabs keep their short names at every width
  */
-export default function IdentifyBar({ tab, onTab, onScan, onPick, onManual, busy, storeCode, focusSignal, compact = false }) {
+export default function IdentifyBar({
+  tab, onTab, onScan, onPick, onManual, busy, storeCode, focusSignal, compact = false, narrow = false,
+}) {
   return (
     <section className="rounded-xl2 border border-slate-200 bg-white dark:border-navy-800 dark:bg-navy-900" aria-label="Identify a part">
       <div role="tablist" aria-label="How to identify the part" className="grid grid-cols-3 gap-1 border-b border-slate-100 p-1.5 dark:border-navy-800">
@@ -86,8 +90,14 @@ export default function IdentifyBar({ tab, onTab, onScan, onPick, onManual, busy
                 ? "bg-toyotared text-white shadow-sm"
                 : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-navy-800"}`}>
               <t.icon size={16} aria-hidden="true" />
-              <span className="hidden sm:inline">{t.label}</span>
-              <span className="sm:hidden">{t.short}</span>
+              {narrow ? (
+                <span title={t.label}>{t.short}</span>
+              ) : (
+                <>
+                  <span className="hidden sm:inline">{t.label}</span>
+                  <span className="sm:hidden">{t.short}</span>
+                </>
+              )}
             </button>
           );
         })}

@@ -31,6 +31,22 @@ export const barcodeService = {
   printHistory: (partId, limit, config) =>
     api.get("/barcode/print-history", { params: { part_id: partId, limit }, ...config }),
 
+  // ERP gate entries (read-only mirror) with Spare Parts Store items, newest
+  // first, each item with its gate qty, the label count offered and the labels
+  // already recorded for that gate entry: {erp: {synced_at, newest_gate_date},
+  // entries: [...]}. `days` counts back from today's plant date (7 / 30 / 90);
+  // `q` matches the gate entry no., the vendor or a Part No.
+  gateLabels: (storeCode, { days, q } = {}, config) =>
+    api.get("/gate-labels", {
+      params: { store_code: storeCode, days, q: q || undefined }, ...config,
+    }),
+  // Record one gate entry's labels — called only AFTER the operator confirms
+  // they came out of the printer. payload: { store_code, gate_entry_no,
+  // items: [{ part_id, copies }], printer_name?, reason? } (a part that already
+  // has labels for this gate entry is a reprint and needs the reason). Adds no
+  // stock and completes no GRN / quality step.
+  printGateLabels: (payload, config) => api.post("/gate-labels/print", payload, config),
+
   // The store label printer: {name, connection BROWSER|NETWORK, status
   // NOT_DETECTABLE|REACHABLE|UNREACHABLE, checked_at, detail}. REACHABLE only
   // ever comes from a real TCP connect made by the server; a browser-dialog

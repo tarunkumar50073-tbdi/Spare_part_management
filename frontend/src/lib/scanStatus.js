@@ -138,7 +138,21 @@ export const PRINT_SOURCE = {
   REPRINT: "Reprint",
   PART_MASTER: "Part Master",
   STORE_STOCK: "Store Stock",
+  GATE_ENTRY: "Gate Entry",
 };
+
+// Label state of one ERP gate entry's Spare Parts Store items
+// (GateLabelService entries[].printed_state).
+export const GATE_PRINT_STATE = {
+  NOT_PRINTED: { label: "Not printed", badge: "badge-warning" },
+  PARTLY: { label: "Partly printed", badge: "badge-info" },
+  PRINTED: { label: "Printed", badge: "badge-success" },
+};
+export const gatePrintMeta = (state) =>
+  GATE_PRINT_STATE[state] || { label: state ? state.replace(/_/g, " ").toLowerCase() : "—", badge: "badge-neutral" };
+// A gate entry no. as the server matches it (upper / trim) — so a gun read, a
+// link and the list compare the same.
+export const normGateNo = (v) => String(v ?? "").trim().toUpperCase();
 
 // Part timeline kinds (scan_result.timeline.rows[].kind) -> label + icon + tone.
 // The receiving history is read from ERP (ERP_GATE, ERP_GRN, and the quality

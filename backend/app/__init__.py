@@ -337,10 +337,12 @@ def _patch_schema():
     db.session.commit()
 
     # Label print audit (spec 8): print source, printer, symbology and the
-    # location that was printed. Nullable/additive — older rows keep NULLs.
+    # location that was printed, plus the gate entry no. a label was printed
+    # for (reference). Nullable/additive — older rows keep NULLs.
     lpa_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(label_print_audit)")).fetchall()]
     for _col, _type in (("source", "VARCHAR(20)"), ("printer_name", "VARCHAR(80)"),
-                        ("symbology", "VARCHAR(10)"), ("location_printed", "VARCHAR(40)")):
+                        ("symbology", "VARCHAR(10)"), ("location_printed", "VARCHAR(40)"),
+                        ("reference", "VARCHAR(60)")):
         if lpa_cols and _col not in lpa_cols:
             db.session.execute(text(f"ALTER TABLE label_print_audit ADD COLUMN {_col} {_type}"))
             db.session.commit()

@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, CircleCheck, Keyboard, RotateCcw, ScanLine, Search, X } from "lucide-react";
+import { ChevronRight, CircleCheck, Keyboard, RotateCcw, ScanLine, Search, Truck, X } from "lucide-react";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { usePartDrawer } from "../context/PartDrawerContext.jsx";
 import { useCan } from "../components/Can.jsx";
 import { useConfirm } from "../components/ConfirmDialog.jsx";
 import PrintBarcodeModal from "../components/PrintBarcodeModal.jsx";
+import GateEntryLabels from "../components/label/GateEntryLabels.jsx";
 import ActionForm from "../components/scan/ActionForm.jsx";
 import StatusBar from "../components/scan/StatusBar.jsx";
 import StepIndicator from "../components/scan/StepIndicator.jsx";
@@ -26,7 +27,7 @@ import HistoryModal from "../components/scan/HistoryModal.jsx";
 import { scanIcon } from "../components/scan/scanIcons.js";
 import PartTimeline from "../components/spare/PartTimeline.jsx";
 import useScanWorkstation from "../hooks/useScanWorkstation.js";
-import { ACTIONS, SCAN_MODE } from "../lib/scanStatus.js";
+import { ACTIONS, SCAN_MODE, normGateNo } from "../lib/scanStatus.js";
 
 // Scan Part — the store operator's workstation (spec 4 / 10 / 22 / 26-28 / 30).
 //
@@ -50,12 +51,17 @@ import { ACTIONS, SCAN_MODE } from "../lib/scanStatus.js";
 //   action sits in a compact "Other actions" row. A part that cannot be issued
 //   shows its status and the valid actions as before.
 //
-//   Receive & Label — for material just received: once the part is identified
-//   (usually by the supplier's barcode) its internal QR label print opens
-//   straight away, with the quantity of the part's latest ERP GRN offered as
-//   the label count. A scan here never opens the Issue form. Printing a label
-//   adds no stock (spec 9) — receiving, the GRN and quality clearance are done
-//   in ERP; the page only shows what ERP has (read-only, with the data's age).
+//   Receive & Label — for material just received. The PRIMARY way is the ERP
+//   gate entry (components/label/GateEntryLabels): pick the gate entry the
+//   material came on — or scan its no. with the gun — and its Spare Parts
+//   Store items' labels print in one job, each part's count = its gate qty.
+//   The SECONDARY way, "Or one part — scan, search or type", is the single
+//   part as before: once it is identified (usually by the supplier's barcode)
+//   its internal QR label print opens straight away, with the quantity of the
+//   part's latest ERP GRN offered as the label count. A scan here never opens
+//   the Issue form. Printing a label adds no stock (spec 9) — receiving, the
+//   GRN and quality clearance are done in ERP; the page only shows what ERP
+//   has (read-only, with the data's age).
 //
 // A part's barcodes (its QR and the supplier codes mapped to it) are seen and
 // managed in the Barcodes panel here — there is no separate screen for them.
@@ -68,6 +74,8 @@ import { ACTIONS, SCAN_MODE } from "../lib/scanStatus.js";
 // opens that part (and that action's form with the document pre-selected,
 // instead of what the mode opens) — the Work Queue and the part drawer send the
 // operator here that way. &mode=label|issue switches the mode as well.
+// /scan-part?mode=label&gate=<gate entry no.> opens that gate entry's labels
+// in Receive & Label (the Gate Entry page links here that way).
 
 // Search and Manual Entry are typed, so the scan audit records them as such.
 const TYPED = "MANUAL_ENTRY";
@@ -106,15 +114,16 @@ function IdleCard({ labelMode }) {
     { icon: ScanLine, text: "Scan — the part’s QR label or the supplier’s barcode, with the gun or the camera" },
     { icon: Search, text: "Search Part No. — by number, description or rack location" },
     { icon: Keyboard, text: "Manual Entry — type a code when a label won’t scan" },
+    ...(labelMode ? [{ icon: Truck, text: "A gate entry no. scanned here opens that gate entry’s labels" }] : []),
   ];
   return (
     <section className="card p-5" aria-label="Ready">
       <p className="text-sm font-semibold text-slate-800 dark:text-white">
-        {labelMode ? "Receive & Label — ready for the next part" : "Ready for the next part"}
+        {labelMode ? "One part — ready" : "Ready for the next part"}
       </p>
       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
         {labelMode
-          ? "The part’s QR label print opens as soon as it is identified. Printing a label adds no stock."
+          ? "For material that is not on a gate entry, or one more label: the part’s QR label print opens as soon as it is identified. Printing a label adds no stock."
           : "A part with stock opens its Issue straight away."}
       </p>
       <ul className="mt-3 space-y-2">
@@ -191,6 +200,8 @@ export default function ScanPart() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [done, setDone] = useState(null);           // { message } — the action just recorded
   const [focusSignal, setFocusSignal] = useState(0); // hands the caret back to the gun
+  const [gateRequest, setGateRequest] = useState(null); // { no } — the gate entry to open (gun / link)
+  const gateNosRef = useRef(new Set());             // gate entry nos. the gate panel lists now
   const pendingRef = useRef(null);                  // a deep link's action, waiting for the part
   const autoRef = useRef(null);                     // the identification the mode's form / dialog was opened for
   const formRef = useRef(null);
@@ -200,7 +211,16 @@ export default function ScanPart() {
 
   useEffect(() => {
     try { localStorage.setItem(MODE_KEY, mode); } catch { /* storage unavailable — not remembered */ }
+    // The gate panel lives in Receive & Label only; coming back to it later
+    // must not reopen an entry asked for before.
+    if (mode !== "LABEL") setGateRequest(null);
   }, [mode]);
+
+  // What the gate panel lists — a gun read equal to one of these nos. opens
+  // that gate entry instead of being resolved as a part.
+  const onGateEntries = useCallback((list) => {
+    gateNosRef.current = new Set(list.map((e) => normGateNo(e.gate_entry_no)));
+  }, []);
 
   const allowed = useCallback(
     (key) => key === "HISTORY" || (PRINT_ACTIONS.has(key) ? canPrint : canEdit),
@@ -292,6 +312,13 @@ export default function ScanPart() {
   // false when the code did not identify a part: the tab stays open with the
   // text as typed, for the operator to correct it.
   const onScan = async (code, scanSource) => {
+    // Receive & Label: the no. of a gate entry in the gate panel's list opens
+    // that entry (nothing is resolved, the part on screen stays); anything
+    // else is a part's code, as always.
+    if (labelMode && gateNosRef.current.has(normGateNo(code))) {
+      setGateRequest({ no: code });
+      return true;
+    }
     if (!(await okToLeave())) return false;
     startNew();
     resolve(code, { via: "SCAN", scanSource });
@@ -322,23 +349,30 @@ export default function ScanPart() {
   // scan doesn't reopen it. okToLeave and the mode are read through refs: the
   // effect runs for a new link, not for every form change. A ?mode= alone
   // (the old Supplier Barcodes address lands here with mode=label) switches
-  // the mode; on arrival the initial state has already taken it.
+  // the mode; on arrival the initial state has already taken it. A ?gate=
+  // (the Gate Entry page's "Print QR labels") opens that gate entry in
+  // Receive & Label, whatever the link's ?mode= says.
   const leaveRef = useRef(okToLeave);
   useEffect(() => { leaveRef.current = okToLeave; });
   useEffect(() => {
     const raw = searchParams.get("part");
-    if (!raw && !searchParams.has("mode")) return;
-    const wanted = modeOf(searchParams.get("mode"));
+    const gate = (searchParams.get("gate") || "").trim();
+    if (!raw && !gate && !searchParams.has("mode")) return;
+    const wanted = gate ? "LABEL" : modeOf(searchParams.get("mode"));
     const id = Number(raw);
     const key = (searchParams.get("action") || "").toUpperCase() || null;
     const target = searchParams.get("target");
     setSearchParams({}, { replace: true });
     const link = Boolean(raw) && Number.isInteger(id) && id > 0;
     const switching = Boolean(wanted) && wanted !== modeRef.current;
-    if (!link && !switching) return;
+    if (!link && !switching) {
+      if (gate) setGateRequest({ no: gate });
+      return;
+    }
     (async () => {
       if (!(await leaveRef.current(link ? undefined : `switch to ${SCAN_MODE[wanted].label}`))) return;
       if (switching) setMode(wanted);
+      if (gate) setGateRequest({ no: gate });
       if (link) {
         setDone(null);
         pendingRef.current = key ? { key, partId: id, target: target && Number(target) > 0 ? Number(target) : null } : null;
@@ -484,7 +518,7 @@ export default function ScanPart() {
       : !canPrint ? "printing a label needs edit rights on Scan Part, Store Stock or Part Master" : null;
   let step = "SCAN";
   let hint = labelMode
-    ? "Receive & Label — scan the supplier’s barcode or the part’s QR, or search the Part No.: its label print opens straight away."
+    ? "One part — scan the supplier’s barcode or the part’s QR, or search the Part No.: its label print opens straight away."
     : "Scan the part’s QR label or the supplier’s barcode — or search / type the Part No.";
   let complete = false;
   if (action && formStep === "CONFIRM") {
@@ -518,139 +552,137 @@ export default function ScanPart() {
   const PrimaryIcon = primary ? scanIcon(ACTIONS[primary.key]?.icon) : null;
   const ActionIcon = actionMeta ? scanIcon(actionMeta.icon) : null;
 
-  return (
-    <div className="space-y-4">
-      <StatusBar storeName={activeStore?.name} operator={user?.full_name || user?.username}
-        mode={mode} onMode={onMode} />
-      {/* The step bar also carries the next step while the operator verifies
-          the part (or has just recorded one step on it) — the one button that
-          is on screen without scrolling, however long the part's story is. */}
-      <StepIndicator current={step} complete={complete} hint={hint}
-        action={primary && (step === "VERIFY" || complete) ? (
-          <button type="button" onClick={() => runAction(primary.key)} className="btn-primary py-2">
-            {PrimaryIcon && <PrimaryIcon size={16} aria-hidden="true" />}
-            <span><span className="font-normal opacity-80">Next:</span> {actionLabel(primary)}</span>
-            <ChevronRight size={16} aria-hidden="true" />
-          </button>
-        ) : null} />
+  // The step bar also carries the next step while the operator verifies the
+  // part (or has just recorded one step on it) — the one button that is on
+  // screen without scrolling, however long the part's story is.
+  const stepBar = (
+    <StepIndicator current={step} complete={complete} hint={hint}
+      action={primary && (step === "VERIFY" || complete) ? (
+        <button type="button" onClick={() => runAction(primary.key)} className="btn-primary py-2">
+          {PrimaryIcon && <PrimaryIcon size={16} aria-hidden="true" />}
+          <span><span className="font-normal opacity-80">Next:</span> {actionLabel(primary)}</span>
+          <ChevronRight size={16} aria-hidden="true" />
+        </button>
+      ) : null} />
+  );
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-        {/* ---------------- LEFT: scan -> identify -> verify -> act ---------------- */}
-        <div className="min-w-0 space-y-4">
-          <IdentifyBar tab={tab} onTab={setTab} onScan={onScan} onPick={onPick} onManual={onManual}
-            busy={resolving} storeCode={storeCode} focusSignal={focusSignal} compact={Boolean(scan)} />
+  // ---- scan -> identify: the input bar and what the read came to ----
+  const identifyBlock = (
+    <>
+      {/* In Receive & Label the bar sits in the narrower side column, so its
+          tabs keep their short names. */}
+      <IdentifyBar tab={tab} onTab={setTab} onScan={onScan} onPick={onPick} onManual={onManual}
+        busy={resolving} storeCode={storeCode} focusSignal={focusSignal} compact={Boolean(scan)} narrow={labelMode} />
 
-          {/* Once a mapping is saved, the same code is resolved again (audited
-              as a MAPPING read): it now identifies the part and the operator
-              carries on from there (spec 6). A code that now identifies the
-              part — after a retry or a mapping — hands back to the gun, as a
-              cancel does; a code typed in Manual Entry that still fails stays
-              in its box to be corrected. */}
-          {failure && (
-            <ScanFailurePanel
-              failure={failure}
-              canMap={canMap}
-              storeCode={storeCode}
-              onSearch={() => { clearFailure(); setTab("SEARCH"); }}
-              onCancel={() => { clear(); backToGun(); }}
-              onRetry={async () => {
-                if (await resolve(failure.code, { via: failure.via, scanSource: failure.scanSource })) backToGun();
-              }}
-              onMapped={async () => {
-                if (await resolve(failure.code, { via: failure.via, scanSource: failure.scanSource, scanMode: "MAPPING" })) backToGun();
-              }}
-            />
-          )}
+      {/* Once a mapping is saved, the same code is resolved again (audited
+          as a MAPPING read): it now identifies the part and the operator
+          carries on from there (spec 6). A code that now identifies the
+          part — after a retry or a mapping — hands back to the gun, as a
+          cancel does; a code typed in Manual Entry that still fails stays
+          in its box to be corrected. */}
+      {failure && (
+        <ScanFailurePanel
+          failure={failure}
+          canMap={canMap}
+          storeCode={storeCode}
+          onSearch={() => { clearFailure(); setTab("SEARCH"); }}
+          onCancel={() => { clear(); backToGun(); }}
+          onRetry={async () => {
+            if (await resolve(failure.code, { via: failure.via, scanSource: failure.scanSource })) backToGun();
+          }}
+          onMapped={async () => {
+            if (await resolve(failure.code, { via: failure.via, scanSource: failure.scanSource, scanMode: "MAPPING" })) backToGun();
+          }}
+        />
+      )}
 
-          {!failure && !ident && (resolving ? <PartSkeleton /> : <IdleCard labelMode={labelMode} />)}
-          {!failure && loadingPart && <PartSkeleton />}
-          {!failure && scanFailed && (
-            <div role="alert" className="rounded-xl2 border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
-              <p className="font-semibold">Couldn&apos;t load this part.</p>
-              {scanQuery.error?.response?.data?.message && <p className="mt-0.5">{scanQuery.error.response.data.message}</p>}
-              <div className="mt-2 flex gap-2">
-                <button type="button" className="btn-secondary" onClick={() => scanQuery.refetch()} disabled={scanQuery.isFetching}>
-                  <RotateCcw size={15} aria-hidden="true" />{scanQuery.isFetching ? "Retrying…" : "Retry"}
-                </button>
-                <button type="button" className="btn-secondary" onClick={clearPart}>Clear</button>
-              </div>
+      {!failure && !ident && (resolving ? <PartSkeleton /> : <IdleCard labelMode={labelMode} />)}
+      {!failure && loadingPart && <PartSkeleton />}
+      {!failure && scanFailed && (
+        <div role="alert" className="rounded-xl2 border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+          <p className="font-semibold">Couldn&apos;t load this part.</p>
+          {scanQuery.error?.response?.data?.message && <p className="mt-0.5">{scanQuery.error.response.data.message}</p>}
+          <div className="mt-2 flex gap-2">
+            <button type="button" className="btn-secondary" onClick={() => scanQuery.refetch()} disabled={scanQuery.isFetching}>
+              <RotateCcw size={15} aria-hidden="true" />{scanQuery.isFetching ? "Retrying…" : "Retry"}
+            </button>
+            <button type="button" className="btn-secondary" onClick={clearPart}>Clear</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  // ---- verify -> act: the identified part, its status and its actions ----
+  const partBlock = scan && (
+    <>
+      {done && <DoneStrip message={done.message} onDismiss={() => setDone(null)} />}
+      <IdentityCard part={part} ident={ident} onOpenDetails={() => openPart(part.id)} onClear={clearPart} />
+      <StatusCard scan={scan} dataStatus={ident?.dataStatus} />
+      <TransactionInfo scan={scan} canAct={canAct} onAction={chooseAction} collapsed={Boolean(action)} />
+      {action ? (
+        <>
+          {/* data-scan-nofocus: clicks inside the form keep their focus
+              (the scan box would otherwise pull the caret back). */}
+          <section ref={formRef} data-scan-nofocus aria-label={`${actionMeta?.label || action.key} form`}
+            className="card scroll-mt-4 overflow-hidden p-0 ring-2 ring-toyotared/20">
+            <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-toyotared/10 text-toyotared">
+                  {ActionIcon && <ActionIcon size={16} aria-hidden="true" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-slate-800 dark:text-white">{actionMeta?.label || action.key}</span>
+                  <span className="block truncate text-[11px] text-slate-400">{part.part_no}{part.part_name ? ` · ${part.part_name}` : ""}</span>
+                </span>
+              </span>
+              <button type="button" onClick={cancelAction} aria-label="Close the form"
+                className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-800 dark:hover:text-slate-200">
+                <X size={16} aria-hidden="true" />
+              </button>
+            </header>
+            <div className="p-4">
+              <ActionForm actionKey={action.key} scan={scan} target={action.target} source={ident.source}
+                onDone={onDone} onCancel={cancelAction} onStep={setFormStep} onDirty={setDirty} />
             </div>
+          </section>
+          {/* Issuance first: everything else the part allows, one click
+              away but out of the way, while the Issue is filled in. */}
+          {action.key === "ISSUE" && formStep === "ACTION" && (
+            <OtherActions actions={actions} exclude={["ISSUE"]} allowed={allowed} onAction={chooseAction}
+              className="card p-3.5" />
           )}
+        </>
+      ) : (
+        <QuickActions actions={actions} primaryKey={primaryKey} allowed={allowed} onAction={chooseAction} />
+      )}
+    </>
+  );
 
-          {scan && (
-            <>
-              {done && <DoneStrip message={done.message} onDismiss={() => setDone(null)} />}
-              <IdentityCard part={part} ident={ident} onOpenDetails={() => openPart(part.id)} onClear={clearPart} />
-              <StatusCard scan={scan} dataStatus={ident?.dataStatus} />
-              <TransactionInfo scan={scan} canAct={canAct} onAction={chooseAction} collapsed={Boolean(action)} />
-              {action ? (
-                <>
-                  {/* data-scan-nofocus: clicks inside the form keep their focus
-                      (the scan box would otherwise pull the caret back). */}
-                  <section ref={formRef} data-scan-nofocus aria-label={`${actionMeta?.label || action.key} form`}
-                    className="card scroll-mt-4 overflow-hidden p-0 ring-2 ring-toyotared/20">
-                    <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
-                      <span className="flex min-w-0 items-center gap-2.5">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-toyotared/10 text-toyotared">
-                          {ActionIcon && <ActionIcon size={16} aria-hidden="true" />}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-sm font-semibold text-slate-800 dark:text-white">{actionMeta?.label || action.key}</span>
-                          <span className="block truncate text-[11px] text-slate-400">{part.part_no}{part.part_name ? ` · ${part.part_name}` : ""}</span>
-                        </span>
-                      </span>
-                      <button type="button" onClick={cancelAction} aria-label="Close the form"
-                        className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-800 dark:hover:text-slate-200">
-                        <X size={16} aria-hidden="true" />
-                      </button>
-                    </header>
-                    <div className="p-4">
-                      <ActionForm actionKey={action.key} scan={scan} target={action.target} source={ident.source}
-                        onDone={onDone} onCancel={cancelAction} onStep={setFormStep} onDirty={setDirty} />
-                    </div>
-                  </section>
-                  {/* Issuance first: everything else the part allows, one click
-                      away but out of the way, while the Issue is filled in. */}
-                  {action.key === "ISSUE" && formStep === "ACTION" && (
-                    <OtherActions actions={actions} exclude={["ISSUE"]} allowed={allowed} onAction={chooseAction}
-                      className="card p-3.5" />
-                  )}
-                </>
-              ) : (
-                <QuickActions actions={actions} primaryKey={primaryKey} allowed={allowed} onAction={chooseAction} />
-              )}
-            </>
-          )}
-        </div>
+  // ---- the part as it stands: its label, barcodes, where it is, its story ----
+  const partSide = scan && (
+    <>
+      {/* The label no longer matches the rack: a genuine reprint (with
+          its reason) in either mode. */}
+      <PartVisual part={part} label={scan.label}
+        onReprint={canAct("REPRINT_LABEL") ? () => openPrint("REPRINT") : null} />
+      <BarcodesPanel part={part} barcodes={scan.barcodes} defaultOpen={labelMode} onRelease={refocusGun} />
+      <LocationList locations={scan.locations} uom={part.uom} erp={scan.erp_receiving?.erp} />
+      <TimelinePreview rows={scan.timeline?.rows} hasMore={scan.timeline?.has_more}
+        onViewAll={() => runAction("HISTORY")} />
+      {/* The important action again, at the end of the part's story. */}
+      {primary && !action && (
+        <button type="button" onClick={() => runAction(primary.key)}
+          className="btn-primary w-full justify-center py-3.5 text-base font-semibold">
+          {PrimaryIcon && <PrimaryIcon size={20} aria-hidden="true" />}
+          {actionLabel(primary)}
+        </button>
+      )}
+    </>
+  );
 
-        {/* ---------------- RIGHT: the part as it stands ---------------- */}
-        <div className="min-w-0 space-y-4">
-          {scan ? (
-            <>
-              {/* The label no longer matches the rack: a genuine reprint (with
-                  its reason) in either mode. */}
-              <PartVisual part={part} label={scan.label}
-                onReprint={canAct("REPRINT_LABEL") ? () => openPrint("REPRINT") : null} />
-              <BarcodesPanel part={part} barcodes={scan.barcodes} defaultOpen={labelMode} onRelease={refocusGun} />
-              <LocationList locations={scan.locations} uom={part.uom} erp={scan.erp_receiving?.erp} />
-              <TimelinePreview rows={scan.timeline?.rows} hasMore={scan.timeline?.has_more}
-                onViewAll={() => runAction("HISTORY")} />
-              {/* The important action again, at the end of the part's story. */}
-              {primary && !action && (
-                <button type="button" onClick={() => runAction(primary.key)}
-                  className="btn-primary w-full justify-center py-3.5 text-base font-semibold">
-                  {PrimaryIcon && <PrimaryIcon size={20} aria-hidden="true" />}
-                  {actionLabel(primary)}
-                </button>
-              )}
-            </>
-          ) : (
-            <PartVisualPlaceholder />
-          )}
-          <WorkQueueLink storeCode={storeCode} />
-        </div>
-      </div>
-
+  const dialogs = (
+    <>
       {historyOpen && part && (
         <HistoryModal part={labelPart} onClose={() => setHistoryOpen(false)} />
       )}
@@ -661,6 +693,70 @@ export default function ScanPart() {
         <PrintBarcodeModal part={labelPart} source={print.source} onClose={closePrint} onPrinted={onPrinted}
           qtyHint={print.source === "REPRINT" ? null : scan?.label_qty_hint ?? null} />
       )}
+    </>
+  );
+
+  const statusBar = (
+    <StatusBar storeName={activeStore?.name} operator={user?.full_name || user?.username}
+      mode={mode} onMode={onMode} />
+  );
+
+  // Receive & Label: the ERP gate entry is the primary way (left, wide); one
+  // part at a time is the secondary block beside it, with the gun's box at its
+  // top — so the caret handed back to the gun never scrolls the gate list away.
+  if (labelMode) {
+    return (
+      <div className="space-y-4">
+        {statusBar}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+          <div className="min-w-0">
+            <GateEntryLabels storeCode={storeCode} canPrint={canPrint} openRequest={gateRequest}
+              onEntries={onGateEntries} onRelease={refocusGun} />
+          </div>
+          <section className="min-w-0 space-y-4" aria-labelledby="scan-one-part-title">
+            <div className="flex items-start gap-2.5 px-1 pt-1">
+              <span className="mt-0.5 h-4 w-1 shrink-0 rounded-full bg-slate-300 dark:bg-navy-700" aria-hidden="true" />
+              <div className="min-w-0">
+                <h2 id="scan-one-part-title" className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Or one part — scan, search or type
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  A part that is not on a gate entry, or one more label for a part.
+                </p>
+              </div>
+            </div>
+            {stepBar}
+            {identifyBlock}
+            {partBlock}
+            {partSide}
+            <WorkQueueLink storeCode={storeCode} />
+          </section>
+        </div>
+        {dialogs}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {statusBar}
+      {stepBar}
+
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+        {/* ---------------- LEFT: scan -> identify -> verify -> act ---------------- */}
+        <div className="min-w-0 space-y-4">
+          {identifyBlock}
+          {partBlock}
+        </div>
+
+        {/* ---------------- RIGHT: the part as it stands ---------------- */}
+        <div className="min-w-0 space-y-4">
+          {partSide || <PartVisualPlaceholder />}
+          <WorkQueueLink storeCode={storeCode} />
+        </div>
+      </div>
+
+      {dialogs}
     </div>
   );
 }

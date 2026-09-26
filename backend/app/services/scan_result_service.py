@@ -130,7 +130,7 @@ BUCKET_WORDS = {
 PRINT_SOURCE_LABELS = {
     "SUPPLIER_BARCODE": "Supplier Barcode", "ERP_SEARCH": "ERP Search",
     "MANUAL_ENTRY": "Manual Entry", "QR_SCAN": "QR Scan", "REPRINT": "Reprint",
-    "PART_MASTER": "Part Master", "STORE_STOCK": "Store Stock",
+    "PART_MASTER": "Part Master", "STORE_STOCK": "Store Stock", "GATE_ENTRY": "Gate Entry",
 }
 
 
@@ -1019,9 +1019,14 @@ class ScanResultService:
 
     @staticmethod
     def _label_row(p):
+        """A label print. One printed for an ERP gate entry names the entry
+        (reference) and always gives its copies — the gate quantity they were
+        printed for."""
         copies = int(p.copies or 1)
         title = "Label reprinted" if p.is_reprint else "Label printed"
-        if copies > 1:
+        if p.reference:
+            title += f" – {copies} (gate entry {p.reference})"
+        elif copies > 1:
             title += f" – {copies} copies"
         return _row(
             at=_iso(p.created_at), kind="LABEL_PRINT", title=title,
