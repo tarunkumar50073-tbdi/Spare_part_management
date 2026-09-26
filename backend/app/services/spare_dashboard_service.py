@@ -14,17 +14,22 @@ questions the dashboard exists for, server-side:
 Everything is read from real rows. Nothing is estimated or back-filled: a
 figure the data can't support is left out or returned as None, never shown as
 a confident zero.
-"""
-from datetime import datetime, timezone
 
-from sqlalchemy import func
+Material the store holds but may not issue is read from its own documents
+(models/spare_flow.py), never folded into on-hand: `receiving_pending`
+(receipts waiting for the ERP GRN / quality), `returns_pending` (returns
+waiting for the store inspection) and `rgp` (supplier rework).
+"""
+from datetime import date, datetime, timezone
+
+from sqlalchemy import and_, case, func
 
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.part import Part
+from app.models.spare_flow import RECEIPT_OPEN, RETURN_OPEN, RGP_OPEN, SpareReceipt, SpareReturn, SpareRgp
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Section, Store
-from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_stock_service import SpareStockService
 
 # Worst first — the order the health bar and the attention list read in.
@@ -41,10 +46,37 @@ def _money(v):
     return round(v, 2) if v else 0.0
 
 
+def _q(v):
+    return round(float(v or 0), 2)
+
+
+def _iso_utc(value):
+    """A stored UTC time (naive from SQLite) as an aware ISO string, so the
+    browser shows it in local time."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def _as_date(value):
+    if value is None or isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
 class SpareDashboardService:
     def __init__(self):
         self.stock = SpareStockService()
-        self.flow = SpareFlowService()
 
     # ------------------------------------------------------------------ public
 
@@ -52,6 +84,7 @@ class SpareDashboardService:
         rows = self.stock.list_stock(store_code, section_id)
         names = self._section_names(store_code)
         agg = self._aggregate(rows)
+        receiving = self._receiving_pending(store_code, section_id)
 
         return {
             "store_code": store_code,
@@ -75,7 +108,7 @@ class SpareDashboardService:
                 }
                 for s in STATUS_ORDER
             ],
-            "attention": self._attention(store_code, section_id, agg, names),
+            "attention": self._attention(store_code, section_id, agg, names, receiving),
             "value": {
                 "total": _money(agg["value"]),
                 "by_section": sorted(
@@ -95,6 +128,10 @@ class SpareDashboardService:
             "recent_activity": self._recent(store_code, section_id),
             "erp": self._erp(store_code),
             "data_quality": agg["quality"],
+            # Held by the store, not issuable — each from its own documents.
+            "receiving_pending": receiving,
+            "returns_pending": self._returns_pending(store_code, section_id),
+            "rgp": self._rgp(store_code, section_id),
         }
 
     # --------------------------------------------------------------- building
@@ -189,7 +226,7 @@ class SpareDashboardService:
             },
         }
 
-    def _attention(self, store_code, section_id, agg, names):
+    def _attention(self, store_code, section_id, agg, names, receiving):
         """Severity-ordered problems. An item is listed even at zero — "no part
         is out of stock" is a reading worth seeing, not an absence to hide."""
         def where(status):
@@ -235,14 +272,19 @@ class SpareDashboardService:
             "action": {"label": "Confirm on Scan Part", "to": "/scan-part"},
         })
         if section_id is None:
-            # SRVs are store-level (a section screen must not quote them).
-            pend = self.flow.pending_summary(store_code)
+            # Spec 1: a spare has no separate SRV step. What this line used to
+            # count (SRV records) is now the supplier receipts not yet in stock —
+            # waiting for the ERP GRN or for the Maintenance / Tool Room quality
+            # clearance. The key stays "srv_pending" so every screen reading it
+            # (the wallboard tile included) keeps working; like before, it is a
+            # store-level line.
             items.append({
-                "key": "srv_pending", "label": "SRV / GRN pending",
-                "severity": "warning" if pend["total"] else "ok",
-                "hint": "Arrived material waiting for an SRV or an engineer's clearance",
-                "count": pend["total"], "value": None, "value_label": None, "sections": [],
-                "action": None,
+                "key": "srv_pending", "label": "GRN / Quality pending",
+                "severity": "warning" if receiving["total"] else "ok",
+                "hint": ("Received material waiting for the ERP GRN or the Maintenance / Tool Room "
+                         "quality clearance — not issuable yet"),
+                "count": receiving["total"], "value": None, "value_label": None, "sections": [],
+                "action": {"label": "Open Work Queue", "to": "/work-queue"},
             })
         items.append(stock_item("never_counted", "Never counted", "Not Counted", "info",
                                 "No physical count yet — its status is unknown"))
@@ -328,6 +370,97 @@ class SpareDashboardService:
         if section_id is not None:
             q = q.filter(Part.section_id == section_id)
         return q.scalar() or 0
+
+    # ------------------------------------------------ held, not issuable
+
+    @staticmethod
+    def _receiving_pending(store_code, section_id):
+        """Supplier receipts not in available stock yet (spec 1 / 9), counted in
+        receipts with their quantity alongside: RECEIVED = waiting for the
+        supervisor's ERP GRN; QUALITY_PENDING = GRN recorded, with Maintenance /
+        Tool Room for the physical inspection. `oldest_at` is when the
+        longest-waiting one was received."""
+        q = (db.session.query(SpareReceipt.status, func.count(SpareReceipt.id),
+                              func.sum(SpareReceipt.qty_received), func.min(SpareReceipt.created_at))
+             .join(Part, Part.id == SpareReceipt.part_id)
+             .filter(Part.store_code == store_code, SpareReceipt.status.in_(RECEIPT_OPEN)))
+        if section_id is not None:
+            q = q.filter(Part.section_id == section_id)
+        by = {s: (n, qty, oldest) for s, n, qty, oldest in q.group_by(SpareReceipt.status)}
+        grn = by.get("RECEIVED", (0, 0, None))
+        qc = by.get("QUALITY_PENDING", (0, 0, None))
+        oldest = [t for t in (grn[2], qc[2]) if t is not None]
+        return {
+            "awaiting_grn": grn[0],
+            "quality_pending": qc[0],
+            "total": grn[0] + qc[0],
+            "qty": {"awaiting_grn": _q(grn[1]), "quality_pending": _q(qc[1]),
+                    "total": _q(_q(grn[1]) + _q(qc[1]))},
+            "oldest_at": _iso_utc(min(oldest)) if oldest else None,
+        }
+
+    @staticmethod
+    def _returns_pending(store_code, section_id):
+        """Parts departments sent back that are not available again (spec 13 /
+        14), counted in returns holding a quantity in each bucket (one return can
+        sit in two): inspection = not inspected yet, hold = inspected
+        "Inspection Required", damaged = inspected damaged (RGP or scrap next)."""
+        R = SpareReturn
+
+        def bucket(col):
+            return (func.coalesce(func.sum(case((col > 0, 1), else_=0)), 0),
+                    func.coalesce(func.sum(col), 0))
+
+        base = (db.session.query(R)
+                .join(Part, Part.id == R.part_id)
+                .filter(Part.store_code == store_code, R.status.in_(RETURN_OPEN)))
+        if section_id is not None:
+            base = base.filter(Part.section_id == section_id)
+        n_pend, q_pend, n_hold, q_hold, n_dmg, q_dmg = base.with_entities(
+            *bucket(R.qty_pending), *bucket(R.qty_hold), *bucket(R.qty_damaged)).one()
+        oldest = base.filter(R.qty_pending > 0).with_entities(func.min(R.created_at)).scalar()
+        return {
+            "inspection": int(n_pend or 0),
+            "hold": int(n_hold or 0),
+            "damaged": int(n_dmg or 0),
+            "qty": {"inspection": _q(q_pend), "hold": _q(q_hold), "damaged": _q(q_dmg)},
+            "oldest_inspection_at": _iso_utc(oldest),
+        }
+
+    @staticmethod
+    def _rgp(store_code, section_id):
+        """Supplier rework under RGP (spec 15-19), counted in RGPs: with_supplier
+        = some quantity still at the supplier; grn_pending = the supplier sent it
+        back and the RGP GRN is not recorded yet; overdue = still at the supplier
+        past its expected return date (an RGP with no expected date is never
+        called overdue — there is nothing to be late against)."""
+        G = SpareRgp
+        out = G.qty_out - G.qty_returned
+        back = G.qty_returned - G.qty_grn
+        today = datetime.now().date()     # expected dates are plant dates
+        late = and_(out > 0, G.expected_return_date.isnot(None), G.expected_return_date < today)
+        q = (db.session.query(
+                func.coalesce(func.sum(case((out > 0, 1), else_=0)), 0),
+                func.coalesce(func.sum(case((out > 0, out), else_=0)), 0),
+                func.coalesce(func.sum(case((back > 0, 1), else_=0)), 0),
+                func.coalesce(func.sum(case((back > 0, back), else_=0)), 0),
+                func.coalesce(func.sum(case((late, 1), else_=0)), 0),
+                func.min(case((late, G.expected_return_date))),
+                func.min(case((back > 0, G.supplier_returned_at))))
+             .join(Part, Part.id == G.part_id)
+             .filter(Part.store_code == store_code, G.status.in_(RGP_OPEN)))
+        if section_id is not None:
+            q = q.filter(Part.section_id == section_id)
+        n_out, q_out, n_back, q_back, n_late, first_due, first_back = q.one()
+        first_due = _as_date(first_due)
+        return {
+            "with_supplier": int(n_out or 0),
+            "grn_pending": int(n_back or 0),
+            "overdue": int(n_late or 0),
+            "qty": {"with_supplier": _q(q_out), "grn_pending": _q(q_back)},
+            "oldest_overdue_date": first_due.isoformat() if first_due else None,
+            "oldest_grn_pending_at": _iso_utc(first_back),
+        }
 
     def _erp(self, store_code):
         """What the app actually knows about ERP — never a fabricated "live"."""

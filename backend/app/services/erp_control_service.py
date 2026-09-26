@@ -15,14 +15,14 @@ runs, failed push attempts) is labelled as not recorded, never filled in.
 from datetime import date, datetime, timedelta, timezone
 
 from flask import current_app
-from sqlalchemy import func
+from sqlalchemy import and_, func
 
 from app.extensions import db
 from app.models.erp_stock import ERPStock
 from app.models.gate_entry import GateEntry
 from app.models.part import Part
 from app.models.receiving_register import ReceivingRegister
-from app.models.spare_stock import SpareStock, SpareStockLedger
+from app.models.spare_stock import ERP_ORIGIN_RECEIPT_STATUSES, SpareStock, SpareStockLedger
 from app.models.store import Store
 from app.services.erp_ledger_inbox_service import ERPLedgerInboxService
 from app.services.erp_sync_service import ERPSyncService
@@ -35,6 +35,15 @@ PENDING_LIMIT = 50
 _TOP_GAPS = 5
 # The only ledger types the ERP push sends (SpareStockService.sync_pending_to_erp).
 ERP_MOVEMENT_TYPES = ("ISSUE", "RECEIPT", "RETURN")
+
+
+def erp_origin_receipt():
+    """A RECEIPT row whose stock-in already happened IN ERP: a quality-cleared
+    supplier receipt (the supervisor's GRN) or an RGP GRN. The app only mirrors
+    it onto available stock; pushing it would add the same quantity to ERP a
+    second time. (status NULL — a legacy row — is not one of these.)"""
+    L = SpareStockLedger
+    return and_(L.txn_type == "RECEIPT", L.status.isnot(None), L.status.in_(ERP_ORIGIN_RECEIPT_STATUSES))
 
 IN_MEMORY_NOTE = ("Kept in server memory only: it resets when the server restarts, "
                   "and no history of past runs is stored.")
@@ -251,6 +260,14 @@ class ERPControlService:
 
     def _write_back(self, store_code, now):
         write = SpareStockService.erp_write_status()
+        # The pending count and list leave the ERP-origin receipts out (see
+        # erp_origin_receipt): a quality-cleared receipt or an RGP GRN entered
+        # stock through ERP's own GRN, so calling it "not yet in ERP" would be
+        # false, and pushing it would count the stock twice in ERP. They are
+        # read through the stock service's own pending_erp_* on purpose — the
+        # same filter sync_pending_to_erp pushes by — so what this screen calls
+        # pending is exactly what a push would send.
+        L = SpareStockLedger
         pending = self.stock.pending_erp_count(store_code)
         rows = self.stock.pending_erp_movements(store_code, limit=PENDING_LIMIT)
         for r in rows:
@@ -259,11 +276,15 @@ class ERPControlService:
         # Oldest first, so the first row is the oldest pending movement.
         oldest = rows[0]["at"] if rows else None
         pushed, last_pushed = (
-            db.session.query(func.count(SpareStockLedger.id), func.max(SpareStockLedger.erp_pushed_at))
-            .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.erp_pushed_at.isnot(None))
+            db.session.query(func.count(L.id), func.max(L.erp_pushed_at))
+            .join(Part, Part.id == L.part_id)
+            .filter(Part.store_code == store_code, L.erp_pushed_at.isnot(None))
             .one()
         )
+        erp_origin = (db.session.query(func.count(L.id))
+                      .join(Part, Part.id == L.part_id)
+                      .filter(Part.store_code == store_code, erp_origin_receipt())
+                      .scalar() or 0)
         return {
             **write,
             "state": write_state(write),
@@ -275,8 +296,11 @@ class ERPControlService:
             "limit": PENDING_LIMIT,
             "pushed_total": pushed,
             "last_pushed_at": _iso(last_pushed),
+            # Receipts that became available after ERP's own GRN — never queued.
+            "erp_origin_receipts": erp_origin,
             "note": ("Push attempts are not logged: a movement that fails or is held back "
-                     "simply stays pending until a push succeeds."),
+                     "simply stays pending until a push succeeds. Quality-cleared receipts and "
+                     "RGP GRNs are not queued: their stock-in was made in ERP by the GRN."),
         }
 
     # ------------------------------------------------------ reconciliation
@@ -378,8 +402,13 @@ class ERPControlService:
             if first:
                 starts.append(_utc(first))
         # Split by what reaches ERP: opening counts dominate the ledger, so a
-        # single row total would read as hundreds of movements.
-        movement_rows = sum(by_type.get(t, 0) for t in ERP_MOVEMENT_TYPES)
+        # single row total would read as hundreds of movements. Receipts that
+        # came in through ERP's own GRN are not movements the app sends.
+        erp_origin = (db.session.query(func.count(SpareStockLedger.id))
+                      .join(Part, Part.id == SpareStockLedger.part_id)
+                      .filter(Part.store_code == store_code, erp_origin_receipt())
+                      .scalar() or 0)
+        movement_rows = sum(by_type.get(t, 0) for t in ERP_MOVEMENT_TYPES) - erp_origin
         return [
             {
                 "key": "erp", "label": "ERP data",
@@ -392,10 +421,12 @@ class ERPControlService:
                 "what": ("Issues, receipts and returns recorded in this app, plus the opening counts "
                          "and count adjustments (the spare stock ledger)."),
                 "trust": ("Only issues, receipts and returns are queued for ERP, and they reach it only "
-                          "once write-back is switched on. Opening counts and adjustments stay in the app."),
+                          "once write-back is switched on. Opening counts and adjustments stay in the app; "
+                          "quality-cleared receipts and RGP GRNs are already in ERP through the GRN."),
                 "ledger_started_at": _iso(min(starts)) if starts else None,
                 "ledger_rows": sum(by_type.values()),
                 "movement_rows": movement_rows,
+                "erp_origin_rows": erp_origin,
                 "opening_rows": by_type.get("OPENING", 0),
                 "adjustment_rows": by_type.get("ADJUSTMENT", 0),
                 "rows_by_type": by_type,

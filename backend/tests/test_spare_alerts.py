@@ -21,6 +21,7 @@ import pytest
 from app.extensions import db
 from app.models.erp_stock import ERPStock
 from app.models.part import Part
+from app.models.spare_flow import SpareReceipt, SpareReturn, SpareRgp
 from app.models.spare_stock import SpareStock, SpareStockLedger
 from app.models.srv import SRV
 from app.models.store import Section, Store
@@ -164,6 +165,7 @@ ROUTE_MODULE = {
     "/store-stock-spare": "store_stock", "/inventory-control": "store_stock",
     "/scan-part": "scan_part", "/erp-control": "erp_gap",
     "/data-quality": "part_master", "/receiving": "spare_store",
+    "/work-queue": "scan_part",
 }
 
 
@@ -221,12 +223,14 @@ def test_state_alerts_stale_snapshot_and_sync_error(store, monkeypatch):
     assert "3 days" in st["title"]
 
 
-def test_other_counts_reorder_never_counted_missing_max_srv(store):
+def test_other_counts_reorder_never_counted_missing_max(store):
     s, sec = store
     ro = _part(s, sec, "R", 6, mn=2, mx=12, ro=6, rate=5)          # Reorder
     _part(s, sec, "N", None, mn=1, mx=3, rate=2)                   # Not Counted
     _part(s, sec, "M", 5, mn=2, mx=None, rate=2)                   # no max
     _issue(ro, status="ISSUED_BY_STORE", age_hours=5)             # also in the Scan Part queue
+    # Spec 1: a spare has no separate SRV step, so SRV records no longer raise
+    # a spare alert — receipts do (next test).
     for status in ("PENDING_UNLOAD", "VERIFIED", "FORWARDED_TOOL_ROOM"):
         db.session.add(SRV(vendor_code="V1", supplier_name="Sup", part_id=ro.id, part_no=ro.part_no,
                            part_name=ro.part_name, qty_invoiced=1, status=status))
@@ -238,11 +242,100 @@ def test_other_counts_reorder_never_counted_missing_max_srv(store):
     assert a["never_counted"]["severity"] == "info" and a["never_counted"]["count"] == 1
     assert a["never_counted"]["action"]["to"] == "/store-stock-spare?status=Not%20Counted"
     assert a["missing_max"]["severity"] == "info" and a["missing_max"]["count"] == 1
-    srv = a["srv_pending"]
-    assert (srv["severity"], srv["count"], srv["awaiting_srv"], srv["awaiting_clearance"]) == ("warning", 3, 2, 1)
-    assert srv["action"]["to"] == "/receiving?tab=srv" and srv["action"]["module"] == "spare_store"
+    assert "srv_pending" not in a and "receipts_pending" not in a
     assert a["confirm_pending"]["count"] == 1 and "waiting 5 h" in a[next(k for k in a if k.startswith("confirm_pending:"))]["message"]
     assert "zero_stock" not in a and "below_min" not in a and "excess" not in a
+
+
+def _doc_no(prefix):
+    # Outside the RCV-/RET-/RGP- date series the services number from.
+    return f"{prefix}-ALRT-{_next()}"
+
+
+def test_receipt_return_and_rgp_alerts(store):
+    s, sec = store
+    p = _part(s, sec, "Q", 5, mn=2, mx=10, rate=1)
+    issue = _issue(p, status="INSTALLED", age_hours=200)
+    today = datetime.now().date()
+
+    def receipt(status, age_hours, qty=2):
+        db.session.add(SpareReceipt(receipt_no=_doc_no("RCV"), part_id=p.id, store_code=s.code, status=status,
+                                    qty_received=qty, created_at=_now() - timedelta(hours=age_hours)))
+
+    receipt("RECEIVED", 72)
+    receipt("RECEIVED", 5)
+    receipt("QUALITY_PENDING", 30)
+    receipt("STOCK_AVAILABLE", 300)          # done: not pending
+    receipt("CANCELLED", 400)                # taken back: not pending
+
+    def ret(pending=0, hold=0, damaged=0, status="INSPECTION_PENDING", age_hours=10):
+        r = SpareReturn(return_no=_doc_no("RET"), part_id=p.id, store_code=s.code, issue_id=issue.id,
+                        status=status, qty=pending + hold + damaged, qty_pending=pending, qty_hold=hold,
+                        qty_damaged=damaged, created_at=_now() - timedelta(hours=age_hours))
+        db.session.add(r)
+        db.session.flush()
+        return r
+
+    src = ret(pending=2, age_hours=50)
+    ret(hold=1, status="RETURN_HOLD")
+    ret(damaged=1, status="DAMAGED")
+
+    def rgp(out, back=0, grn=0, status="WITH_SUPPLIER", due=None, back_hours=None):
+        db.session.add(SpareRgp(
+            rgp_no=_doc_no("RGP"), part_id=p.id, store_code=s.code, source_return_id=src.id,
+            status=status, ven_name="ABC Engineering", qty_out=out, qty_returned=back, qty_grn=grn,
+            rework_reason="Regrind", rgp_date=today - timedelta(days=20), expected_return_date=due,
+            supplier_returned_at=(_now() - timedelta(hours=back_hours)) if back_hours else None))
+
+    rgp(2, due=today - timedelta(days=5))                    # overdue
+    rgp(1, due=today - timedelta(days=1))                    # overdue
+    rgp(1, due=today + timedelta(days=3))                    # at the supplier, not due yet
+    rgp(1)                                                   # no expected date: never "overdue"
+    rgp(1, back=1, status="RGP_GRN_PENDING", due=today - timedelta(days=9), back_hours=26)   # back, GRN pending
+    rgp(3, status="CANCELLED", due=today - timedelta(days=30))                              # cancelled
+    rgp(1, back=1, grn=1, status="CLOSED", due=today - timedelta(days=30))                  # closed
+    db.session.commit()
+
+    res = SpareAlertsService().alerts(s.code)
+    a = _by_id(res)
+    work_queue = {"label": "Open Work Queue", "to": "/work-queue", "module": "scan_part"}
+
+    rc = a["receipts_pending"]
+    assert (rc["severity"], rc["count"], rc["awaiting_grn"], rc["quality_pending"]) == ("warning", 3, 2, 1)
+    assert "2 waiting for the ERP GRN" in rc["message"] and "1 with Maintenance / Tool Room" in rc["message"]
+    assert "Oldest received 3 days ago" in rc["message"] and rc["at"].endswith("+00:00")
+    assert rc["action"] == work_queue and "ERP updated" not in rc["message"]
+
+    rt = a["returns_inspection"]
+    assert (rt["severity"], rt["count"], rt["inspection"], rt["hold"]) == ("warning", 1, 1, 1)
+    assert "2 returned by departments" in rt["message"] and "Oldest returned 2 days ago" in rt["message"]
+    assert "1 more return on hold" in rt["message"] and rt["action"] == work_queue
+
+    od = a["rgp_overdue"]
+    assert (od["severity"], od["count"], od["oldest_due"]) == ("warning", 2, (today - timedelta(days=5)).isoformat())
+    assert "Oldest was due 5 days ago" in od["message"] and od["action"] == work_queue
+
+    gp = a["rgp_grn_pending"]
+    assert (gp["severity"], gp["count"]) == ("warning", 1)
+    assert "returned 1 after rework" in gp["message"] and "Oldest waiting 26 h" in gp["message"]
+    assert gp["action"] == work_queue
+
+    # Headlines only, each once.
+    heads = [x["id"] for x in res["alerts"] if x["parent"] is None]
+    for key in ("receipts_pending", "returns_inspection", "rgp_overdue", "rgp_grn_pending"):
+        assert heads.count(key) == 1
+
+
+def test_return_hold_alone_still_alerts(store):
+    s, sec = store
+    p = _part(s, sec, "H", 5, mn=2, mx=10, rate=1)
+    issue = _issue(p, status="INSTALLED", age_hours=20)
+    db.session.add(SpareReturn(return_no=_doc_no("RET"), part_id=p.id, store_code=s.code, issue_id=issue.id,
+                               status="RETURN_HOLD", qty=2, qty_hold=2))
+    db.session.commit()
+    rt = _by_id(SpareAlertsService().alerts(s.code))["returns_inspection"]
+    assert (rt["count"], rt["inspection"], rt["hold"], rt["at"]) == (1, 0, 1, None)
+    assert rt["title"] == "1 return on hold — inspection required"
 
 
 def test_per_item_alerts_are_capped(store):

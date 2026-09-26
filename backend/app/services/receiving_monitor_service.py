@@ -1,19 +1,27 @@
 """Receiving & GRN monitor for a store's parts — what came in, per source.
 
-Four sources, kept apart on purpose because each one means something different:
+Five sources, kept apart on purpose because each one means something different:
 
+    Receipt flow     spare_receipts (spec 1 / 9): material received in the
+                     store, the supervisor's ERP GRN recorded against it, the
+                     Maintenance / Tool Room quality clearance. ONE business
+                     flow — RECEIVED -> GRN CREATED -> QUALITY PENDING ->
+                     QUALITY CLEARED -> STOCK AVAILABLE; there is no separate
+                     SRV step for a spare.
     ERP GRN lines    receiving_register, the mirror of ERP srv_report: ERP's own
                      record that goods were received against a GRN.
-    Store receipts   RECEIPT rows in the spare ledger: the store booked stock onto
-                     its shelf in this app (check result, invoice, who, when).
+    Store receipts   RECEIPT rows in the spare ledger: stock that became
+                     available in this app — a quality-cleared receipt or an RGP
+                     GRN (both ERP-origin), or a direct receipt of the earlier flow.
     SRV pipeline     the app's SRV records (the ERP-inbound flow) for these
                      parts, mapped onto the monitor's six statuses through
                      SRV_STATUS_MAP — a status with no honest equivalent is
-                     shown under its own name, never forced into one.
+                     shown under its own name, never forced into one. For a
+                     spare this is ERP's side of the same GRN step.
     At the gate      ERP gate entries for these parts with no GRN line and no
-                     store receipt on or after the arrival date. A possible
-                     pending, not a finding of loss: the GRN mirror may simply
-                     not reach that date yet (flagged per row).
+                     receipt on or after the arrival date. A possible pending,
+                     not a finding of loss: the GRN mirror may simply not reach
+                     that date yet (flagged per row).
 
 Matching is part_no = ERP item code, trimmed and case-insensitive. Both ERP
 mirrors carry store_code CHILD_PART on every row, so the store is decided by
@@ -24,15 +32,18 @@ from collections import Counter
 from datetime import datetime, time, timedelta, timezone
 
 from sqlalchemy import func, or_
+from sqlalchemy.orm import joinedload
 
 from app.extensions import db
 from app.models.gate_entry import GateEntry
 from app.models.part import Part
 from app.models.receiving_register import ReceivingRegister
-from app.models.spare_stock import SpareStockLedger
+from app.models.spare_flow import RECEIPT_OPEN, SpareReceipt
+from app.models.spare_stock import ERP_ORIGIN_RECEIPT_STATUSES, SpareStockLedger
 from app.models.srv import SRV, STATUSES as SRV_STATUSES
 from app.models.store import Section, Store
 from app.models.supplier import Supplier
+from app.services.spare_receipt_service import SpareReceiptService
 from app.services.spare_stock_service import SpareStockService
 from app.utils.exceptions import BadRequestError
 
@@ -104,12 +115,16 @@ OPEN_SRV_STATUSES = (
     "INSPECTION_PENDING", "FORWARDED_TOOL_ROOM",
 )
 
-# A store receipt's status as recorded when it was booked. No step in the app
-# moves a receipt on from its first status yet, so none of these is read as
-# "still pending" — it is shown as recorded.
+# A store receipt's (RECEIPT ledger row's) status as recorded when it was
+# written. The first two are the only ones written now, both at the END of a
+# flow (the stock is available); the rest belong to the earlier direct receive,
+# which never moved a row on from its first status — so none of these is read
+# as "still pending", it is shown as recorded.
 RECEIPT_STATUS_LABELS = {
+    "STOCK_AVAILABLE": "Quality cleared — in stock",
+    "RGP_GRN": "RGP GRN — rework back in stock",
     "PHYSICALLY_RECEIVED": "Physically received",
-    "PENDING_SRV_GRN": "Pending SRV / GRN",
+    "PENDING_SRV_GRN": "Pending GRN",
     "PENDING_DEPARTMENT_CLEARANCE": "Pending department clearance",
     "ERP_STOCK_UPDATED": "ERP stock updated (store's entry)",
     "IMMEDIATELY_ISSUED": "Issued on arrival",
@@ -120,6 +135,23 @@ RECEIPT_STATUS_LABELS = {
 CHECK_ISSUES = ("SHORT", "EXCESS", "DAMAGED")
 
 GATE_NOTE = "Arrived at gate, no receipt recorded yet"
+
+# Spec 9's receiving status flow, in order. Each step's `count` is the receipts
+# of the window that have REACHED it (a funnel); `waiting` is how many are
+# stopped there now — only RECEIVED and QUALITY_PENDING can hold a receipt,
+# the other three are passed in the same action that reaches them.
+FLOW_STEPS = (
+    ("RECEIVED", "Received",
+     "Recorded by the store on arrival (Part No + quantity + invoice checked) — not stock yet"),
+    ("GRN_CREATED", "GRN created",
+     "The supervisor's ERP GRN, recorded here with its number — the app does not write ERP"),
+    ("QUALITY_PENDING", "Quality pending",
+     "Recording the GRN hands the material to Maintenance / Tool Room for inspection"),
+    ("QUALITY_CLEARED", "Quality cleared",
+     "Inspection passed some or all of the quantity; a fully rejected receipt stops before this"),
+    ("STOCK_AVAILABLE", "Stock available",
+     "The clearance adds the accepted quantity to available stock in the same step"),
+)
 
 
 def _key(code):
@@ -183,13 +215,15 @@ class ReceivingMonitorService:
         grn = self._grn_lines(ctx, since)
         receipts = self._store_receipts(ctx, store_code, since_utc)
         srv = self._srv_pipeline(ctx, store_code, since_utc)
+        flow = self._flow(ctx, store_code, since_utc)
         gate, spare_gate_lines = self._gate_not_received(
-            ctx, since, grn, receipts, sources["grn_mirror"]["latest_date"])
+            ctx, since, grn, receipts, sources["grn_mirror"]["latest_date"], flow["receipts"])
 
         return {
             "store_code": store_code,
             "window": {"days": days, "from": since.isoformat(), "to": today.isoformat()},
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "flow": flow,
             "summary": self._summary(grn, receipts, srv, gate, spare_gate_lines),
             "grn": grn,
             "store_receipts": receipts,
@@ -203,7 +237,7 @@ class ReceivingMonitorService:
             ],
             "pipeline_statuses": list(PIPELINE_STATUSES),
             "pipeline_not_countable": _uncountable_statuses(),
-            "steps": self._steps(grn, receipts, srv, spare_gate_lines),
+            "steps": self._steps(grn, receipts, srv, spare_gate_lines, flow["receipts"]),
             "sources": sources,
         }
 
@@ -301,6 +335,9 @@ class ReceivingMonitorService:
                 "department": r.department,
                 "received_by": r.created_by,
                 "erp_pushed_at": _iso_utc(r.erp_pushed_at),
+                # The stock-in already happened in ERP (the supervisor's GRN /
+                # RGP GRN), so this row is never pushed and never "not in ERP".
+                "erp_origin": r.status in ERP_ORIGIN_RECEIPT_STATUSES,
                 "section_id": r.section_id, "section": ctx["sections"].get(r.section_id),
                 "age_days": age,
             })
@@ -332,20 +369,76 @@ class ReceivingMonitorService:
             })
         return out
 
-    def _gate_not_received(self, ctx, since, grn, receipts, grn_latest):
-        """Gate arrivals of the store's parts with no GRN line and no store
-        receipt dated on or after the arrival. Returns (rows, spare lines seen)."""
+    def _flow(self, ctx, store_code, since_utc):
+        """Spec 9's receiving status flow over the store's receipts: those
+        received in the window, plus any still open however old (an open
+        receipt is waiting on someone, like an open SRV line). Cancelled
+        receipts are listed but never counted into a step — they were taken
+        back, not received."""
+        q = (SpareReceipt.query
+             .options(joinedload(SpareReceipt.part), joinedload(SpareReceipt.supplier))
+             .join(Part, Part.id == SpareReceipt.part_id)
+             .filter(Part.store_code == store_code,
+                     or_(SpareReceipt.created_at >= since_utc, SpareReceipt.status.in_(RECEIPT_OPEN)))
+             .order_by(SpareReceipt.created_at.desc(), SpareReceipt.id.desc()))
+        rows = []
+        for r in q:
+            d = SpareReceiptService.to_dict(r)
+            local_day, _ = self._ts_age(ctx, r.created_at)
+            d["received_day"] = local_day.isoformat() if local_day else None
+            d["section_id"] = r.part.section_id if r.part else None
+            d["section"] = ctx["sections"].get(d["section_id"])
+            rows.append(d)
+
+        live = [r for r in rows if r["status"] != "CANCELLED"]
+        with_grn = [r for r in live if r["grn_no"]]
+        cleared = [r for r in live if r["status"] == "STOCK_AVAILABLE"]
+
+        def total(rs, key):
+            return round(sum(r[key] or 0 for r in rs), 2)
+
+        reached = {
+            "RECEIVED": (live, total(live, "qty_received"),
+                         sum(1 for r in live if r["status"] == "RECEIVED")),
+            "GRN_CREATED": (with_grn, total(with_grn, "qty_received"), None),
+            "QUALITY_PENDING": (with_grn, total(with_grn, "qty_received"),
+                                sum(1 for r in live if r["status"] == "QUALITY_PENDING")),
+            "QUALITY_CLEARED": (cleared, total(cleared, "qty_accepted"), None),
+            "STOCK_AVAILABLE": (cleared, total(cleared, "qty_accepted"), None),
+        }
+        steps = []
+        for key, label, note in FLOW_STEPS:
+            rs, qty, waiting = reached[key]
+            steps.append({"key": key, "label": label, "count": len(rs), "qty": qty,
+                          "waiting": waiting, "note": note})
+        return {
+            "steps": steps,
+            "receipts": rows,
+            "open": sum(1 for r in live if r["status"] in RECEIPT_OPEN),
+            "rejected": sum(1 for r in live if r["status"] == "REJECTED"),
+            "rejected_qty": total(live, "qty_rejected"),
+            "cancelled": len(rows) - len(live),
+            "basis": ("Receipts recorded in the window plus any still open. count = receipts that reached "
+                      "the step; waiting = receipts stopped there now."),
+        }
+
+    def _gate_not_received(self, ctx, since, grn, receipts, grn_latest, flow_receipts=()):
+        """Gate arrivals of the store's parts with no GRN line and no receipt
+        (a ledger RECEIPT row, or a receipt recorded in the receiving flow and
+        not cancelled) dated on or after the arrival. Returns (rows, spare lines
+        seen)."""
         parts, sections, today = ctx["parts"], ctx["sections"], ctx["today"]
 
         # Latest GRN / receipt day per part — anything on or after an arrival
-        # covers it. Both lists are already the window's, and an arrival inside
-        # the window can only be covered by something inside it too.
+        # covers it. All lists are already the window's (open receipts older
+        # than the window cannot cover an arrival inside it anyway).
         last_grn, last_receipt = {}, {}
         for g in grn:
             d = g["grn_date"]
             if d and d > last_grn.get(g["part_id"], ""):
                 last_grn[g["part_id"]] = d
-        for r in receipts:
+        received = list(receipts) + [r for r in flow_receipts if r["status"] != "CANCELLED"]
+        for r in received:
             d = r["received_day"]
             if d and d > last_receipt.get(r["part_id"], ""):
                 last_receipt[r["part_id"]] = d
@@ -461,7 +554,10 @@ class ReceivingMonitorService:
                 "parts": len({r["part_id"] for r in receipts}),
                 "check_recorded": sum(1 for r in receipts if r["check_result"]),
                 "check_issues": sum(1 for r in receipts if r["check_result"] in CHECK_ISSUES),
-                "not_in_erp": sum(1 for r in receipts if not r["erp_pushed_at"]),
+                # A quality-cleared receipt / RGP GRN came in THROUGH ERP (the
+                # GRN), so it is not a movement ERP is missing.
+                "not_in_erp": sum(1 for r in receipts if not r["erp_pushed_at"] and not r["erp_origin"]),
+                "erp_origin": sum(1 for r in receipts if r["erp_origin"]),
                 "aging": _aging(r["age_days"] for r in receipts),
                 "aging_basis": "Days since the store booked the receipt",
             },
@@ -486,18 +582,30 @@ class ReceivingMonitorService:
         }
 
     @staticmethod
-    def _steps(grn, receipts, srv, spare_gate_lines):
+    def _steps(grn, receipts, srv, spare_gate_lines, flow_receipts=()):
         """The receiving workflow, step by step, with what the app can actually
         hold for each: tracked (a real source feeds it), partial (only some of
         the step is recorded) or not_tracked (nothing in the app writes it).
         `count` is the rows behind the step in this window — None when there is
-        no source to count."""
+        no source to count.
+
+        Keys are kept for the screens that read them; the labels follow spec 1
+        (no separate SRV step for a spare: the SRV records ERP pushes are its
+        side of the same GRN step)."""
         write = SpareStockService.erp_write_status()
         by_status = Counter(r["status"] for r in receipts)
         pushed = sum(1 for r in receipts if r["erp_pushed_at"])
-        # No flow writes these today (Tool Room SRVs are unreachable, and no
-        # receipt is ever moved past its first status), so each step is
-        # not_tracked unless rows really are there — then it shows them.
+        # The receiving flow's receipts carry the physical check and invoice
+        # from the moment they are received. Their clearance later copies both
+        # onto an ERP-origin ledger row, so only the older direct receipts are
+        # counted from the ledger — the same receipt is never counted twice.
+        live = [r for r in flow_receipts if r["status"] != "CANCELLED"]
+        direct = [r for r in receipts if not r.get("erp_origin")]
+        checked = sum(1 for r in live + direct if r["check_result"])
+        invoiced = sum(1 for r in live + direct if r["invoice_no"])
+        decided = sum(1 for r in live if r["status"] in ("STOCK_AVAILABLE", "REJECTED"))
+        # Tool Room SRVs are unreachable by the current SRV flow; shown only if
+        # rows really are there.
         engineer = sum(1 for s in srv if s["pipeline_status"] == "Engineer Pending")
         placed = by_status["MOVED_TO_STORE_LOCATION"]
         # The app can only record its own pushes, and only while the write path is on.
@@ -507,29 +615,33 @@ class ReceivingMonitorService:
              "source": "ERP gate entries", "count": spare_gate_lines,
              "note": "Arrivals of these parts at the plant gate"},
             {"key": "physical_check", "label": "Physical check", "state": "partial",
-             "source": "Check result on store receipts",
-             "count": sum(1 for r in receipts if r["check_result"]),
-             "note": "OK / Short / Excess / Damaged, only when the store books the receipt in this app"},
+             "source": "Check result on receipts",
+             "count": checked,
+             "note": "OK / Short / Excess / Damaged, recorded when the store receives the material in this app"},
             {"key": "invoice_verification", "label": "Invoice verification", "state": "partial",
-             "source": "Invoice no. on store receipts",
-             "count": sum(1 for r in receipts if r["invoice_no"]),
+             "source": "Invoice no. on receipts",
+             "count": invoiced,
              "note": "The invoice number is captured; no verification outcome is recorded"},
-            {"key": "srv_grn", "label": "SRV / GRN", "state": "tracked",
-             "source": "ERP GRN lines + app SRV records", "count": len(grn) + len(srv),
-             "note": "ERP's GRN register (mirrored) and SRVs pushed in by ERP"},
-            {"key": "engineer_verification", "label": "Engineer verification",
-             "state": "partial" if engineer else "not_tracked",
-             "source": "SRV Tool Room clearance" if engineer else "No source in the app",
-             "count": engineer or None,
-             "note": "No engineer sign-off is recorded for spares: a store receipt has no clearance step, "
-                     "and the SRV Tool Room path is never entered by the current flow"},
+            {"key": "srv_grn", "label": "GRN", "state": "tracked",
+             "source": "ERP GRN lines + ERP-pushed SRV records", "count": len(grn) + len(srv),
+             "note": ("ERP's GRN register (mirrored) and the SRV records ERP pushes — one GRN step, not a "
+                      "separate SRV step. The GRN no. the supervisor records on a receipt is the same GRN "
+                      "and is not counted again")},
+            {"key": "engineer_verification", "label": "Quality clearance (Maintenance / Tool Room)",
+             "state": "tracked",
+             "source": "Quality clearance on receipts" + (" + SRV Tool Room clearance" if engineer else ""),
+             "count": decided + engineer,
+             "note": ("Recorded in this app after Maintenance / Tool Room inspect the material: the accepted "
+                      "quantity becomes available stock, the rejected quantity never does")},
             {"key": "erp_update", "label": "ERP update", "state": "partial" if erp_seen else "not_tracked",
              "source": "App-to-ERP push of store receipts" if erp_seen else "No source in the app",
              "count": pushed if erp_seen else None,
-             "note": write["reason"]},
+             "note": (write["reason"] + ". Quality-cleared receipts are never pushed: their stock-in "
+                      "happened in ERP through the GRN")},
             {"key": "store_stock", "label": "Store stock", "state": "tracked",
-             "source": "Store receipts (add to on-hand)", "count": len(receipts),
-             "note": "A receipt booked in this app raises the part's on-hand quantity"},
+             "source": "Store receipts (add to available stock)", "count": len(receipts),
+             "note": ("A quality-cleared receipt (or an RGP GRN) adds its accepted quantity to available "
+                      "stock; a receipt still waiting for the GRN or quality does not")},
             {"key": "rack_placement", "label": "Rack placement",
              "state": "partial" if placed else "not_tracked",
              "source": "Receipt status 'Moved to store location'" if placed else "No source in the app",

@@ -2,13 +2,14 @@
 
 Nothing here is stored, acknowledged or invented. Every alert is a reading of
 rows that exist right now (the stock list, the issue-confirmation queue, the
-SRV flow, the ERP snapshot), so an alert goes away the moment the thing it
-reports is fixed. A type with nothing to report is left out rather than listed
-at zero: "0 parts out of stock" in a bell is noise. The exceptions are the two
-ERP states, which are conditions of the feed rather than counts of parts.
+receipt / return / RGP documents, the ERP snapshot), so an alert goes away the
+moment the thing it reports is fixed. A type with nothing to report is left out
+rather than listed at zero: "0 parts out of stock" in a bell is noise. The
+exceptions are the two ERP states, which are conditions of the feed rather than
+counts of parts.
 
-The stock and ERP figures come from SpareDashboardService.overview, so the
-bell, this screen and the dashboard's attention board cannot disagree.
+The stock, document and ERP figures come from SpareDashboardService.overview,
+so the bell, this screen and the dashboard's attention board cannot disagree.
 
 An alert is a headline; the per-part / per-issue lines listed under one (their
 `parent` names it) are its detail. The summary, and so the bell's badge, counts
@@ -30,7 +31,6 @@ from app.models.part import Part
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Store
 from app.services.spare_dashboard_service import STALE_AFTER_HOURS, SpareDashboardService
-from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_stock_service import SpareStockService
 from app.utils.exceptions import BadRequestError, NotFoundError
 
@@ -68,6 +68,12 @@ def _stock_list(status):
 
 def _erp_control():
     return _go("Open ERP Control", "/erp-control", "erp_gap")
+
+
+def _work_queue():
+    # Receipts, returns and RGPs are worked from the Work Queue (the Scan Part
+    # right), which deep-links each document into Scan Part.
+    return _go("Open Work Queue", "/work-queue", "scan_part")
 
 
 def _naive_utc(value):
@@ -154,7 +160,6 @@ class SpareAlertsService:
     def __init__(self):
         self.dashboard = SpareDashboardService()
         self.stock = SpareStockService()
-        self.flow = SpareFlowService()
 
     def alerts(self, store_code):
         store = Store.query.filter_by(code=store_code).first()
@@ -174,7 +179,10 @@ class SpareAlertsService:
         out += self._confirmations(store_code, now)
         out += self._reorder(att["reorder"])
         out += self._excess(store_code, att["excess"])
-        out += self._srv(store_code)
+        out += self._receipts(ov["receiving_pending"], now)
+        out += self._returns(ov["returns_pending"], now)
+        out += self._rgp_overdue(ov["rgp"])
+        out += self._rgp_grn(ov["rgp"], now)
         out += self._erp_snapshot(ov["erp"]["stock_snapshot"], now)
         out += self._erp_queue(store_code, ov["erp"]["write"], now)
         out += self._never_counted(att["never_counted"])
@@ -372,22 +380,89 @@ class SpareAlertsService:
             ))
         return out
 
-    def _srv(self, store_code):
-        pend = self.flow.pending_summary(store_code)
-        n = pend["total"]
+    # ------------------------------------------------ held, not issuable
+    #
+    # Spec 1: a spare has no separate SRV step — receiving is one flow
+    # (received -> ERP GRN -> quality -> stock), read from spare_receipts. The
+    # returns and RGP alerts read spare_returns / spare_rgps the same way. All
+    # four quote the overview's blocks, so the bell and the dashboard agree.
+
+    @staticmethod
+    def _receipts(rp, now):
+        n = rp["total"]
         if not n:
             return []
         parts = []
-        if pend["awaiting_srv"]:
-            parts.append(f"{pend['awaiting_srv']:,} arrived and waiting for an SRV / GRN")
-        if pend["awaiting_clearance"]:
-            parts.append(f"{pend['awaiting_clearance']:,} with an engineer for clearance")
+        if rp["awaiting_grn"]:
+            parts.append(f"{rp['awaiting_grn']:,} waiting for the ERP GRN")
+        if rp["quality_pending"]:
+            parts.append(f"{rp['quality_pending']:,} with Maintenance / Tool Room for quality")
+        hours = _hours_since(rp["oldest_at"], now)
+        msg = "; ".join(parts) + ". Not issuable until quality clears them."
+        if hours is not None:
+            msg += f" Oldest received {_age(hours)} ago."
         return [_alert(
-            "srv_pending", "warning", "srv_pending",
-            f"{_count(n, 'SRV line')} pending",
-            "; ".join(parts) + ".", n,
-            awaiting_srv=pend["awaiting_srv"], awaiting_clearance=pend["awaiting_clearance"],
-            action=_go("Open SRV pipeline", "/receiving?tab=srv", "spare_store"),
+            "receipts_pending", "warning", "receipts_pending",
+            f"{_count(n, 'receipt')} awaiting GRN / quality", msg, n,
+            at=_iso(rp["oldest_at"]), age_hours=hours,
+            awaiting_grn=rp["awaiting_grn"], quality_pending=rp["quality_pending"],
+            action=_work_queue(),
+        )]
+
+    @staticmethod
+    def _returns(ret, now):
+        n, hold = ret["inspection"], ret["hold"]
+        if not (n or hold):
+            return []
+        hours = _hours_since(ret["oldest_inspection_at"], now)
+        if n:
+            title = f"{_count(n, 'return')} awaiting inspection"
+            msg = (f"{_qty(ret['qty']['inspection'])} returned by departments and not inspected yet — "
+                   "not available until the store inspects it.")
+            if hours is not None:
+                msg += f" Oldest returned {_age(hours)} ago."
+            if hold:
+                msg += f" {_count(hold, 'more return')} on hold (inspection required)."
+        else:
+            title = f"{_count(hold, 'return')} on hold — inspection required"
+            msg = (f"{_qty(ret['qty']['hold'])} inspected as needing a closer look; "
+                   "decide good, damaged or scrap.")
+        return [_alert(
+            "returns_inspection", "warning", "returns_inspection", title, msg, n or hold,
+            at=_iso(ret["oldest_inspection_at"]) if n else None, age_hours=hours if n else None,
+            inspection=n, hold=hold, action=_work_queue(),
+        )]
+
+    @staticmethod
+    def _rgp_overdue(rgp):
+        n = rgp["overdue"]
+        if not n:
+            return []
+        msg = "Still with the supplier for rework past the expected return date."
+        due = rgp["oldest_overdue_date"]
+        if due:
+            late = (datetime.now().date() - datetime.fromisoformat(due).date()).days
+            msg += f" Oldest was due {_count(late, 'day')} ago ({due})."
+        return [_alert(
+            "rgp_overdue", "warning", "rgp_overdue",
+            f"{_count(n, 'RGP')} overdue at the supplier", msg, n,
+            oldest_due=due, action=_work_queue(),
+        )]
+
+    @staticmethod
+    def _rgp_grn(rgp, now):
+        n = rgp["grn_pending"]
+        if not n:
+            return []
+        hours = _hours_since(rgp["oldest_grn_pending_at"], now)
+        msg = (f"The supplier returned {_qty(rgp['qty']['grn_pending'])} after rework; until the RGP GRN "
+               "is recorded it is not available stock.")
+        if hours is not None:
+            msg += f" Oldest waiting {_age(hours)}."
+        return [_alert(
+            "rgp_grn_pending", "warning", "rgp_grn_pending",
+            f"{_count(n, 'RGP')} waiting for the RGP GRN", msg, n,
+            at=_iso(rgp["oldest_grn_pending_at"]), age_hours=hours, action=_work_queue(),
         )]
 
     # -------------------------------------------------------------------- ERP
