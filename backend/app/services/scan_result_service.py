@@ -17,7 +17,9 @@ action and the guided one whenever there is stock to issue. Receiving, the GRN
 and the quality clearance are done in ERP and only READ here
 (ErpGrnPostingService.lines): the part's GRN lines, what quality still holds and
 what was added to stock, each carrying the mirror's freshness. The app records
-no receipt by hand any more.
+no receipt by hand any more. The part's barcodes (internal QR + mapped supplier
+codes) and the label count its newest ERP GRN suggests ride along, so Scan Part
+also covers supplier-barcode mapping and receive-and-label.
 
 Honest by construction: a bucket no document feeds is 0, an unknown is None,
 and a step the supervisor RECORDED here (the RGP GRN) is worded as recorded —
@@ -43,6 +45,7 @@ from app.models.spare_stock import (
 from app.models.store import Section
 from app.repositories.part_repository import PartRepository
 from app.repositories.spare_stock_repository import SpareStockRepository
+from app.services.barcode_service import BarcodeService
 from app.services.erp_grn_posting_service import STATUS as ERP_GRN_STATUS, ErpGrnPostingService
 from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_stock_service import SpareStockService
@@ -95,11 +98,12 @@ ERP_POSTED_SHOWN = 5
 # cleared yet, and lines whose ERP figures no longer match what was added.
 ERP_QUEUE_STATES = ("QUALITY_PENDING", "CHECK")
 
-# Every key an open-issue row carries in the payload (contract shape).
+# Every key an open-issue row carries in the payload (contract shape). The
+# taker's mobile is for the Scan Part card; the timeline never prints it.
 ISSUE_FIELDS = (
     "id", "issued_at", "issued_qty", "returned_qty", "outstanding_qty", "actual_qty",
-    "department", "issued_to", "line_name", "line_no", "machine", "die_no", "status",
-    "confirmed_at", "confirmed_by", "reference", "issued_by",
+    "department", "issued_to", "issued_to_mobile", "issued_to_code", "line_name", "line_no",
+    "machine", "die_no", "status", "confirmed_at", "confirmed_by", "reference", "issued_by",
 )
 
 TIMELINE_KEYS = (
@@ -208,6 +212,15 @@ def _still(waiting, qty, what):
     return f"Waiting for {what}"
 
 
+def _handed_to(name, code=None):
+    """ "Handed to Ravi Kumar (E1001)" — who took an issue, with the employee
+    code when the Employee master gave one. Never the mobile number: the
+    timeline is read far more widely than the counter screen."""
+    if not name:
+        return None
+    return f"Handed to {name} ({code})" if code else f"Handed to {name}"
+
+
 def _where(line_name=None, line_no=None, machine=None, die_no=None):
     """ "Line 03 / Press 07 / Die-12" — where an issue was recorded as fitted."""
     if line_name and line_no:
@@ -254,6 +267,7 @@ class ScanResultService:
         self.stock = SpareStockService()
         self.flow = SpareFlowService()
         self.erp_grn = ErpGrnPostingService()
+        self.barcode = BarcodeService()
         self.parts = PartRepository()
         self.stock_repo = SpareStockRepository()
 
@@ -472,6 +486,48 @@ class ScanResultService:
                 and printed_loc.strip() != (part.location or "").strip()),
         }
 
+    def _barcodes(self, part):
+        """Every code that reaches this part — the internal QR first, then the
+        supplier barcodes mapped to it (BarcodeService.list_part_barcodes
+        shape), so Scan Part shows and manages them without a separate screen.
+
+        The internal row is allocated on the first label print. Before that the
+        part's internal code is still its Part No. (the QR payload, and what a
+        scan resolves), so it is listed as such with id / created_at None —
+        "no label printed yet", never a made-up allocation."""
+        rows = self.barcode.list_part_barcodes(part.id)
+        # The repository puts the primary first; a supplier code must never
+        # lead even if one was flagged primary. Stable, so the rest keep order.
+        rows.sort(key=lambda b: b["source"] != "INTERNAL")
+        if not any(b["source"] == "INTERNAL" for b in rows):
+            rows.insert(0, {
+                "id": None, "code": part.part_no,
+                "symbology": self.barcode.label_config()["symbology"], "source": "INTERNAL",
+                "supplier_id": None, "supplier_name": None, "is_primary": True,
+                "is_active": True, "created_by": None, "created_at": None,
+            })
+        return rows
+
+    @staticmethod
+    def _label_qty_hint(erp_lines):
+        """How many internal QR labels the newest delivery needs, from the
+        part's newest ERP GRN line (`erp_lines` is newest GRN first): the qty
+        quality accepted when ERP has it, else the qty received. A GRN rejected
+        outright is skipped — it brought nothing to label. None when ERP has no
+        GRN for the part: the operator picks the count. Only a suggestion; a
+        label print never adds stock."""
+        for ln in erp_lines:
+            if ln["state"] == "REJECTED":
+                continue
+            if ln["accept_qty"]:
+                qty, basis = ln["accept_qty"], "accepted"
+            else:
+                qty, basis = ln["receipt_qty"], "received"
+            if qty and qty > 0:
+                return {"grn_no": ln["grn_no"], "grn_date": ln["grn_date"],
+                        "qty": _q(qty), "basis": basis}
+        return None
+
     # ----------------------------------------------------------------- actions
 
     @staticmethod
@@ -524,7 +580,8 @@ class ScanResultService:
     def build(self, part_id):
         """The one payload the Scan Part workstation renders (spec 22 / 30):
         what the part is, where every unit is, which documents are open, what
-        the operator can do next and the latest history."""
+        the operator can do next, the codes that reach it and the latest
+        history."""
         part = self._part(part_id)
         stock_row = self.stock_repo.get_by_part(part.id)
         health = SpareStockService._row_dict(part, stock_row)
@@ -573,6 +630,10 @@ class ScanResultService:
             "actions": actions,
             "primary_action": self._primary_action(actions),
             "label": label,
+            # The part's internal QR and mapped supplier codes, and the label
+            # count the newest ERP GRN suggests (Receive & Label mode).
+            "barcodes": self._barcodes(part),
+            "label_qty_hint": self._label_qty_hint(erp_lines),
             "timeline": {"rows": history[:SCAN_TIMELINE_ROWS],
                          "has_more": len(history) > SCAN_TIMELINE_ROWS},
         }
@@ -766,7 +827,7 @@ class ScanResultService:
             detail = None
         elif kind == "ISSUE":
             title = f"Issued to {department}" if department else "Issued"
-            detail = _join(t.issued_to and f"Handed to {t.issued_to}")
+            detail = _handed_to(t.issued_to, t.issued_to_code)
         elif kind == "INSTALLATION":
             if not where:
                 title = "Installation updated"
@@ -883,7 +944,7 @@ class ScanResultService:
         elif t == "ISSUE":
             kind = "ISSUE"
             title = f"Issued to {led.department}" if led.department else "Issued"
-            detail = _join(led.issued_to and f"Handed to {led.issued_to}")
+            detail = _handed_to(led.issued_to, led.issued_to_code)
             # line / die on an ISSUE row are where it was fitted later — they go
             # on the installation row, not on the moment it left the store.
             if led.confirmed_at is not None:

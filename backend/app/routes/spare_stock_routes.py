@@ -358,8 +358,10 @@ def set_quantity(part_id):
 @permission_required("scan_part", "edit")
 def issue_part(part_id):
     """Stage 1 — store issues to a department + person (no machine/line). The
-    response is the part's stock row plus `issue`, the ISSUE row just written
-    (the id the installation update and a return point at)."""
+    person comes from the Employee master (employee_id / issued_to_mobile) or,
+    for older callers, as free-text issued_to. The response is the part's stock
+    row plus `issue`, the ISSUE row just written (the id the installation
+    update and a return point at)."""
     _require_part_store(part_id)
     data = validate_payload(SpareIssueSchema(), request.get_json(force=True) or {})
     row = service.issue(
@@ -367,9 +369,11 @@ def issue_part(part_id):
         machine=data.get("machine"), returnable=data.get("returnable", False),
         reference=data.get("reference"), remarks=data.get("remarks"), user=_username(),
         issued_to=data.get("issued_to"),
+        employee_id=data.get("employee_id"), issued_to_mobile=data.get("issued_to_mobile"),
         scanned_code=data.get("scanned_code"), scan_source=data.get("scan_source"),
     )
-    who = data.get("issued_to")
+    # The name the issue was booked to — the master's when a person was picked.
+    who = row["issue"]["issued_to"]
     where = data["department"] + (f" · {who}" if who else "")
     publish("stock", {"part_id": part_id, "action": "issue"})
     return success_response(row, f"Issued to {where}")

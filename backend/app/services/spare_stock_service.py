@@ -197,9 +197,39 @@ class SpareStockService:
         names = {d.name for d in Department.query.filter_by(is_active=True).all()}
         return names or set(DEPARTMENTS)
 
+    @staticmethod
+    def _issue_person(employee_id=None, mobile=None):
+        """The Employee master person an issue is handed to, or None for the
+        old free-text "Issued To". The counter sends employee_id (and the mobile
+        it was found by); a mobile alone is looked up. Refused when the person
+        is not on the master or is inactive, or when the mobile sent is not that
+        person's — never an issue booked to someone the master can't name."""
+        from app.models.employee import Employee, normalise_mobile
+        if employee_id is None and not _clean(mobile):
+            return None
+        norm = None
+        if _clean(mobile):
+            norm = normalise_mobile(mobile)
+            if not norm:
+                raise BadRequestError("Enter a valid 10-digit mobile number")
+        if employee_id is not None:
+            emp = db.session.get(Employee, employee_id)
+            if emp is None:
+                raise BadRequestError(f"Person {employee_id} is not on the Employee Master")
+            if norm and norm != emp.mobile:
+                raise BadRequestError(f"Mobile {norm} is not {emp.name}'s — look the person up again")
+        else:
+            emp = Employee.query.filter_by(mobile=norm).first()
+            if emp is None:
+                raise BadRequestError(f"Mobile {norm} is not on the Employee Master — add the person first")
+        if not emp.is_active:
+            raise BadRequestError(f"{emp.name} is inactive on the Employee Master — "
+                                  f"ask a supervisor to reactivate them")
+        return emp
+
     def issue(self, part_id, qty, department, machine=None, returnable=False,
               reference=None, remarks=None, user=None, issued_to=None, status=None,
-              scanned_code=None, scan_source=None):
+              scanned_code=None, scan_source=None, employee_id=None, issued_to_mobile=None):
         """Stage 1 of the two-stage issue: the store issues a spare to a
         department + person. Machine/line are NOT required here — the store may
         not know where it will be fitted; the user confirms those later
@@ -211,7 +241,14 @@ class SpareStockService:
         The ISSUE ledger row is the issue document every later step points at
         (installation updates, returns), so the journal ISSUE row carries its id
         as both issue_id and ledger_id, and the result hands the row back as
-        `issue` — the screen never has to guess which row it just created."""
+        `issue` — the screen never has to guess which row it just created.
+
+        The taker is found by mobile number on the Employee master
+        (_issue_person): the ledger and journal rows keep the person's id,
+        mobile and employee code as they were at issue time, and Issued To
+        defaults to their name. Department is still the operator's pick (the
+        form pre-fills the person's own). Without a person, issued_to stays
+        free text."""
         part = self.part_repo.get_by_id(part_id)
         if not part:
             raise NotFoundError(f"Part {part_id} not found")
@@ -224,6 +261,12 @@ class SpareStockService:
             raise BadRequestError(f"Unknown department '{department}'")
         machine = _clean(machine)
         issued_to = _clean(issued_to)
+        emp = self._issue_person(employee_id, issued_to_mobile)
+        person = {"employee_id": None, "issued_to_mobile": None, "issued_to_code": None}
+        if emp is not None:
+            issued_to = issued_to or emp.name
+            person = {"employee_id": emp.id, "issued_to_mobile": emp.mobile,
+                      "issued_to_code": emp.employee_code}
         status = status or "PENDING_USER_CONFIRMATION"
         with atomic():
             row = self.repo.get_or_create(part.id)
@@ -238,14 +281,14 @@ class SpareStockService:
                 part.id, round(on_hand - qty, 2), "ISSUE",
                 reference=reference, remarks=remarks, user=user,
                 department=department, machine=machine, returnable=bool(returnable),
-                extra={"issued_to": issued_to, "status": status},
+                extra={"issued_to": issued_to, "status": status, **person},
                 return_ledger=True,
             )
             self.journal.record(
                 part.id, "ISSUE", qty, store_code=part.store_code, user=user,
                 new_status=status, from_bucket="AVAILABLE", to_bucket="ISSUED",
                 issue_id=ledger.id, ledger_id=ledger.id,
-                department=department, issued_to=issued_to, machine=machine,
+                department=department, issued_to=issued_to, machine=machine, **person,
                 remarks=remarks, scanned_code=_clean(scanned_code), scan_source=_clean(scan_source),
             )
         result = self._row_dict(part, row)
@@ -520,6 +563,9 @@ class SpareStockService:
                 "outstanding_qty": outstanding,
                 "department": i.department,
                 "issued_to": i.issued_to,
+                "employee_id": i.employee_id,
+                "issued_to_mobile": i.issued_to_mobile,
+                "issued_to_code": i.issued_to_code,
                 "line_name": i.line_name,
                 "line_no": i.line_no,
                 "machine": i.machine,
@@ -572,6 +618,8 @@ class SpareStockService:
                 "outstanding_qty": outstanding,
                 "department": r.department,
                 "issued_to": r.issued_to,
+                "issued_to_mobile": r.issued_to_mobile,
+                "issued_to_code": r.issued_to_code,
                 "line_name": r.line_name,
                 "machine": r.machine,
                 "die_no": r.die_no,
@@ -643,6 +691,11 @@ class SpareStockService:
             "actual_qty": float(row.actual_qty) if row.actual_qty is not None else None,
             "department": row.department,
             "issued_to": row.issued_to,
+            # The Employee-master person (found by mobile no. at the counter);
+            # None on free-text and older issues.
+            "employee_id": row.employee_id,
+            "issued_to_mobile": row.issued_to_mobile,
+            "issued_to_code": row.issued_to_code,
             "machine": row.machine,
             "line_name": row.line_name,
             "line_no": row.line_no,
@@ -1569,7 +1622,8 @@ class SpareStockService:
     def history_for_part(self, part_id, limit=25, txn_type=None, department=None,
                          machine=None, since=None, until=None):
         """Complete chronological history for a part — now carrying the two-stage
-        issue detail (department / issued-to / line / machine / status) and the
+        issue detail (department / issued-to with the taker's mobile and code /
+        line / machine / status) and the
         receiving detail (supplier / invoice / check) that the old view dropped,
         with optional server-side filters."""
         from app.models.spare_stock import SpareStockLedger
@@ -1598,6 +1652,8 @@ class SpareStockService:
             "remarks": e.remarks,
             "department": e.department,
             "issued_to": e.issued_to,
+            "issued_to_mobile": e.issued_to_mobile,
+            "issued_to_code": e.issued_to_code,
             "machine": e.machine,
             "line_name": e.line_name,
             "line_no": e.line_no,

@@ -21,10 +21,13 @@ SERVICES = [
      "keywords": ["live", "wallboard", "tv", "led", "alerts", "real time", "monitor"]},
 
     # --- Inventory ---
+    # Also the home of supplier barcodes (mapping) and receive-and-label — there
+    # is no separate Supplier Barcodes screen any more.
     {"key": "scan_part", "title": "Scan Part", "route": "/scan-part",
      "category": "Inventory", "icon": "📷", "mod": "scan_part",
      "keywords": ["scan", "barcode", "qr", "gun", "camera", "issue", "receive", "return",
-                  "location", "confirm", "installation", "rgp", "rework", "inspection"]},
+                  "location", "confirm", "installation", "rgp", "rework", "inspection",
+                  "supplier barcode", "mapping", "label"]},
     {"key": "work_queue", "title": "Work Queue", "route": "/work-queue",
      "category": "Inventory", "icon": "📋", "mod": "scan_part",
      "keywords": ["queue", "grn", "quality", "inspection", "return", "rgp", "rework",
@@ -48,9 +51,6 @@ SERVICES = [
      "category": "Masters", "icon": "🔩", "mod": "part_master",
      "keywords": ["part", "master", "min", "max", "reorder level", "rate", "price", "category",
                   "add part", "edit part", "import parts", "part list"]},
-    {"key": "supplier_barcodes", "title": "Supplier Barcodes", "route": "/supplier-barcodes",
-     "category": "Masters", "icon": "🏷️", "mod": "supplier_barcodes",
-     "keywords": ["supplier", "barcode", "mapping", "map"]},
     {"key": "scan_audit", "title": "Scan Audit", "route": "/scan-audit",
      "category": "Masters", "icon": "🧾", "mod": "scan_audit",
      "keywords": ["scan", "audit", "log", "scan history", "who scanned"]},

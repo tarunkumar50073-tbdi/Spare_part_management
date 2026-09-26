@@ -54,13 +54,20 @@ class SpareIssueSchema(Schema):
     person. Machine/line are NOT captured here (the store may not know them) —
     the user confirms them later. Department is checked against the master in the
     service. scanned_code / scan_source say how the part was identified (spec 24
-    audit), and go on the journal row."""
+    audit), and go on the journal row.
+
+    employee_id / issued_to_mobile name the taker from the Employee master (the
+    counter types only the mobile number); the service checks the person exists
+    and is active. Without them issued_to stays free text, as before."""
     class Meta:
         unknown = EXCLUDE
 
     qty = fields.Decimal(required=True, places=2, validate=validate.Range(min=0, min_inclusive=False))
     department = fields.String(required=True, validate=validate.Length(min=1, max=40))
     issued_to = fields.String(allow_none=True, validate=validate.Length(max=80))
+    employee_id = fields.Integer(allow_none=True)
+    # As typed ("+91 98765-43210" too) — normalised in the service.
+    issued_to_mobile = fields.String(allow_none=True, validate=validate.Length(max=20))
     machine = fields.String(allow_none=True, validate=validate.Length(max=60))  # optional (legacy one-stage)
     returnable = fields.Boolean(load_default=False)  # a die/tool expected back
     reference = fields.String(allow_none=True, validate=validate.Length(max=80))
