@@ -29,6 +29,9 @@ PERMISSION_MODULES = [
     {"key": "supplier_barcodes", "label": "Supplier Barcodes"},
     {"key": "scan_audit", "label": "Scan Audit"},
     {"key": "departments", "label": "Department Emails"},
+    # People parts are issued to (mobile no. -> name / code / department). The
+    # issue screen can add a missing person with scan_part edit too.
+    {"key": "employees", "label": "Employee Master"},
     {"key": "reports", "label": "Reports"},
     {"key": "audit_trail", "label": "Audit Trail"},
     {"key": "live_dashboard", "label": "Live Dashboard"},

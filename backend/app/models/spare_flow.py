@@ -315,6 +315,9 @@ class SpareTransaction(BaseModel):
     # Spec 24 audit fields.
     department = db.Column(db.String(40), nullable=True)
     issued_to = db.Column(db.String(80), nullable=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True, index=True)
+    issued_to_mobile = db.Column(db.String(10), nullable=True)
+    issued_to_code = db.Column(db.String(30), nullable=True)
     line_name = db.Column(db.String(60), nullable=True)
     line_no = db.Column(db.String(30), nullable=True)
     machine = db.Column(db.String(60), nullable=True)

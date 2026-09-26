@@ -44,6 +44,7 @@ const TITLES = {
   "/data-quality": "Data Quality",
   "/notifications": "Notifications",
   "/work-queue": "Work Queue",
+  "/employees": "Employee Master",
 };
 
 // Below this width the full rail (w-64) would leave a phone or small tablet a

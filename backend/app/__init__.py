@@ -265,6 +265,9 @@ def _patch_schema():
         "returned_by": "VARCHAR(80)",
         # QR traceability: the die an issued part went into (spec 11/12).
         "die_no": "VARCHAR(60)",
+        # The person the part was issued to, from the Employee master.
+        "employee_id": "INTEGER REFERENCES employees(id)",
+        "issued_to_mobile": "VARCHAR(10)", "issued_to_code": "VARCHAR(30)",
     }
     for _col, _type in _ledger_adds.items():
         if ledger_cols and _col not in ledger_cols:
@@ -317,6 +320,15 @@ def _patch_schema():
     ):
         db.session.execute(text(ddl))
     db.session.commit()
+
+    # The journal carries the same issued-to person fields as the ledger (a
+    # table created earlier by create_all never gets new columns on its own).
+    txn_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(spare_transactions)")).fetchall()]
+    for _col, _type in (("employee_id", "INTEGER REFERENCES employees(id)"),
+                        ("issued_to_mobile", "VARCHAR(10)"), ("issued_to_code", "VARCHAR(30)")):
+        if txn_cols and _col not in txn_cols:
+            db.session.execute(text(f"ALTER TABLE spare_transactions ADD COLUMN {_col} {_type}"))
+            db.session.commit()
 
     # Label print audit (spec 8): print source, printer, symbology and the
     # location that was printed. Nullable/additive — older rows keep NULLs.

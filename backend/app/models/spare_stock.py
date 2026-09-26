@@ -143,6 +143,11 @@ class SpareStockLedger(BaseModel):
     # ---- two-stage issue (Stage 1 store -> Stage 2 user at the line) ----
     # Stage 1: which person the store handed the part to. Set on ISSUE.
     issued_to = db.Column(db.String(80), nullable=True)
+    # That person from the Employee master (found by mobile no. at the counter)
+    # and the number / code as they were at issue time.
+    employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=True, index=True)
+    issued_to_mobile = db.Column(db.String(10), nullable=True)
+    issued_to_code = db.Column(db.String(30), nullable=True)
     # Lifecycle status of an ISSUE (ISSUE_STATUSES) or RECEIPT (RECEIVE_STATUSES)
     # row. NULL on legacy rows and on OPENING/RETURN/ADJUSTMENT. Validated in the
     # service, not by a DB CHECK (it holds two disjoint sets by txn_type, and an

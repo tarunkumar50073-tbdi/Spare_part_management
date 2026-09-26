@@ -6,7 +6,7 @@ import {
   ClipboardList, Clock3, Container, Database, Factory, FileChartColumn, Grid3x3, History, Layers,
   LayoutGrid, LogOut, Mail, Mails, MonitorPlay, Moon, Package, PanelLeftClose, PanelLeftOpen, Scale,
   Bell, PackageCheck, ScanBarcode, ScanSearch, ScrollText, Search, ServerCog, Settings, ShieldCheck, Siren,
-  Store, Sun, TrafficCone, TrendingUp, Truck, UserCog, Warehouse,
+  Store, Sun, TrafficCone, TrendingUp, Truck, UserCog, Users, Warehouse,
 } from "lucide-react";
 import Glyph, { sectionIcon } from "./Glyph.jsx";
 import { storeHome, useStores } from "../context/StoreContext.jsx";
@@ -141,6 +141,7 @@ const NAV_BY_STORE = {
         { to: "/supplier-barcodes", label: "Supplier Barcodes", icon: Barcode, mod: "supplier_barcodes" },
         { to: "/scan-audit", label: "Scan Audit", icon: ScanSearch, mod: "scan_audit" },
         { to: "/departments", label: "Department Emails", icon: Mail, mod: "departments" },
+        { to: "/employees", label: "Employee Master", icon: Users, mod: "employees" },
       ],
     },
     {

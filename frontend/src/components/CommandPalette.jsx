@@ -13,6 +13,7 @@ const NAV = [
   { label: "Dashboard", to: "/", keywords: "home overview store status" },
   { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr issue receive return rgp" },
   { label: "Work Queue", to: "/work-queue", mod: "scan_part", keywords: "grn quality inspection return rgp rework supplier pending" },
+  { label: "Employee Master", to: "/employees", mod: "employees", keywords: "employee person mobile phone issued to code department" },
   { label: "Store Stock", to: "/store-stock-spare", mod: "store_stock", keywords: "inventory on hand count upload" },
   { label: "Part Ledger — Stock Ledger", to: "/spare-part-history", mod: "part_ledger", keywords: "valuation history opening closing movement" },
   { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },

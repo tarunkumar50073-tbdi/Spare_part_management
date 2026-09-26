@@ -7,7 +7,7 @@ import {
   KeyRound, Layers, LayoutGrid, Link, Mail, Mails, MapPin, Monitor, Package, PaintRoller,
   Pencil, ReceiptText, Repeat2, Scale, ScanBarcode, ScanLine, ScrollText, Search, Settings,
   ShieldCheck, ShoppingCart, ShowerHead, Siren, Star, Store, SwitchCamera, Tag, ToolCase,
-  Toolbox, TrafficCone, TrendingUp, TriangleAlert, Truck, Undo2, Wrench, Zap,
+  Toolbox, TrafficCone, TrendingUp, TriangleAlert, Truck, Undo2, Users, Wrench, Zap,
 } from "lucide-react";
 
 // One icon set for the whole app. Some icons still arrive as the emoji they were
@@ -26,7 +26,7 @@ const EMOJI_ICONS = {
   "🚚": Truck, "🚛": Truck, "🚦": TrafficCone, "📍": MapPin,
   // documents
   "📋": ClipboardList, "📝": FilePen, "🧾": ReceiptText, "📜": ScrollText, "📑": FileChartColumn,
-  "📚": BookOpen, "🏷": Tag, "✉": Mail, "📧": Mails, "📭": Inbox,
+  "📚": BookOpen, "🏷": Tag, "✉": Mail, "📧": Mails, "📭": Inbox, "👥": Users,
   // status and alerts
   "✅": CircleCheck, "⚠": TriangleAlert, "🚨": Siren, "❓": CircleHelp, "⏳": Hourglass,
   "🩺": HeartPulse, "🧪": FlaskConical, "🛒": ShoppingCart,
