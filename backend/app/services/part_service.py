@@ -1,9 +1,15 @@
 """Part master business logic."""
+from decimal import Decimal, InvalidOperation
+
+from flask import g, has_request_context
+
 from app.extensions import db
 from app.models.part import Part, CATEGORIES
 from app.repositories.part_repository import PartRepository
 from app.repositories.supplier_repository import SupplierRepository
+from app.services.audit_log_service import AuditLogService
 from app.services.live_stock_service import LiveStockService
+from app.utils.db_tx import atomic
 from app.utils.exceptions import NotFoundError, ConflictError
 from app.utils.excel_io import bulk_import, build_template, build_export, to_number, to_text
 
@@ -54,10 +60,73 @@ EXPORT_COLUMNS = [
 ]
 
 
+def _actor():
+    """(name for the remark, AuditLog.user). The user column only allows
+    SYSTEM/STORE, so the person's name goes in the remark: a signed-in person
+    is a STORE action, the ERP key or a script is SYSTEM."""
+    if has_request_context():
+        user = getattr(g, "current_user", None)
+        if user is not None:
+            return user.username, "STORE"
+        if getattr(g, "is_machine", False):
+            return "ERP", "SYSTEM"
+    return "system", "SYSTEM"
+
+
+def _blank(v):
+    return v is None or (isinstance(v, str) and not v.strip())
+
+
+def _as_decimal(v):
+    if isinstance(v, bool) or not isinstance(v, (int, float, Decimal)):
+        return None
+    try:
+        return Decimal(str(v))
+    except InvalidOperation:
+        return None
+
+
+def _same(old, new):
+    # 5.00 stored vs 5 sent is no change, nor is blank vs None.
+    if _blank(old) and _blank(new):
+        return True
+    a, b = _as_decimal(old), _as_decimal(new)
+    if a is not None and b is not None:
+        return a == b
+    return old == new
+
+
+def _fmt(v):
+    if _blank(v):
+        return "blank"
+    if isinstance(v, bool):
+        return "yes" if v else "no"
+    d = _as_decimal(v)
+    if d is not None:
+        return format(d.normalize(), "f")
+    s = str(v).strip()
+    return s if len(s) <= 60 else s[:57] + "..."
+
+
+def _changes(part, data):
+    """'field old -> new' for each field this write actually changes."""
+    return [
+        f"{key} {_fmt(getattr(part, key))} -> {_fmt(new)}"
+        for key, new in data.items()
+        if hasattr(part, key) and not _same(getattr(part, key), new)
+    ]
+
+
 class PartService:
     def __init__(self):
         self.repo = PartRepository()
         self.supplier_repo = SupplierRepository()
+        self.audit = AuditLogService()
+
+    def _audit(self, action, entity_id, subject, detail):
+        name, user = _actor()
+        self.audit.log(action=action, entity_type="PART", entity_id=entity_id, user=user,
+                       remarks=f"{subject} by {name}: {detail}"[:255])
 
     def list_parts(self, keyword=None, is_active=None, store_code=None, section_id=None, missing=None):
         return self.repo.search(
@@ -122,13 +191,21 @@ class PartService:
     def create(self, data):
         if self.repo.get_by_part_no(data["part_no"]):
             raise ConflictError(f"Part no {data['part_no']} already exists")
-        part = self.repo.create(**data)
+        # The part and its audit row commit together, or neither does.
+        with atomic():
+            part = self.repo.create(**data)
+            self._audit("PART_CREATED", part.id, part.part_no, f"created ({part.part_name})")
         LiveStockService.invalidate_rows_cache()
         return part
 
     def update(self, part_id, data):
         part = self.get(part_id)
-        updated = self.repo.update(part, **data)
+        # Read before the write; an update that changes nothing logs nothing.
+        changes = _changes(part, data)
+        with atomic():
+            updated = self.repo.update(part, **data)
+            if changes:
+                self._audit("PART_UPDATED", part.id, part.part_no, "; ".join(changes))
         # cov_days / rack columns in the cached Live Stock rows depend on
         # Part fields (daily_consumption, category, etc.) — drop the cache so
         # they don't read stale for the TTL after an edit (audit finding M-3).
@@ -137,7 +214,9 @@ class PartService:
 
     def delete(self, part_id):
         part = self.get(part_id)
-        self.repo.delete(part)
+        with atomic():
+            self._audit("PART_DELETED", part.id, part.part_no, f"deleted ({part.part_name})")
+            self.repo.delete(part)
         LiveStockService.invalidate_rows_cache()
 
     def bulk_import_excel(self, file_stream, store_code=None, section_id=None,
@@ -245,6 +324,15 @@ class PartService:
         db.session.add(hist)
         db.session.commit()
         report["history_id"] = hist.id
+        # One summary row per run — the per-row detail lives in the import history.
+        if stats["inserted"] or stats["updated"]:
+            name, audit_user = _actor()
+            self.audit.log(
+                action="PARTS_IMPORTED", entity_type="PART", entity_id=None, user=audit_user,
+                remarks=(f"Import #{hist.id} ({filename or 'file'}) by {user or name}: "
+                         f"{stats['inserted']} added, {stats['updated']} updated, "
+                         f"{report.get('error_count', 0)} failed of {report.get('total_rows', 0)}")[:255],
+            )
         return report
 
     def preview_import(self, file_stream, sheet_name=None):

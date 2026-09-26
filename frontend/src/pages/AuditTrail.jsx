@@ -3,6 +3,7 @@ import { History, Search } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Pagination from "../components/Pagination.jsx";
 import { auditLogService } from "../services/auditLogService.js";
+import { parseServerTime } from "../lib/format.js";
 
 const ENTITY_TYPES = ["SRV", "RACK_BIN", "HOLDING_ENTRY", "PART", "user"];
 const EMPTY = { entityType: "", q: "", dateFrom: "", dateTo: "" };
@@ -26,7 +27,7 @@ export default function AuditTrail() {
       });
       setRows(res.data.data);
       setMeta(res.data.meta);
-    } catch (_) {
+    } catch {
       /* handled globally */
     } finally {
       setLoading(false);
@@ -52,7 +53,7 @@ export default function AuditTrail() {
     { key: "new_location", label: "New Location", render: (r) => r.new_location || "—" },
     { key: "quantity", label: "Qty", render: (r) => r.quantity ?? "—" },
     { key: "remarks", label: "Remarks", render: (r) => r.remarks || "—" },
-    { key: "created_at", label: "When", render: (r) => new Date(r.created_at).toLocaleString() },
+    { key: "created_at", label: "When", render: (r) => parseServerTime(r.created_at)?.toLocaleString() ?? "—" },
   ];
 
   return (
