@@ -8,8 +8,9 @@ export const employeeService = {
   // (e.g. { silent: true } where the form shows its own message).
   lookup: (mobile, config = {}) => api.get("/employees/lookup", { params: { mobile }, ...config }),
   list: (params) => api.get("/employees", { params }),
-  // { mobile, name, employee_code?, department, designation?, company? }
-  create: (payload) => api.post("/employees", payload),
+  // { mobile, name, employee_code?, department, designation?, company? }.
+  // `config` as for lookup — the counter's quick-add shows its own message.
+  create: (payload, config = {}) => api.post("/employees", payload, config),
   update: (id, payload) => api.put(`/employees/${id}`, payload),
   import: (file) => {
     const form = new FormData();

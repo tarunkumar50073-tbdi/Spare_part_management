@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  Activity, Archive, Barcode, BookOpen, Bolt, Boxes, Calculator, CalendarRange, Circle, ClipboardCheck,
+  Activity, Archive, BookOpen, Bolt, Boxes, Calculator, CalendarRange, Circle, ClipboardCheck,
   ClipboardList, Clock3, Container, Database, Factory, FileChartColumn, Grid3x3, History, Layers,
   LayoutGrid, LogOut, Mail, Mails, MonitorPlay, Moon, Package, PanelLeftClose, PanelLeftOpen, Scale,
   Bell, PackageCheck, ScanBarcode, ScanSearch, ScrollText, Search, ServerCog, Settings, ShieldCheck, Siren,
@@ -138,7 +138,7 @@ const NAV_BY_STORE = {
       items: [
         { to: "/parts", label: "Part Master", icon: Bolt, mod: "part_master" },
         { to: "/data-quality", label: "Data Quality", icon: ShieldCheck, mod: "part_master" },
-        { to: "/supplier-barcodes", label: "Supplier Barcodes", icon: Barcode, mod: "supplier_barcodes" },
+        // Supplier barcodes: no screen of their own — Scan Part's Barcodes panel.
         { to: "/scan-audit", label: "Scan Audit", icon: ScanSearch, mod: "scan_audit" },
         { to: "/departments", label: "Department Emails", icon: Mail, mod: "departments" },
         { to: "/employees", label: "Employee Master", icon: Users, mod: "employees" },

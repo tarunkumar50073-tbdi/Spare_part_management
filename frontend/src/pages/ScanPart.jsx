@@ -20,12 +20,13 @@ import TransactionInfo from "../components/scan/TransactionInfo.jsx";
 import QuickActions, { OtherActions, actionLabel } from "../components/scan/QuickActions.jsx";
 import PartVisual, { PartVisualPlaceholder } from "../components/scan/PartVisual.jsx";
 import LocationList from "../components/scan/LocationList.jsx";
+import BarcodesPanel from "../components/scan/BarcodesPanel.jsx";
 import WorkQueueLink from "../components/scan/WorkQueueLink.jsx";
 import HistoryModal from "../components/scan/HistoryModal.jsx";
 import { scanIcon } from "../components/scan/scanIcons.js";
 import PartTimeline from "../components/spare/PartTimeline.jsx";
 import useScanWorkstation from "../hooks/useScanWorkstation.js";
-import { ACTIONS } from "../lib/scanStatus.js";
+import { ACTIONS, SCAN_MODE } from "../lib/scanStatus.js";
 
 // Scan Part — the store operator's workstation (spec 4 / 10 / 22 / 26-28 / 30).
 //
@@ -36,17 +37,28 @@ import { ACTIONS } from "../lib/scanStatus.js";
 //
 //   LEFT   input bar (scan / search / manual) · identity · current status ·
 //          open documents · quick actions (or the open action's form)
-//   RIGHT  the QR label as printed · where the quantity is · timeline ·
-//          the next step again · Work Queue counts
+//   RIGHT  the QR label as printed · the part's barcodes · where the quantity
+//          is · timeline · the next step again · Work Queue counts
 //
-// Scanning is mainly for issuance: once a part is identified (gun, camera,
-// search or manual) and it can be issued, the Issue form opens straight away —
-// the operator picks the Department, types who took it and the quantity, and
-// confirms; the caret then goes back to the scanner for the next part, with
-// this one's result still on screen. Every other valid action sits in a compact
-// "Other actions" row. A part that cannot be issued shows its status and the
-// valid actions as before. Receiving, the GRN and quality clearance are done in
-// ERP: the page only shows what ERP has (read-only, with the data's age).
+// Two modes, switched at the top (URL ?mode=label, remembered per terminal):
+//
+//   Issue (default) — scanning is mainly for issuance: once a part is
+//   identified (gun, camera, search or manual) and it can be issued, the Issue
+//   form opens straight away — the operator picks the Department, who took it
+//   and the quantity, and confirms; the caret then goes back to the scanner for
+//   the next part, with this one's result still on screen. Every other valid
+//   action sits in a compact "Other actions" row. A part that cannot be issued
+//   shows its status and the valid actions as before.
+//
+//   Receive & Label — for material just received: once the part is identified
+//   (usually by the supplier's barcode) its internal QR label print opens
+//   straight away, with the quantity of the part's latest ERP GRN offered as
+//   the label count. A scan here never opens the Issue form. Printing a label
+//   adds no stock (spec 9) — receiving, the GRN and quality clearance are done
+//   in ERP; the page only shows what ERP has (read-only, with the data's age).
+//
+// A part's barcodes (its QR and the supplier codes mapped to it) are seen and
+// managed in the Barcodes panel here — there is no separate screen for them.
 //
 // The QR carries only the Part No.; everything shown is read from the server's
 // scan result (GET /spare-flow/parts/:id/scan-result), and the server decides
@@ -54,13 +66,22 @@ import { ACTIONS } from "../lib/scanStatus.js";
 //
 // Deep links: /scan-part?part=<id>[&action=<ACTION KEY>[&target=<document id>]]
 // opens that part (and that action's form with the document pre-selected,
-// instead of the Issue form) — the Work Queue and the part drawer send the
-// operator here that way.
+// instead of what the mode opens) — the Work Queue and the part drawer send the
+// operator here that way. &mode=label|issue switches the mode as well.
 
 // Search and Manual Entry are typed, so the scan audit records them as such.
 const TYPED = "MANUAL_ENTRY";
 const PRINT_ACTIONS = new Set(["PRINT_LABEL", "REPRINT_LABEL"]);
 const TIMELINE_PREVIEW = 6;
+
+// The mode this terminal last used. Storage can be unavailable (a private
+// window, blocked site data) — then every visit starts in Issue.
+const MODE_KEY = "dx_scan_part_mode";
+const modeOf = (param) =>
+  Object.keys(SCAN_MODE).find((k) => SCAN_MODE[k].param === String(param ?? "").toLowerCase()) || null;
+function savedMode() {
+  try { return localStorage.getItem(MODE_KEY) === "LABEL" ? "LABEL" : "ISSUE"; } catch { return "ISSUE"; }
+}
 
 function DoneStrip({ message, onDismiss }) {
   return (
@@ -80,7 +101,7 @@ function DoneStrip({ message, onDismiss }) {
   );
 }
 
-function IdleCard() {
+function IdleCard({ labelMode }) {
   const ways = [
     { icon: ScanLine, text: "Scan — the part’s QR label or the supplier’s barcode, with the gun or the camera" },
     { icon: Search, text: "Search Part No. — by number, description or rack location" },
@@ -88,8 +109,14 @@ function IdleCard() {
   ];
   return (
     <section className="card p-5" aria-label="Ready">
-      <p className="text-sm font-semibold text-slate-800 dark:text-white">Ready for the next part</p>
-      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">A part with stock opens its Issue straight away.</p>
+      <p className="text-sm font-semibold text-slate-800 dark:text-white">
+        {labelMode ? "Receive & Label — ready for the next part" : "Ready for the next part"}
+      </p>
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+        {labelMode
+          ? "The part’s QR label print opens as soon as it is identified. Printing a label adds no stock."
+          : "A part with stock opens its Issue straight away."}
+      </p>
       <ul className="mt-3 space-y-2">
         {ways.map((w) => (
           <li key={w.text} className="flex items-start gap-2.5 text-sm text-slate-500 dark:text-slate-400">
@@ -152,20 +179,28 @@ export default function ScanPart() {
   const canMap = useCan("supplier_barcodes", "edit");
 
   const { ident, failure, resolving, resolve, openById, clear, clearFailure, scanQuery } = useScanWorkstation(storeCode);
+  // ISSUE | LABEL (SCAN_MODE). A link's ?mode= wins over this terminal's last one.
+  const [mode, setMode] = useState(() => modeOf(searchParams.get("mode")) || savedMode());
+  const labelMode = mode === "LABEL";
   const [tab, setTab] = useState("SCAN");
   const [action, setAction] = useState(null);       // { key, target } — the open action form
   const [formStep, setFormStep] = useState("ACTION"); // the form's own ACTION / CONFIRM (read-back) stage
   const [dirty, setDirty] = useState(false);        // the operator has entered something in the form
   const [print, setPrint] = useState(null);         // { source } — the label dialog
+  const [printedFor, setPrintedFor] = useState(null); // the identification a label was last recorded for
   const [historyOpen, setHistoryOpen] = useState(false);
   const [done, setDone] = useState(null);           // { message } — the action just recorded
   const [focusSignal, setFocusSignal] = useState(0); // hands the caret back to the gun
   const pendingRef = useRef(null);                  // a deep link's action, waiting for the part
-  const autoRef = useRef(null);                     // the identification the Issue form was opened for
+  const autoRef = useRef(null);                     // the identification the mode's form / dialog was opened for
   const formRef = useRef(null);
 
   const scan = ident ? scanQuery.data ?? null : null;
   const part = scan?.part ?? null;
+
+  useEffect(() => {
+    try { localStorage.setItem(MODE_KEY, mode); } catch { /* storage unavailable — not remembered */ }
+  }, [mode]);
 
   const allowed = useCallback(
     (key) => key === "HISTORY" || (PRINT_ACTIONS.has(key) ? canPrint : canEdit),
@@ -173,6 +208,21 @@ export default function ScanPart() {
   const enabledKeys = useMemo(
     () => new Set((scan?.actions || []).filter((a) => a.enabled).map((a) => a.key)), [scan]);
   const canAct = useCallback((key) => enabledKeys.has(key) && allowed(key), [enabledKeys, allowed]);
+
+  // In Receive & Label the first label after a scan is for material in hand,
+  // so the server's REPRINT_LABEL (the part was labelled before) reads — and
+  // prints, see runAction — as a first label for that material, with no
+  // reprint reason (spec 8). Once a label is recorded for this scan, another
+  // one is a genuine reprint again: same delivery, so it needs its reason.
+  // The server lists exactly one of PRINT_LABEL / REPRINT_LABEL.
+  const printedHere = ident != null && printedFor === ident;
+  const actions = useMemo(() => {
+    const list = scan?.actions || [];
+    return labelMode && !printedHere
+      ? list.map((a) => (a.key === "REPRINT_LABEL" ? { ...a, label: ACTIONS.PRINT_LABEL.label } : a))
+      : list;
+  }, [scan, labelMode, printedHere]);
+  const labelAction = actions.find((a) => PRINT_ACTIONS.has(a.key)) || null;
 
   // A new part replaces whatever was open for the old one.
   useEffect(() => {
@@ -216,6 +266,25 @@ export default function ScanPart() {
     setTab("SCAN");
     setFocusSignal((n) => n + 1);
   }, []);
+  // After a click on the page (a panel folded, a barcode saved) the caret goes
+  // back to the gun too — a button keeping focus would swallow the next read
+  // (its Enter would press the button). The input tab is left as it is.
+  const refocusGun = useCallback(() => setFocusSignal((n) => n + 1), []);
+
+  // The mode decides what the NEXT identification opens. Switching drops an
+  // open form only as a new scan would (okToLeave): the Issue form the page
+  // opened by itself goes quietly, anything typed is asked about.
+  const changeMode = useCallback(async (next) => {
+    if (next === mode || !SCAN_MODE[next]) return;
+    if (!(await okToLeave(`switch to ${SCAN_MODE[next].label}`))) return;
+    setMode(next);
+    backToGun();
+  }, [mode, okToLeave, backToGun]);
+  // Stable for the memoised top strip; reads the latest changeMode.
+  const modeRef = useRef(mode);
+  const changeModeRef = useRef(changeMode);
+  useEffect(() => { modeRef.current = mode; changeModeRef.current = changeMode; });
+  const onMode = useCallback((next) => { changeModeRef.current(next); }, []);
 
   // ---- identify ----
   // Each resolves to false when the operator chose to keep an open form, so
@@ -250,41 +319,57 @@ export default function ScanPart() {
   };
 
   // Deep link — read once, then taken off the URL so a refresh or the next
-  // scan doesn't reopen it. okToLeave is read through a ref: the effect runs
-  // for a new link, not for every form change.
+  // scan doesn't reopen it. okToLeave and the mode are read through refs: the
+  // effect runs for a new link, not for every form change. A ?mode= alone
+  // (the old Supplier Barcodes address lands here with mode=label) switches
+  // the mode; on arrival the initial state has already taken it.
   const leaveRef = useRef(okToLeave);
   useEffect(() => { leaveRef.current = okToLeave; });
   useEffect(() => {
     const raw = searchParams.get("part");
-    if (!raw) return;
+    if (!raw && !searchParams.has("mode")) return;
+    const wanted = modeOf(searchParams.get("mode"));
     const id = Number(raw);
     const key = (searchParams.get("action") || "").toUpperCase() || null;
     const target = searchParams.get("target");
     setSearchParams({}, { replace: true });
-    if (!Number.isInteger(id) || id <= 0) return;
+    const link = Boolean(raw) && Number.isInteger(id) && id > 0;
+    const switching = Boolean(wanted) && wanted !== modeRef.current;
+    if (!link && !switching) return;
     (async () => {
-      if (!(await leaveRef.current())) return;
-      setDone(null);
-      pendingRef.current = key ? { key, partId: id, target: target && Number(target) > 0 ? Number(target) : null } : null;
-      openById(id);
+      if (!(await leaveRef.current(link ? undefined : `switch to ${SCAN_MODE[wanted].label}`))) return;
+      if (switching) setMode(wanted);
+      if (link) {
+        setDone(null);
+        pendingRef.current = key ? { key, partId: id, target: target && Number(target) > 0 ? Number(target) : null } : null;
+        openById(id);
+      }
       backToGun();
     })();
   }, [searchParams, setSearchParams, openById, backToGun]);
 
   // ---- act ----
+  const openPrint = useCallback((source) => {
+    setDone(null);
+    setPrint({ source });
+  }, []);
+
   const runAction = useCallback((key, target = null) => {
     setDone(null);
     if (key === "HISTORY") { setHistoryOpen(true); return; }
     if (PRINT_ACTIONS.has(key)) {
       // A reprint says so; a label for material in hand carries how the part
-      // was identified (supplier barcode / search / manual / QR).
-      setPrint({ source: key === "REPRINT_LABEL" ? "REPRINT" : ident?.source || "ERP_SEARCH" });
+      // was identified (supplier barcode / search / manual / QR). In Receive &
+      // Label the scan's first label is for material in hand, labelled before
+      // or not; a label after one was recorded for the same scan is a reprint.
+      const reprint = key === "REPRINT_LABEL" && (mode !== "LABEL" || printedFor === ident);
+      openPrint(reprint ? "REPRINT" : ident?.source || "ERP_SEARCH");
       return;
     }
     setFormStep("ACTION");
     setDirty(false);
     setAction({ key, target });
-  }, [ident]);
+  }, [ident, mode, printedFor, openPrint]);
 
   // With a form open, another form replaces it only once the operator agrees
   // to drop what they typed (okToLeave); history and the label dialog open
@@ -295,21 +380,28 @@ export default function ScanPart() {
     runAction(key, target);
   }, [action, okToLeave, runAction]);
 
-  // Issuance first: once the part's fresh scan result is in and the part can
-  // be issued by this user, the Issue form opens straight away. Once per
-  // identification — the refresh after the issue itself, or a push from
-  // another terminal, never reopens it — and not when a deep link asked for an
-  // action of its own. Declared before the deep-link effect below, which
-  // clears pendingRef in the same pass.
+  // What the mode opens, once the part's fresh scan result is in: in Issue the
+  // Issue form (when this user can issue the part), in Receive & Label the
+  // label print (when this user can print one for it) — never the Issue form.
+  // Once per identification: the refresh after the issue or the print itself,
+  // a push from another terminal, a mode switch or closing the dialog never
+  // reopens it; only a new scan / search / link does. Not when a deep link
+  // asked for an action of its own. Declared before the deep-link effect
+  // below, which clears pendingRef in the same pass.
   const refreshing = scanQuery.isFetching;
   useEffect(() => {
     if (!ident || !scan || refreshing || autoRef.current === ident) return;
     autoRef.current = ident;
-    if (action || pendingRef.current || !canAct("ISSUE")) return;
+    if (action || pendingRef.current) return;
+    if (mode === "LABEL") {
+      if (labelAction && canAct(labelAction.key)) runAction(labelAction.key);
+      return;
+    }
+    if (!canAct("ISSUE")) return;
     setFormStep("ACTION");
     setDirty(false);
     setAction({ key: "ISSUE", target: null });
-  }, [ident, scan, refreshing, action, canAct]);
+  }, [ident, scan, refreshing, action, canAct, mode, labelAction, runAction]);
 
   // The deep link's action, once the part's scan result is in. A form opens
   // even when the server has the action closed — the form then says why (a
@@ -320,7 +412,7 @@ export default function ScanPart() {
     // Judged on the fresh read, not on a cached copy from an earlier visit.
     if (!p || !scan || refreshing || ident?.partId !== p.partId) return;
     pendingRef.current = null;
-    const a = (scan.actions || []).find((x) => x.key === p.key);
+    const a = actions.find((x) => x.key === p.key);
     if (!a) return;
     const label = actionLabel(a);
     if (!allowed(a.key)) { toast.error(`You don't have the right to ${label.toLowerCase()}.`); return; }
@@ -329,7 +421,7 @@ export default function ScanPart() {
       return;
     }
     runAction(a.key, p.target);
-  }, [scan, refreshing, ident, allowed, runAction]);
+  }, [scan, actions, refreshing, ident, allowed, runAction]);
 
   useEffect(() => {
     if (action) formRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -352,8 +444,13 @@ export default function ScanPart() {
     backToGun();
   }, [action, qc, backToGun]);
 
-  // The dialog records the print and refreshes the "stock" cache itself.
-  const onPrinted = useCallback(() => setDone({ message: "Label printed" }), []);
+  // The dialog records the print and refreshes the "stock" cache itself. Which
+  // identification it was for is kept: the next label for the same scan is a
+  // reprint (runAction); a new scan starts with a first label again.
+  const onPrinted = useCallback(() => {
+    setPrintedFor(ident);
+    setDone({ message: "Label printed" });
+  }, [ident]);
 
   const closePrint = useCallback(() => {
     setPrint(null);
@@ -374,8 +471,21 @@ export default function ScanPart() {
   const scanFailed = Boolean(ident) && scanQuery.isError && !scan;
   const loadingPart = Boolean(ident) && !scan && !scanFailed;
   const actionMeta = action ? ACTIONS[action.key] : null;
+  // The next step: in Receive & Label the part's label until one is recorded
+  // for this scan (then the next part — a reprint is never the "next step"),
+  // else the server's.
+  const primaryKey = labelMode
+    ? (printedHere ? null : labelAction?.key ?? null)
+    : scan?.primary_action ?? null;
+  const primary = actions.find((a) => a.key === primaryKey && a.enabled && allowed(a.key)) || null;
+  // Why Receive & Label cannot offer this part's label, in the operator's words.
+  const labelBlocked = !labelAction ? "the server offered no label for it"
+    : !labelAction.enabled ? labelAction.reason || "not open right now"
+      : !canPrint ? "printing a label needs edit rights on Scan Part, Store Stock or Part Master" : null;
   let step = "SCAN";
-  let hint = "Scan the part’s QR label or the supplier’s barcode — or search / type the Part No.";
+  let hint = labelMode
+    ? "Receive & Label — scan the supplier’s barcode or the part’s QR, or search the Part No.: its label print opens straight away."
+    : "Scan the part’s QR label or the supplier’s barcode — or search / type the Part No.";
   let complete = false;
   if (action && formStep === "CONFIRM") {
     step = "CONFIRM"; hint = `${actionMeta?.label || "Action"} — read it back, then confirm to record it.`;
@@ -389,7 +499,11 @@ export default function ScanPart() {
   } else if (done && scan) {
     step = "CONFIRM"; complete = true; hint = "Recorded — scan the next part when ready.";
   } else if (scan) {
-    step = "VERIFY"; hint = "Check the part in hand against the Part No. and location, then choose an action.";
+    step = "VERIFY";
+    hint = !labelMode ? "Check the part in hand against the Part No. and location, then choose an action."
+      : printedHere ? "Label printed for this part — scan the next part. Another label for it is a reprint, with its reason."
+        : primary ? "Check the part in hand against the Part No. and location, then print its label — or scan the next part."
+          : `No label can be printed for this part here — ${labelBlocked}.`;
   } else if (resolving || loadingPart) {
     step = "IDENTIFY"; hint = "Identifying the part…";
   } else if (failure) {
@@ -401,13 +515,13 @@ export default function ScanPart() {
     step = "IDENTIFY"; hint = "The part could not be loaded.";
   }
 
-  const primary = scan?.actions?.find((a) => a.key === scan.primary_action && a.enabled && allowed(a.key)) || null;
   const PrimaryIcon = primary ? scanIcon(ACTIONS[primary.key]?.icon) : null;
   const ActionIcon = actionMeta ? scanIcon(actionMeta.icon) : null;
 
   return (
     <div className="space-y-4">
-      <StatusBar storeName={activeStore?.name} operator={user?.full_name || user?.username} />
+      <StatusBar storeName={activeStore?.name} operator={user?.full_name || user?.username}
+        mode={mode} onMode={onMode} />
       {/* The step bar also carries the next step while the operator verifies
           the part (or has just recorded one step on it) — the one button that
           is on screen without scrolling, however long the part's story is. */}
@@ -448,7 +562,7 @@ export default function ScanPart() {
             />
           )}
 
-          {!failure && !ident && (resolving ? <PartSkeleton /> : <IdleCard />)}
+          {!failure && !ident && (resolving ? <PartSkeleton /> : <IdleCard labelMode={labelMode} />)}
           {!failure && loadingPart && <PartSkeleton />}
           {!failure && scanFailed && (
             <div role="alert" className="rounded-xl2 border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
@@ -498,12 +612,12 @@ export default function ScanPart() {
                   {/* Issuance first: everything else the part allows, one click
                       away but out of the way, while the Issue is filled in. */}
                   {action.key === "ISSUE" && formStep === "ACTION" && (
-                    <OtherActions actions={scan.actions} exclude={["ISSUE"]} allowed={allowed} onAction={chooseAction}
+                    <OtherActions actions={actions} exclude={["ISSUE"]} allowed={allowed} onAction={chooseAction}
                       className="card p-3.5" />
                   )}
                 </>
               ) : (
-                <QuickActions actions={scan.actions} primaryKey={scan.primary_action} allowed={allowed} onAction={chooseAction} />
+                <QuickActions actions={actions} primaryKey={primaryKey} allowed={allowed} onAction={chooseAction} />
               )}
             </>
           )}
@@ -513,8 +627,11 @@ export default function ScanPart() {
         <div className="min-w-0 space-y-4">
           {scan ? (
             <>
+              {/* The label no longer matches the rack: a genuine reprint (with
+                  its reason) in either mode. */}
               <PartVisual part={part} label={scan.label}
-                onReprint={canAct("REPRINT_LABEL") ? () => runAction("REPRINT_LABEL") : null} />
+                onReprint={canAct("REPRINT_LABEL") ? () => openPrint("REPRINT") : null} />
+              <BarcodesPanel part={part} barcodes={scan.barcodes} defaultOpen={labelMode} onRelease={refocusGun} />
               <LocationList locations={scan.locations} uom={part.uom} erp={scan.erp_receiving?.erp} />
               <TimelinePreview rows={scan.timeline?.rows} hasMore={scan.timeline?.has_more}
                 onViewAll={() => runAction("HISTORY")} />
@@ -537,9 +654,12 @@ export default function ScanPart() {
       {historyOpen && part && (
         <HistoryModal part={labelPart} onClose={() => setHistoryOpen(false)} />
       )}
-      {/* Mounted only while shown, so every label starts from a fresh dialog. */}
+      {/* Mounted only while shown, so every label starts from a fresh dialog.
+          A label for material in hand is offered the part's latest ERP GRN
+          quantity as its count; a reprint (a torn / moved label) is not. */}
       {print && labelPart && (
-        <PrintBarcodeModal part={labelPart} source={print.source} onClose={closePrint} onPrinted={onPrinted} />
+        <PrintBarcodeModal part={labelPart} source={print.source} onClose={closePrint} onPrinted={onPrinted}
+          qtyHint={print.source === "REPRINT" ? null : scan?.label_qty_hint ?? null} />
       )}
     </div>
   );

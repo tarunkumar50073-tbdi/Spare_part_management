@@ -1,6 +1,7 @@
 import React, { useId, useMemo, useState } from "react";
 import { ArrowDownToLine } from "lucide-react";
 import QtyStepper from "../../QtyStepper.jsx";
+import EmployeeLookup from "../../EmployeeLookup.jsx";
 import { spareFlowService } from "../../../services/spareFlowService.js";
 import { RETURN_REASONS } from "../../../lib/scanStatus.js";
 import { fmtStamp, num } from "../../../lib/format.js";
@@ -13,6 +14,10 @@ import { IssueCard } from "./DocCards.jsx";
 // that issue's department / person / line / machine / die. It goes to Return
 // Inspection (spec 14): nothing is added to stock until the store inspects it.
 // Installed parts may come back too (removed from the machine).
+// Who handed it back is optional: found by mobile number on the Employee
+// master (as on the Issue), or just typed.
+
+const NO_PERSON = { employee: null, mobile: null, typed: "" };
 
 export default function ReturnForm({ scan, target, onDone, onCancel }) {
   const uid = useId();
@@ -28,6 +33,8 @@ export default function ReturnForm({ scan, target, onDone, onCancel }) {
   const [qty, setQty] = useState(() => stepMin(outstanding));
   const [reason, setReason] = useState("");
   const [returnedBy, setReturnedBy] = useState("");
+  const [returner, setReturner] = useState(NO_PERSON);
+  const byEmp = returner.employee;
   const [note, setNote] = useState("");
   const [tried, setTried] = useState(false);
   const [forId, setForId] = useState(pick.id);
@@ -58,7 +65,8 @@ export default function ReturnForm({ scan, target, onDone, onCancel }) {
   const review = () => {
     setTried(true);
     if (!valid) return;
-    const payload = { qty: qtyOf(qty), reason, note: clean(note), returned_by: clean(returnedBy) };
+    // A picked person wins over the typed name (the box is hidden while one is picked).
+    const payload = { qty: qtyOf(qty), reason, note: clean(note), returned_by: byEmp ? byEmp.name : clean(returnedBy) };
     const it = issue;
     flow.open({
       title: "Return to store", icon: ArrowDownToLine, part, qty: payload.qty, uom: part.uom,
@@ -69,7 +77,10 @@ export default function ReturnForm({ scan, target, onDone, onCancel }) {
         { label: "Issued to", value: it.issued_to },
         { label: "Line / Machine / Die", value: [it.line_name, it.line_no, it.machine, it.die_no].filter(Boolean).join(" · ") },
         { label: "Return reason", value: reason },
-        { label: "Returned by", value: payload.returned_by },
+        {
+          label: "Returned by",
+          value: byEmp ? `${byEmp.name}${byEmp.employee_code ? ` (${byEmp.employee_code})` : ""}` : payload.returned_by,
+        },
         { label: "Note", value: payload.note },
       ],
       note: "Goes to Return Inspection — NOT added to stock until the store inspects it.",
@@ -121,11 +132,17 @@ export default function ReturnForm({ scan, target, onDone, onCancel }) {
                 {RETURN_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </Field>
-            <Field label="Returned by (person)" htmlFor={`${uid}-by`}>
-              <input id={`${uid}-by`} value={returnedBy} maxLength={80} onChange={(e) => setReturnedBy(e.target.value)}
-                className="input-field" placeholder="Who handed it back" />
-            </Field>
-            <Field label="Note" required={reason === "Other"} htmlFor={`${uid}-note`} error={show("note")}>
+            <div className="space-y-2 sm:col-span-2">
+              <EmployeeLookup value={returner} onChange={setReturner} required={false}
+                defaultDepartment={issue.department || undefined} label="Returned by — mobile no. (optional)" />
+              {!byEmp && (
+                <Field label="Or type who handed it back" htmlFor={`${uid}-by`}>
+                  <input id={`${uid}-by`} value={returnedBy} maxLength={80} onChange={(e) => setReturnedBy(e.target.value)}
+                    className="input-field" placeholder="Name" />
+                </Field>
+              )}
+            </div>
+            <Field label="Note" required={reason === "Other"} htmlFor={`${uid}-note`} error={show("note")} className="sm:col-span-2">
               <input id={`${uid}-note`} value={note} maxLength={255} onChange={(e) => setNote(e.target.value)}
                 className={inputCls(show("note"))} placeholder={reason === "Other" ? "Describe the reason" : "Optional"} />
             </Field>

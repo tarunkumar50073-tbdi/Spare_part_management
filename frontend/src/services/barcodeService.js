@@ -1,8 +1,8 @@
 import api from "./api";
 
 // Barcode module — resolve (shared by camera/gun/manual), label print/reprint,
-// the label printer, admin supplier-barcode mapping + scan audit.
-// Store-scoped like spareStock.
+// the label printer, supplier-barcode mapping (Scan Part's Barcodes panel and
+// "Map to Part" on an unknown code) + scan audit. Store-scoped like spareStock.
 export const barcodeService = {
   labelConfig: () => api.get("/barcode/label-config"),
   // One shared resolver for every scan source.
@@ -40,9 +40,12 @@ export const barcodeService = {
   labelPrinter: () => api.get("/admin/label-printer"),
   saveLabelPrinter: (cfg) => api.put("/admin/label-printer", cfg),
 
-  partBarcodes: (partId) => api.get(`/barcode/part/${partId}/barcodes`),
+  partBarcodes: (partId, config) => api.get(`/barcode/part/${partId}/barcodes`, config),
   scanAudit: (params) => api.get("/barcode/scan-audit", { params }),
-  createMapping: (payload) => api.post("/barcode/mapping", payload),
-  setMappingActive: (mappingId, active) =>
-    api.put(`/barcode/mapping/${mappingId}/active`, { active }),
+  // payload: { part_id, code, supplier_id?, symbology? }. Both writes answer
+  // with the part's fresh barcode list (internal first). Needs the
+  // supplier_barcodes edit right; a code already mapped is refused (409).
+  createMapping: (payload, config) => api.post("/barcode/mapping", payload, config),
+  setMappingActive: (mappingId, active, config) =>
+    api.put(`/barcode/mapping/${mappingId}/active`, { active }, config),
 };

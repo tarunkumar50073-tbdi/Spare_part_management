@@ -1,6 +1,7 @@
 import {
-  ArrowDownToLine, ArrowUpFromLine, Ban, Boxes, Circle, ClipboardCheck, Factory, FileCheck2, History,
-  MapPin, PackageCheck, PackagePlus, Printer, Scale, ShieldCheck, ShieldX, Truck, Undo2, Warehouse, Wrench,
+  ArrowDownToLine, ArrowUpFromLine, Ban, Barcode, Boxes, Circle, ClipboardCheck, Factory, FileCheck2, History,
+  MapPin, PackageCheck, PackagePlus, Printer, QrCode, Scale, ShieldCheck, ShieldX, Tags, Truck, Undo2,
+  Warehouse, Wrench,
 } from "lucide-react";
 
 // lib/scanStatus.js names its icons by their Lucide name (it is plain data and
@@ -9,8 +10,8 @@ import {
 // the same action or event. A name missing here falls back to a plain circle
 // rather than breaking the screen.
 const ICONS = {
-  ArrowDownToLine, ArrowUpFromLine, Ban, Boxes, Circle, ClipboardCheck, FileCheck2, History, MapPin,
-  PackageCheck, PackagePlus, Printer, Scale, ShieldCheck, ShieldX, Truck, Undo2, Wrench,
+  ArrowDownToLine, ArrowUpFromLine, Ban, Barcode, Boxes, Circle, ClipboardCheck, FileCheck2, History, MapPin,
+  PackageCheck, PackagePlus, Printer, QrCode, Scale, ShieldCheck, ShieldX, Tags, Truck, Undo2, Wrench,
 };
 
 export const scanIcon = (name) => ICONS[name] || Circle;

@@ -1,59 +1,119 @@
 import React, { useEffect, useId, useState } from "react";
-import { ArrowUpFromLine } from "lucide-react";
+import { ArrowUpFromLine, IdCard } from "lucide-react";
 import QtyStepper from "../../QtyStepper.jsx";
+import EmployeeLookup from "../../EmployeeLookup.jsx";
 import { spareFlowService } from "../../../services/spareFlowService.js";
 import { num } from "../../../lib/format.js";
 import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
-import { clean, fmtQty, qtyError, qtyOf, stepMin, useActionFlow } from "./flow.js";
+import { clean, fmtQty, qtyError, qtyOf, stepMin, useActionFlow, useDepartments } from "./flow.js";
 
 // ISSUE (spec 11): the store hands the part to a department + person. Only
 // what the store knows at the counter is asked — Line / Machine / Die are NOT
 // mandatory here; they are added to the same issue after installation
 // (Update Line / Machine). The quantity can never exceed what is available.
 // Scanning is mainly for issuance: the workstation opens this form by itself
-// as soon as a part with stock is identified, so the operator only picks the
-// Department, types who took it and the quantity, and confirms.
+// as soon as a part with stock is identified.
+// The person is found by mobile number on the Employee master: the operator
+// types only the number, the name and code fill in, and the Department is
+// pre-filled from the person's record (still a choice — the part may be for
+// another department). A number not on the master is added right there
+// first; a part is never issued to someone off the master or marked inactive.
+
+const NO_PERSON = { employee: null, mobile: null, typed: "" };
+
+/** "Issued to": the picked person's name and code, read-only — it comes from
+ *  the Employee master, never typed. */
+function IssuedTo({ emp }) {
+  if (!emp) {
+    return (
+      <p className="flex min-h-[42px] items-center rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400 dark:border-navy-700">
+        Fills in from the mobile number
+      </p>
+    );
+  }
+  return (
+    <p className="flex min-h-[42px] flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-navy-700 dark:bg-navy-800/60">
+      <span className="text-base font-semibold text-slate-800 dark:text-white">{emp.name}</span>
+      {emp.employee_code ? (
+        <span className="badge badge-neutral gap-1 tabular">
+          <IdCard size={12} aria-hidden="true" />{emp.employee_code}
+        </span>
+      ) : (
+        <span className="text-xs text-slate-400">no employee code</span>
+      )}
+    </p>
+  );
+}
 
 export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
   const uid = useId();
   const { part } = scan;
   const available = qtyOf(scan.buckets?.available);
   const flow = useActionFlow(onDone);
+  const { data: depts } = useDepartments();
   const [startQty] = useState(() => stepMin(available));
   const [qty, setQty] = useState(startQty);
+  const [person, setPerson] = useState(NO_PERSON);
   const [department, setDepartment] = useState("");
-  const [issuedTo, setIssuedTo] = useState("");
+  // The department the picked person's record filled in: another person
+  // replaces it and clearing the person empties it — a department the
+  // operator chose is never overwritten.
+  const [autoDept, setAutoDept] = useState(null);
   const [remarks, setRemarks] = useState("");
   const [tried, setTried] = useState(false);
+  const emp = person.employee;
+
+  const pickPerson = (next) => {
+    const was = person.employee;
+    setPerson(next);
+    if ((next.employee?.id ?? null) === (was?.id ?? null)) return;
+    if (department && department !== autoDept) return;
+    const dept = next.employee?.department;
+    const fill = dept && (!depts || depts.some((d) => d.name === dept)) ? dept : "";
+    setDepartment(fill);
+    setAutoDept(fill || null);
+  };
 
   // Has the operator entered anything? An untouched form that the workstation
   // opened by itself is dropped without a question when the next part is scanned.
-  const dirty = Boolean(department || issuedTo.trim() || remarks.trim()) || Number(qty) !== Number(startQty);
+  const dirty = Boolean(department || emp || person.typed?.trim() || remarks.trim()) || Number(qty) !== Number(startQty);
   useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
 
   const errors = {
+    person: emp ? null : person.mobile
+      ? "A part is issued only to an active person on the Employee Master"
+      : "Enter the mobile number of the person taking the part",
     qty: available <= 0
       ? "Nothing available to issue"
       : qtyError(qty, { max: available, maxText: `Only ${fmtQty(available, part.uom)} available — cannot issue more` }),
-    department: !department ? "Choose the department" : null,
+    department: !department
+      ? "Choose the department"
+      : depts && !depts.some((d) => d.name === department) ? `${department} is not in the Department master — choose one` : null,
   };
   const valid = !Object.values(errors).some(Boolean);
   const show = (k) => (tried || k === "qty" ? errors[k] : null);
+
+  const deptHint = !emp ? null
+    : department && department === autoDept ? `From ${emp.name}'s record — change it if the part is for another department`
+      : emp.department && department !== emp.department ? `${emp.name}'s record says ${emp.department}` : null;
 
   const review = () => {
     setTried(true);
     if (!valid) return;
     const payload = {
-      qty: qtyOf(qty), department, issued_to: clean(issuedTo), remarks: clean(remarks),
+      qty: qtyOf(qty), department, remarks: clean(remarks),
+      employee_id: emp.id, issued_to: emp.name, issued_to_mobile: emp.mobile,
       scan_source: source || undefined,
     };
-    const who = payload.issued_to ? ` · ${payload.issued_to}` : "";
+    const code = emp.employee_code ? ` (${emp.employee_code})` : "";
     flow.open({
       title: "Issue", icon: ArrowUpFromLine, part, qty: payload.qty, uom: part.uom,
       moves: [{ from: "STOCK_AVAILABLE", to: "ISSUED" }],
       fields: [
+        { label: "Issued to", value: emp.name },
+        { label: "Employee code", value: emp.employee_code },
         { label: "Department", value: department },
-        { label: "Issued to", value: payload.issued_to },
+        { label: "Mobile", value: `+91 ${emp.mobile}` },
         { label: "From location", value: part.location },
         { label: "Available after issue", value: fmtQty(Math.round((available - payload.qty) * 100) / 100, part.uom) },
         { label: "Remarks", value: payload.remarks },
@@ -62,7 +122,7 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
       confirmLabel: "Confirm Issue",
       submit: () => flow.run(
         () => spareFlowService.issue(part.id, payload),
-        `Issued ${fmtQty(payload.qty, part.uom)} to ${department}${who} — add Line / Machine / Die after installation`,
+        `Issued ${fmtQty(payload.qty, part.uom)} to ${emp.name}${code} · ${department} — add Line / Machine / Die after installation`,
       ),
     });
   };
@@ -77,13 +137,14 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
           { label: "Available qty", value: fmtQty(available, part.uom), strong: true },
         ]} />
       }>
+      <EmployeeLookup value={person} onChange={pickPerson} defaultDepartment={department || undefined}
+        error={show("person")} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Department" required htmlFor={`${uid}-dept`} error={show("department")}>
-          <DepartmentSelect id={`${uid}-dept`} value={department} onChange={setDepartment} error={show("department")} />
+        <Field label="Issued to (person)">
+          <IssuedTo emp={emp} />
         </Field>
-        <Field label="Issued to (person)" htmlFor={`${uid}-to`}>
-          <input id={`${uid}-to`} value={issuedTo} maxLength={80} onChange={(e) => setIssuedTo(e.target.value)}
-            className="input-field text-base" placeholder="Who took the part" />
+        <Field label="Department" required htmlFor={`${uid}-dept`} error={show("department")} hint={deptHint}>
+          <DepartmentSelect id={`${uid}-dept`} value={department} onChange={setDepartment} error={show("department")} />
         </Field>
         <Field label="Issue qty" required htmlFor={`${uid}-qty`} error={show("qty")}
           hint={`Up to ${num(available)}${part.uom ? ` ${part.uom}` : ""}`}>

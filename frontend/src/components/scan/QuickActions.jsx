@@ -17,7 +17,10 @@ import { scanIcon } from "./scanIcons.js";
 // them anyway), and the ones not open right now are listed with the reason
 // under "Why not…", so nobody has to guess why Issue is missing.
 
-export const actionLabel = (a) => ACTIONS[a.key]?.label || a.key;
+// `a.label` is the workstation's own wording for an action in a mode (Receive &
+// Label prints REPRINT_LABEL as "Print Label" until the scan's first label is
+// recorded); otherwise the vocabulary's.
+export const actionLabel = (a) => a.label || ACTIONS[a.key]?.label || a.key;
 
 // Actions whose `count` is the number of open documents they would act on
 // ("Return 3" = three issues still out). For print / history the server's

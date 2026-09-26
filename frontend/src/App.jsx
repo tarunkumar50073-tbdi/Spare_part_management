@@ -28,7 +28,6 @@ const NotFound = React.lazy(() => import("./pages/NotFound.jsx"));
 const PartMaster = React.lazy(() => import("./pages/PartMaster.jsx"));
 const SpareStock = React.lazy(() => import("./pages/SpareStock.jsx"));
 const ScanPart = React.lazy(() => import("./pages/ScanPart.jsx"));
-const SupplierBarcodeMapping = React.lazy(() => import("./pages/SupplierBarcodeMapping.jsx"));
 const ScanAudit = React.lazy(() => import("./pages/ScanAudit.jsx"));
 const SparePartHistory = React.lazy(() => import("./pages/SparePartHistory.jsx"));
 const SupplierMaster = React.lazy(() => import("./pages/SupplierMaster.jsx"));
@@ -143,7 +142,10 @@ function AuthenticatedApp() {
               Parts Store's own on-hand screen. */}
           <Route path="/store-stock-spare" element={<RequirePermission mod="store_stock"><SpareStock /></RequirePermission>} />
           <Route path="/scan-part" element={<RequirePermission mod="scan_part"><ScanPart /></RequirePermission>} />
-          <Route path="/supplier-barcodes" element={<RequirePermission mod="supplier_barcodes"><SupplierBarcodeMapping /></RequirePermission>} />
+          {/* Supplier barcodes are seen and mapped on Scan Part now (each
+              part's Barcodes panel, and Receive & Label for material just in) —
+              redirect so existing links/bookmarks keep working. */}
+          <Route path="/supplier-barcodes" element={<Navigate to="/scan-part?mode=label" replace />} />
           <Route path="/scan-audit" element={<RequirePermission mod="scan_audit"><ScanAudit /></RequirePermission>} />
           <Route path="/spare-part-history" element={<RequirePermission mod="part_ledger"><SparePartHistory /></RequirePermission>} />
           <Route path="/spare-erp-gap" element={<RequirePermission mod="erp_gap"><SpareErpGap /></RequirePermission>} />

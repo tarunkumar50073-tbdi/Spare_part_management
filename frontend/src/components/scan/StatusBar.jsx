@@ -1,11 +1,36 @@
 import React, { memo, useEffect, useState } from "react";
 import { UserRound, Wifi, WifiOff } from "lucide-react";
+import { SCAN_MODE } from "../../lib/scanStatus.js";
+import { scanIcon } from "./scanIcons.js";
 
-// The workstation's top strip: screen + store, network state, operator, clock.
+// The workstation's top strip: screen + store, the mode switch, network state,
+// operator, clock.
 //
 // The clock ticks every second and the network chip listens to the browser, so
 // each keeps its OWN state here — a tick re-renders the few characters of the
 // clock, never the Scan Part page or a half-filled action form beneath it.
+
+// Issue | Receive & Label — what a scan opens (lib/scanStatus SCAN_MODE). The
+// page owns the mode; `onMode` must be stable (this strip is memoised).
+function ModeSwitch({ mode, onMode }) {
+  return (
+    <div role="group" aria-label="Scan mode — what a scan opens"
+      className="inline-flex rounded-lg bg-slate-100 p-0.5 dark:bg-navy-800">
+      {Object.entries(SCAN_MODE).map(([key, m]) => {
+        const on = mode === key;
+        const Icon = scanIcon(m.icon);
+        return (
+          <button key={key} type="button" aria-pressed={on} onClick={() => { if (!on) onMode(key); }}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${on
+              ? "bg-toyotared text-white shadow-sm"
+              : "text-slate-600 hover:bg-white hover:text-slate-800 dark:text-slate-300 dark:hover:bg-navy-700 dark:hover:text-white"}`}>
+            <Icon size={14} aria-hidden="true" />{m.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function LiveClock() {
   const [now, setNow] = useState(() => new Date());
@@ -46,16 +71,17 @@ function NetworkChip() {
   );
 }
 
-function StatusBar({ storeName, operator }) {
+function StatusBar({ storeName, operator, mode, onMode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl2 border border-slate-200 bg-white px-4 py-2 text-sm dark:border-navy-800 dark:bg-navy-900">
-      <div className="flex min-w-0 items-center gap-2.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
         <span className="h-5 w-1 shrink-0 rounded-full bg-toyotared" aria-hidden="true" />
         <h1 className="font-bold text-slate-800 dark:text-white">Scan Part</h1>
         {/* The store's own name, not its internal code ("MAINTENANCE"). */}
         <span className="truncate rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-navy-800 dark:text-slate-300">
           {storeName || "Spare Parts Store"}
         </span>
+        {onMode && <ModeSwitch mode={mode} onMode={onMode} />}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <NetworkChip />

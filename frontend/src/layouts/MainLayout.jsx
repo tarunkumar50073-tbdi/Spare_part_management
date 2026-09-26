@@ -19,7 +19,6 @@ const TITLES = {
   "/holding-area": "Holding Area",
   "/store-stock": "Store Stock",
   "/scan-part": "Scan Part",
-  "/supplier-barcodes": "Supplier Barcode Mapping",
   "/scan-audit": "Scan Audit",
   "/spare-part-history": "Part Ledger",
   "/reports": "Reports",

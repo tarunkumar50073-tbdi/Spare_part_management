@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  CircleCheckBig, CircleX, Eye, EyeOff, History, LoaderCircle, Printer, RefreshCw, TriangleAlert,
+  Check, CircleCheckBig, CircleX, Eye, EyeOff, FileCheck2, History, LoaderCircle, Printer, RefreshCw, TriangleAlert,
 } from "lucide-react";
 import Modal from "./Modal";
 import BarcodeLabel from "./BarcodeLabel";
@@ -14,12 +14,12 @@ import { useBoxWidth } from "./label/useBoxWidth";
 import { barcodeService } from "../services/barcodeService";
 import { buildLabelHtml, labelSymbology, printLabels } from "../utils/barcodeRender";
 import { PRINT_SOURCE } from "../lib/scanStatus";
-import { fmtStamp } from "../lib/format";
+import { fmtDate, fmtStamp, num } from "../lib/format";
 
 // Internal QR label — generate, confirm, print, and record (spec 3 / 7 / 8 / 29).
 //
 //   <PrintBarcodeModal part={{ id | part_id, part_no, part_name, location, is_active? }}
-//                      source? onClose onPrinted? open? config? />
+//                      source? onClose onPrinted? open? config? defaultCopies? qtyHint? />
 //
 // 1 "Generate Internal QR": label preview, Label Quantity, Printer + honest
 //   status, [Preview] (large) and [Print Label].
@@ -36,6 +36,12 @@ import { fmtStamp } from "../lib/format";
 // completes no GRN or quality step (spec 9).
 // `open` defaults to true so a caller may simply mount / unmount the dialog;
 // `config` (label template) is fetched when not given.
+// `defaultCopies` is the Label Quantity the dialog starts at (1 when not given).
+// `qtyHint` ({ grn_no, grn_date, qty, basis: "accepted" | "received" }, the
+// part's newest ERP GRN line — scan-result label_qty_hint) is OFFERED as the
+// label count with a "Use" button, never pre-set: the newest GRN in the ERP
+// mirror need not be the material in hand. Only a whole quantity is a label
+// count (12.5 m of belt is not 13 labels).
 //
 // An inactive part gets no label. The server refuses to record one, and since
 // the label is printed BEFORE it is recorded, letting it print would put a
@@ -81,15 +87,20 @@ function Detail({ label, children }) {
 
 export default function PrintBarcodeModal({
   open = true, part, source: sourceProp, onClose, onPrinted, config: configProp,
+  defaultCopies = 1, qtyHint = null,
 }) {
   const qc = useQueryClient();
   const partId = part?.id ?? part?.part_id ?? null;
   const partNo = part?.part_no || "";
   const description = part?.part_name || "";
   const location = part?.location || null;
+  // Read when the dialog (re)starts only: a caller's value that changes later
+  // (a refreshed scan result) must not reset a label half-way through.
+  const startCopies = useRef(defaultCopies);
+  startCopies.current = defaultCopies;
 
   const [step, setStep] = useState("setup");
-  const [copies, setCopies] = useState(1);
+  const [copies, setCopies] = useState(() => wholeCopies(defaultCopies));
   const [reason, setReason] = useState("");
   const [reasonTried, setReasonTried] = useState(false);
   const [big, setBig] = useState(false);
@@ -109,7 +120,7 @@ export default function PrintBarcodeModal({
   useEffect(() => {
     if (!open) return;
     setStep("setup");
-    setCopies(1);
+    setCopies(wholeCopies(startCopies.current));
     setReason("");
     setReasonTried(false);
     setBig(false);
@@ -152,6 +163,10 @@ export default function PrintBarcodeModal({
   const needsReason = source === "REPRINT" || (printedBefore && source != null && !NEW_MATERIAL.has(source));
   const reasonMissing = needsReason && !reason.trim();
   const qty = wholeCopies(copies);
+  // The newest ERP GRN's quantity as a label count (see the header): a whole
+  // number of at least 1, capped at the most one print may make.
+  const hintQty = Number(qtyHint?.qty);
+  const hintCopies = qtyHint && Number.isInteger(hintQty) && hintQty >= 1 ? Math.min(hintQty, MAX_COPIES) : null;
   const qr = labelSymbology(config) === "QR";
   const showLocation = config?.show_location !== false;
   const printerName = printerQ.data?.name || null;
@@ -310,6 +325,36 @@ export default function PrintBarcodeModal({
               </Field>
             </div>
 
+            {qtyHint && (
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-navy-800">
+                <span className="flex min-w-0 items-start gap-1.5 text-slate-600 dark:text-slate-300">
+                  <FileCheck2 size={14} className="mt-px shrink-0 text-slate-400" aria-hidden="true" />
+                  <span>
+                    Latest ERP GRN <b className="font-mono font-semibold">{qtyHint.grn_no || "—"}</b>
+                    {qtyHint.grn_date ? ` (${fmtDate(qtyHint.grn_date)})` : ""}:{" "}
+                    <b className="tabular font-semibold">{num(qtyHint.qty)}</b>{" "}
+                    {qtyHint.basis === "accepted" ? "accepted" : "received"}
+                    {hintCopies != null && hintQty > MAX_COPIES && (
+                      <span className="text-slate-400"> — at most {MAX_COPIES} labels per print</span>
+                    )}
+                    {hintCopies == null && hintQty > 0 && (
+                      <span className="text-slate-400"> — not a whole number of labels</span>
+                    )}
+                  </span>
+                </span>
+                {hintCopies != null && (hintCopies === qty ? (
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap font-semibold text-emerald-700 dark:text-emerald-300">
+                    <Check size={13} aria-hidden="true" />Using {hintCopies}
+                  </span>
+                ) : (
+                  <button type="button" onClick={() => setCopies(hintCopies)}
+                    className="whitespace-nowrap rounded font-semibold text-toyotared hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/40">
+                    Use {hintCopies}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="rounded-lg border border-slate-200 px-3 py-2.5 text-xs dark:border-navy-800">
               {!sourceProp && historyQ.isPending ? (
                 <span className="flex items-center gap-2 text-slate-500">
@@ -346,7 +391,12 @@ export default function PrintBarcodeModal({
               <Detail label="Location">
                 {location || <span className="text-amber-600 dark:text-amber-400">— (not set)</span>}
               </Detail>
-              <Detail label="Label Quantity"><span className="tabular">{qty}</span></Detail>
+              <Detail label="Label Quantity">
+                <span className="tabular">{qty}</span>
+                {hintCopies === qty && qtyHint?.grn_no && (
+                  <span className="font-normal text-slate-500 dark:text-slate-400"> · as ERP GRN {qtyHint.grn_no}</span>
+                )}
+              </Detail>
               <Detail label="Source">{sourceLabel}</Detail>
               <Detail label="Printer">
                 <span className="flex flex-col items-end gap-1">

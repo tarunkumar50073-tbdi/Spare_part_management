@@ -11,7 +11,7 @@ import { can } from "../utils/permissions.js";
 // Quick-jump destinations. `mod`/`admin` gate an entry to who may open it.
 const NAV = [
   { label: "Dashboard", to: "/", keywords: "home overview store status" },
-  { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr issue receive return rgp" },
+  { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr issue receive return rgp supplier barcode mapping label print" },
   { label: "Work Queue", to: "/work-queue", mod: "scan_part", keywords: "grn quality inspection return rgp rework supplier pending" },
   { label: "Employee Master", to: "/employees", mod: "employees", keywords: "employee person mobile phone issued to code department" },
   { label: "Store Stock", to: "/store-stock-spare", mod: "store_stock", keywords: "inventory on hand count upload" },

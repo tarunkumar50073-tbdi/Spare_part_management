@@ -26,7 +26,7 @@ const COPY = {
   },
   INACTIVE_BARCODE: {
     tone: "amber", icon: Ban, title: "Barcode Deactivated",
-    sub: "This code was mapped to a part, but the mapping has been switched off (damaged or retired label). A supervisor can reactivate it in Supplier Barcode Mapping.",
+    sub: "This code was mapped to a part, but the mapping has been switched off (damaged or retired label). A supervisor can switch it back on in that part's Barcodes panel — search the Part No. to open it.",
     search: true,
   },
   OTHER_STORE: {

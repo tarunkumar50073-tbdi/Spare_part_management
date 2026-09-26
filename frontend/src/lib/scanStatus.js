@@ -113,6 +113,22 @@ export const LEGACY_REASON = {
 };
 export const reasonLabel = (r) => (r ? LEGACY_REASON[r] || r : "—");
 
+// Scan Part's two ways of working (the switch at the top of the page). What a
+// scan opens once the part is identified: the Issue form (issuance first, the
+// default) or the part's internal QR label print, for material just received.
+// URL ?mode=label|issue picks one; the last one is remembered per terminal.
+export const SCAN_MODE = {
+  ISSUE: { label: "Issue", icon: "ArrowUpFromLine", param: "issue" },
+  LABEL: { label: "Receive & Label", icon: "Tags", param: "label" },
+};
+
+// A part's barcodes (BarcodeService.list_part_barcodes source): its own QR —
+// which carries only the Part No. — and supplier codes mapped to it.
+export const BARCODE_SOURCE = {
+  INTERNAL: { label: "Internal QR", icon: "QrCode" },
+  SUPPLIER: { label: "Supplier code", icon: "Barcode" },
+};
+
 // Label print sources (spec 8) — LabelPrintAudit.source.
 export const PRINT_SOURCE = {
   SUPPLIER_BARCODE: "Supplier Barcode",
