@@ -7,7 +7,8 @@ import api from "./api";
 // same for other terminals).
 export const spareFlowService = {
   // ---- scan result / history / queues ----
-  scanResult: (partId) => api.get(`/spare-flow/parts/${partId}/scan-result`),
+  // `config` as for queues below (e.g. { silent: true } for a background read).
+  scanResult: (partId, config = {}) => api.get(`/spare-flow/parts/${partId}/scan-result`, config),
   timeline: (partId, limit = 200) =>
     api.get(`/spare-flow/parts/${partId}/timeline`, { params: { limit } }),
   // `config` passes axios options through — e.g. { silent: true } where the
@@ -17,16 +18,9 @@ export const spareFlowService = {
   // ERP vendors seen for this part (gate entries / GRNs) + the supplier master.
   supplierOptions: (partId) => api.get(`/spare-flow/parts/${partId}/supplier-options`),
 
-  // ---- receiving (spec 1 / 9) ----
-  // payload: { part_id, qty, supplier_id?, ven_cd?, ven_name?, supplier_source?,
-  //            invoice_no?, invoice_date?, check_result?, remarks?, scanned_code?, scan_source? }
-  receive: (payload) => api.post("/spare-flow/receipts", payload),
-  // { grn_no, grn_date?, quality_by, remarks? }
-  recordGrn: (receiptId, payload) => api.post(`/spare-flow/receipts/${receiptId}/grn`, payload),
-  // { accepted_qty, rejected_qty, remarks? }
-  qualityClear: (receiptId, payload) => api.post(`/spare-flow/receipts/${receiptId}/quality`, payload),
-  cancelReceipt: (receiptId, reason) =>
-    api.post(`/spare-flow/receipts/${receiptId}/cancel`, { reason }),
+  // Receiving, the GRN and quality clearance are done in ERP: the app reads
+  // them (scan_result.erp_receiving, the Receiving & GRN page) and records
+  // none of them by hand, so there are no receiving writes here.
 
   // ---- issue / installation / return (spec 11-13; on /spare-stock) ----
   // { qty, department, issued_to?, reference?, remarks?, scanned_code?, scan_source? }

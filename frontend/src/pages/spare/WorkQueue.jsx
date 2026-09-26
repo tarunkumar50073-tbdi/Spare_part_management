@@ -2,7 +2,7 @@ import React from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowRight, CircleCheck, ClipboardCheck, Lock, PackageCheck, RefreshCw, ShieldCheck, Truck, Wrench,
+  ArrowRight, CircleCheck, ClipboardCheck, Database, Lock, PackageCheck, RefreshCw, ShieldCheck, TriangleAlert, Truck, Wrench,
 } from "lucide-react";
 import ErrorState from "../../components/ErrorState.jsx";
 import Table from "../../components/Table.jsx";
@@ -10,21 +10,24 @@ import { IssueAge, IssueStatusPill, useMinuteClock } from "../../components/spar
 import { useCan } from "../../components/Can.jsx";
 import { usePartDrawer } from "../../context/PartDrawerContext.jsx";
 import { spareFlowService } from "../../services/spareFlowService.js";
-import { ACTIONS, RECEIPT_STATUS, RETURN_STATUS, reasonLabel } from "../../lib/scanStatus.js";
+import { erpFreshness, erpGrnService } from "../../services/erpGrnService.js";
+import { ACTIONS, RETURN_STATUS, erpLineMeta as lineState, reasonLabel } from "../../lib/scanStatus.js";
 import { fmtDate, fmtStamp, num, parseServerTime } from "../../lib/format.js";
 
 // Work Queue — every spare document waiting on a person, one tab per kind of
-// wait: receipts for the GRN / quality clearance, returns for the store
-// inspection, RGPs with the supplier or waiting for their RGP GRN, and issues
-// the fitter has not yet confirmed on a line / machine. The page only lists;
-// every action is a deep link into Scan Part (which owns the forms), with the
-// part open, the action chosen and the document preselected.
+// wait: ERP GRN lines waiting for ERP's quality clearance (read-only — the GRN
+// and the quality clearance are done in ERP), returns for the store inspection,
+// RGPs with the supplier or waiting for their RGP GRN, and issues the fitter
+// has not yet confirmed on a line / machine. The page only lists; every action
+// is a deep link into Scan Part (which owns the forms), with the part open, the
+// action chosen and the document preselected. ERP GRN lines link to Receiving
+// & GRN instead — there is nothing to record for them in the app.
 
 // The QR flow exists only for the Spare Parts Store.
 const STORE = "MAINTENANCE";
 
 const TABS = [
-  { key: "quality", label: "GRN / Quality", Icon: ShieldCheck },
+  { key: "quality", label: "GRN / Quality (ERP)", Icon: ShieldCheck },
   { key: "inspection", label: "Return Inspection", Icon: ClipboardCheck },
   { key: "with_supplier", label: "With Supplier", Icon: Truck },
   { key: "rgp_grn_pending", label: "RGP GRN Pending", Icon: PackageCheck },
@@ -34,7 +37,7 @@ const TABS = [
 // What an empty tab means — said plainly, so "nothing here" is never mistaken
 // for "not loaded".
 const EMPTY = {
-  quality: "No received material is waiting for a GRN or a quality clearance.",
+  quality: "No ERP GRN line is waiting for quality clearance in ERP, and none needs a check.",
   inspection: "No returned part is waiting for the store inspection, on hold or damaged.",
   with_supplier: "No part is with a supplier for rework.",
   rgp_grn_pending: "No supplier return is waiting for its RGP GRN.",
@@ -51,6 +54,18 @@ const scanLink = (partId, action, target) => {
   if (target != null) q.set("target", String(target));
   return `/scan-part?${q.toString()}`;
 };
+
+// /receiving?state=&part_no= — Receiving & GRN opens its ERP GRN lines filtered
+// to this part and state.
+const receivingLink = (row) => {
+  const q = new URLSearchParams();
+  if (row.state) q.set("state", row.state);
+  if (row.part_no) q.set("part_no", row.part_no);
+  return `/receiving?${q.toString()}`;
+};
+
+// ERP lines have no id of their own — one per part and GRN no.
+const lineKey = (r) => `${r.part_id}|${r.grn_no}`;
 
 // Whole days since a server stamp, on the plant clock. The payload's own
 // age_days wins when it carries one, so the page and the server agree.
@@ -138,7 +153,15 @@ const whereUsed = (r) => {
     .filter(Boolean).join(" · ");
 };
 
-function columnsFor(tab, { canAct, now }) {
+// Whole plant days since a date-only ERP date ("2026-09-20"), counted from
+// local midnight — not from UTC midnight, which is 05:30 here.
+const daysSinceDay = (day, now) => {
+  const [y, m, d] = String(day || "").slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return Math.max(0, Math.floor((now - new Date(y, m - 1, d).getTime()) / DAY_MS));
+};
+
+function columnsFor(tab, { canAct, canViewReceiving, now }) {
   const actionCol = (render) => ({ key: "_action", label: "Action", render });
   const ageCol = (stamp) => ({
     key: "_age", label: "Age", align: "right",
@@ -146,34 +169,68 @@ function columnsFor(tab, { canAct, now }) {
     render: (r) => <Age days={ageOf(r, stamp, now)} />,
   });
 
+  // ERP GRN lines (read-only): the GRN and the quality clearance are done in
+  // ERP, so the only way on is to look at the line in Receiving & GRN.
   if (tab === "quality") {
+    const grnAge = (r) => r.age_days ?? daysSinceDay(r.grn_date, now);
     return [
-      docCol("receipt_no", "Receipt no", "created_at"),
-      partCol,
-      { key: "qty_received", label: "Qty", align: "right", sortable: true, render: (r) => num(r.qty_received) },
-      supplierCol,
       {
-        key: "status", label: "Status", sortable: true,
-        exportValue: (r) => RECEIPT_STATUS[r.status]?.label || r.status,
+        key: "grn_no", label: "GRN no · date", sortable: true,
+        sortValue: (r) => `${r.grn_date || ""} ${r.grn_no || ""}`,
+        searchValue: (r) => `${r.grn_no || ""} ${r.invoice_no || ""}`,
+        exportValue: (r) => `${r.grn_no || ""}${r.grn_date ? ` (${r.grn_date})` : ""}`,
         render: (r) => (
-          <div className="space-y-0.5">
-            <span className={`badge ${RECEIPT_STATUS[r.status]?.badge || "badge-neutral"}`}>
-              {RECEIPT_STATUS[r.status]?.label || r.status || "—"}
-            </span>
-            {r.grn_no && (
-              <div className="text-[11px] text-slate-400">
-                GRN {r.grn_no}{r.quality_by ? ` · quality by ${r.quality_by}` : ""}
-              </div>
+          <div>
+            <div className="font-mono text-[12px] font-semibold text-slate-800 dark:text-slate-100">{r.grn_no || "—"}</div>
+            <div className="text-[11px] text-slate-400">{r.grn_date ? fmtDate(r.grn_date) : "no GRN date in ERP"}</div>
+          </div>
+        ),
+      },
+      partCol,
+      {
+        key: "receipt_qty", label: "Qty", align: "right", sortable: true,
+        exportValue: (r) => `Received ${qty(r.receipt_qty)}${r.accept_qty != null ? ` / accepted ${qty(r.accept_qty)}` : ""}`
+          + `${r.reject_qty != null ? ` / rejected ${qty(r.reject_qty)}` : ""}${qty(r.posted_qty) ? ` / added ${qty(r.posted_qty)}` : ""}`,
+        render: (r) => (
+          <div>
+            <div className="font-semibold text-slate-800 dark:text-white">{num(r.receipt_qty)}</div>
+            <div className="whitespace-nowrap text-[11px] text-slate-400">
+              {r.accept_qty == null && r.reject_qty == null
+                ? "received · not accepted yet"
+                : `accepted ${num(r.accept_qty ?? 0)} · rejected ${num(r.reject_qty ?? 0)}`}
+            </div>
+            {qty(r.posted_qty) > 0 && (
+              <div className="whitespace-nowrap text-[11px] text-slate-400">added to stock {num(r.posted_qty)}</div>
             )}
           </div>
         ),
       },
-      ageCol("created_at"),
-      actionCol((r) => (r.status === "RECEIVED"
-        ? <ActionLink row={r} action="RECORD_GRN" target={r.id} canAct={canAct} />
-        : r.status === "QUALITY_PENDING"
-          ? <ActionLink row={r} action="QUALITY_CLEARANCE" target={r.id} canAct={canAct} />
-          : dash)),
+      supplierCol,
+      {
+        key: "state", label: "State", sortable: true,
+        exportValue: (r) => lineState(r.state).label, searchValue: (r) => lineState(r.state).label,
+        render: (r) => <span className={`badge whitespace-nowrap ${lineState(r.state).badge}`}>{lineState(r.state).label}</span>,
+      },
+      {
+        key: "reason", label: "Reason",
+        render: (r) => <span className="block max-w-[280px] text-[12px] leading-snug text-slate-500 dark:text-slate-400">{r.reason || "—"}</span>,
+      },
+      {
+        key: "_age", label: "Days since GRN", align: "right",
+        sortValue: grnAge, exportValue: grnAge,
+        render: (r) => <Age days={grnAge(r)} />,
+      },
+      actionCol((r) => (canViewReceiving ? (
+        <Link to={receivingLink(r)} onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-toyotared hover:text-toyotared dark:border-navy-700 dark:text-slate-300">
+          View in Receiving &amp; GRN <ArrowRight size={12} aria-hidden="true" />
+        </Link>
+      ) : (
+        <span title="Your account cannot open Receiving & GRN. Ask an administrator under User Management."
+          className="inline-flex items-center gap-1 rounded-md border border-dashed border-slate-200 px-2 py-1 text-[11px] text-slate-400 dark:border-navy-700">
+          <Lock size={11} aria-hidden="true" /> Receiving &amp; GRN
+        </span>
+      ))),
     ];
   }
 
@@ -333,6 +390,11 @@ function QueueSkeleton() {
 export default function WorkQueue() {
   const { openPart } = usePartDrawer();
   const canAct = useCan("scan_part", "edit");
+  const canViewReceiving = useCan("spare_store", "view");
+  // GET /erp-grn/preview is any-of (spare_store, store_stock) view. Each hook
+  // is called on every render, never inside a short-circuit.
+  const canViewStock = useCan("store_stock", "view");
+  const canReadErpGrn = canViewReceiving || canViewStock;
   const now = useMinuteClock();
   const [params, setParams] = useSearchParams();
 
@@ -363,13 +425,25 @@ export default function WorkQueue() {
   const rows = listOf(tab);
   const active = TABS.find((t) => t.key === tab);
 
+  // The GRN / Quality lines are ERP data, so they carry the GRN mirror's
+  // freshness: from the queue payload when it sends it, else from the ERP GRN
+  // read Receiving & GRN shares (same cache key — one call for both).
+  const queueErp = data?.erp || data?.quality_erp || null;
+  const { data: erpPreview, isError: erpFailed } = useQuery({
+    queryKey: ["stock", "erp-grn", STORE],
+    queryFn: () => erpGrnService.preview(STORE, { silent: true }).then((r) => r.data.data),
+    enabled: Boolean(data) && !queueErp && tab === "quality" && canReadErpGrn,
+  });
+  const erpSource = queueErp || erpPreview?.erp || null;
+  const fresh = erpSource ? erpFreshness(erpSource, now) : null;
+
   const header = (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h2 className="text-lg font-bold text-slate-800 dark:text-white">Work Queue</h2>
         <p className="mt-0.5 text-xs text-slate-400">
           Spare Parts Store · everything waiting on a person. Each action opens the part on Scan Part with the form
-          ready and the document picked.
+          ready and the document picked. GRN / Quality is ERP&apos;s own list — cleared in ERP, shown here read-only.
         </p>
       </div>
       <div className="flex items-center gap-2">
@@ -422,6 +496,29 @@ export default function WorkQueue() {
           })}
         </div>
 
+        {tab === "quality" && (
+          <div className="mb-3 space-y-2">
+            <p className={`flex items-center gap-1.5 text-[11px] ${fresh?.stale
+              ? "font-medium text-amber-700 dark:text-amber-300" : "text-slate-500 dark:text-slate-400"}`}>
+              <Database size={13} aria-hidden="true" />
+              {fresh ? fresh.text
+                : !canReadErpGrn || erpFailed
+                  ? "Read from the ERP GRN register — how fresh the ERP data is could not be read"
+                  : "Reading how fresh the ERP data is…"}
+            </p>
+            {fresh?.stale && (
+              <p className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                <TriangleAlert size={14} className="mt-px shrink-0" aria-hidden="true" />
+                <span>
+                  {fresh.empty
+                    ? "The ERP GRN mirror is empty, so this list cannot show anything yet."
+                    : `ERP data is ${fresh.staleText}`}
+                </span>
+              </p>
+            )}
+          </div>
+        )}
+
         {rows.length === 0 ? (
           <div className="flex flex-col items-center py-12 text-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300">
@@ -433,8 +530,9 @@ export default function WorkQueue() {
         ) : (
           <Table
             key={tab}
-            columns={columnsFor(tab, { canAct, now })}
+            columns={columnsFor(tab, { canAct, canViewReceiving, now })}
             rows={rows}
+            rowKey={tab === "quality" ? lineKey : undefined}
             searchable={rows.length > 8 ? "Search part, document, supplier…" : false}
             exportName={`work_queue_${tab}`}
             maxHeight="62vh"
@@ -456,16 +554,17 @@ export default function WorkQueue() {
       )}
       {data && total === 0 && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          All clear — no receipt, return, RGP or issue is waiting on anyone.
+          All clear — no ERP GRN line, return, RGP or issue is waiting on anyone.
         </p>
       )}
       {body}
       {data && (
         <p className="text-[11px] leading-relaxed text-slate-400">
           {active?.label}: tap a row to open the part. This page only lists — each action is recorded on Scan Part.
-          There the store supervisor records the ERP GRN no., and the quality clearance is recorded after the
-          Maintenance / Tool Room inspection — this app does not write to ERP. Returned parts are not store stock until
-          inspected Good; material with a supplier is not stock until its RGP GRN.
+          Receiving, the GRN and the Maintenance / Tool Room quality clearance are done in ERP: the app reads them, and
+          the qty quality accepts in ERP is added to store stock once, by itself — nothing to record here, and the app
+          does not write to ERP. Returned parts are not store stock until inspected Good; material with a supplier is
+          not stock until its RGP GRN.
         </p>
       )}
     </div>

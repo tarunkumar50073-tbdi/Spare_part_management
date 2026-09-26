@@ -3,9 +3,10 @@ import { Link } from "react-router-dom";
 import Modal from "../Modal.jsx";
 import PartTimeline, { TIMELINE_LIMIT, usePartTimeline } from "../spare/PartTimeline.jsx";
 
-// "View History" (spec 21): the part's full timeline — every receipt, GRN,
-// quality clearance, issue, installation, return, inspection, RGP, label print
-// and location move, newest first. Read through usePartTimeline, so a write
+// "View History" (spec 21): the part's full timeline — the receiving history
+// read from ERP (gate arrival, GRN, quality acceptance), every issue,
+// installation, return, inspection, RGP, label print and location move, newest
+// first. Read through usePartTimeline, so a write
 // here or a stock push from another terminal refreshes it, and the part
 // drawer's trace shares the same cached copy.
 export default function HistoryModal({ part, onClose }) {

@@ -4,14 +4,16 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ClipboardList } from "lucide-react";
 import { spareFlowService } from "../../services/spareFlowService.js";
 import { num } from "../../lib/format.js";
+import ErpAsOf from "./ErpAsOf.jsx";
 
-// What is waiting on the store as a whole — GRN / quality, return inspection,
-// supplier rework, RGP GRN, fitter confirmation — as counts, with the Work
-// Queue one click away. Kept small: the workstation is about the part in hand;
-// the lists themselves live on the Work Queue. Under a "stock" key, so a stock
-// push (another terminal's write) refreshes the counts too.
+// What is waiting on the store as a whole — ERP GRNs awaiting quality (read
+// from ERP), return inspection, supplier rework, RGP GRN, fitter confirmation —
+// as counts, with the Work Queue one click away. Kept small: the workstation is
+// about the part in hand; the lists themselves live on the Work Queue. Under a
+// "stock" key, so a stock push (another terminal's write) refreshes the counts too.
+// The quality count is an ERP figure, so it carries the mirror's freshness (data.erp).
 const COUNTS = [
-  { key: "quality", label: "GRN / Quality" },
+  { key: "quality", label: "Quality (ERP GRN)" },
   { key: "inspection", label: "Inspection" },
   { key: "with_supplier", label: "With supplier" },
   { key: "rgp_grn_pending", label: "RGP GRN" },
@@ -52,6 +54,9 @@ function WorkQueueLink({ storeCode }) {
             </span>
           ))}
         </div>
+      )}
+      {!isPending && !isError && Number(counts.quality) > 0 && data?.erp && (
+        <ErpAsOf erp={data.erp} className="mt-1.5" />
       )}
     </Link>
   );

@@ -1,4 +1,4 @@
-import React, { useId, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import { ArrowUpFromLine } from "lucide-react";
 import QtyStepper from "../../QtyStepper.jsx";
 import { spareFlowService } from "../../../services/spareFlowService.js";
@@ -10,17 +10,26 @@ import { clean, fmtQty, qtyError, qtyOf, stepMin, useActionFlow } from "./flow.j
 // what the store knows at the counter is asked — Line / Machine / Die are NOT
 // mandatory here; they are added to the same issue after installation
 // (Update Line / Machine). The quantity can never exceed what is available.
+// Scanning is mainly for issuance: the workstation opens this form by itself
+// as soon as a part with stock is identified, so the operator only picks the
+// Department, types who took it and the quantity, and confirms.
 
-export default function IssueForm({ scan, source, onDone, onCancel }) {
+export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
   const uid = useId();
   const { part } = scan;
   const available = qtyOf(scan.buckets?.available);
   const flow = useActionFlow(onDone);
-  const [qty, setQty] = useState(() => stepMin(available));
+  const [startQty] = useState(() => stepMin(available));
+  const [qty, setQty] = useState(startQty);
   const [department, setDepartment] = useState("");
   const [issuedTo, setIssuedTo] = useState("");
   const [remarks, setRemarks] = useState("");
   const [tried, setTried] = useState(false);
+
+  // Has the operator entered anything? An untouched form that the workstation
+  // opened by itself is dropped without a question when the next part is scanned.
+  const dirty = Boolean(department || issuedTo.trim() || remarks.trim()) || Number(qty) !== Number(startQty);
+  useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
 
   const errors = {
     qty: available <= 0
@@ -64,7 +73,7 @@ export default function IssueForm({ scan, source, onDone, onCancel }) {
         <Facts items={[
           { label: "Part No.", value: part.part_no, strong: true },
           { label: "Description", value: part.part_name },
-          { label: "Current location", value: part.location, empty: "Not set" },
+          { label: "Location", value: part.location, empty: "Not set" },
           { label: "Available qty", value: fmtQty(available, part.uom), strong: true },
         ]} />
       }>

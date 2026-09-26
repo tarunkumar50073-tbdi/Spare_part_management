@@ -12,6 +12,9 @@ import PrintBarcodeModal from "../PrintBarcodeModal.jsx";
 import Traceability from "./Traceability.jsx";
 import { useCan } from "../Can.jsx";
 import { spareStockService } from "../../services/spareStockService.js";
+import { spareFlowService } from "../../services/spareFlowService.js";
+import { erpFreshness } from "../../services/erpGrnService.js";
+import { scanResultKey } from "../../hooks/useScanWorkstation.js";
 import { invalidateStock } from "../../lib/stockQueries.js";
 import { splitLocation } from "../../lib/inventory.js";
 import { BUCKETS, statusMeta } from "../../lib/scanStatus.js";
@@ -46,29 +49,53 @@ function Section({ title, icon: Icon, children, aside }) {
   );
 }
 
+// The quality-pending bucket is ERP's: GRN lines of this part whose quality
+// clearance ERP has not given yet (receiving is read from ERP, not recorded here).
+const BUCKET_LABEL = { quality_pending: "Quality pending (ERP)" };
+
 // Where the part's quantity sits right now (overview.buckets — the same split
 // the Scan Part workstation shows). Only non-zero buckets; nothing at all when
 // the server sent no split, so an older payload shows no invented zeros.
-function Buckets({ buckets, primary }) {
+// The quality-pending figure is ERP data, so it carries the GRN mirror's
+// freshness (`erpFresh`, erpFreshness()) and a way to its ERP GRN lines; with
+// no freshness to hand it says so (`erpReading` while it is still being read).
+function Buckets({ buckets, primary, erpFresh, erpReading, onErpLines }) {
   if (!buckets) return null;
   const shown = BUCKETS.filter((b) => Number(buckets[b.key]) > 0);
   if (!shown.length) return null;
+  const qualityShown = shown.some((b) => b.key === "quality_pending");
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Quantity by status">
-      {primary?.key && (
-        <span className={`badge ${statusMeta(primary.key).badge}`} title="The part's headline status">
-          {primary.label || statusMeta(primary.key).label}
-        </span>
+    <>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Quantity by status">
+        {primary?.key && (
+          <span className={`badge ${statusMeta(primary.key).badge}`} title="The part's headline status">
+            {primary.label || statusMeta(primary.key).label}
+          </span>
+        )}
+        {shown.map((b) => (
+          <span key={b.key}
+            title={b.key === "quality_pending" ? "Received on ERP GRNs, quality clearance pending in ERP — not issuable until ERP accepts it" : undefined}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 dark:border-navy-700 dark:text-slate-300">
+            <span className={`h-1.5 w-1.5 rounded-full ${statusMeta(b.status).dot}`} aria-hidden="true" />
+            {BUCKET_LABEL[b.key] || b.label}
+            <b className="font-semibold tabular text-slate-800 dark:text-white">{num(buckets[b.key])}</b>
+          </span>
+        ))}
+      </div>
+      {qualityShown && (
+        <p className={`mt-1 text-[11px] ${erpFresh?.stale ? "text-amber-700 dark:text-amber-300" : "text-slate-400"}`}>
+          Quality pending is read from ERP
+          {erpFresh ? ` · ${erpFresh.text}` : erpReading ? " · reading the ERP data age…" : " · ERP data age unknown"}
+          {erpFresh?.stale && !erpFresh.empty ? ` (${erpFresh.ageDays} d old)` : ""}
+          {onErpLines && (
+            <>
+              {" · "}
+              <button type="button" onClick={onErpLines} className="font-semibold text-toyotared hover:underline">ERP GRN lines</button>
+            </>
+          )}
+        </p>
       )}
-      {shown.map((b) => (
-        <span key={b.key}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 dark:border-navy-700 dark:text-slate-300">
-          <span className={`h-1.5 w-1.5 rounded-full ${statusMeta(b.status).dot}`} aria-hidden="true" />
-          {b.label}
-          <b className="font-semibold tabular text-slate-800 dark:text-white">{num(buckets[b.key])}</b>
-        </span>
-      ))}
-    </div>
+    </>
   );
 }
 
@@ -95,6 +122,7 @@ export default function PartDrawer({ partId, onClose }) {
   const canPrintStock = useCan("store_stock", "edit");
   const canPrintMaster = useCan("part_master", "edit");
   const canPrint = canPrintScan || canPrintStock || canPrintMaster;
+  const canSeeReceiving = useCan("spare_store", "view");
   const [counting, setCounting] = useState(false);
   const [draft, setDraft] = useState("");
   const [printing, setPrinting] = useState(false);
@@ -105,6 +133,24 @@ export default function PartDrawer({ partId, onClose }) {
     queryFn: () => spareStockService.partOverview(partId).then((r) => r.data.data),
     enabled: partId != null,
   });
+  // Quality pending is ERP's figure: it is shown with the ERP GRN mirror's
+  // freshness — from the overview when it carries it (erp_receiving.erp), else
+  // from this part's own scan result (the Scan Part cache key, same store-access
+  // check as the overview), fetched only when there is a quality-pending qty to
+  // qualify. Never the store-wide ERP GRN preview: that reads every GRN line of
+  // the store on each stock push and needs a right this drawer does not.
+  const qualityPending = Number(ov?.buckets?.quality_pending) > 0;
+  const ownErp = ov?.erp_receiving?.erp || null;
+  const { data: scan, isPending: scanPending } = useQuery({
+    queryKey: scanResultKey(partId),
+    queryFn: () => spareFlowService.scanResult(partId, { silent: true }).then((r) => r.data.data),
+    enabled: partId != null && qualityPending && !ownErp,
+  });
+  const erpSource = ownErp || scan?.erp_receiving?.erp || null;
+  const erpFresh = qualityPending && erpSource ? erpFreshness(erpSource) : null;
+  // No source yet (still reading) or none at all (the read failed): the figure
+  // is still ERP's, so the note says its age is unknown rather than go bare.
+  const erpReading = qualityPending && !erpSource && scanPending;
 
   const go = (to) => { onClose(); navigate(to); };
   const saveCount = async () => {
@@ -145,7 +191,7 @@ export default function PartDrawer({ partId, onClose }) {
             {/* Deep link: Scan Part opens on this very part (contract), so the
                 operator lands on its status and actions without re-scanning. */}
             <button type="button" className="btn-primary" onClick={() => go(`/scan-part?part=${partId}`)}
-              title="Issue, receive, return, inspect and RGP are done on the Scan Part workstation">
+              title="Issue, return, inspect and RGP are done on the Scan Part workstation — receiving, GRN and quality clearance are done in ERP">
               <ScanBarcode size={14} aria-hidden="true" /> Open in Scan Part
             </button>
           </>
@@ -207,7 +253,10 @@ export default function PartDrawer({ partId, onClose }) {
                 <Tile label="Max" value={st.max == null ? "—" : num(st.max)} />
                 <Tile label="Value" value={st.stock_value == null ? "—" : money(st.stock_value)} />
               </div>
-              <Buckets buckets={ov.buckets} primary={ov.primary_status} />
+              <Buckets buckets={ov.buckets} primary={ov.primary_status} erpFresh={erpFresh} erpReading={erpReading}
+                onErpLines={canSeeReceiving
+                  ? () => go(`/receiving?${new URLSearchParams({ part_no: p.part_no }).toString()}`)
+                  : null} />
               <p className="mt-2 text-[11px] text-slate-400">
                 {st.shortfall != null && <>Short of max by <b>{num(st.shortfall)}</b> · </>}
                 {/* The opening upload loaded quantities without a count date, so a

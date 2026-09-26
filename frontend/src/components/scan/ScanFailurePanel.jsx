@@ -36,7 +36,7 @@ const COPY = {
   },
   INACTIVE_PART: {
     tone: "rose", icon: Ban, title: "Part Inactive",
-    sub: "An administrator must reactivate the part in Part Master before it can be issued, received or labelled.",
+    sub: "An administrator must reactivate the part in Part Master before it can be issued, returned or labelled.",
   },
   FAILED: {
     tone: "rose", icon: XCircle, title: "Nothing Scanned",

@@ -6,7 +6,13 @@ import { scanIcon } from "./scanIcons.js";
 // (e) What can be done with the part NOW (spec 27 / 28). The server decides
 // which actions are valid for the part's current state; only those are drawn —
 // a part with the supplier shows RGP Return, never Issue. The next step the
-// flow expects (primary_action) is the big red button; the rest sit below it.
+// flow expects (primary_action) is the big red button.
+//
+// Scanning is mainly for issuance: when Issue is open it is the big button and
+// everything else sits in one compact "Other actions" row under it (the same
+// row the workstation shows under the Issue form). When nothing can be issued
+// the valid actions are laid out as a grid under the next step.
+//
 // Actions this user may not perform are left out too (the server would refuse
 // them anyway), and the ones not open right now are listed with the reason
 // under "Why not…", so nobody has to guess why Issue is missing.
@@ -17,13 +23,15 @@ export const actionLabel = (a) => ACTIONS[a.key]?.label || a.key;
 // ("Return 3" = three issues still out). For print / history the server's
 // count means something else (prints made, events), so no badge there.
 const DOC_ACTIONS = new Set([
-  "RGP_GRN", "RGP_RETURN", "QUALITY_CLEARANCE", "RECORD_GRN", "INSPECT", "RETURN", "UPDATE_INSTALLATION", "RGP_OUT",
+  "RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN", "UPDATE_INSTALLATION", "RGP_OUT",
 ]);
+
+const docCount = (a) => (DOC_ACTIONS.has(a.key) && Number(a.count) > 1 ? a.count : null);
 
 function ActionButton({ action, primary, onClick }) {
   const meta = ACTIONS[action.key] || {};
   const Icon = scanIcon(meta.icon);
-  const count = DOC_ACTIONS.has(action.key) && Number(action.count) > 1 ? action.count : null;
+  const count = docCount(action);
   if (primary) {
     return (
       <button type="button" onClick={onClick}
@@ -45,6 +53,38 @@ function ActionButton({ action, primary, onClick }) {
 }
 
 /**
+ * The compact "Other actions" row — every open action this user may do, minus
+ * `exclude` (the Issue already on screen). Renders nothing when none is left.
+ * actions      scan.actions
+ * exclude      keys not to list
+ * allowed(key) the user holds the right for this action
+ * onAction(key)
+ */
+export function OtherActions({ actions = [], exclude = [], allowed, onAction, className = "" }) {
+  const rest = actions.filter((a) => a.enabled && allowed(a.key) && !exclude.includes(a.key));
+  if (!rest.length) return null;
+  return (
+    <div className={className} role="group" aria-label="Other actions">
+      <p className="mb-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Other actions</p>
+      <div className="flex flex-wrap gap-1.5">
+        {rest.map((a) => {
+          const Icon = scanIcon(ACTIONS[a.key]?.icon);
+          const count = docCount(a);
+          return (
+            <button key={a.key} type="button" onClick={() => onAction(a.key)}
+              className="btn-secondary gap-1.5 px-2.5 py-1.5 text-xs">
+              <Icon size={14} aria-hidden="true" />
+              {actionLabel(a)}
+              {count && <span className="rounded-full bg-slate-200 px-1.5 text-[10px] tabular text-slate-600 dark:bg-navy-700 dark:text-slate-300">{count}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
  * actions      scan.actions — every key, in display order, with enabled + reason
  * primaryKey   scan.primary_action
  * allowed(key) the user holds the right for this action
@@ -54,6 +94,7 @@ export default function QuickActions({ actions = [], primaryKey, allowed, onActi
   const open = actions.filter((a) => a.enabled && allowed(a.key));
   const primary = open.find((a) => a.key === primaryKey) || null;
   const rest = open.filter((a) => a !== primary);
+  const issuanceFirst = primary?.key === "ISSUE";
   // Grouped by reason — an inactive part closes everything for ONE reason,
   // which is said once, not twelve times.
   const closed = [];
@@ -75,7 +116,9 @@ export default function QuickActions({ actions = [], primaryKey, allowed, onActi
           <ActionButton action={primary} primary onClick={() => onAction(primary.key)} />
         </div>
       )}
-      {rest.length > 0 && (
+      {issuanceFirst ? (
+        <OtherActions actions={actions} exclude={["ISSUE"]} allowed={allowed} onAction={onAction} className="mt-3" />
+      ) : rest.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {rest.map((a) => <ActionButton key={a.key} action={a} onClick={() => onAction(a.key)} />)}
         </div>

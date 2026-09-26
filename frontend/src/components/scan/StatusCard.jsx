@@ -1,6 +1,7 @@
 import React from "react";
 import { Activity, Info } from "lucide-react";
 import Badge from "../Badge.jsx";
+import ErpAsOf from "./ErpAsOf.jsx";
 import { fmtStamp, num } from "../../lib/format.js";
 import { statusMeta } from "../../lib/scanStatus.js";
 
@@ -8,12 +9,18 @@ import { statusMeta } from "../../lib/scanStatus.js";
 // so several things can be true at once — 3 in stock, 1 on a line, 1 with a
 // supplier: one headline (primary_status, decided by the server) plus a chip
 // per non-zero bucket with its quantity, and the quantity that may be issued.
+// "Quality pending" is read from ERP (GRNs whose accepted qty ERP has not got
+// yet), so it carries the ERP data's age. It promises nothing about stock: an
+// accepted GRN may be skipped (part never counted, GRN on/before the stock
+// baseline or before the post-from date) or auto-add may be off — the
+// Receiving & GRN page shows each line's outcome and why.
 export default function StatusCard({ scan, dataStatus }) {
   const head = scan.primary_status || null;
   const headMeta = statusMeta(head?.key);
   const statuses = scan.statuses || [];
   const stock = scan.stock || {};
   const uom = scan.part?.uom;
+  const qualityFromErp = Number(scan.buckets?.quality_pending) > 0 && scan.erp_receiving?.erp;
   return (
     <section className="card p-4" aria-label="Current status">
       <div className="flex items-center gap-2">
@@ -64,6 +71,14 @@ export default function StatusCard({ scan, dataStatus }) {
           </div>
         </div>
       </div>
+
+      {qualityFromErp && (
+        <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+          <span>Quality pending is read from ERP GRNs and is not in store stock. Whether an accepted qty is added
+            to stock is decided per GRN — Receiving &amp; GRN shows each line and why.</span>
+          <ErpAsOf erp={scan.erp_receiving.erp} />
+        </p>
+      )}
 
       {/* Where the figure comes from, said plainly (BarcodeService._data_status):
           without a live ERP feed it is the store's own physical figure. Only a

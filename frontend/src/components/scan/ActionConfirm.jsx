@@ -12,7 +12,7 @@ import { num } from "../../lib/format.js";
 // what is sent.
 //
 // Props:
-//   title         "Issue", "Record GRN", ... (the action being confirmed)
+//   title         "Issue", "RGP GRN", ... (the action being confirmed)
 //   icon          lucide component for the action
 //   part          { part_no, part_name }
 //   qty, uom      the quantity the action moves (omit for a location change)

@@ -17,7 +17,7 @@ import ScanFailurePanel from "../components/scan/ScanFailurePanel.jsx";
 import IdentityCard from "../components/scan/IdentityCard.jsx";
 import StatusCard from "../components/scan/StatusCard.jsx";
 import TransactionInfo from "../components/scan/TransactionInfo.jsx";
-import QuickActions, { actionLabel } from "../components/scan/QuickActions.jsx";
+import QuickActions, { OtherActions, actionLabel } from "../components/scan/QuickActions.jsx";
 import PartVisual, { PartVisualPlaceholder } from "../components/scan/PartVisual.jsx";
 import LocationList from "../components/scan/LocationList.jsx";
 import WorkQueueLink from "../components/scan/WorkQueueLink.jsx";
@@ -39,13 +39,23 @@ import { ACTIONS } from "../lib/scanStatus.js";
 //   RIGHT  the QR label as printed · where the quantity is · timeline ·
 //          the next step again · Work Queue counts
 //
+// Scanning is mainly for issuance: once a part is identified (gun, camera,
+// search or manual) and it can be issued, the Issue form opens straight away —
+// the operator picks the Department, types who took it and the quantity, and
+// confirms; the caret then goes back to the scanner for the next part, with
+// this one's result still on screen. Every other valid action sits in a compact
+// "Other actions" row. A part that cannot be issued shows its status and the
+// valid actions as before. Receiving, the GRN and quality clearance are done in
+// ERP: the page only shows what ERP has (read-only, with the data's age).
+//
 // The QR carries only the Part No.; everything shown is read from the server's
 // scan result (GET /spare-flow/parts/:id/scan-result), and the server decides
 // which actions are open. The forms themselves are components/scan/ActionForm.
 //
 // Deep links: /scan-part?part=<id>[&action=<ACTION KEY>[&target=<document id>]]
-// opens that part (and that action's form with the document pre-selected) —
-// the Work Queue and the part drawer send the operator here that way.
+// opens that part (and that action's form with the document pre-selected,
+// instead of the Issue form) — the Work Queue and the part drawer send the
+// operator here that way.
 
 // Search and Manual Entry are typed, so the scan audit records them as such.
 const TYPED = "MANUAL_ENTRY";
@@ -79,6 +89,7 @@ function IdleCard() {
   return (
     <section className="card p-5" aria-label="Ready">
       <p className="text-sm font-semibold text-slate-800 dark:text-white">Ready for the next part</p>
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">A part with stock opens its Issue straight away.</p>
       <ul className="mt-3 space-y-2">
         {ways.map((w) => (
           <li key={w.text} className="flex items-start gap-2.5 text-sm text-slate-500 dark:text-slate-400">
@@ -144,11 +155,13 @@ export default function ScanPart() {
   const [tab, setTab] = useState("SCAN");
   const [action, setAction] = useState(null);       // { key, target } — the open action form
   const [formStep, setFormStep] = useState("ACTION"); // the form's own ACTION / CONFIRM (read-back) stage
+  const [dirty, setDirty] = useState(false);        // the operator has entered something in the form
   const [print, setPrint] = useState(null);         // { source } — the label dialog
   const [historyOpen, setHistoryOpen] = useState(false);
   const [done, setDone] = useState(null);           // { message } — the action just recorded
   const [focusSignal, setFocusSignal] = useState(0); // hands the caret back to the gun
   const pendingRef = useRef(null);                  // a deep link's action, waiting for the part
+  const autoRef = useRef(null);                     // the identification the Issue form was opened for
   const formRef = useRef(null);
 
   const scan = ident ? scanQuery.data ?? null : null;
@@ -169,19 +182,25 @@ export default function ScanPart() {
   }, [ident]);
 
   // An open form holds what the operator typed; a new scan must not throw it
-  // away unasked (spec: "Discard the open <action>?").
-  const okToLeave = useCallback(async () => {
+  // away unasked (spec: "Discard the open <action>?"). An Issue form nobody
+  // has typed in yet — the page opens one by itself on every scan — is only
+  // the part's default view: the next part replaces it without a question.
+  const okToLeave = useCallback(async (next = "go to the next part") => {
     if (!action) return true;
+    if (action.key === "ISSUE" && !dirty && formStep !== "CONFIRM") {
+      setAction(null);
+      return true;
+    }
     const label = ACTIONS[action.key]?.label || "action";
     const ok = await confirm({
       title: `Discard the open ${label}?`,
-      message: `The ${label} for ${part?.part_no || "this part"} has not been saved. Discard it and go to the next part?`,
+      message: `The ${label} for ${part?.part_no || "this part"} has not been saved. Discard it and ${next}?`,
       confirmText: "Discard",
       cancelText: `Keep the ${label}`,
     });
     if (ok) setAction(null);
     return ok;
-  }, [action, confirm, part]);
+  }, [action, dirty, formStep, confirm, part]);
 
   const startNew = () => {
     setDone(null);
@@ -263,14 +282,39 @@ export default function ScanPart() {
       return;
     }
     setFormStep("ACTION");
+    setDirty(false);
     setAction({ key, target });
   }, [ident]);
+
+  // With a form open, another form replaces it only once the operator agrees
+  // to drop what they typed (okToLeave); history and the label dialog open
+  // over it and leave it as it is.
+  const chooseAction = useCallback(async (key, target = null) => {
+    const replaces = Boolean(action) && key !== "HISTORY" && !PRINT_ACTIONS.has(key);
+    if (replaces && !(await okToLeave(`open ${ACTIONS[key]?.label || key}`))) return;
+    runAction(key, target);
+  }, [action, okToLeave, runAction]);
+
+  // Issuance first: once the part's fresh scan result is in and the part can
+  // be issued by this user, the Issue form opens straight away. Once per
+  // identification — the refresh after the issue itself, or a push from
+  // another terminal, never reopens it — and not when a deep link asked for an
+  // action of its own. Declared before the deep-link effect below, which
+  // clears pendingRef in the same pass.
+  const refreshing = scanQuery.isFetching;
+  useEffect(() => {
+    if (!ident || !scan || refreshing || autoRef.current === ident) return;
+    autoRef.current = ident;
+    if (action || pendingRef.current || !canAct("ISSUE")) return;
+    setFormStep("ACTION");
+    setDirty(false);
+    setAction({ key: "ISSUE", target: null });
+  }, [ident, scan, refreshing, action, canAct]);
 
   // The deep link's action, once the part's scan result is in. A form opens
   // even when the server has the action closed — the form then says why (a
   // queue row can be a step behind another terminal); history and labels are
   // this page's own dialogs and follow the server's word directly.
-  const refreshing = scanQuery.isFetching;
   useEffect(() => {
     const p = pendingRef.current;
     // Judged on the fresh read, not on a cached copy from an earlier visit.
@@ -296,19 +340,17 @@ export default function ScanPart() {
     backToGun();
   }, [backToGun]);
 
-  // ActionForm contract: onDone(message, { next }) after a successful write.
-  // `next: "PRINT_LABEL"` (after a receive) offers the internal QR label for the
-  // material just received, as identified.
-  const onDone = useCallback((message, opts) => {
+  // ActionForm contract: onDone(message) after a successful write. The part's
+  // result stays on screen (refreshed) and the caret goes back to the scanner,
+  // so the next part is one scan away.
+  const onDone = useCallback((message) => {
     const text = message || `${ACTIONS[action?.key]?.label || "Action"} recorded`;
     setAction(null);
     setDone({ message: text });
     toast.success(text);
     qc.invalidateQueries({ queryKey: ["stock"] });
-    // The label dialog owns the keyboard until it closes (closePrint).
-    if (opts?.next === "PRINT_LABEL") setPrint({ source: ident?.source || "ERP_SEARCH" });
-    else backToGun();
-  }, [action, ident, qc, backToGun]);
+    backToGun();
+  }, [action, qc, backToGun]);
 
   // The dialog records the print and refreshes the "stock" cache itself.
   const onPrinted = useCallback(() => setDone({ message: "Label printed" }), []);
@@ -338,7 +380,10 @@ export default function ScanPart() {
   if (action && formStep === "CONFIRM") {
     step = "CONFIRM"; hint = `${actionMeta?.label || "Action"} — read it back, then confirm to record it.`;
   } else if (action) {
-    step = "ACTION"; hint = `${actionMeta?.label || "Action"} — fill in the form and confirm.`;
+    step = "ACTION";
+    hint = action.key === "ISSUE"
+      ? "Issue — check the part, then choose the Department, who took it and the quantity, and review."
+      : `${actionMeta?.label || "Action"} — fill in the form and confirm.`;
   } else if (print) {
     step = "ACTION"; hint = "Label — check the preview and quantity, then confirm and print.";
   } else if (done && scan) {
@@ -423,34 +468,42 @@ export default function ScanPart() {
               {done && <DoneStrip message={done.message} onDismiss={() => setDone(null)} />}
               <IdentityCard part={part} ident={ident} onOpenDetails={() => openPart(part.id)} onClear={clearPart} />
               <StatusCard scan={scan} dataStatus={ident?.dataStatus} />
-              <TransactionInfo scan={scan} canAct={canAct} onAction={runAction} collapsed={Boolean(action)} />
+              <TransactionInfo scan={scan} canAct={canAct} onAction={chooseAction} collapsed={Boolean(action)} />
               {action ? (
-                // data-scan-nofocus: clicks inside the form keep their focus
-                // (the scan box would otherwise pull the caret back).
-                <section ref={formRef} data-scan-nofocus aria-label={`${actionMeta?.label || action.key} form`}
-                  className="card scroll-mt-4 overflow-hidden p-0 ring-2 ring-toyotared/20">
-                  <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
-                    <span className="flex min-w-0 items-center gap-2.5">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-toyotared/10 text-toyotared">
-                        {ActionIcon && <ActionIcon size={16} aria-hidden="true" />}
+                <>
+                  {/* data-scan-nofocus: clicks inside the form keep their focus
+                      (the scan box would otherwise pull the caret back). */}
+                  <section ref={formRef} data-scan-nofocus aria-label={`${actionMeta?.label || action.key} form`}
+                    className="card scroll-mt-4 overflow-hidden p-0 ring-2 ring-toyotared/20">
+                    <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-toyotared/10 text-toyotared">
+                          {ActionIcon && <ActionIcon size={16} aria-hidden="true" />}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-slate-800 dark:text-white">{actionMeta?.label || action.key}</span>
+                          <span className="block truncate text-[11px] text-slate-400">{part.part_no}{part.part_name ? ` · ${part.part_name}` : ""}</span>
+                        </span>
                       </span>
-                      <span className="min-w-0">
-                        <span className="block text-sm font-semibold text-slate-800 dark:text-white">{actionMeta?.label || action.key}</span>
-                        <span className="block truncate text-[11px] text-slate-400">{part.part_no}{part.part_name ? ` · ${part.part_name}` : ""}</span>
-                      </span>
-                    </span>
-                    <button type="button" onClick={cancelAction} aria-label="Close the form"
-                      className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-800 dark:hover:text-slate-200">
-                      <X size={16} aria-hidden="true" />
-                    </button>
-                  </header>
-                  <div className="p-4">
-                    <ActionForm actionKey={action.key} scan={scan} target={action.target} source={ident.source}
-                      onDone={onDone} onCancel={cancelAction} onStep={setFormStep} />
-                  </div>
-                </section>
+                      <button type="button" onClick={cancelAction} aria-label="Close the form"
+                        className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-800 dark:hover:text-slate-200">
+                        <X size={16} aria-hidden="true" />
+                      </button>
+                    </header>
+                    <div className="p-4">
+                      <ActionForm actionKey={action.key} scan={scan} target={action.target} source={ident.source}
+                        onDone={onDone} onCancel={cancelAction} onStep={setFormStep} onDirty={setDirty} />
+                    </div>
+                  </section>
+                  {/* Issuance first: everything else the part allows, one click
+                      away but out of the way, while the Issue is filled in. */}
+                  {action.key === "ISSUE" && formStep === "ACTION" && (
+                    <OtherActions actions={scan.actions} exclude={["ISSUE"]} allowed={allowed} onAction={chooseAction}
+                      className="card p-3.5" />
+                  )}
+                </>
               ) : (
-                <QuickActions actions={scan.actions} primaryKey={scan.primary_action} allowed={allowed} onAction={runAction} />
+                <QuickActions actions={scan.actions} primaryKey={scan.primary_action} allowed={allowed} onAction={chooseAction} />
               )}
             </>
           )}
@@ -462,7 +515,7 @@ export default function ScanPart() {
             <>
               <PartVisual part={part} label={scan.label}
                 onReprint={canAct("REPRINT_LABEL") ? () => runAction("REPRINT_LABEL") : null} />
-              <LocationList locations={scan.locations} uom={part.uom} />
+              <LocationList locations={scan.locations} uom={part.uom} erp={scan.erp_receiving?.erp} />
               <TimelinePreview rows={scan.timeline?.rows} hasMore={scan.timeline?.has_more}
                 onViewAll={() => runAction("HISTORY")} />
               {/* The important action again, at the end of the part's story. */}

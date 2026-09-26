@@ -22,10 +22,11 @@ export const SCAN_STATUS = {
 export const statusMeta = (key) =>
   SCAN_STATUS[key] || { label: key ? key.replace(/_/g, " ").toLowerCase() : "—", badge: "badge-neutral", dot: "bg-slate-400" };
 
-// scan_result.buckets keys, in display order.
+// scan_result.buckets keys, in display order. quality_pending is read from the
+// ERP GRN register (GRN created, accepted qty not yet entered in ERP).
 export const BUCKETS = [
   { key: "available", label: "Available", status: "STOCK_AVAILABLE" },
-  { key: "quality_pending", label: "Quality pending", status: "QUALITY_PENDING" },
+  { key: "quality_pending", label: "Quality pending (ERP)", status: "QUALITY_PENDING" },
   { key: "issued_out", label: "Issued / on line", status: "ISSUED" },
   { key: "return_pending", label: "Return – to inspect", status: "RETURN_INSPECTION" },
   { key: "return_hold", label: "Return hold", status: "RETURN_HOLD" },
@@ -36,25 +37,41 @@ export const BUCKETS = [
 
 // scan_result.actions[].key -> how the button looks. Order = display order.
 // The backend decides WHICH are enabled for the part's current state (spec 27);
-// this map only dresses them.
+// this map only dresses them. Scanning is mainly for issuance, so ISSUE leads.
+// Receiving, the GRN and quality clearance are done in ERP and only READ by the
+// app (ERP_LINE_STATE below) — they are not actions here.
 export const ACTIONS = {
+  ISSUE: { label: "Issue", icon: "ArrowUpFromLine", tone: "primary" },
   RGP_GRN: { label: "Receive / RGP GRN", icon: "PackageCheck", tone: "primary" },
   RGP_RETURN: { label: "RGP Return", icon: "Undo2", tone: "primary" },
-  QUALITY_CLEARANCE: { label: "Quality Clearance", icon: "ShieldCheck", tone: "primary" },
-  RECORD_GRN: { label: "Record GRN", icon: "FileCheck2", tone: "primary" },
   INSPECT: { label: "Inspection", icon: "ClipboardCheck", tone: "primary" },
-  ISSUE: { label: "Issue", icon: "ArrowUpFromLine", tone: "primary" },
   RETURN: { label: "Return", icon: "ArrowDownToLine", tone: "secondary" },
   UPDATE_INSTALLATION: { label: "Update Line / Machine", icon: "Wrench", tone: "secondary" },
   RGP_OUT: { label: "RGP (Rework)", icon: "Truck", tone: "secondary" },
-  RECEIVE: { label: "Receive", icon: "PackagePlus", tone: "secondary" },
   PRINT_LABEL: { label: "Print Label", icon: "Printer", tone: "secondary" },
   REPRINT_LABEL: { label: "Reprint Label", icon: "Printer", tone: "secondary" },
   UPDATE_LOCATION: { label: "Location", icon: "MapPin", tone: "ghost" },
   HISTORY: { label: "View History", icon: "History", tone: "ghost" },
 };
 
-// Receipt statuses (spare_receipts.status).
+// What the app does with one ERP GRN line of a part (ErpGrnPostingService
+// state: scan_result.erp_receiving.lines[].state, the Receiving & GRN page).
+// The GRN and the quality clearance happen in ERP; the app reads them and adds
+// the accepted quantity to store stock once.
+export const ERP_LINE_STATE = {
+  QUALITY_PENDING: { label: "Quality pending (ERP)", badge: "badge-warning", tone: "warning", dot: "bg-amber-500" },
+  WILL_POST: { label: "Accepted — will be added", badge: "badge-info", tone: "info", dot: "bg-sky-500" },
+  POSTED: { label: "Added to store stock", badge: "badge-success", tone: "success", dot: "bg-emerald-500" },
+  CHECK: { label: "Check with ERP", badge: "badge-danger", tone: "danger", dot: "bg-red-500" },
+  SKIPPED: { label: "Not added — see reason", badge: "badge-neutral", tone: "neutral", dot: "bg-slate-400" },
+  REJECTED: { label: "Rejected by quality (ERP)", badge: "badge-danger", tone: "danger", dot: "bg-red-500" },
+  OFF: { label: "Auto-add off", badge: "badge-neutral", tone: "neutral", dot: "bg-slate-400" },
+};
+export const erpLineMeta = (state) =>
+  ERP_LINE_STATE[state] || { label: state ? state.replace(/_/g, " ").toLowerCase() : "—", badge: "badge-neutral", tone: "neutral", dot: "bg-slate-400" };
+
+// Receipt statuses (spare_receipts.status) — the in-app receipts recorded
+// before receiving moved to ERP; kept so their history still reads.
 export const RECEIPT_STATUS = {
   RECEIVED: { label: "Received – GRN pending", badge: "badge-warning" },
   QUALITY_PENDING: { label: "GRN created – Quality pending", badge: "badge-warning" },
@@ -108,7 +125,12 @@ export const PRINT_SOURCE = {
 };
 
 // Part timeline kinds (scan_result.timeline.rows[].kind) -> label + icon + tone.
+// The receiving history is read from ERP (ERP_GATE, ERP_GRN, and the quality
+// acceptance the app read from ERP as QUALITY_CLEARANCE); RECEIVE / GRN rows
+// are in-app records from before that and stay in the history as they are.
 export const TIMELINE_KIND = {
+  ERP_GATE: { label: "Received at gate (ERP)", icon: "Truck", tone: "info" },
+  ERP_GRN: { label: "GRN created in ERP", icon: "FileCheck2", tone: "info" },
   RECEIVE: { label: "Received from supplier", icon: "PackagePlus", tone: "info" },
   GRN: { label: "GRN created", icon: "FileCheck2", tone: "info" },
   QUALITY_CLEARANCE: { label: "Quality cleared", icon: "ShieldCheck", tone: "success" },
@@ -126,8 +148,6 @@ export const TIMELINE_KIND = {
   CANCEL: { label: "Cancelled", icon: "Ban", tone: "neutral" },
   LABEL_PRINT: { label: "Label printed", icon: "Printer", tone: "neutral" },
   LOCATION_MOVE: { label: "Location changed", icon: "MapPin", tone: "neutral" },
-  ERP_GATE: { label: "Arrived at gate (ERP)", icon: "Truck", tone: "neutral" },
-  ERP_GRN: { label: "GRN in ERP", icon: "FileCheck2", tone: "neutral" },
 };
 export const timelineMeta = (kind) =>
   TIMELINE_KIND[kind] || { label: kind ? kind.replace(/_/g, " ").toLowerCase() : "Event", icon: "Circle", tone: "neutral" };

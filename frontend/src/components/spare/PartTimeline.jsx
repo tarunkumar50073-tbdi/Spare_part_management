@@ -5,13 +5,21 @@ import { timelineMeta } from "../../lib/scanStatus.js";
 import { spareFlowService } from "../../services/spareFlowService.js";
 import { TONE_CHIP, scanIcon } from "../scan/scanIcons.js";
 
-// A part's history as one vertical timeline (spec 21): received, GRN, quality,
-// issued, installed on a line / machine / die, returned, inspected, sent for
-// rework, back from the supplier, RGP GRN, added to stock — newest first, each
-// event with who, where and how many. Rows come from the backend timeline
-// (scan_result.timeline or GET /spare-flow/parts/:id/timeline); the kind ->
-// label / icon / tone vocabulary is lib/scanStatus TIMELINE_KIND, so the Scan
-// Part workstation and the part drawer's trace say the same thing.
+// A part's history as one vertical timeline (spec 21): received at the gate,
+// GRN created and quality accepted — all three read from ERP, where receiving
+// is done — then added to stock, issued, installed on a line / machine / die,
+// returned, inspected, sent for rework, back from the supplier, RGP GRN —
+// newest first, each event with who, where and how many. Rows come from the
+// backend timeline (scan_result.timeline or GET /spare-flow/parts/:id/timeline);
+// the kind -> label / icon / tone vocabulary is lib/scanStatus TIMELINE_KIND,
+// so the Scan Part workstation and the part drawer's trace say the same thing.
+// In-app receipt / GRN / quality rows recorded before receiving moved to ERP
+// stay in the history as they were.
+
+// Rows read straight from the ERP (gate entries / GRN register) — tagged "ERP"
+// so they are never taken for something recorded in this app.
+const ERP_KINDS = new Set(["ERP_GATE", "ERP_GRN"]);
+const isErpRow = (r) => ERP_KINDS.has(r.kind) || (typeof r.source === "string" && r.source.startsWith("erp"));
 
 // The full timeline of one part ({ rows, has_more }). One key and one limit
 // for every reader — the Scan Part history and the part drawer's trace share
@@ -108,7 +116,7 @@ export default function PartTimeline({ rows, compact = false, emptyText = "Nothi
         const Icon = scanIcon(meta.icon);
         const last = i === rows.length - 1;
         const chips = detailChips(r);
-        const fromErp = typeof r.source === "string" && r.source.startsWith("erp");
+        const fromErp = isErpRow(r);
         return (
           <li key={`${r.source || "row"}-${r.at || ""}-${i}`} className="flex gap-3">
             <div className="flex shrink-0 flex-col items-center">

@@ -1,15 +1,13 @@
 import React from "react";
 import { StatusBadge } from "../ActionConfirm.jsx";
 import { ISSUE_STATUS } from "../../spare/IssueLifecycle.jsx";
-import { RECEIPT_STATUS, RETURN_STATUS, RGP_STATUS, reasonLabel } from "../../../lib/scanStatus.js";
+import { RETURN_STATUS, RGP_STATUS, reasonLabel } from "../../../lib/scanStatus.js";
 import { fmtDate, fmtStamp, fmtWhen, num } from "../../../lib/format.js";
 import { placeText } from "./flow.js";
 
 // One card body per open document, used by the pick lists of the Scan Part
-// forms (scan_result.open_receipts / open_issues / open_returns / open_rgps).
+// forms (scan_result.open_issues / open_returns / open_rgps).
 // Only what the document records is shown; a missing value reads as missing.
-
-const ageText = (days) => (days == null ? null : days <= 0 ? "today" : `${num(days)} d ago`);
 
 function Head({ no, status, qty, qtyLabel }) {
   return (
@@ -27,25 +25,6 @@ function Head({ no, status, qty, qtyLabel }) {
 
 function Line({ children }) {
   return <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{children}</span>;
-}
-
-export function ReceiptCard({ r }) {
-  const supplier = r.ven_name ? `${r.ven_name}${r.ven_cd ? ` · ${r.ven_cd}` : ""}` : "Supplier not recorded";
-  const invoice = r.invoice_no ? `Invoice ${r.invoice_no}${r.invoice_date ? ` (${fmtDate(r.invoice_date)})` : ""}` : "No invoice no.";
-  return (
-    <>
-      <Head no={r.receipt_no} qty={r.qty_received} qtyLabel="received"
-        status={<StatusBadge status={RECEIPT_STATUS[r.status] || r.status} />} />
-      <Line>{supplier} · {invoice}{r.check_result ? ` · Check ${r.check_result}` : ""}</Line>
-      {r.grn_no && (
-        <Line>GRN no. {r.grn_no}{r.grn_date ? ` (${fmtDate(r.grn_date)})` : ""}{r.quality_by ? ` · Quality: ${r.quality_by}` : ""}</Line>
-      )}
-      <Line>
-        Received {fmtStamp(r.created_at)}{r.received_by ? ` by ${r.received_by}` : ""}
-        {ageText(r.age_days) ? ` · ${ageText(r.age_days)}` : ""}
-      </Line>
-    </>
-  );
 }
 
 export function IssueCard({ i, uom }) {

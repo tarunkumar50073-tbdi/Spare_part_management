@@ -13,8 +13,9 @@ import { spareStockService } from "../services/spareStockService.js";
 import { spareFlowService } from "../services/spareFlowService.js";
 import { storeService } from "../services/storeService.js";
 import { NO_ROWS } from "../lib/stockQueries.js";
-import { parseServerTime } from "../lib/format.js";
-import { RECEIPT_STATUS } from "../lib/scanStatus.js";
+import { fmtStamp, parseServerTime } from "../lib/format.js";
+import { erpLineMeta } from "../lib/scanStatus.js";
+import { erpFreshness } from "../services/erpGrnService.js";
 import useRealtime from "../hooks/useRealtime.js";
 
 // A full-screen wallboard for a 64" PORTRAIT LED — no menu, no scroll, a tall
@@ -539,8 +540,9 @@ export default function TvDashboard() {
         // Refused the overview: its store-level readings (GRN / quality
         // pending, ERP state, recent movements) come from the store-access
         // endpoints. A failed one stays null, so it reads "—", never a healthy
-        // zero. GRN / quality pending is the work queue's receipt count — the
-        // same receipts (RECEIVED / QUALITY_PENDING) the overview counts.
+        // zero. GRN / quality pending (ERP) is read off the work queue's ERP
+        // GRN lines — the QUALITY_PENDING ones are the overview's total, the
+        // CHECK ones its `check`, so the tile says the same either way.
         const [srv, write, recent, queues] = await Promise.all([
           fetchData(spareStockService.pending(STORE)),
           fetchData(spareStockService.erpPending(STORE)),
@@ -548,9 +550,14 @@ export default function TvDashboard() {
           fetchData(spareFlowService.queues(STORE)),
         ]);
         const qc = asObj(asObj(queues)?.counts);
+        const qLines = asList(asObj(queues)?.quality);
+        const byState = (s) => (qLines || []).filter((r) => r.state === s).length;
+        const qp = qLines && qLines.some((r) => r.state) ? byState("QUALITY_PENDING") : qc?.quality ?? null;
         ovObj = {
           fallback: true,
-          receiving_pending: qc && qc.quality != null ? { total: qc.quality } : undefined,
+          receiving_pending: qp != null
+            ? { total: qp, quality_pending: qp, check: qLines ? byState("CHECK") : null, erp: asObj(asObj(queues)?.erp) || undefined }
+            : undefined,
           attention: [{ key: "srv_pending", count: asObj(srv)?.total ?? null }],
           erp: { stock_snapshot: gapRows ? snapshotOf(gapRows) : null, write: asObj(write) },
           recent_activity: asList(recent),
@@ -602,12 +609,14 @@ export default function TvDashboard() {
   const deptState = ovState !== "ok" ? ovState : ov.consumption ? "ok" : "error";
   // Store-level readings — receiving, confirmations and ERP are never per section.
   const attn = (key) => (P.storeOv?.attention || []).find((a) => a.key === key);
-  // Spec 1: spare receiving has no separate SRV step — material waits for the
-  // supervisor's GRN, then the quality clearance. The tile counts the app's
-  // receipts in either (overview.receiving_pending); an older overview without
-  // that block still carries its SRV figure.
+  // Spec 1: spare receiving has no separate SRV step, and the GRN and the
+  // quality clearance are done in ERP. The tile counts the ERP GRN lines still
+  // waiting for ERP's quality clearance (overview.receiving_pending), with the
+  // ERP mirror's freshness; an older overview without that block still
+  // carries its SRV figure.
   const receiving = asObj(P.storeOv?.receiving_pending);
   const srvCount = P.storeOv ? receiving?.total ?? attn("srv_pending")?.count ?? null : null;
+  const receivingFresh = receiving?.erp ? erpFreshness(receiving.erp) : null;
   // Only on that older figure: the app's SRV register has never held an SRV
   // for this store, so pending SRVs are not tracked here and the tile shows "—"
   // and says so — a 0 would read as "no material waiting".
@@ -817,19 +826,21 @@ export default function TvDashboard() {
       ? `Physical is the store's own count in this app; ERP is the ${snapWord} — not a live feed.`
       : "No ERP stock snapshot has been received, so there is nothing to compare against.",
   });
-  // The drill lists the very receipts the tile counts (the work queue's GRN /
-  // quality list); on an older overview, the SRV register lines as before.
+  // The drill lists the ERP GRN lines behind the tile (the work queue's GRN /
+  // quality list: awaiting quality in ERP, or to check); on an older overview,
+  // the SRV register lines as before.
   const openSrv = () => (receiving
     ? openAsync(
-      { kind: "srvList", title: "GRN / Quality pending", rows: [], receipts: true },
+      { kind: "srvList", title: "GRN / Quality pending (ERP)", rows: [], receipts: true, erp: receiving.erp || null },
       () => fetchData(spareFlowService.queues(STORE))
         .then((q) => {
           const list = asList(asObj(q)?.quality);
-          return { rows: list || [], error: !list };
+          const erp = asObj(asObj(q)?.erp);
+          return { rows: list || [], error: !list, ...(erp ? { erp } : {}) };
         }),
     )
     : openAsync(
-      { kind: "srvList", title: "GRN / Quality pending", rows: [], untracked: srvUntracked },
+      { kind: "srvList", title: "GRN / Quality pending (ERP)", rows: [], untracked: srvUntracked },
       () => fetchData(spareStockService.pendingList(STORE, "all"))
         .then((list) => ({ rows: asList(list) || [], error: !Array.isArray(list) })),
     ));
@@ -848,7 +859,7 @@ export default function TvDashboard() {
   const failedFeeds = [
     P.storeOv === null && "store overview",
     ownOv && P.secOv === null && (secView ? "section figures" : "store figures"),
-    fb && srvCount == null && "GRN / quality pending",
+    fb && srvCount == null && "GRN / quality pending (ERP)",
     fb && !fb.erp.write && "ERP write-back status",
     fb && !recent && "recent movements",
     ov?.fallback && !ov.kpis.today && "this shift's issues",
@@ -1059,13 +1070,19 @@ export default function TvDashboard() {
           sub={noneCounted ? "No part counted yet" : "Above max · ₹ tied up (qty × rate)"} onClick={openExcess} />
         {/* Receiving is store-level: a section view still shows the store's
             figure, and says so rather than pass it off as the section's. The
-            source is named — the app's own receipts, not every gate arrival. */}
-        <Kpi icon={ClipboardList} title="GRN / Quality Pending" state={srvState}
+            source is named — ERP's GRN lines, read with the mirror's freshness. */}
+        <Kpi icon={ClipboardList} title="GRN / Quality Pending (ERP)" state={srvState}
           value={srvUntracked ? "—" : fmtInt(srvCount)} color={srvUntracked ? C.muted : hot(srvCount, C.purple)}
           sub={receiving
-            ? (receiving.awaiting_grn != null && receiving.quality_pending != null
-              ? `${secView ? "Whole store · " : ""}GRN ${fmtInt(receiving.awaiting_grn)} · Quality ${fmtInt(receiving.quality_pending)}`
-              : secView ? "Whole store · app receipts" : "Awaiting GRN / quality · app receipts")
+            ? [
+              secView ? "Whole store" : "Awaiting quality in ERP",
+              receiving.check ? `${fmtInt(receiving.check)} to check` : null,
+              receivingFresh
+                ? (receivingFresh.empty ? "no ERP data yet"
+                  : receivingFresh.stale ? `ERP data ${receivingFresh.ageDays} d old`
+                    : `ERP as of ${fmtStamp(receiving.erp.synced_at)}`)
+                : null,
+            ].filter(Boolean).join(" · ")
             : srvUntracked ? "No SRV recorded in the app yet" : secView ? "Whole store · app SRV register" : "Awaiting SRV · app SRV register"}
           onClick={openSrv} />
         <Kpi icon={Database} title="Stock Value" state={ovState} color={C.green} onClick={openStockValue}
@@ -1910,51 +1927,60 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   );
 }
 
-// GRN / Quality pending — the rows behind the tile (fetched when the drill
-// opens). Store-level: receiving is not per section. `frame.receipts` rows are
-// the app's receipts waiting for the GRN or the quality clearance (spec 1/9);
-// without it (an older overview) they are the SRV register's lines.
+// GRN / Quality pending (ERP) — the rows behind the tile (fetched when the
+// drill opens). Store-level: receiving is not per section. `frame.receipts`
+// rows are ERP GRN lines (the work queue's quality list): waiting for the
+// Maintenance / Tool Room quality clearance in ERP, or to be checked against
+// ERP (spec 1/9 — read from ERP, never recorded in the app); without it (an
+// older overview) they are the SRV register's lines.
 function SrvListView({ frame }) {
   const rows = frame.rows || [];
   const rc = Boolean(frame.receipts);
-  const unit = rc ? "receipt" : "line";
+  const unit = rc ? "ERP GRN line" : "line";
+  const fresh = rc && frame.erp ? erpFreshness(frame.erp) : null;
   return (
     <div className="flex flex-col gap-[1.4vh] h-full">
       <Card className="p-[1.5vh] text-[1.55vh] font-medium text-[var(--dx-t2)] border-l-4" style={{ borderLeftColor: "#7c3aed" }}>
         {rc
-          ? "Material received in the store and waiting for the supervisor's GRN or the Maintenance / Tool Room quality clearance — as recorded in this app. It is not store stock until quality clears it."
+          ? "ERP GRN lines of this store's parts waiting for the Maintenance / Tool Room quality clearance in ERP, or to be checked against ERP — read from ERP. Not store stock until ERP accepts them; the accepted qty is then added once, by itself."
           : "Material that has arrived and is waiting for an SRV to be raised or for an engineer's clearance — as recorded in this app's SRV register."}
+        {fresh && (
+          <span className="block mt-[0.5vh] text-[1.3vh]" style={{ color: fresh.stale ? "#d97706" : "var(--dx-t4)" }}>
+            {fresh.text}{fresh.stale && fresh.staleText ? ` — ${fresh.staleText}` : ""}
+          </span>
+        )}
       </Card>
       <Card className="p-[1.6vh] overflow-auto flex-1">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">
           {frame.loading ? `Loading pending ${unit}s…`
-            : frame.error ? "GRN / Quality pending" : `${rows.length} pending ${unit}${rows.length === 1 ? "" : "s"}`}
+            : frame.error ? "GRN / Quality pending (ERP)" : `${rows.length} pending ${unit}${rows.length === 1 ? "" : "s"}`}
         </h3>
         {frame.loading ? <PanelState state="loading" h="30vh" /> : (
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
-              <th className="py-[0.7vh] pr-[1vh]">{rc ? "Receipt No." : "SRV No."}</th><th className="pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
-              <th className="pr-[1vh]">Supplier</th><th className="pr-[1vh]">{rc ? "GRN No." : "Gate Entry"}</th>
-              <th className="pr-[1vh] text-center">Qty</th><th className="pr-[1vh]">Status</th>
+              <th className="py-[0.7vh] pr-[1vh]">{rc ? "GRN No." : "SRV No."}</th><th className="pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
+              <th className="pr-[1vh]">Supplier</th><th className="pr-[1vh]">{rc ? "GRN Date" : "Gate Entry"}</th>
+              <th className="pr-[1vh] text-center">{rc ? "Received" : "Qty"}</th><th className="pr-[1vh]">{rc ? "State (ERP)" : "Status"}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--dx-divide)]">
             {rows.map((r) => (
-              <tr key={r.id}>
-                <td className="py-[0.8vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{(rc ? r.receipt_no : r.srv_no) || "—"}</td>
+              <tr key={rc ? `${r.part_id}|${r.grn_no}` : r.id}>
+                <td className="py-[0.8vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{(rc ? r.grn_no : r.srv_no) || "—"}</td>
                 <td className="pr-[1vh] font-semibold text-[var(--dx-t1)]">{r.part_no || "—"}</td>
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[22vh]">{r.part_name || "—"}</td>
-                <td className="pr-[1vh] text-[var(--dx-t3)] truncate max-w-[18vh]">{(rc ? r.ven_name : r.supplier_name) || "—"}</td>
+                <td className="pr-[1vh] text-[var(--dx-t3)] truncate max-w-[18vh]">{(rc ? r.ven_name || r.ven_cd : r.supplier_name) || "—"}</td>
                 <td className="pr-[1vh] text-[var(--dx-t3)] whitespace-nowrap">
                   {rc
-                    ? <>{r.grn_no || "Not yet"}{r.grn_date ? ` · ${fmtPlantDay(r.grn_date)}` : ""}</>
+                    ? (r.grn_date ? fmtPlantDay(r.grn_date) : "—")
                     : <>{r.gate_entry_no || "—"}{r.gate_entry_time ? ` · ${fmtPlantDay(r.gate_entry_time)}` : ""}</>}
                 </td>
-                <td className="pr-[1vh] text-center font-semibold">{fmtInt(r.qty_received ?? r.qty_invoiced)}</td>
+                <td className="pr-[1vh] text-center font-semibold">{fmtInt(rc ? r.receipt_qty : r.qty_received ?? r.qty_invoiced)}</td>
                 <td className="pr-[1vh]">
-                  <span className="rounded-full px-[1vh] py-[0.2vh] text-[1.2vh] font-bold whitespace-nowrap" style={{ background: "rgba(124,58,237,0.16)", color: "#8b5cf6" }}>
-                    {(rc && RECEIPT_STATUS[r.status]?.label) || String(r.status || "—").replace(/_/g, " ")}
+                  <span className="rounded-full px-[1vh] py-[0.2vh] text-[1.2vh] font-bold whitespace-nowrap" style={{ background: "rgba(124,58,237,0.16)", color: "#8b5cf6" }}
+                    title={rc ? r.reason || undefined : undefined}>
+                    {rc ? erpLineMeta(r.state).label : String(r.status || "—").replace(/_/g, " ")}
                   </span>
                 </td>
               </tr>
@@ -1962,8 +1988,8 @@ function SrvListView({ frame }) {
             {!rows.length && (
               <tr><td colSpan={7} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">
                 {rc
-                  ? (frame.error ? "Couldn't load the pending receipts — close and tap the tile again"
-                    : "Nothing pending — no receipt is waiting for a GRN or a quality clearance")
+                  ? (frame.error ? "Couldn't load the ERP GRN lines — close and tap the tile again"
+                    : "Nothing pending — no ERP GRN line is waiting for quality clearance or a check")
                   : frame.error ? "Couldn't load the SRV list — close and tap the tile again"
                     : frame.untracked ? "No SRV has been recorded in this app for the store yet, so pending SRVs are not tracked here"
                       : "Nothing pending — no SRV line is waiting in the app's register"}

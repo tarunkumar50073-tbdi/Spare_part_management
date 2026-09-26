@@ -19,13 +19,16 @@ const fmt = (v) => (v == null || v === "" ? "—" : v);
 // balance per movement; rate/value use the part's single current standard rate
 // (unit_price) until ERP feeds real per-transaction rates.
 const DOC_TYPE = { OPENING: "OP", RECEIPT: "RC", ISSUE: "IS", RETURN: "RT", ADJUSTMENT: "AD" };
-// What a movement was, in words. Under the QR flow a RECEIPT row is written
-// only when stock really becomes available — quality clearance of a GRN'd
-// receipt, or the RGP GRN of reworked material — and a RETURN row only when
-// the store inspection passes it Good (models/spare_stock.py). The row's status
-// says which; older rows keep the plain word.
+// What a movement was, in words. A RECEIPT row is written only when stock
+// really becomes available — the qty quality accepted on an ERP GRN, read from
+// ERP and added once (status ERP_GRN, reference = GRN no.), the RGP GRN of
+// reworked material, or (before receiving moved to ERP) a quality clearance
+// recorded in the app — and a RETURN row only when the store inspection passes
+// it Good (models/spare_stock.py). The row's status says which; older rows keep
+// the plain word.
 const MOVEMENT = { OPENING: "Opening", RECEIPT: "Receipt", ISSUE: "Issue", RETURN: "Return", ADJUSTMENT: "Adjustment" };
 const movementOf = (r) => {
+  if (r.txn_type === "RECEIPT" && r.status === "ERP_GRN") return "Receipt (ERP GRN)";
   if (r.txn_type === "RECEIPT" && r.status === "STOCK_AVAILABLE") return "Receipt (quality cleared)";
   if (r.txn_type === "RECEIPT" && r.status === "RGP_GRN") return "RGP GRN";
   if (r.txn_type === "RETURN" && r.status === "INSPECTED_GOOD") return "Return (inspected good)";

@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { NO_ROWS, stockKeys, useStockList, useStockOverview } from "../lib/stockQueries.js";
 import { AttentionBoard, ErpStatusStrip, HealthBar, ValuePanel } from "../components/spare/OverviewPanels.jsx";
 import { usePartDrawer } from "../context/PartDrawerContext.jsx";
-import { compactMoney, fmtStamp, money, num, parseServerTime } from "../lib/format.js";
+import { compactMoney, fmtDate, fmtStamp, money, num, parseServerTime } from "../lib/format.js";
 import {
   ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bolt, CalendarDays, ChartColumn, CircleCheck,
   ClipboardList, Download, Factory, Gem, IndianRupee, MapPin, Package, Pencil, Repeat2,
@@ -28,7 +28,8 @@ import { storeService } from "../services/storeService.js";
 import { partService } from "../services/partService.js";
 import { spareStockService } from "../services/spareStockService.js";
 import { spareFlowService } from "../services/spareFlowService.js";
-import { RECEIPT_STATUS } from "../lib/scanStatus.js";
+import { erpLineMeta } from "../lib/scanStatus.js";
+import { erpFreshness } from "../services/erpGrnService.js";
 
 const STORE_CODE = "MAINTENANCE";
 
@@ -302,10 +303,12 @@ const EXCESS_COLUMNS = [
   },
 ];
 
-// A ledger type, said the way the store says it.
+// A ledger type, said the way the store says it. A RECEIPT row is a stock-in:
+// receiving itself happens in ERP, and the row is written when the qty quality
+// accepted there is added to store stock (By "ERP-GRN" when the sync did it).
 const TXN_LABEL = {
   OPENING: { label: "Opening Count", icon: ClipboardList, tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" },
-  RECEIPT: { label: "Material Received", icon: ArrowDownToLine, tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
+  RECEIPT: { label: "Added to Stock", icon: ArrowDownToLine, tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
   ISSUE: { label: "Part Issued", icon: ArrowUpFromLine, tone: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300" },
   ADJUSTMENT: { label: "Stock Corrected", icon: Pencil, tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
 };
@@ -356,23 +359,36 @@ const PENDING_COLUMNS = [
   { key: "status", label: "Stage", render: (r) => <Badge status={r.status} /> },
 ];
 
-// GRN / Quality pending — the app's receipts waiting for the supervisor's GRN
-// or the Maintenance / Tool Room quality clearance (spec 1/9: one receiving
-// step, no separate SRV). PENDING_COLUMNS stays for an older overview.
-const receiptStage = (r) => RECEIPT_STATUS[r.status]?.label || r.status || "—";
-const RECEIPT_PENDING_COLUMNS = [
-  { key: "receipt_no", label: "Receipt No", sortable: true, render: (r) => r.receipt_no || "—" },
+// GRN / Quality pending (ERP) — the ERP GRN lines of the store's parts still
+// waiting for ERP's quality clearance, or to be checked (the work queue's
+// quality list; spec 1/9: receiving, GRN and quality are done in ERP and read
+// here). PENDING_COLUMNS stays for an older overview.
+const ERP_LINE_PENDING_COLUMNS = [
+  {
+    key: "grn_no", label: "GRN No", sortable: true,
+    exportValue: (r) => `${r.grn_no || ""}${r.grn_date ? ` (${r.grn_date})` : ""}`,
+    render: (r) => (
+      <div>
+        <div className="font-mono text-[12px] font-semibold">{r.grn_no || "—"}</div>
+        <div className="text-[11px] text-slate-400">{r.grn_date ? fmtDate(r.grn_date) : "no GRN date in ERP"}</div>
+      </div>
+    ),
+  },
   { key: "part_no", label: "Part No", sortable: true },
   { key: "part_name", label: "Description" },
-  { key: "ven_name", label: "Supplier", render: (r) => r.ven_name || "—" },
+  { key: "ven_name", label: "Supplier", render: (r) => r.ven_name || r.ven_cd || "—" },
   { key: "invoice_no", label: "Invoice", render: (r) => r.invoice_no || "—" },
-  { key: "grn_no", label: "GRN No", render: (r) => r.grn_no || "—" },
-  { key: "qty_received", label: "Qty", align: "right", render: (r) => num(r.qty_received) },
+  { key: "receipt_qty", label: "Received", align: "right", render: (r) => num(r.receipt_qty) },
   {
-    key: "status", label: "Stage", exportValue: receiptStage,
-    render: (r) => <span className={`badge ${RECEIPT_STATUS[r.status]?.badge || "badge-neutral"}`}>{receiptStage(r)}</span>,
+    key: "state", label: "State (ERP)", exportValue: (r) => erpLineMeta(r.state).label,
+    render: (r) => <span className={`badge whitespace-nowrap ${erpLineMeta(r.state).badge}`}>{erpLineMeta(r.state).label}</span>,
+  },
+  {
+    key: "reason", label: "Reason",
+    render: (r) => <span className="block max-w-[280px] text-[12px] leading-snug text-slate-500 dark:text-slate-400">{r.reason || "—"}</span>,
   },
 ];
+const erpLineKey = (r) => `${r.part_id}|${r.grn_no}`;
 
 // Value asked the question, so value is what this list is ordered and shown
 // by — rate and stock value rather than Min/Max.
@@ -716,20 +732,29 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   const [pending, setPending] = useState({ receipts: false, rows: [], state: "idle" });
   const pendingRows = pending.rows;
 
-  // Spec 1: spare receiving has no separate SRV step — material waits for the
-  // supervisor's GRN, then the quality clearance. The overview's receipt count
-  // (receiving_pending) is the figure on that attention line and its drill
-  // lists those receipts; an older overview without the block keeps its SRV
-  // figure and SRV list.
+  // Spec 1: spare receiving has no separate SRV step, and the GRN and the
+  // quality clearance are done in ERP. The overview's ERP count
+  // (receiving_pending: ERP GRN lines awaiting quality in ERP) is the figure on
+  // that attention line, with the ERP mirror's freshness, and its drill lists
+  // those lines; an older overview without the block keeps its SRV figure.
   const receiving = overview?.receiving_pending ?? null;
   const attention = useMemo(() => (overview?.attention || []).map((it) => {
     if (it.key !== "srv_pending") return it;
-    if (!receiving) return { ...it, label: "GRN / Quality pending" };
-    const count = receiving.total ?? it.count;
+    if (!receiving) return { ...it, label: "GRN / Quality pending (ERP)" };
+    const count = receiving.total ?? receiving.quality_pending ?? it.count;
+    const fresh = receiving.erp ? erpFreshness(receiving.erp) : null;
+    const extra = [
+      receiving.check ? `${num(receiving.check)} to check with ERP` : null,
+      receiving.to_add ? `${num(receiving.to_add)} accepted, to be added` : null,
+    ].filter(Boolean).join(" · ");
     return {
-      ...it, label: "GRN / Quality pending", count,
-      hint: "Received material waiting for the supervisor's GRN or the quality clearance",
-      severity: count ? "warning" : "ok",
+      ...it, label: "GRN / Quality pending (ERP)", count,
+      hint: [
+        "ERP GRN lines awaiting quality clearance in ERP",
+        extra,
+        fresh ? `${fresh.text}${fresh.stale && !fresh.empty ? ` (${fresh.ageDays} d old)` : ""}` : null,
+      ].filter(Boolean).join(" · "),
+      severity: count || receiving.check ? "warning" : "ok",
     };
   }), [overview, receiving]);
 
@@ -992,9 +1017,11 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               until the data lands — no skeletons that could sit blank. Today
               Received / Issued simply stay 0 on a section page, which has no
               store-wide ops. */}
-          <KpiCard featured tone="green" label="Today Received" icon={ArrowDownToLine}
+          {/* Stock-ins, not arrivals: receiving happens in ERP, and a line is
+              added here when the qty quality accepted in ERP reaches store stock. */}
+          <KpiCard featured tone="green" label="Today Added to Stock" icon={ArrowDownToLine}
             value={kpi?.today?.received_qty ?? 0} unit="pcs"
-            hint={`${kpi?.today?.received_lines ?? 0} receipt line${kpi?.today?.received_lines === 1 ? "" : "s"}`} />
+            hint={`${kpi?.today?.received_lines ?? 0} stock-in line${kpi?.today?.received_lines === 1 ? "" : "s"}`} />
           <KpiCard featured tone="red" label="Today Issued" icon={ArrowUpFromLine}
             value={kpi?.today?.issued_qty ?? 0} unit="pcs"
             hint={`${kpi?.today?.issued_lines ?? 0} issue line${kpi?.today?.issued_lines === 1 ? "" : "s"}`} />
@@ -1416,16 +1443,24 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
         document.body,
       )}
 
-      {/* Receipts waiting for the GRN or the quality clearance (or, on an
-          older overview, SRV lines waiting on an SRV or an engineer). */}
+      {/* ERP GRN lines waiting for ERP's quality clearance or to be checked
+          (or, on an older overview, SRV lines waiting on an SRV or an engineer). */}
       <Modal open={pendingOpen} onClose={() => setPendingOpen(false)} size="full"
-        title="GRN / Quality Pending">
+        title="GRN / Quality Pending (ERP)">
         <div className="space-y-3">
           <p className="text-xs text-slate-400 -mt-1">
             {pending.receipts
-              ? "Received in the store, waiting for the supervisor's GRN or the Maintenance / Tool Room quality clearance — not store stock until cleared"
+              ? "ERP GRN lines of this store's parts waiting for the Maintenance / Tool Room quality clearance in ERP, or to be checked against ERP — not store stock until ERP accepts them. Read from ERP; nothing to record in the app."
               : "Arrived but no SRV raised, or the SRV is with an engineer for clearance"}
           </p>
+          {pending.receipts && receiving?.erp && (() => {
+            const fresh = erpFreshness(receiving.erp);
+            return (
+              <p className={`-mt-1 text-[11px] ${fresh.stale ? "font-medium text-amber-700 dark:text-amber-300" : "text-slate-500 dark:text-slate-400"}`}>
+                {fresh.text}{fresh.stale && fresh.staleText ? ` — ${fresh.staleText}` : ""}
+              </p>
+            );
+          })()}
           {pending.state === "loading" ? (
             <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-10 w-full" />)}</div>
           ) : pending.state === "error" ? (
@@ -1435,8 +1470,8 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
           ) : pendingRows.length === 0 ? (
             pending.receipts ? (
               <NotCaptured
-                what="No receipt is waiting"
-                needs="Material received on Scan Part (Receive) is listed here until its GRN is recorded and quality clears it."
+                what="No ERP GRN line is waiting"
+                needs="ERP GRN lines of this store's parts are listed here until quality accepts them in ERP — then the accepted qty is added to store stock by itself."
                 endpoint="GET /spare-flow/queues"
               />
             ) : (
@@ -1447,10 +1482,11 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               />
             )
           ) : (
-            <Table key={pending.receipts ? "receipts" : "srv"}
-              columns={pending.receipts ? RECEIPT_PENDING_COLUMNS : PENDING_COLUMNS} rows={pendingRows} pageSize={0} maxHeight="60vh"
-              searchable={pendingRows.length > 10 ? "Search receipt, part or supplier…" : false}
-              exportName={pending.receipts ? "spares_grn_quality_pending" : "spares_srv_pending"} emptyMessage="Nothing pending" />
+            <Table key={pending.receipts ? "erp-lines" : "srv"}
+              columns={pending.receipts ? ERP_LINE_PENDING_COLUMNS : PENDING_COLUMNS} rows={pendingRows} pageSize={0} maxHeight="60vh"
+              rowKey={pending.receipts ? erpLineKey : undefined}
+              searchable={pendingRows.length > 10 ? "Search GRN, part or supplier…" : false}
+              exportName={pending.receipts ? "spares_grn_quality_pending_erp" : "spares_srv_pending"} emptyMessage="Nothing pending" />
           )}
         </div>
       </Modal>

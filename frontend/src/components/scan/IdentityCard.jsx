@@ -60,7 +60,7 @@ export default function IdentityCard({ part, ident, onOpenDetails, onClear }) {
 
       {part.is_active === false && (
         <p className="mt-3 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
-          <Ban size={15} aria-hidden="true" />Part is inactive — nothing can be issued, received or labelled until it is reactivated.
+          <Ban size={15} aria-hidden="true" />Part is inactive — nothing can be issued, returned or labelled until it is reactivated.
         </p>
       )}
     </section>
