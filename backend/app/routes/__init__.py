@@ -45,6 +45,10 @@ def register_routes(app):
     from app.routes.consumption_analytics_routes import bp as consumption_analytics_bp
     from app.routes.data_quality_routes import bp as data_quality_bp
     from app.routes.spare_alerts_routes import bp as spare_alerts_bp
+    from app.routes.spare_receipt_routes import bp as spare_receipt_bp
+    from app.routes.spare_return_routes import bp as spare_return_bp
+    from app.routes.spare_rgp_routes import bp as spare_rgp_bp
+    from app.routes.spare_scan_routes import bp as spare_scan_bp
 
     app.register_blueprint(supplier_bp)
     app.register_blueprint(part_bp)
@@ -89,6 +93,10 @@ def register_routes(app):
     app.register_blueprint(consumption_analytics_bp)
     app.register_blueprint(data_quality_bp)
     app.register_blueprint(spare_alerts_bp)
+    app.register_blueprint(spare_receipt_bp)
+    app.register_blueprint(spare_return_bp)
+    app.register_blueprint(spare_rgp_bp)
+    app.register_blueprint(spare_scan_bp)
 
     @app.route("/api/v1/health", methods=["GET"])
     def health_check():

@@ -1,12 +1,13 @@
 """The Spare Parts Store's own material flow, and one part's traceability.
 
-The plant's spare process is:
+The plant's spare process is (spec 1 — the GRN is the one receiving document;
+there is no separate SRV step for a spare):
 
     Supplier -> Gate Entry -> Material Received -> Physical Verification
-    -> SRV/GRN -> Maintenance / Tool Room ERP -> Engineer Clearance
-    -> Store Stock -> Issue -> ERP Consumption
+    -> GRN (supervisor, in ERP) -> Maintenance / Tool Room ERP ID
+    -> Quality Clearance -> Store Stock -> Issue -> ERP Consumption
 
-Every stage below is read from data that actually exists. Two of them cannot
+Every stage below is read from data that actually exists. One of them cannot
 be: see NOT_CAPTURED. Nothing here invents a count to fill a gap — a stage with
 no source reports that it has none, because a fabricated zero and a real zero
 look identical on a screen and mean opposite things.
@@ -14,6 +15,8 @@ look identical on a screen and mean opposite things.
 from app.extensions import db
 from app.models.gate_entry import GateEntry
 from app.models.receiving_register import ReceivingRegister
+from app.models.spare_flow import SpareTransaction
+from app.models.spare_stock import ERP_ORIGIN_RECEIPT_STATUSES, SpareStockLedger
 from app.models.srv import SRV
 from app.models.supplier import Supplier
 from app.repositories.part_repository import PartRepository
@@ -30,7 +33,9 @@ STAGES = [
     ("gate_entry", "Gate Entry", ["PENDING_UNLOAD"]),
     ("received", "Material Received", ["UNLOADED"]),
     ("verified", "Physical Verification", ["VERIFIED"]),
-    ("srv_created", "SRV / GRN Created", ["SRV_CREATED"]),
+    # Key kept for existing readers; the spare store's receiving document is
+    # the GRN alone (spec 1), so that is what the stage is called.
+    ("srv_created", "GRN Created", ["SRV_CREATED"]),
     ("with_engineer", "Engineer Clearance", ["FORWARDED_TOOL_ROOM"]),
     ("in_store", "Store Stock", ["STORED"]),
     ("consumed", "ERP Consumption", ["CONSUMED"]),
@@ -43,14 +48,13 @@ PENDING_CLEARANCE_STATUSES = ["FORWARDED_TOOL_ROOM"]
 
 # Stages the database has no field for. Named so the screen can say what is
 # missing instead of drawing an empty box, and so whoever adds the capture
-# point later knows exactly what is wanted.
+# point later knows exactly what is wanted. The department an issue went to is
+# NOT listed: every ISSUE records it (spare_stock_ledger.department, validated
+# against the department master), and department-wise consumption reads it.
 NOT_CAPTURED = {
     "maintenance_clearance":
         "SRV has a Tool Room forward and clearance timestamp but no Maintenance "
         "equivalent, so Maintenance pending/cleared cannot be split out yet.",
-    "issue_department":
-        "Nothing records which department an issue went to, so Press Shop / "
-        "Maintenance / Tool Room consumption cannot be reported.",
 }
 
 
@@ -177,6 +181,9 @@ class SpareFlowService:
             qty = float(r.qty) if r.qty is not None else None
             arrivals.append({
                 "gate_entry_dt": dt,
+                # The gate clock reading as ERP typed it (plant time, text) —
+                # shown as-is, never merged into the date as if it were UTC.
+                "gate_entry_time": r.gate_entry_time,
                 "gate_entry_no": r.gate_entry_no,
                 "ven_cd": r.ven_cd,
                 "ven_name": (r.ven_name or r.ven_cd),
@@ -228,6 +235,24 @@ class SpareFlowService:
             })
         return out
 
+    @staticmethod
+    def _booked_grns(movements):
+        """The store's own GRN-backed RECEIPT rows and the GRN numbers they were
+        booked against: a quality clearance (its reference is the GRN no.) or an
+        RGP GRN (its journal row carries the GRN no.). ERP's GRN row with the
+        same number is that same receipt seen from ERP."""
+        booked = [m for m in movements
+                  if m.txn_type == "RECEIPT" and getattr(m, "status", None) in ERP_ORIGIN_RECEIPT_STATUSES]
+        nos = {m.reference.strip().upper() for m in booked
+               if m.status == "STOCK_AVAILABLE" and m.reference}
+        ids = [m.id for m in booked]
+        if ids:
+            for (grn_no,) in (db.session.query(SpareTransaction.grn_no)
+                              .filter(SpareTransaction.ledger_id.in_(ids),
+                                      SpareTransaction.grn_no.isnot(None)).all()):
+                nos.add(grn_no.strip().upper())
+        return booked, nos
+
     def _unify_ledger(self, movements, gate_arrivals, grn_events):
         """One chronological ledger for the part — every event on one timeline:
         material arriving at the gate, being received into stores (GRN, with
@@ -240,14 +265,23 @@ class SpareFlowService:
         as stock-in would double the received total: where a GRN exists it is the
         counted "Received", and the gate row is shown only as an "Arrival" marker
         (direction 'arrival', not summed). A part with no GRN keeps its gate
-        arrivals as the counted inflow, so nothing is lost."""
+        arrivals as the counted inflow, so nothing is lost.
+
+        The same holds one step later: once the store books a GRN's accepted
+        quantity into stock (the quality clearance's RECEIPT row, which carries
+        the balance), ERP's RECEIVED row for that GRN number is the same material
+        again — it stays on the timeline as a marker (direction 'matched', not
+        summed), and a store-booked clearance counts as the GRN for the gate rule."""
         sup_ids = {m.supplier_id for m in movements if getattr(m, "supplier_id", None)}
         sup_map = {}
         if sup_ids:
             for s in Supplier.query.filter(Supplier.id.in_(sup_ids)).all():
                 sup_map[s.id] = {"name": s.supplier_name, "code": s.vendor_code}
 
-        has_grn = bool(grn_events)
+        booked, booked_grns = self._booked_grns(movements)
+        # RGP GRN rows are reworked material coming back, not a supplier
+        # delivery, so only a quality clearance stands in for a missing ERP GRN.
+        has_grn = bool(grn_events) or any(m.status == "STOCK_AVAILABLE" for m in booked)
         entries = []
         for a in gate_arrivals:
             entries.append({
@@ -262,14 +296,17 @@ class SpareFlowService:
             })
         for g in grn_events:
             rej = g["reject_qty"]
+            matched = bool(g["grn_no"]) and g["grn_no"].strip().upper() in booked_grns
+            notes = [f"{int(rej) if rej == int(rej) else rej} rejected" if rej else None,
+                     "counted on the store's own stock-in row" if matched else None]
             entries.append({
-                "ts": g["ts"], "kind": "RECEIVED", "direction": "in",
+                "ts": g["ts"], "kind": "RECEIVED", "direction": "matched" if matched else "in",
                 "qty": g["accept_qty"], "balance_after": None,
                 "supplier_name": g["ven_name"], "supplier_code": g["ven_cd"],
                 "reference": g["grn_no"], "po_no": g["po_no"],
                 "invoice_no": g["challan_no"],
                 "department": None, "issued_to": None, "machine": None, "line": None,
-                "remarks": (f"{int(rej) if rej == int(rej) else rej} rejected" if rej else None),
+                "remarks": " · ".join(n for n in notes if n) or None,
                 "by": None, "status": None,
             })
         for m in movements:
@@ -320,7 +357,13 @@ class SpareFlowService:
 
         receipts = self.srv_repo.search(part_id=part_id).limit(25).all()
         stock = self.stock_repo.get_by_part(part_id)
-        moves = self.ledger_repo.list_for_part(part_id, 25)
+        # The part's WHOLE ledger, not the latest 25: the Part Ledger's received
+        # / issued totals and the issue count are summed from these rows, and a
+        # truncated list would quietly under-report them. One part's history is
+        # a few hundred rows at most.
+        moves = (SpareStockLedger.query.filter_by(part_id=part_id)
+                 .order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc())
+                 .all())
         gate_arrivals, gate_suppliers = self._gate_history(part.part_no)
         grn_events = self._grn_events(part.part_no)
 

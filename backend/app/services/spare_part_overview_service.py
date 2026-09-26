@@ -16,6 +16,7 @@ from app.models.base import utcnow
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Section
 from app.repositories.part_repository import PartRepository
+from app.services.scan_result_service import ScanResultService, primary_status
 from app.services.spare_dashboard_service import STALE_AFTER_HOURS
 from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_stock_service import SpareStockService
@@ -52,6 +53,7 @@ class SparePartOverviewService:
     def __init__(self):
         self.stock = SpareStockService()
         self.flow = SpareFlowService()
+        self.scan = ScanResultService()
         self.parts = PartRepository()
 
     def overview(self, part_id):
@@ -65,6 +67,9 @@ class SparePartOverviewService:
         erp = self._erp(part_id, row["qty_on_hand"])
         label = self._label(part)
         pending_confirm = len(self.stock.pending_confirmations_for_part(part_id))
+        # The same per-bucket split and headline the Scan Part workstation shows,
+        # so the drawer and a scan can never describe the part differently.
+        buckets = self.scan.buckets(part_id)
 
         return {
             "part": {
@@ -85,6 +90,8 @@ class SparePartOverviewService:
                 "reserved": None, "reserved_note": "Reservations are not tracked",
                 "available": row["qty_on_hand"],
             },
+            "buckets": buckets,
+            "primary_status": primary_status(buckets, counted=row["qty_on_hand"] is not None),
             "location": {
                 "section": section.name if section else None, "section_id": part.section_id,
                 "location": part.location, "rework_location": part.rework_location,
