@@ -1,0 +1,240 @@
+import React, { useState } from "react";
+import { ArrowUpFromLine, ChevronDown, ChevronRight, ClipboardCheck, Clock, PackagePlus, TriangleAlert, Truck } from "lucide-react";
+import { IssueAge, IssueStatusPill, issueAge, useMinuteClock } from "../spare/IssueLifecycle.jsx";
+import { fmtDate, num } from "../../lib/format.js";
+import { ACTIONS, RECEIPT_STATUS, RETURN_STATUS, RGP_STATUS, reasonLabel } from "../../lib/scanStatus.js";
+
+// (d) The part's OPEN documents (spec 30: who was it issued to, which line /
+// machine / die, was it returned, which supplier has it, which RGP): receipts
+// waiting for GRN / quality, issues still out, returns waiting for inspection,
+// RGPs with a supplier. Compact — three rows per kind, the rest on request — so
+// the quick actions below stay in reach. A row offers the action that moves
+// THAT document on, pre-selected in the form (only when the action is open to
+// this user right now).
+const SHOW = 3;
+
+const ageDays = (d) => (d == null ? null : d <= 0 ? "today" : d === 1 ? "1 day" : `${num(d)} days`);
+
+// The issues still waiting for the fitter's Stage-2 confirmation (the statuses
+// the pending_confirmations queue holds). Only these can be overdue: the open
+// issues also carry INSTALLED / PARTIALLY_USED / PARTIALLY_RETURNED ones — out
+// on the line, possibly for weeks, and rightly so.
+const AWAITING_CONFIRMATION = new Set(["ISSUED_BY_STORE", "PENDING_USER_CONFIRMATION"]);
+
+// How long an issue has been out. Amber after two days only while it still
+// waits for confirmation; a fitted part just says when it went out.
+function IssuedWhen({ issue, now }) {
+  if (AWAITING_CONFIRMATION.has(issue.status)) return <IssueAge at={issue.issued_at} now={now} />;
+  const age = issueAge(issue.issued_at, now);
+  if (!age) return <span className="text-[11px] text-slate-400">Issue time not recorded</span>;
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap px-1.5 py-0.5 text-[11px] font-semibold tabular text-slate-500 dark:text-slate-400">
+      <Clock size={12} aria-hidden="true" />issued {age.text}
+    </span>
+  );
+}
+
+function DocAction({ actionKey, target, canAct, onAction }) {
+  if (!canAct(actionKey)) return null;
+  return (
+    <button type="button" onClick={() => onAction(actionKey, target)}
+      className="inline-flex items-center gap-0.5 whitespace-nowrap rounded text-xs font-semibold text-toyotared hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/40">
+      {ACTIONS[actionKey]?.label || actionKey}<ChevronRight size={13} aria-hidden="true" />
+    </button>
+  );
+}
+
+function Group({ icon: Icon, title, rows, render }) {
+  const [all, setAll] = useState(false);
+  if (!rows.length) return null;
+  const shown = all ? rows : rows.slice(0, SHOW);
+  return (
+    <div>
+      <h3 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+        <Icon size={13} aria-hidden="true" />{title} <span className="tabular">({rows.length})</span>
+      </h3>
+      <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-navy-800 dark:border-navy-700">
+        {shown.map((r) => <li key={r.id} className="px-3 py-2">{render(r)}</li>)}
+      </ul>
+      {rows.length > SHOW && (
+        <button type="button" onClick={() => setAll((a) => !a)}
+          className="mt-1 text-xs font-semibold text-slate-500 hover:text-toyotared dark:text-slate-400">
+          {all ? "Show fewer" : `Show all ${rows.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// "Line 03 / Machine Press-07 / Die Die-12". A line name that already says
+// "Line …" is not prefixed again.
+const lineOf = (r) => {
+  const line = [r.line_name, r.line_no].filter(Boolean).join(" ");
+  return [
+    line && (/^line\b/i.test(line) ? line : `Line ${line}`),
+    r.machine && `Machine ${r.machine}`,
+    r.die_no && `Die ${r.die_no}`,
+  ].filter(Boolean).join(" / ");
+};
+
+/**
+ * canAct(key)            the action is enabled for this part AND the user may do it
+ * onAction(key, target)  open that action's form with the document pre-selected
+ * collapsed              an action form is open — show a one-line summary only
+ */
+export default function TransactionInfo({ scan, canAct, onAction, collapsed = false }) {
+  const nowMs = useMinuteClock();
+  const [expanded, setExpanded] = useState(false);
+  const receipts = scan.open_receipts || [];
+  const issues = scan.open_issues || [];
+  const returns = scan.open_returns || [];
+  const rgps = scan.open_rgps || [];
+  const total = receipts.length + issues.length + returns.length + rgps.length;
+  const shown = !collapsed || expanded;
+  const summary = [
+    receipts.length && `${receipts.length} receipt${receipts.length === 1 ? "" : "s"}`,
+    issues.length && `${issues.length} issue${issues.length === 1 ? "" : "s"} out`,
+    returns.length && `${returns.length} return${returns.length === 1 ? "" : "s"}`,
+    rgps.length && `${rgps.length} RGP${rgps.length === 1 ? "" : "s"}`,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <section className="card p-4" aria-label="Open transactions">
+      <button type="button" onClick={() => collapsed && setExpanded((e) => !e)}
+        aria-expanded={shown} disabled={!collapsed}
+        className="flex w-full items-center justify-between gap-2 text-left disabled:cursor-default">
+        <span className="kpi-label">Transaction information</span>
+        <span className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+          {total === 0 ? "Nothing open" : summary}
+          {collapsed && <ChevronDown size={14} className={`transition-transform ${shown ? "rotate-180" : ""}`} aria-hidden="true" />}
+        </span>
+      </button>
+
+      {shown && (
+        total === 0 ? (
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            No open documents — nothing waiting for GRN or quality, nothing issued out, returned or with a supplier.
+          </p>
+        ) : (
+          <div className="mt-3 space-y-4">
+            <Group icon={PackagePlus} title="Receipts — GRN / quality" rows={receipts} render={(r) => {
+              const st = RECEIPT_STATUS[r.status];
+              return (
+                <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      <span className="font-mono">{r.receipt_no}</span>
+                      <span className={`badge ${st?.badge || "badge-neutral"}`}>{st?.label || r.status}</span>
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Qty {num(r.qty_received)} · {r.ven_name || "Supplier not recorded"}
+                      {r.invoice_no && ` · Inv ${r.invoice_no}`}
+                      {r.grn_no && ` · GRN ${r.grn_no}`}
+                      {r.quality_by && ` · Quality: ${r.quality_by}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                    {ageDays(r.age_days) && <span>{ageDays(r.age_days)}</span>}
+                    <DocAction actionKey={r.status === "RECEIVED" ? "RECORD_GRN" : "QUALITY_CLEARANCE"} target={r.id} canAct={canAct} onAction={onAction} />
+                  </div>
+                </div>
+              );
+            }} />
+
+            <Group icon={ArrowUpFromLine} title="Issued — on the line" rows={issues} render={(r) => {
+              const where = lineOf(r);
+              return (
+                <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      <span className="tabular">{num(r.outstanding_qty)}</span> out
+                      {Number(r.issued_qty) !== Number(r.outstanding_qty) && <span className="font-normal text-slate-500"> of {num(r.issued_qty)}</span>}
+                      {" · "}{r.department || "Department not recorded"}
+                      {r.issued_to && <span className="font-normal text-slate-500"> → {r.issued_to}</span>}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {where || <span className="text-slate-400">Line / machine not recorded yet</span>}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <IssueStatusPill issue={r} />
+                      <IssuedWhen issue={r} now={nowMs} />
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <DocAction actionKey="RETURN" target={r.id} canAct={canAct} onAction={onAction} />
+                    <DocAction actionKey="UPDATE_INSTALLATION" target={r.id} canAct={canAct} onAction={onAction} />
+                  </div>
+                </div>
+              );
+            }} />
+
+            <Group icon={ClipboardCheck} title="Returned — store inspection" rows={returns} render={(r) => {
+              const st = RETURN_STATUS[r.status];
+              const split = [
+                Number(r.qty_pending) > 0 && `${num(r.qty_pending)} to inspect`,
+                Number(r.qty_hold) > 0 && `${num(r.qty_hold)} on hold`,
+                Number(r.qty_damaged) > 0 && `${num(r.qty_damaged)} damaged`,
+              ].filter(Boolean).join(" · ");
+              const age = issueAge(r.created_at, nowMs);
+              const heldOrDamaged = Number(r.qty_hold) + Number(r.qty_damaged) > 0;
+              return (
+                <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      <span className="font-mono">{r.return_no}</span>
+                      <span className={`badge ${st?.badge || "badge-neutral"}`}>{st?.label || r.status}</span>
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {split || `Qty ${num(r.qty)}`} · {reasonLabel(r.reason)}
+                      {r.department && ` · from ${r.department}`}{r.issued_to && ` (${r.issued_to})`}
+                    </p>
+                    {lineOf(r) && <p className="text-[11px] text-slate-400">Was on {lineOf(r)}</p>}
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    {age && <span className="text-[11px] text-slate-400">returned {age.text}</span>}
+                    <DocAction actionKey="INSPECT" target={r.id} canAct={canAct} onAction={onAction} />
+                    {heldOrDamaged && <DocAction actionKey="RGP_OUT" target={r.id} canAct={canAct} onAction={onAction} />}
+                  </div>
+                </div>
+              );
+            }} />
+
+            <Group icon={Truck} title="RGP — supplier rework" rows={rgps} render={(r) => {
+              const st = RGP_STATUS[r.status];
+              return (
+                <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      <span className="font-mono">{r.rgp_no}</span>
+                      <span className={`badge ${st?.badge || "badge-neutral"}`}>{st?.label || r.status}</span>
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {r.ven_name || "Supplier not recorded"}
+                      {Number(r.qty_with_supplier) > 0 && ` · ${num(r.qty_with_supplier)} with supplier`}
+                      {Number(r.qty_grn_pending) > 0 && ` · ${num(r.qty_grn_pending)} back, RGP GRN pending`}
+                      {r.rework_reason && ` · ${r.rework_reason}`}
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      Out {fmtDate(r.rgp_date)}
+                      {r.expected_return_date ? ` · expected back ${fmtDate(r.expected_return_date)}` : " · no expected return date"}
+                      {r.erp_challan_no && ` · ERP challan ${r.erp_challan_no}`}
+                    </p>
+                    {r.overdue && (
+                      <p className="mt-0.5 inline-flex items-center gap-1 rounded-md bg-rose-100 px-1.5 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                        <TriangleAlert size={12} aria-hidden="true" />Overdue — past the expected return date
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    {Number(r.qty_with_supplier) > 0 && <DocAction actionKey="RGP_RETURN" target={r.id} canAct={canAct} onAction={onAction} />}
+                    {Number(r.qty_grn_pending) > 0 && <DocAction actionKey="RGP_GRN" target={r.id} canAct={canAct} onAction={onAction} />}
+                  </div>
+                </div>
+              );
+            }} />
+          </div>
+        )
+      )}
+    </section>
+  );
+}

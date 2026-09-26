@@ -1,0 +1,96 @@
+import React, { useState } from "react";
+import { Ban } from "lucide-react";
+import { ACTIONS } from "../../lib/scanStatus.js";
+import ReceiveForm from "./forms/ReceiveForm.jsx";
+import GrnForm from "./forms/GrnForm.jsx";
+import QualityForm from "./forms/QualityForm.jsx";
+import IssueForm from "./forms/IssueForm.jsx";
+import InstallForm from "./forms/InstallForm.jsx";
+import ReturnForm from "./forms/ReturnForm.jsx";
+import InspectForm from "./forms/InspectForm.jsx";
+import RgpOutForm from "./forms/RgpOutForm.jsx";
+import RgpReturnForm from "./forms/RgpReturnForm.jsx";
+import RgpGrnForm from "./forms/RgpGrnForm.jsx";
+import LocationForm from "./forms/LocationForm.jsx";
+import { FlowStepContext } from "./forms/flow.js";
+
+// The VERIFY -> ACTION -> CONFIRM step of the Scan Part workstation (spec 28):
+// one form per action (components/scan/forms), each ending in the same
+// ActionConfirm read-back. Renders the form body only — the workstation puts
+// it in its own titled card with the close button.
+//
+// Contract: the Scan Part workstation renders
+//   <ActionForm actionKey scan target source onDone onCancel />
+//   actionKey  one of lib/scanStatus ACTIONS keys (ISSUE, RETURN, INSPECT, ...)
+//   scan       the scan-result payload (GET /spare-flow/parts/:id/scan-result)
+//   target     optional preselected document id (issue / return / receipt / rgp)
+//   source     how the part was identified: SUPPLIER_BARCODE | ERP_SEARCH |
+//              MANUAL_ENTRY | QR_SCAN (for receive + label print)
+//   onDone(message, options?)  called after a successful write (the caller
+//              refetches). options.next === "PRINT_LABEL" after a receive when
+//              the operator asked for the internal QR label straight away.
+//   onCancel()       close without writing
+//   onStep(step)     optional: "ACTION" while the form is filled in, "CONFIRM"
+//                    while its read-back is up — for the workstation's
+//                    SCAN -> IDENTIFY -> VERIFY -> ACTION -> CONFIRM indicator
+//   className        optional, extra classes for the wrapper
+//
+// PRINT_LABEL / REPRINT_LABEL (PrintBarcodeModal) and HISTORY (the timeline)
+// are the workstation's own screens: for those keys this renders nothing.
+// A form never toasts success itself — the message goes to onDone — and an
+// error is toasted once by the api interceptor; the form stays open to fix it.
+
+const FORMS = {
+  RECEIVE: ReceiveForm,
+  RECORD_GRN: GrnForm,
+  QUALITY_CLEARANCE: QualityForm,
+  ISSUE: IssueForm,
+  UPDATE_INSTALLATION: InstallForm,
+  RETURN: ReturnForm,
+  INSPECT: InspectForm,
+  RGP_OUT: RgpOutForm,
+  RGP_RETURN: RgpReturnForm,
+  RGP_GRN: RgpGrnForm,
+  UPDATE_LOCATION: LocationForm,
+};
+
+export default function ActionForm({ actionKey, scan, target, source, onDone, onCancel, onStep, className = "" }) {
+  const part = scan?.part;
+  // The backend decides what is allowed for the part's current state (spec 27);
+  // a deep link can still ask for an action that is not — say why instead.
+  // Judged when the form OPENS only: the scan result refreshes while a form is
+  // up (this terminal's own write included), and a form must not vanish under
+  // the operator mid-confirm — each form handles its document closing itself.
+  const action = (scan?.actions || []).find((a) => a.key === actionKey);
+  const openKey = `${actionKey}:${part?.id ?? ""}:${target ?? ""}`;
+  const gateNow = { key: openKey, blocked: Boolean(action) && !action.enabled, reason: action?.reason || null };
+  const [gate, setGate] = useState(gateNow);
+  if (gate.key !== openKey) setGate(gateNow);
+  const { blocked, reason } = gate.key === openKey ? gate : gateNow;
+
+  const Form = FORMS[actionKey];
+  if (!Form || !part) return null;
+  const label = ACTIONS[actionKey]?.label || actionKey;
+
+  return (
+    <div className={className}>
+      {blocked ? (
+        <div className="space-y-3">
+          <p className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600 dark:border-navy-700 dark:bg-navy-800/50 dark:text-slate-300">
+            <Ban size={16} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
+            <span>{label} is not available for this part now{reason ? ` — ${reason}` : ""}.</span>
+          </p>
+          <div className="flex justify-end">
+            <button type="button" className="btn-secondary" onClick={onCancel}>Close</button>
+          </div>
+        </div>
+      ) : (
+        <FlowStepContext.Provider value={onStep || null}>
+          {/* Keyed by part + target: a new scan or deep link starts a clean
+              form, never one still holding the previous part's quantities. */}
+          <Form key={openKey} scan={scan} target={target} source={source} onDone={onDone} onCancel={onCancel} />
+        </FlowStepContext.Provider>
+      )}
+    </div>
+  );
+}

@@ -40,6 +40,10 @@ api.interceptors.response.use(
       onUnauthorized?.();
       return Promise.reject(error);
     }
+    // A caller that shows the error itself (e.g. the Scan Part "Unknown supplier
+    // barcode" panel) passes { silent: true } in the request config, so the
+    // operator doesn't get the same message twice.
+    if (error?.config?.silent) return Promise.reject(error);
     const message =
       error?.response?.data?.message || error?.message || "Something went wrong";
     toast.error(message);

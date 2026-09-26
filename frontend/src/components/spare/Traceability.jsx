@@ -1,27 +1,70 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ArrowDownToLine, ArrowUpFromLine, CircleCheck, ClipboardList, Factory, FilePen, HardHat, Pencil,
-  Printer, ReceiptText, Search, Store, Truck, Undo2, X,
+  ArrowDownToLine, ArrowUpFromLine, CircleCheck, ClipboardCheck, ClipboardList, Factory, FileCheck2, FilePen,
+  HardHat, PackageCheck, Pencil, Printer, ReceiptText, Search, ShieldCheck, Store, Truck, Undo2, X,
 } from "lucide-react";
 import Glyph from "../Glyph.jsx";
 import Modal from "../Modal.jsx";
 import Table from "../Table.jsx";
+import PartTimeline, { usePartTimeline } from "./PartTimeline.jsx";
+import { scanIcon } from "../scan/scanIcons.js";
 import { spareStockService } from "../../services/spareStockService.js";
+import { TIMELINE_KIND } from "../../lib/scanStatus.js";
 import { escapeHtml, fmtDate, fmtStamp, fmtWhen, num, parseServerTime } from "../../lib/format.js";
 
-// A spare's journey, supplier to consumption: the nine-step trace and the
-// full part ledger (arrivals + movements on one timeline). Moved out of the
-// store dashboard so the part drawer can open it from anywhere.
+// A spare's journey, supplier to consumption: the nine-step trace, the part's
+// QR-traceability history (receive -> GRN -> quality -> issue -> line / machine
+// -> return -> RGP -> stock) and the full part ledger (arrivals + movements on
+// one table). Moved out of the store dashboard so the part drawer can open it
+// from anywhere.
 
-// One label per ledger event, said the way the store says it.
-const LEDGER_EVENT = {
-  GATE_ARRIVAL: { label: "Arrival", icon: Truck, tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
-  RECEIPT: { label: "Received", icon: ArrowDownToLine, tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
-  OPENING: { label: "Opening", icon: ClipboardList, tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" },
-  ISSUE: { label: "Issued", icon: ArrowUpFromLine, tone: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300" },
-  RETURN: { label: "Returned", icon: Undo2, tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
-  ADJUSTMENT: { label: "Corrected", icon: Pencil, tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
+const PILL = {
+  green: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+  red: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
+  amber: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
+  sky: "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300",
+  slate: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300",
 };
+// TIMELINE_KIND tone -> the ledger's pill colours.
+const TONE_PILL = { success: PILL.green, info: PILL.sky, warning: PILL.amber, danger: PILL.red, neutral: PILL.slate };
+
+// One label per ledger event, said the way the store says it. RECEIVED is the
+// ERP receiving register's GRN (accepted qty) — the counted inflow when a part
+// has GRNs; RECEIPT is a stock-in recorded in this app.
+const LEDGER_EVENT = {
+  GATE_ARRIVAL: { label: "Arrival", icon: Truck, tone: PILL.green },
+  RECEIVED: { label: "Received (ERP GRN)", icon: FileCheck2, tone: PILL.green },
+  RECEIPT: { label: "Received", icon: ArrowDownToLine, tone: PILL.green },
+  OPENING: { label: "Opening", icon: ClipboardList, tone: PILL.slate },
+  ISSUE: { label: "Issued", icon: ArrowUpFromLine, tone: PILL.red },
+  RETURN: { label: "Returned", icon: Undo2, tone: PILL.amber },
+  ADJUSTMENT: { label: "Corrected", icon: Pencil, tone: PILL.amber },
+};
+
+// Stock-ins of the QR flow are RECEIPT / RETURN rows told apart by their
+// status (models/spare_stock.py): the accepted qty of a quality clearance, an
+// RGP GRN, a return inspected good. Named for what happened, so none of them
+// reads as a plain "Received" / "Returned".
+const BY_STATUS = {
+  RECEIPT: {
+    STOCK_AVAILABLE: { label: "Quality cleared", icon: ShieldCheck, tone: PILL.green },
+    RGP_GRN: { label: "RGP GRN", icon: PackageCheck, tone: PILL.green },
+  },
+  RETURN: {
+    INSPECTED_GOOD: { label: "Return inspected — good", icon: ClipboardCheck, tone: PILL.green },
+  },
+};
+
+// Any other kind (a journal kind the ledger may carry) reads as the part
+// timeline names it, never as a raw code.
+const eventForKind = (kind) => {
+  if (LEDGER_EVENT[kind]) return LEDGER_EVENT[kind];
+  const t = TIMELINE_KIND[kind];
+  if (t) return { label: t.label, icon: scanIcon(t.icon), tone: TONE_PILL[t.tone] || PILL.slate };
+  const words = String(kind || "Event").replace(/_/g, " ").toLowerCase();
+  return { label: words.charAt(0).toUpperCase() + words.slice(1), icon: null, tone: PILL.slate };
+};
+const ledgerEvent = (row) => BY_STATUS[row.kind]?.[row.status] || eventForKind(row.kind);
 
 // One part's journey. Every step is drawn whether or not it has data — a gap
 // in the chain is the answer someone opened this to find, so a step with
@@ -90,10 +133,10 @@ const LEDGER_COLUMNS = [
   },
   {
     key: "kind", label: "Event",
-    searchValue: (r) => LEDGER_EVENT[r.kind]?.label || r.kind,
-    exportValue: (r) => LEDGER_EVENT[r.kind]?.label || r.kind,
+    searchValue: (r) => ledgerEvent(r).label,
+    exportValue: (r) => ledgerEvent(r).label,
     render: (r) => {
-      const ev = LEDGER_EVENT[r.kind] || { label: r.kind, icon: null, tone: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300" };
+      const ev = ledgerEvent(r);
       return (
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${ev.tone}`}>
           <Glyph icon={ev.icon} size={12} />{ev.label}
@@ -196,7 +239,7 @@ function PartLedger({ ledger, partNo, stock }) {
     if (!w) return;
     const body = filtered.map((e) => {
       const q = e.qty == null ? "" : (e.direction === "in" ? "+" : e.direction === "out" ? "−" : "") + num(Math.abs(e.qty));
-      return `<tr><td>${escapeHtml(fmtWhen(e.ts))}</td><td>${escapeHtml(LEDGER_EVENT[e.kind]?.label || e.kind)}</td><td style="text-align:right">${q}</td><td>${escapeHtml(ledgerFromTo(e))}</td><td>${escapeHtml(ledgerRef(e))}</td><td style="text-align:right">${e.balance_after == null ? "" : num(e.balance_after)}</td></tr>`;
+      return `<tr><td>${escapeHtml(fmtWhen(e.ts))}</td><td>${escapeHtml(ledgerEvent(e).label)}</td><td style="text-align:right">${q}</td><td>${escapeHtml(ledgerFromTo(e))}</td><td>${escapeHtml(ledgerRef(e))}</td><td style="text-align:right">${e.balance_after == null ? "" : num(e.balance_after)}</td></tr>`;
     }).join("");
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Part Ledger — ${escapeHtml(partNo)}</title>
       <style>body{font-family:system-ui,Arial,sans-serif;margin:24px;color:#111}h2{margin:0 0 2px}p{color:#666;margin:0 0 16px;font-size:12px}
@@ -249,7 +292,7 @@ function PartLedger({ ledger, partNo, stock }) {
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <div className="flex flex-wrap items-center gap-1.5">
               {chip("ALL", "All")}
-              {kinds.map((k) => chip(k, LEDGER_EVENT[k]?.label || k))}
+              {kinds.map((k) => chip(k, eventForKind(k).label))}
             </div>
             {vendors.length > 0 && (
               <select
@@ -297,19 +340,64 @@ function PartLedger({ ledger, partNo, stock }) {
   );
 }
 
+// The part's QR-traceability history (spec 21) — the same timeline the Scan
+// Part workstation shows under "View History", from the same cache. The first
+// few events, the rest on request; a failure here leaves the trace and the
+// ledger below untouched.
+const HISTORY_PREVIEW = 8;
+
+function PartHistory({ partId, partNo }) {
+  const [all, setAll] = useState(false);
+  const { data, isPending, isError, refetch } = usePartTimeline(partId);
+  const rows = data?.rows || [];
+  return (
+    <div className="mt-7 pt-5 border-t border-slate-200 dark:border-navy-700">
+      <div className="mb-3">
+        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Part History</h4>
+        <p className="text-[11px] text-slate-400">
+          Received, GRN, quality, issued, line / machine / die, returned, inspected, supplier rework and back to stock — newest first
+        </p>
+      </div>
+      {isPending ? (
+        <div className="skeleton h-32 w-full" />
+      ) : isError ? (
+        <p className="text-sm text-slate-400">
+          Could not load the history of {partNo}.{" "}
+          <button type="button" onClick={() => refetch()} className="font-semibold text-toyotared hover:underline">Retry</button>
+        </p>
+      ) : (
+        <>
+          <PartTimeline rows={all ? rows : rows.slice(0, HISTORY_PREVIEW)} emptyText={`Nothing recorded for ${partNo} yet.`} />
+          {rows.length > HISTORY_PREVIEW && (
+            <button type="button" onClick={() => setAll((a) => !a)}
+              className="mt-2 text-xs font-semibold text-slate-500 hover:text-toyotared dark:text-slate-400">
+              {all ? "Show the latest only" : `Show all ${rows.length}${data?.has_more ? "+" : ""} events`}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Traceability({ part, onClose }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Keyed on the id, not the object: callers pass `part` inline, and a new
+  // object on every parent render must not refetch the trace.
+  const partId = part?.id ?? null;
 
   useEffect(() => {
-    if (!part) return;
+    if (partId == null) return undefined;
+    let live = true; // a late answer for a part no longer shown is dropped
     setLoading(true);
     setData(null);
-    spareStockService.traceability(part.id)
-      .then((r) => setData(r.data.data))
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
-  }, [part]);
+    spareStockService.traceability(partId)
+      .then((r) => { if (live) setData(r.data.data); })
+      .catch(() => { if (live) setData(null); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [partId]);
 
   const receipt = data?.receipts?.[0];
   const issues = (data?.movements || []).filter((m) => m.txn_type === "ISSUE");
@@ -394,6 +482,8 @@ export default function Traceability({ part, onClose }) {
             {receipt?.consumed_at ? fmtStamp(receipt.consumed_at) : none}
           </TraceStep>
         </ol>
+
+        <PartHistory partId={partId} partNo={data.part.part_no} />
 
         <PartLedger ledger={data.ledger || []} partNo={data.part.part_no} stock={data.stock} />
         </>

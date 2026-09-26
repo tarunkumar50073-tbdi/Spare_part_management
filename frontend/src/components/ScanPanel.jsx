@@ -6,16 +6,33 @@ import { Camera, Flashlight, Play, ScanLine, SwitchCamera } from "lucide-react";
 //  • Scanner gun (USB/Bluetooth HID) — types the barcode into a focused field
 //    and presses Enter, so it registers automatically. Keystroke cadence tells
 //    a gun's fast burst from hand typing, and slow (hand-typed) input is
-//    rejected. Emits onCode(code, "USB_SCANNER").
-//  • Tablet camera (@zxing, rear camera, Code-128 et al.) — for handsets/tablets
-//    with no gun. Stops after a hit ("Scan next" to resume). Needs a secure
-//    context (HTTPS or localhost); where it isn't available the toggle is hidden
-//    and the gun is the only method. Emits onCode(code, "TABLET_CAMERA").
+//    rejected HERE — typing a code by hand is a separate, deliberate step (the
+//    Scan Part "Manual Entry" tab), so a half-typed code can never be taken for
+//    a scan. Emits onCode(code, "USB_SCANNER").
+//  • Tablet camera (@zxing, rear camera, Code-128 / QR et al.) — for handsets
+//    and tablets with no gun. Stops after a hit ("Scan next" to resume). Needs a
+//    secure context (HTTPS or localhost); where it isn't available the toggle is
+//    hidden and the gun is the only method. Emits onCode(code, "TABLET_CAMERA").
+//
+// variant "card" draws its own card; "bare" sits inside a card that already has
+// one (the Scan Part input bar). `compact` drops the big icon and the how-to
+// text — the workstation shrinks the box once a part is on screen, so the part
+// and its actions fit above the fold while the gun stays ready.
 const FAST_KEY_MS = 140; // avg inter-key gap at/above this = hand-typed (rejected)
 const DUP_MS = 700;      // gun: swallow a trailing CR/LF or a quick re-read
 const CAM_DUP_MS = 1500; // camera: ignore the same barcode briefly after a hit
+const SLOW_TYPING_HINT = "That was typed by hand — this box takes the scanner gun only. Use Manual Entry to type a code.";
 
-export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint }) {
+// Where a click must NOT pull focus back into the gun field: inside an open
+// dialog (its focus trap owns the keyboard), or inside an action form marked
+// data-scan-nofocus (clicking a choice card there must not steal the caret).
+const KEEP_FOCUS = "[role='dialog'],[data-scan-nofocus]";
+
+export default function ScanPanel({
+  onCode, busy = false, autoFocus = true, hint, variant = "card", slowTypingHint = SLOW_TYPING_HINT,
+  compact = false,
+  focusSignal, // changes when the caller wants the gun field focused again (a form / dialog closed)
+}) {
   const [method, setMethod] = useState("gun"); // "gun" | "camera"
   const [value, setValue] = useState("");
   const [warn, setWarn] = useState("");
@@ -42,9 +59,13 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
     !!navigator.mediaDevices?.getUserMedia;
 
   // ---------- gun: keep the field ready for the next scan ----------
-  const focus = () => { if (method === "gun" && autoFocus && !busy) inputRef.current?.focus(); };
+  const focus = () => {
+    if (method !== "gun" || !autoFocus || busy) return;
+    if (document.querySelector("[aria-modal='true']")) return; // a dialog owns the keyboard
+    inputRef.current?.focus();
+  };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { focus(); }, [method, busy, autoFocus]);
+  useEffect(() => { focus(); }, [method, busy, autoFocus, focusSignal]);
 
   // If the operator clicks anywhere that is NOT a form control (a card, empty
   // space), pull focus back so the next gun scan still lands here. Only in gun
@@ -53,6 +74,7 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
     const onDocClick = (e) => {
       if (method !== "gun" || busy || !autoFocus) return;
       if (e.target?.closest?.("input,textarea,select,button,a,label,[contenteditable]")) return;
+      if (e.target?.closest?.(KEEP_FOCUS) || document.querySelector("[aria-modal='true']")) return;
       inputRef.current?.focus();
     };
     document.addEventListener("mouseup", onDocClick);
@@ -86,8 +108,8 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
       isGun = avg < FAST_KEY_MS;
     }
     if (!isGun) {
-      setWarn("Please scan the barcode with the gun — manual entry is disabled.");
-      setTimeout(() => setWarn(""), 2500);
+      setWarn(slowTypingHint);
+      setTimeout(() => setWarn(""), 3500);
       return;
     }
 
@@ -176,15 +198,16 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
     } catch { /* ignore */ }
   };
 
+  const bare = variant === "bare";
   return (
     <div
-      className="rounded-xl2 border border-slate-200 bg-white p-6 dark:border-navy-800 dark:bg-navy-900"
+      className={bare ? "" : "rounded-xl2 border border-slate-200 bg-white p-6 dark:border-navy-800 dark:bg-navy-900"}
       onClick={focus}
     >
       {/* Both methods offered — the camera tab only appears where the browser
           can actually open a camera (secure context); otherwise, gun only. */}
       {cameraCapable && (
-        <div className="mx-auto mb-4 flex max-w-md gap-2">
+        <div className={`mx-auto flex max-w-md gap-2 ${compact ? "mb-2" : bare ? "mb-3" : "mb-4"}`}>
           <button type="button" onClick={() => setMethod("gun")} disabled={busy}
             className={`flex-1 rounded-lg py-2.5 text-sm font-semibold ${
               method === "gun" ? "bg-toyotared text-white" : "bg-slate-100 text-slate-700 dark:bg-navy-800 dark:text-slate-200"}`}>
@@ -199,14 +222,18 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
       )}
 
       {method === "gun" ? (
-        <div className="flex flex-col items-center gap-3 text-center">
-          <ScanLine size={48} strokeWidth={1.5} className="text-slate-400 dark:text-slate-500" aria-hidden="true" />
-          <div className="text-lg font-semibold text-slate-800 dark:text-white">
-            Scan a barcode with the gun
-          </div>
-          <div className="text-sm text-slate-500 dark:text-slate-400">
-            Point the scanner at the part&apos;s barcode — it registers automatically.
-          </div>
+        <div className={`flex flex-col items-center text-center ${bare ? "gap-2" : "gap-3"}`}>
+          {!compact && (
+            <>
+              <ScanLine size={bare ? 36 : 48} strokeWidth={1.5} className="text-slate-400 dark:text-slate-500" aria-hidden="true" />
+              <div className={`${bare ? "text-base" : "text-lg"} font-semibold text-slate-800 dark:text-white`}>
+                Scan a barcode or QR with the gun
+              </div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">
+                Point the scanner at the part&apos;s QR label or the supplier&apos;s barcode — it registers automatically.
+              </div>
+            </>
+          )}
 
           <input
             ref={inputRef}
@@ -217,6 +244,7 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
             autoFocus={autoFocus}
             placeholder={hint || "Waiting for scan…"}
             inputMode="none"
+            aria-label="Scanner gun input"
             className="input-field w-full max-w-md text-center text-lg tracking-[0.2em]"
             style={{ minHeight: "3.2rem" }}
           />
@@ -230,7 +258,7 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
           )}
 
           {warn && (
-            <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+            <div role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
               {warn}
             </div>
           )}
@@ -243,7 +271,7 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
       ) : (
         <div>
           <div className="relative mx-auto max-w-md overflow-hidden rounded-lg bg-black">
-            <video ref={videoRef} className="w-full" style={{ maxHeight: "50vh" }} muted playsInline />
+            <video ref={videoRef} className="w-full" style={{ maxHeight: compact ? "28vh" : "50vh" }} muted playsInline />
             <div className="pointer-events-none absolute inset-6 rounded-lg border-2 border-white/70" />
             {paused && (
               <button type="button" onClick={() => { setPaused(false); startCamera(deviceIdRef.current); }}
@@ -263,7 +291,7 @@ export default function ScanPanel({ onCode, busy = false, autoFocus = true, hint
             )}
           </div>
           <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">
-            {hint || "Point the rear camera at the part’s barcode."}
+            {hint || "Point the rear camera at the part’s QR label or barcode."}
           </p>
         </div>
       )}
