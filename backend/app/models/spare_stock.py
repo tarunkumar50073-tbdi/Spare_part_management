@@ -47,22 +47,23 @@ LEGACY_RETURN_REASONS = {
     "Excess — not required": "Excess / Not Required",
     "Damaged / defective": "Damaged / defective",
 }
-# Status on a RECEIPT ledger row. Since the QR-traceability flow a RECEIPT row
-# is written only when quantity becomes AVAILABLE: STOCK_AVAILABLE after the
-# Maintenance / Tool Room quality clearance of a supplier receipt, RGP_GRN after
-# the RGP GRN of reworked material (the receipt / RGP documents in
-# models/spare_flow.py hold the steps before that). Both originate in ERP (the
-# supervisor's GRN), so they are never pushed to ERP again. The older values
-# stay readable on legacy rows written by the former direct receive.
+# Status on a RECEIPT ledger row. A RECEIPT row is written only when quantity
+# becomes AVAILABLE: ERP_GRN when the app reads an ERP GRN line whose quality
+# was accepted in ERP (services/erp_grn_posting_service.py — receiving, GRN and
+# quality clearance all happen in ERP), RGP_GRN after the RGP GRN of reworked
+# material. STOCK_AVAILABLE is the short-lived in-app quality clearance, kept
+# readable. All of these originate in ERP, so they are never pushed to ERP
+# again. The older values stay readable on legacy rows of the former direct
+# receive.
 RECEIVE_STATUSES = (
-    "STOCK_AVAILABLE", "RGP_GRN",
+    "ERP_GRN", "RGP_GRN", "STOCK_AVAILABLE",
     "PHYSICALLY_RECEIVED", "PENDING_SRV_GRN", "PENDING_DEPARTMENT_CLEARANCE",
     "ERP_STOCK_UPDATED", "IMMEDIATELY_ISSUED", "MOVED_TO_STORE_LOCATION",
     "REJECTED_OR_HOLD",
 )
 # RECEIPT rows whose stock-in already happened in ERP (the GRN) — excluded from
 # the ERP stock-write push, which would otherwise add them a second time.
-ERP_ORIGIN_RECEIPT_STATUSES = ("STOCK_AVAILABLE", "RGP_GRN")
+ERP_ORIGIN_RECEIPT_STATUSES = ("ERP_GRN", "STOCK_AVAILABLE", "RGP_GRN")
 # A RETURN ledger row written by a GOOD return inspection (the qty went back to
 # available). Its return is counted from spare_returns, so it is NOT summed
 # again as a returned quantity against the issue.

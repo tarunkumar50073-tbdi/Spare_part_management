@@ -119,6 +119,18 @@ class ERPSyncService:
             ERPSyncService._last_sync_at = utcnow().isoformat()
             ERPSyncService._last_result = result
             ERPSyncService._last_error = None
+        # Spare receiving is read from ERP: a GRN line whose quality ERP has
+        # accepted becomes store stock, once (ErpGrnPostingService). A failure
+        # here is logged and never fails the mirror sync itself.
+        try:
+            from app.services.erp_grn_posting_service import ErpGrnPostingService
+            from app.utils.event_bus import publish
+            posted = ErpGrnPostingService().post("MAINTENANCE").get("posted", [])
+            result["spare_grn_posted"] = len(posted)
+            if posted:
+                publish("stock", {"store_code": "MAINTENANCE", "action": "erp_grn"})
+        except Exception:  # noqa: BLE001
+            logger.exception("Posting ERP GRNs to spare stock failed")
         return result
 
     def status(self):
