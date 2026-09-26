@@ -109,7 +109,7 @@ function AuthenticatedApp() {
       <Routes>
         {/* The 53" LED "Live Dashboard": behind login, but deliberately OUTSIDE
             MainLayout — no sidebar, no top bar, it owns the whole screen. */}
-        <Route path="/live-dashboard" element={<TvDashboard />} />
+        <Route path="/live-dashboard" element={<RequirePermission mod="live_dashboard"><TvDashboard /></RequirePermission>} />
         <Route element={<MainLayout />}>
           {/* Stores are navigated from the sidebar, so / opens whichever one is
               in scope rather than putting a chooser in the way. */}

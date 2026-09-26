@@ -52,15 +52,19 @@ def permission_required(module, action="view"):
     be refused too, not just the menu.
 
     Usage: ``@permission_required("part_master", "edit")`` on a mutation route,
-    ``@permission_required("part_ledger")`` on a read route.
+    ``@permission_required("part_ledger")`` on a read route. A tuple of modules
+    means "any one of them" — for a read two screens share (the dashboard
+    overview feeds both the store dashboard and the wallboard).
     """
+    modules = tuple(module) if isinstance(module, (tuple, list)) else (module,)
+
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
             if is_machine():
                 return fn(*args, **kwargs)
             user = current_user()
-            if user is None or not user.can(module, action):
+            if user is None or not any(user.can(m, action) for m in modules):
                 raise ForbiddenError("You do not have permission for this action")
             return fn(*args, **kwargs)
         return wrapper

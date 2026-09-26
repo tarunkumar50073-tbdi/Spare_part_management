@@ -14,7 +14,8 @@ service = SpareDashboardService()
 
 
 @bp.route("/overview", methods=["GET"])
-@permission_required("spare_store", "view")
+# The wallboard reads the same overview, so its own right is enough too.
+@permission_required(("spare_store", "live_dashboard"), "view")
 def overview():
     code = request.args.get("store_code")
     if not code:

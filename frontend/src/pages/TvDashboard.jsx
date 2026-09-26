@@ -4,13 +4,15 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
 } from "recharts";
 import {
-  Box, Database, AlertTriangle, Boxes, ClipboardList, ShoppingCart,
-  FileBarChart, PackagePlus, Sun, Moon, ArrowLeft,
+  Database, AlertTriangle, Boxes, ClipboardList, PackageX, TrendingDown,
+  FileBarChart, PackagePlus, Sun, Moon, ArrowLeft, RefreshCw, RotateCw, CircleCheck,
   Maximize, Minimize,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { spareStockService } from "../services/spareStockService.js";
 import { storeService } from "../services/storeService.js";
+import { NO_ROWS } from "../lib/stockQueries.js";
+import { parseServerTime } from "../lib/format.js";
 import useRealtime from "../hooks/useRealtime.js";
 
 // A full-screen wallboard for a 64" PORTRAIT LED — no menu, no scroll, a tall
@@ -22,16 +24,11 @@ import useRealtime from "../hooks/useRealtime.js";
 // fast — 2 minutes keeps it live enough at a quarter of the load.
 const REFRESH_MS = 120000;
 
+const STORE = "MAINTENANCE";
+
 // Live on top of the poll: re-run `fn` when the server pushes a stock change
 // (SSE → `dx:realtime`, see hooks/useRealtime), debounced so a burst of
 // movements costs one refetch. Returns the cleanup.
-// Local calendar dates (the plant's day), not UTC — toISOString() would roll
-// the month back for the first 5½ hours of the 1st in IST.
-const localISO = (d) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const todayISO = () => localISO(new Date());
-const monthStartISO = () => { const d = new Date(); return localISO(new Date(d.getFullYear(), d.getMonth(), 1)); };
-
 function onStockPush(fn) {
   let t;
   const handler = (e) => {
@@ -48,6 +45,7 @@ const ALL_SECTIONS = "ALL";
 const C = {
   blue: "#2563eb", green: "#059669", red: "#dc2626", amber: "#d97706",
   purple: "#7c3aed", cyan: "#0891b2", slate: "#334155",
+  rose: "#e11d48", orange: "#ea580c", reorder: "#f97316", muted: "#64748b",
 };
 const PIE = [C.blue, C.green, C.amber, C.purple, C.cyan, "#ec4899", C.red];
 
@@ -61,6 +59,10 @@ const GRAD = {
   "#7c3aed": ["#8b5cf6", "#7c3aed"],
   "#0891b2": ["#22d3ee", "#0891b2"],
   "#ec4899": ["#f472b6", "#ec4899"],
+  "#e11d48": ["#fb7185", "#e11d48"],
+  "#ea580c": ["#fb923c", "#ea580c"],
+  "#f97316": ["#fdba74", "#f97316"],
+  "#64748b": ["#94a3b8", "#64748b"],
 };
 const gradCss = (c, deg = 140) => {
   const g = GRAD[c];
@@ -74,6 +76,83 @@ const fmtMoney = (v) => {
   if (v >= 1e5) return `₹ ${(v / 1e5).toFixed(2)} L`;
   return `₹ ${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 };
+
+// Every datum the board loads is undefined while its call is in flight and
+// null once it failed — so a failed fetch renders "—" or an error, never a
+// zero that reads as a healthy store.
+const stateOf = (x) => (x === undefined ? "loading" : x === null ? "error" : "ok");
+const fetchData = (pr) => pr.then((r) => r.data?.data ?? null).catch(() => null);
+const asList = (x) => (Array.isArray(x) ? x : null);
+const asObj = (x) => (x && typeof x === "object" && !Array.isArray(x) ? x : null);
+// A problem count tints its tile only when there is something to see; zero or
+// unknown stays neutral (a glowing red "0" reads as an alarm).
+const hot = (n, color) => (n ? color : C.muted);
+
+// Local calendar day as "YYYY-MM-DD" — the month-to-date window of the
+// department split, on the plant's own clock (as the backend reads it).
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const todayISO = () => isoDay(new Date());
+const monthStartISO = () => { const d = new Date(); return isoDay(new Date(d.getFullYear(), d.getMonth(), 1)); };
+
+// The overview needs the Spare Store view right, but a wallboard account may
+// hold only the Live Dashboard right. Refused, the board rebuilds the figures
+// it shows from the parts list (the same rows the overview reads) by the
+// overview's own rules (backend spare_dashboard_service), so both agree.
+// `today` / `deptMonth` are null when their call failed — kept null, never 0.
+function overviewFromList(rows, today, deptMonth) {
+  const health = {};
+  const bySec = {};
+  let counted = 0, valued = 0, value = 0, excessValue = 0;
+  rows.forEach((r) => {
+    health[r.status] = (health[r.status] || 0) + 1;
+    if (r.qty_on_hand != null) counted += 1;
+    if (r.stock_value != null) {
+      valued += 1;
+      value += r.stock_value;
+      if (r.stock_value) bySec[r.section_id] = (bySec[r.section_id] || 0) + r.stock_value;
+    }
+    if (r.status === "Above Maximum" && r.unit_price && r.max_stock_level) {
+      excessValue += (r.qty_on_hand - r.max_stock_level) * r.unit_price;
+    }
+  });
+  // Worst status first; within it the dearest restock (the overview's order).
+  const rank = { "Out of Stock": 0, "Below Minimum": 1 };
+  const cost = (r) => (r.shortfall != null ? r.shortfall : Math.max((r.min_stock_level || 0) - (r.qty_on_hand || 0), 0)) * (r.unit_price || 0);
+  const critical = rows.filter((r) => r.status in rank)
+    .sort((a, b) => rank[a.status] - rank[b.status] || cost(b) - cost(a))
+    .slice(0, 10);
+  const dept = deptMonth ? deptMonth.slice().sort((a, b) => (b.value || 0) - (a.value || 0)) : null;
+  return {
+    fallback: true,
+    kpis: {
+      total_parts: rows.length, counted_parts: counted, uncounted_parts: rows.length - counted,
+      stock_value: value, valued_parts: valued, today,
+    },
+    health: Object.entries(health).map(([status, count]) => ({ status, count })),
+    value: {
+      total: value, excess: excessValue,
+      by_section: Object.entries(bySec)
+        .map(([sid, v]) => ({ section_id: sid === "null" ? null : Number(sid), value: v }))
+        .sort((a, b) => b.value - a.value),
+    },
+    critical_parts: critical,
+    consumption: dept && {
+      this_month_by_department: dept.slice(0, 5),
+      comparison: { current: { value: dept.reduce((s, d) => s + (d.value || 0), 0) } },
+    },
+  };
+}
+// The ERP stock snapshot's date and age, off the ERP-vs-physical rows (the
+// fallback for the overview's `erp.stock_snapshot`). Stale after 24 h, as the
+// overview rules; an unreadable age is reported stale, never fresh.
+function snapshotOf(rows) {
+  const last = rows.reduce((m, r) => (r.erp_synced_at && (!m || r.erp_synced_at > m) ? r.erp_synced_at : m), null);
+  if (!last) return { state: "NONE", synced_at: null, age_hours: null };
+  // A naive ISO stamp from the DB is UTC.
+  const t = parseServerTime(last);
+  const age = t ? Math.round(((Date.now() - t.getTime()) / 3600000) * 10) / 10 : null;
+  return { state: age == null || age > 24 ? "STALE" : "SYNCED", synced_at: last, age_hours: age };
+}
 // Generic tooltip for the drill donut: a part's code, description and its value.
 function PartValTip({ active, payload, fmt, label }) {
   if (!active || !payload || !payload.length) return null;
@@ -93,27 +172,111 @@ const monthLabel = (period) => {
   const names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return m ? names[Number(m)] || period : (y || period);
 };
-const timeOf = (iso) => (iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—");
+// Server stamps (ledger / ERP sync) are UTC without a zone — parseServerTime
+// reads them as UTC so they show on the plant's clock, not 5 h 30 m early.
+const timeOf = (iso) => {
+  const d = iso ? parseServerTime(iso) : null;
+  return d ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—";
+};
 // "2026-08-10…" -> "10 Aug" (day-month, clearer than the ambiguous "08-10").
-const fmtDay = (iso) => {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? String(iso).slice(5, 10) : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+const dayLabel = (d, iso) => (d && !isNaN(d.getTime())
+  ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : String(iso).slice(5, 10));
+const fmtDay = (iso) => (iso ? dayLabel(parseServerTime(iso), iso) : "");
+// ERP's gate-entry time is the plant's own wall clock (the window reports judge
+// it that way), so it is read as local — never shifted as if it were UTC.
+const fmtPlantDay = (iso) => (iso ? dayLabel(new Date(iso), iso) : "");
+// A server stamp's calendar day ("YYYY-MM-DD") on the plant's clock — slicing
+// the UTC string would put a 00:00–05:30 movement on the day before.
+const dayISOOf = (iso) => {
+  const d = iso ? parseServerTime(iso) : null;
+  return d ? isoDay(d) : String(iso || "").slice(0, 10);
+};
+// Today's movements by clock time, older ones by date — a bare "10:15" on a
+// weeks-old row would read as this morning.
+const whenOf = (iso) => {
+  if (!iso) return "—";
+  const d = parseServerTime(iso);
+  if (!d) return "—";
+  return d.toDateString() === new Date().toDateString() ? timeOf(iso) : fmtDay(iso);
 };
 
 // ---- small building blocks -------------------------------------------------
 
-function Card({ children, className = "", style }) {
+function Card({ children, className = "", style, ...rest }) {
   // Glassmorphism: a translucent gradient pane with a soft inner highlight and a
   // deep drop shadow. The glass tokens flip with the day/night theme. NOTE: no
   // backdrop-blur — on a wallboard with ~15 cards at 4K it made every frame
   // expensive to composite (charts opened slowly); the translucent gradient alone
   // reads as glass and stays fast.
   return (
-    <div className={`rounded-2xl border ${className}`}
+    <div className={`rounded-2xl border ${className}`} {...rest}
       style={{ background: "var(--dx-glass)", borderColor: "var(--dx-glass-brd)", boxShadow: "var(--dx-glass-shadow)", ...style }}>
       {children}
     </div>
+  );
+}
+
+// A panel body that has nothing to draw yet: loading (a pulsing block), a
+// failed call (says so, with Retry) or an honest empty reading.
+function PanelState({ state, empty, onRetry, h = "13vh" }) {
+  if (state === "loading") {
+    return <div className="animate-pulse rounded-xl" style={{ height: h, background: "var(--dx-track)" }} aria-label="Loading" />;
+  }
+  if (state === "error") {
+    return (
+      <div className="flex flex-col items-center justify-center gap-[0.8vh] text-center" style={{ height: h }}>
+        <span className="text-[1.5vh] font-semibold text-[var(--dx-t3)]">Couldn't load this panel</span>
+        {onRetry && (
+          <button type="button" onClick={onRetry}
+            className="inline-flex items-center gap-[0.5vh] rounded-full px-[1.3vh] py-[0.35vh] text-[1.3vh] font-bold text-[var(--dx-t1)] hover:brightness-110"
+            style={{ background: "var(--dx-track)" }}>
+            <RotateCw size={14} aria-hidden="true" /> Retry
+          </button>
+        )}
+      </div>
+    );
+  }
+  return <div className="flex items-center justify-center px-[1vh] text-center text-[1.6vh] text-[var(--dx-t4)]" style={{ height: h }}>{empty}</div>;
+}
+
+// Header status chips: what the board knows about ERP, said plainly — the
+// stock snapshot's date and age (a snapshot, never a live feed) and whether
+// movements are written back. Read from the overview's store-wide `erp` block.
+function ErpChips({ erp, state }) {
+  const chip = "inline-flex items-center gap-[0.5vh] rounded-full border px-[1vh] py-[0.2vh] text-[1.15vh] font-bold whitespace-nowrap";
+  const tone = {
+    amber: { background: "rgba(245,158,11,0.18)", borderColor: "rgba(251,191,36,0.55)", color: "#fcd34d" },
+    green: { background: "rgba(16,185,129,0.16)", borderColor: "rgba(52,211,153,0.5)", color: "#6ee7b7" },
+    slate: { background: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.22)", color: "rgba(255,255,255,0.8)" },
+  };
+  if (!erp) {
+    return (
+      <span className={chip} style={tone.slate}>
+        <Database size={12} aria-hidden="true" />{state === "loading" ? "ERP status loading…" : "ERP status unavailable"}
+      </span>
+    );
+  }
+  // Either half can be missing when its call failed — it says so, rather than
+  // "none received" / "off" that would read as a known state.
+  const snap = erp.stock_snapshot;
+  const days = snap?.age_hours != null ? Math.floor(snap.age_hours / 24) : null;
+  const day = snap?.synced_at ? fmtDay(snap.synced_at) : null;
+  const snapLabel = !snap ? "ERP stock snapshot: status unavailable"
+    : snap.state === "NONE" || !day ? "ERP stock snapshot: none received"
+      : snap.state === "STALE" ? `ERP stock snapshot STALE · ${day}${days != null ? ` (${days} d)` : ""}`
+        : `ERP stock snapshot · ${day} ${timeOf(snap.synced_at)}`;
+  const w = erp.write;
+  return (
+    <>
+      <span className={chip} style={snap?.state === "SYNCED" ? tone.green : snap?.state === "STALE" ? tone.amber : tone.slate}
+        title="Quantities ERP last reported for this store's parts — a snapshot, not a live feed">
+        <Database size={12} aria-hidden="true" />{snapLabel}
+      </span>
+      <span className={chip} style={w?.active ? tone.green : tone.slate} title={w?.reason || undefined}>
+        <RefreshCw size={12} aria-hidden="true" />
+        {w ? `ERP write-back ${w.active ? "on" : "off"}${w.pending ? ` · ${fmtInt(w.pending)} queued` : ""}` : "ERP write-back: status unavailable"}
+      </span>
+    </>
   );
 }
 
@@ -135,35 +298,45 @@ function PanelHead({ icon: Icon, color, title, action, onAction }) {
   );
 }
 
-function Kpi({ icon: Icon, title, value, trend, trendUp = true, sub, color }) {
+// A headline tile, sized to be read across the store floor. `state` is the
+// fetch state of its source: loading shows a pulsing bar, a failed call keeps
+// the "—" the caller passes and says so — never a zero. Tapping opens the
+// tile's list in the board's own drill.
+function Kpi({ icon: Icon, title, value, extra, sub, color, state = "ok", onClick }) {
+  const open = (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); }
+  };
   return (
-    <Card className="px-[0.9vh] py-[0.5vh] flex flex-col"
+    <Card className="px-[0.9vh] py-[0.6vh] flex flex-col cursor-pointer transition hover:brightness-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+      role="button" tabIndex={0} aria-label={`${title}: ${value}. Open the list`} onClick={onClick} onKeyDown={open}
       style={{ borderColor: `${color}55`, boxShadow: `var(--dx-glass-shadow), 0 0 26px ${color}30, inset 0 0 22px ${color}12` }}>
       <div className="flex items-center gap-[0.7vh]">
         <span className="w-[2.6vh] h-[2.6vh] rounded-lg flex items-center justify-center shrink-0"
           style={{ background: gradCss(color), boxShadow: `0 4px 10px ${color}66, inset 0 2px 3px rgba(255,255,255,0.45), inset 0 -3px 5px rgba(0,0,0,0.18)` }}>
           <Icon size={14} className="text-white" />
         </span>
-        <span className="text-[1.25vh] font-bold text-[var(--dx-t2)] flex-1 truncate">{title}</span>
-        {trend != null && (
-          <span className={`shrink-0 text-[1.1vh] font-bold ${trendUp ? "text-emerald-600" : "text-rose-600"}`}>
-            {trendUp ? "↑" : "↓"} {trend}
-          </span>
-        )}
+        <span className="text-[1.35vh] font-bold text-[var(--dx-t2)] flex-1 truncate">{title}</span>
       </div>
-      <div className="dx-radiant mt-[0.1vh] text-[2.3vh] font-extrabold leading-none text-[var(--dx-t1)]">{value}</div>
-      <div className="text-[1vh] text-[var(--dx-t4)] mt-[0.1vh] truncate">{sub}</div>
+      {state === "loading" ? (
+        <span className="block mt-[0.4vh] h-[2.5vh] w-[9vh] rounded-md animate-pulse" style={{ background: "var(--dx-track)" }} />
+      ) : (
+        <div className="mt-[0.2vh] flex items-baseline gap-[0.8vh] min-w-0">
+          <span className="dx-radiant text-[2.7vh] font-extrabold leading-none text-[var(--dx-t1)] tabular-nums shrink-0">{value}</span>
+          {extra && <span className="text-[1.5vh] font-bold truncate" style={{ color }}>{extra}</span>}
+        </div>
+      )}
+      <div className="text-[1.1vh] text-[var(--dx-t4)] mt-[0.2vh] truncate">{state === "error" ? "Couldn't load — see the alert bar" : sub}</div>
     </Card>
   );
 }
 
-function Gauge({ pct, color, label, sub }) {
+function Gauge({ pct, color, label, sub, w = "13vh" }) {
   const p = Math.max(0, Math.min(100, pct || 0));
   const gid = `gg-${color.replace("#", "")}`;
   const g = GRAD[color] || [color, color];
   return (
     <div className="flex flex-col items-center">
-      <svg viewBox="0 0 120 68" className="w-[13vh]">
+      <svg viewBox="0 0 120 68" style={{ width: w }}>
         <defs>
           <linearGradient id={gid} x1="0" y1="0" x2="1" y2="0">
             <stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} />
@@ -253,6 +426,13 @@ export default function TvDashboard() {
   const [isFs, setIsFs] = useState(false);
   const [stack, setStack] = useState([]); // Explore-Data drill frames (in-board)
   const [shiftOverride, setShiftOverride] = useState(null); // null = follow the clock; true = day, false = night
+  // Bumped by a Retry tap: both loaders re-run now instead of waiting out the poll.
+  const [retry, setRetry] = useState(0);
+  const reload = () => setRetry((n) => n + 1);
+  // True while the overview refuses this account (403): the board then builds
+  // its figures from the store-access endpoints instead (overviewFromList).
+  const [ovDenied, setOvDenied] = useState(false);
+  const frameSeq = useRef(0);
 
   const toggleFs = () => (document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.());
 
@@ -275,7 +455,7 @@ export default function TvDashboard() {
       .then((r) => {
         if (!alive) return;
         const stores = r.data.data || [];
-        const real = (stores.find((s) => s.code === "MAINTENANCE") || {}).sections || [];
+        const real = (stores.find((s) => s.code === STORE) || {}).sections || [];
         setSections(real);
       })
       .catch(() => setSections([]));
@@ -293,82 +473,174 @@ export default function TvDashboard() {
   // Sections" leads, so the wall shows the whole store first, then each section.
   const sectionOpts = useMemo(() => [ALL_SECTIONS, ...sections.map((s) => s.id)], [sections]);
 
-  // Section-scoped data — refetched ONLY when the section changes, kept light (6
-  // calls) so switching sections is snappy. Waits for the first section to be
-  // picked so we don't fire a whole-store load that a section load replaces.
+  // Section-scoped data — refetched when the section changes (and on the poll or
+  // a stock push). A section's KPIs, health, value split, critical list, this
+  // shift's movements and this month's department split all come from ONE
+  // overview call (the same figures the desktop dashboard shows); "All
+  // Sections" reads the store overview the loader below already holds, so the
+  // whole-store view never asks twice. The parts list feeds the charts and
+  // drills; the month series feeds the consumption chart.
   useEffect(() => {
     if (sectionId == null) return undefined;
     let alive = true;
-    const g = (pr) => pr.then((r) => r.data.data).catch(() => null);
+    // A new section starts blank (loading), so its name never sits over the
+    // previous section's figures; a refresh of the same section keeps them.
+    const key = `${sectionId}|${ovDenied}`;
+    setData((d) => (d.secFor === key ? d
+      : { ...d, secFor: key, secOv: undefined, list: undefined, monthly: undefined }));
     const load = async () => {
-      // Combined view: no section filter, so every call returns the whole store.
       const sec = sectionId === ALL_SECTIONS ? undefined : sectionId;
-      const [sum, ana, today, list, monthly, dept] = await Promise.all([
-        g(spareStockService.summary("MAINTENANCE", sec)),
-        g(spareStockService.analytics("MAINTENANCE", sec)),
-        g(spareStockService.today("MAINTENANCE", sec)),
-        g(spareStockService.list({ store_code: "MAINTENANCE", section_id: sec })),
-        g(spareStockService.consumptionByPeriod("MAINTENANCE", "month", sec)),
-        // Labelled "This Month" on the board, so ask for exactly this month —
-        // the bare call returns all-time totals under a monthly heading.
-        g(spareStockService.consumption("MAINTENANCE", "department", sec, undefined, monthStartISO(), todayISO())),
+      // This view needs its own overview: a section always, and "All Sections"
+      // too when the store overview was refused (it is then rebuilt here).
+      const ownOv = ovDenied || sec !== undefined;
+      const [secOv, list, monthly, today, deptMonth] = await Promise.all([
+        ownOv && !ovDenied ? fetchData(spareStockService.overview(STORE, sec)) : undefined,
+        fetchData(spareStockService.list({ store_code: STORE, section_id: sec })),
+        fetchData(spareStockService.consumptionByPeriod(STORE, "month", sec)),
+        ovDenied ? fetchData(spareStockService.today(STORE, sec)) : undefined,
+        ovDenied ? fetchData(spareStockService.consumption(STORE, "department", sec, undefined, monthStartISO(), todayISO())) : undefined,
       ]);
       if (!alive) return;
-      setData((d) => ({ ...d, sum, ana, today, list: Array.isArray(list) ? list : [], monthly: monthly || [], dept: dept || [] }));
+      const rows = asList(list);
+      const built = !ownOv ? undefined
+        : ovDenied ? (rows ? overviewFromList(rows, asObj(today), asList(deptMonth)) : null)
+          : asObj(secOv);
+      setData((d) => ({ ...d, secFor: key, secOv: built, list: rows, monthly: asList(monthly) }));
     };
     load();
     const id = setInterval(load, REFRESH_MS);
     const offPush = onStockPush(load);
     return () => { alive = false; clearInterval(id); offPush(); };
-  }, [sectionId]);
+  }, [sectionId, retry, ovDenied]);
 
-  // Store-wide data — fetched once (and on the refresh cadence), NOT per section,
-  // so switching sections never re-pulls the heavy ERP list. The ERP match
-  // summary is derived here instead of a second server call.
+  // Store-wide data — NOT per section, so switching sections never re-pulls it:
+  // the store overview (All-Sections figures, SRV pending, ERP state, recent
+  // movements), the ERP-vs-physical rows and the confirmation queue. The queue
+  // stays its own call: the overview's confirm count covers one of the two
+  // statuses the queue holds, and the ticker's count must tie out to its drill.
+  // The SRV register's size (flow) tells an empty register from "0 pending".
   useEffect(() => {
     let alive = true;
-    const g = (pr) => pr.then((r) => r.data.data).catch(() => null);
     const load = async () => {
-      const [activity, pending, erpPend, erpGapRaw] = await Promise.all([
-        g(spareStockService.activity("MAINTENANCE", 6)),
-        g(spareStockService.pendingConfirmations("MAINTENANCE")),
-        g(spareStockService.erpPending("MAINTENANCE")),
-        g(spareStockService.erpGap("MAINTENANCE")),
+      let denied = false;
+      const [storeOv, erpGap, pending, flow] = await Promise.all([
+        spareStockService.overview(STORE).then((r) => r.data?.data ?? null)
+          .catch((e) => { denied = e?.response?.status === 403; return null; }),
+        fetchData(spareStockService.erpGap(STORE)),
+        fetchData(spareStockService.pendingConfirmations(STORE)),
+        fetchData(spareStockService.flow(STORE)),
       ]);
+      const gapRows = asList(erpGap);
+      let ovObj = asObj(storeOv);
+      if (denied) {
+        // Refused the overview: its store-level readings (SRV pending, ERP
+        // state, recent movements) come from the store-access endpoints. A
+        // failed one stays null, so it reads "—", never a healthy zero.
+        const [srv, write, recent] = await Promise.all([
+          fetchData(spareStockService.pending(STORE)),
+          fetchData(spareStockService.erpPending(STORE)),
+          fetchData(spareStockService.activity(STORE, 6)),
+        ]);
+        ovObj = {
+          fallback: true,
+          attention: [{ key: "srv_pending", count: asObj(srv)?.total ?? null }],
+          erp: { stock_snapshot: gapRows ? snapshotOf(gapRows) : null, write: asObj(write) },
+          recent_activity: asList(recent),
+        };
+      }
       if (!alive) return;
-      const erpGap = Array.isArray(erpGapRaw) ? erpGapRaw : [];
-      const reconciled = erpGap.filter((r) => r.gap_qty != null);
-      const matched = reconciled.filter((r) => r.status === "MATCH").length;
-      const erpSum = {
-        total: erpGap.length, matched,
-        short: erpGap.filter((r) => r.status === "SHORT").length,
-        excess: erpGap.filter((r) => r.status === "EXCESS").length,
-        no_physical: erpGap.filter((r) => r.status === "NO_PHYSICAL").length,
-        not_synced: erpGap.filter((r) => r.status === "NOT_SYNCED").length,
-        accuracy_pct: reconciled.length ? Math.round((matched / reconciled.length) * 10000) / 100 : null,
-      };
-      setData((d) => ({ ...d, activity: activity || [], pending: pending || [], erpPend, erpGap, erpSum }));
+      setOvDenied(denied);
+      setData((d) => ({ ...d, storeOv: ovObj, erpGap: gapRows, pending: asList(pending), flow: asObj(flow) }));
     };
     load();
     const id = setInterval(load, REFRESH_MS);
     const offPush = onStockPush(load);
     return () => { alive = false; clearInterval(id); offPush(); };
-  }, []);
+  }, [retry]);
 
   const P = data;
-  const rows = P.list || [];
-  const dist = useMemo(() => Object.fromEntries((P.ana?.status_distribution || []).map((s) => [s.name, s.value])), [P.ana]);
-  const healthy = dist["Healthy"] || 0;
-  const short = (dist["Below Minimum"] || 0) + (dist["Zero Stock"] || 0);
-  const excess = dist["Above Maximum"] || 0;
-  const counted = healthy + short + excess || 1;
-  const total = P.sum?.total_parts ?? rows.length;
+  const secView = sectionId !== ALL_SECTIONS;
+  // The overview this view reads: the section's own, or the store's for "All
+  // Sections" — unless the store's was refused, when this view built its own.
+  const ownOv = secView || ovDenied;
+  const ov = ownOv ? P.secOv : P.storeOv;
+  const ovState = stateOf(ov);
+  const rowsState = stateOf(P.list);
+  // The store's recent movements (a failed fallback call leaves them null).
+  const recent = P.storeOv == null ? P.storeOv : asList(P.storeOv.recent_activity);
+  const recentState = stateOf(recent);
+  const rows = P.list || NO_ROWS;
+  const kpis = ov?.kpis || null;
+  const health = useMemo(() => Object.fromEntries((ov?.health || []).map((h) => [h.status, h.count])), [ov]);
+  // A status count off the overview — null until it has loaded (renders "—").
+  const countOf = (status) => (ov ? health[status] ?? 0 : null);
+  const zero = countOf("Out of Stock");
+  const belowMin = countOf("Below Minimum");
+  const reorderN = countOf("Reorder");
+  const excess = countOf("Above Maximum");
+  const healthy = countOf("Healthy");
+  const critical = ov ? zero + belowMin : null;
+  const counted = kpis?.counted_parts ?? null;
+  // Nothing counted means every Min/Max status is empty by definition — the
+  // tiles say so rather than show zeros that read as a healthy store.
+  const noneCounted = counted === 0;
+  const statusVal = (n) => (noneCounted ? "—" : fmtInt(n));
+  const excessValue = ov?.value?.excess ?? null;
+  const today = kpis?.today || null;
+  // This shift's issues — "—" (null) when the figure failed, a real 0 otherwise.
+  const issuedQty = today ? today.issued_qty ?? 0 : null;
+  // Month-to-date department split; a failed fallback call is an error, not
+  // "no issue this month".
+  const deptState = ovState !== "ok" ? ovState : ov.consumption ? "ok" : "error";
+  // Store-level readings — SRVs, confirmations and ERP are never per section.
+  const attn = (key) => (P.storeOv?.attention || []).find((a) => a.key === key);
+  const srvCount = P.storeOv ? attn("srv_pending")?.count ?? null : null;
+  // The app's SRV register has never held an SRV for this store: pending SRVs
+  // are not tracked here, so the tile shows "—" and says so — a 0 would read
+  // as "no material waiting".
+  const srvUntracked = P.flow ? P.flow.srv_total === 0 : false;
+  const srvState = P.storeOv === undefined ? "loading" : srvCount == null && !srvUntracked ? "error" : "ok";
+  const confirmCount = (P.pending || NO_ROWS).length;
+  const erp = P.storeOv?.erp ?? ov?.erp ?? null;
+  const erpInfoState = erp ? "ok" : (P.storeOv === undefined && ov === undefined ? "loading" : "error");
+  const pendingErp = erp?.write?.pending ?? 0;
   // Money tied up above the maximum — (on-hand − max) × rate for each excess part.
   const excessOf = (r) => Math.max(0, (r.qty_on_hand || 0) - (r.max_stock_level || 0)) * (r.unit_price || 0);
-  const excessValue = useMemo(
+  const excessValueRows = useMemo(
     () => rows.reduce((s, r) => (r.status === "Above Maximum" ? s + excessOf(r) : s), 0),
     [rows],
   );
+  // The list's own reading of "nothing counted", for the panels drawn from it.
+  const rowsNoneCounted = useMemo(() => rows.length > 0 && !rows.some((r) => r.qty_on_hand != null), [rows]);
+
+  // In-board drill: Explore Data opens a full-screen view WITHIN the board
+  // (it never leaves the dashboard) — a parts list with a chart, and each part
+  // drills into its own stock-history charts + movement ledger.
+  const openStack = (frame) => setStack([frame]);
+  const pushFrame = (frame) => setStack((s) => [...s, frame]);
+  const popTo = (i) => setStack((s) => s.slice(0, i + 1));
+  // A drill whose rows come off the network opens at once, loading; the answer
+  // then fills THAT frame only — if it has since been closed or replaced, a
+  // late response is dropped instead of taking over the screen.
+  const openAsync = (frame, load, { push = false } = {}) => {
+    const token = ++frameSeq.current;
+    const f = { ...frame, token, loading: true };
+    if (push) pushFrame(f); else openStack(f);
+    Promise.resolve().then(load).catch(() => ({ error: true }))
+      .then((patch) => setStack((s) => (s.some((x) => x.token === token)
+        ? s.map((x) => (x.token === token ? { ...x, ...patch, loading: false } : x))
+        : s)));
+  };
+  // Every parts drill reads the section's list; it carries the list's fetch
+  // state so an unloaded list never shows as "no parts".
+  const openParts = (frame) => openStack({ kind: "partList", rowsState, ...frame });
+  const shortBy = (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0));
+  const byStatus = (...st) => rows.filter((r) => st.includes(r.status));
+  const openCritical = () => openParts({ title: "Critical Parts", rows: byStatus("Out of Stock", "Below Minimum"), valueLabel: "Short by", valueOf: shortBy });
+  const openZero = () => openParts({ title: "Zero Stock", rows: byStatus("Out of Stock"), valueLabel: "Short by", valueOf: shortBy });
+  const openBelowMin = () => openParts({ title: "Below Minimum", rows: byStatus("Below Minimum"), valueLabel: "Short by", valueOf: shortBy });
+  const openReorder = () => openParts({ title: "Reorder", rows: byStatus("Reorder"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand });
+  const openExcess = () => openParts({ title: "Excess Parts", rows: byStatus("Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney });
   // Top excess parts by the money tied up above their maximum — the main-screen
   // "Excess Stock Value" chart.
   // Excess value grouped by SECTION — which of the store's sections hold the most
@@ -389,25 +661,27 @@ export default function TvDashboard() {
   const openExcessSection = (sid) => {
     if (sid == null) return;
     const secRows = rows.filter((r) => r.status === "Above Maximum" && excessOf(r) > 0 && r.section_id === sid);
-    openStack({ kind: "partList", title: `Excess — ${sectionName[sid] || "Section"}`, rows: secRows, valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney });
+    openParts({ title: `Excess — ${sectionName[sid] || "Section"}`, rows: secRows, valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney });
   };
 
-  // Total stock value grouped by section — for the main-screen "Stock Value by
-  // Section" donut. A slice drills to that section's parts, by value.
-  const valueBySection = useMemo(() => {
-    const by = {};
-    rows.forEach((r) => { if (r.section_id != null && r.stock_value != null) by[r.section_id] = (by[r.section_id] || 0) + r.stock_value; });
-    return Object.entries(by)
-      .map(([sid, value]) => ({ sid: Number(sid), name: sectionName[sid] || "—", value: Math.round(value) }))
-      .sort((a, b) => b.value - a.value)
-      .map((it, i) => ({ ...it, color: PIE[i % PIE.length] }));
-  }, [rows, sectionName]);
-  const totalStockValue = useMemo(() => valueBySection.reduce((s, c) => s + c.value, 0), [valueBySection]);
+  // Stock value by section, straight off the overview — the same split the
+  // desktop dashboard's value panel shows. A slice drills to that section's
+  // parts, by value.
+  const valueBySection = useMemo(
+    () => (ov?.value?.by_section || [])
+      .map((s, i) => ({
+        sid: s.section_id, name: s.name || sectionName[s.section_id] || "Unassigned",
+        value: Math.round(s.value || 0), color: PIE[i % PIE.length],
+      })),
+    [ov, sectionName],
+  );
+  const totalStockValue = ov?.value?.total ?? null;
   const openValueSection = (sid) => {
     if (sid == null) return;
     const secRows = rows.filter((r) => r.section_id === sid && r.stock_value != null);
-    openStack({ kind: "partList", title: `Stock Value — ${sectionName[sid] || "Section"}`, rows: secRows, valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney });
+    openParts({ title: `Stock Value — ${sectionName[sid] || "Section"}`, rows: secRows, valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney });
   };
+  const openStockValue = () => openParts({ title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, chart: "bySection", sectionNames: sectionName });
 
   const cats = useMemo(() => {
     const by = {};
@@ -430,38 +704,57 @@ export default function TvDashboard() {
     });
     // "Others" holds many types, so its drill charts them by type (what's inside);
     // a single type charts its parts by stock.
-    openStack(cat === "Others"
-      ? { kind: "partList", title: "Others — by type", rows: catRows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand || 0, chart: "byType" }
-      : { kind: "partList", title: `${cat} parts`, rows: catRows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand || 0 });
+    openParts(cat === "Others"
+      ? { title: "Others — by type", rows: catRows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand || 0, chart: "byType" }
+      : { title: `${cat} parts`, rows: catRows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand || 0 });
   };
 
+  const monthlyState = stateOf(P.monthly);
   const monthlyData = useMemo(
     () => (P.monthly || []).slice(-6).map((m) => ({ name: monthLabel(m.period), qty: Math.round(m.qty || 0) })),
     [P.monthly],
   );
 
   const deptData = useMemo(() => {
-    const all = P.dept || [];
-    // Denominator is the WHOLE month's issuance, not just the top-5 subtotal, so
-    // each department's % is its real share of consumption.
-    const totAll = all.reduce((s, d) => s + (d.value || 0), 0) || 1;
-    return all.slice().sort((a, b) => b.value - a.value).slice(0, 5)
-      .map((d, i) => ({ name: d.name, value: Math.round(d.value || 0), pct: ((d.value || 0) / totAll) * 100, color: PIE[i % PIE.length] }));
-  }, [P.dept]);
+    const top = ov?.consumption?.this_month_by_department || [];
+    // Denominator is the WHOLE month's issuance (the overview's this-month
+    // total), not just the top-5 subtotal, so each department's % is its real
+    // share of consumption.
+    const topSum = top.reduce((s, d) => s + (d.value || 0), 0);
+    const totAll = Math.max(ov?.consumption?.comparison?.current?.value || 0, topSum) || 1;
+    return top.map((d, i) => ({ name: d.name, value: Math.round(d.value || 0), pct: ((d.value || 0) / totAll) * 100, color: PIE[i % PIE.length] }));
+  }, [ov]);
 
-  const topShort = useMemo(
-    () => rows.filter((r) => r.status === "Below Minimum" || r.status === "Out of Stock")
-      .sort((a, b) => ((b.min_stock_level || 0) - (b.qty_on_hand || 0)) - ((a.min_stock_level || 0) - (a.qty_on_hand || 0)))
-      .slice(0, 5),
-    [rows],
-  );
+  // Worst first, dearest restock first within it — the overview's own order.
+  const topShort = (ov?.critical_parts || []).slice(0, 5);
 
   // ERP current stock (store-wide) + its match against the store's physical count.
-  const erpRows = P.erpGap || [];
-  const erpTotal = erpRows.reduce((s, r) => s + (r.erp_qty || 0), 0);
-  const physTotal = erpRows.reduce((s, r) => s + (r.physical_qty || 0), 0);
-  const erpGapCount = (P.erpSum?.short || 0) + (P.erpSum?.excess || 0);
-  const erpSyncedAt = erpRows.find((r) => r.erp_synced_at)?.erp_synced_at;
+  const erpState = stateOf(P.erpGap);
+  const erpRows = P.erpGap || NO_ROWS;
+  const erpSum = useMemo(() => {
+    const reconciled = erpRows.filter((r) => r.gap_qty != null);
+    const matched = reconciled.filter((r) => r.status === "MATCH").length;
+    const by = (s) => erpRows.filter((r) => r.status === s).length;
+    return {
+      total: erpRows.length, matched, reconciled: reconciled.length,
+      short: by("SHORT"), excess: by("EXCESS"), no_physical: by("NO_PHYSICAL"), not_synced: by("NOT_SYNCED"),
+      accuracy_pct: reconciled.length ? Math.round((matched / reconciled.length) * 10000) / 100 : null,
+      // Both unit totals over the SAME parts — those with an ERP figure AND a
+      // count — or the two sums would set ERP's few hundred parts against every
+      // part the store has counted.
+      erp_units: reconciled.reduce((s, r) => s + (r.erp_qty || 0), 0),
+      physical_units: reconciled.reduce((s, r) => s + (r.physical_qty || 0), 0),
+    };
+  }, [erpRows]);
+  const erpGapCount = erpSum.short + erpSum.excess;
+  // The ERP figures are a dated snapshot; its date and age travel with them.
+  const snap = erp?.stock_snapshot || null;
+  const snapAt = snap?.synced_at ?? erpRows.find((r) => r.erp_synced_at)?.erp_synced_at ?? null;
+  const snapDay = snapAt ? fmtDay(snapAt) : null;
+  const snapT = snapAt ? parseServerTime(snapAt) : null;
+  const snapDays = snap?.age_hours != null ? Math.floor(snap.age_hours / 24)
+    : snapT ? Math.max(0, Math.floor((Date.now() - snapT.getTime()) / 86400000)) : null;
+  const snapWord = snapDay ? `${snapDay} snapshot${snapDays ? ` (${snapDays} d old)` : ""}` : null;
 
   const nameOf = (id) => (id === ALL_SECTIONS ? "All Sections" : (sections.find((s) => s.id === id)?.name || "—"));
   const activeName = nameOf(sectionId);
@@ -474,74 +767,98 @@ export default function TvDashboard() {
     setMenuOpen(true);
   };
 
+  const openHistory = (part) => openAsync(
+    { kind: "partHistory", title: part.part_no, part, history: [] },
+    () => fetchData(spareStockService.history(part.part_id, 100))
+      .then((h) => ({ history: asList(h) || [], error: !Array.isArray(h) })),
+    { push: true },
+  );
+  // A transaction feed drill (for Today's Issue / Pending ERP) — off the ledger.
+  // opts.fetch lets a caller supply an exact list (e.g. only the pending-ERP
+  // movements, or only this shift's issues) so the drill ties out to its KPI;
+  // without it, the generic recent-activity feed is shown. A failed fetch opens
+  // the drill saying so, not as "No movements".
+  const openTxns = (title, opts = {}) => openAsync(
+    { kind: "txnList", title, rows: [], note: opts.note, deptData: opts.deptData },
+    async () => {
+      const fetcher = opts.fetch || (() => spareStockService.activity(STORE, 60).then((r) => r.data.data));
+      const a = await fetcher().catch(() => null);
+      let list = Array.isArray(a) ? a : [];
+      if (opts.filter) list = list.filter(opts.filter);
+      return { rows: list, error: !Array.isArray(a) };
+    },
+  );
+  // The drill shows the very rows the ticker counted.
+  const openConfirmations = () => openStack({
+    kind: "txnList", title: "Awaiting user confirmation",
+    rows: (P.pending || NO_ROWS).map((x) => ({
+      id: x.id, at: x.issued_at, part_id: x.part_id, part_no: x.part_no, part_name: x.part_name,
+      txn_type: "ISSUE", qty_delta: -(x.qty || 0), balance_after: null,
+      department: x.department, machine: x.machine,
+    })),
+    note: `${fmtInt(confirmCount)} issue(s) the store has handed out but nobody has confirmed fitted yet — Stage 2 of the two-stage issue. The person who installs the part re-scans it (Scan Part → Confirm) to record the line/machine and mark it installed. Tap a row for that part's history.`,
+  });
+  const openErpGap = () => openStack({
+    kind: "erpGap", title: "Current Stock — ERP vs Physical", rows: erpRows, summary: erpSum, error: erpState === "error",
+    note: snapWord
+      ? `Physical is the store's own count in this app; ERP is the ${snapWord} — not a live feed.`
+      : "No ERP stock snapshot has been received, so there is nothing to compare against.",
+  });
+  const openSrv = () => openAsync(
+    { kind: "srvList", title: "SRV / GRN pending", rows: [], untracked: srvUntracked },
+    () => fetchData(spareStockService.pendingList(STORE, "all"))
+      .then((list) => ({ rows: asList(list) || [], error: !Array.isArray(list) })),
+  );
+  // This shift's issues, in the same section scope as the figure beside the
+  // department split (and the ticker), so the list ties out.
+  const openTodayIssues = () => openTxns("Today's Issue", {
+    fetch: () => spareStockService.todayIssues(STORE, secView ? sectionId : undefined).then((r) => r.data.data || []),
+    deptData,
+  });
+
   // Live Alerts — derived from the board's own real spare figures (there is no
-  // spare notification feed yet), so the panel always shows what needs eyes.
-  const pendingCount = (P.pending || []).length;
-  const outOfStock = dist["Zero Stock"] || 0;
-  const belowMin = dist["Below Minimum"] || 0;
+  // spare notification feed yet), so the ticker always shows what needs eyes.
+  // A feed that failed to load is itself an alert: its figures read "—", and
+  // tapping the alert retries.
+  const fb = P.storeOv?.fallback ? P.storeOv : null;
+  const failedFeeds = [
+    P.storeOv === null && "store overview",
+    ownOv && P.secOv === null && (secView ? "section figures" : "store figures"),
+    fb && srvCount == null && "SRV pending",
+    fb && !fb.erp.write && "ERP write-back status",
+    fb && !recent && "recent movements",
+    ov?.fallback && !ov.kpis.today && "this shift's issues",
+    ov?.fallback && !ov.consumption && "this month's issues",
+    P.list === null && "parts list",
+    P.monthly === null && "monthly issues",
+    P.erpGap === null && "ERP comparison",
+    P.pending === null && "confirmation queue",
+    P.flow === null && "SRV register",
+  ].filter(Boolean);
+  const plural = (n, word) => `${fmtInt(n)} ${word}${n > 1 ? "s" : ""}`;
   const liveAlerts = [];
-  if (outOfStock) liveAlerts.push({ color: C.red, text: `${outOfStock} part${outOfStock > 1 ? "s" : ""} OUT OF STOCK`,
-    onClick: () => openStack({ kind: "partList", title: "Out of Stock", rows: rows.filter((r) => r.status === "Out of Stock"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand }) });
-  if (belowMin) liveAlerts.push({ color: C.red, text: `${belowMin} part${belowMin > 1 ? "s" : ""} below minimum`,
-    onClick: () => openStack({ kind: "partList", title: "Short Parts", rows: rows.filter((r) => r.status === "Below Minimum"), valueLabel: "Short by", valueOf: (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)) }) });
-  const reorderN = dist["Reorder"] || 0;
-  if (reorderN) liveAlerts.push({ color: "#f97316", text: `${reorderN} part${reorderN > 1 ? "s" : ""} at reorder level`,
-    onClick: () => openStack({ kind: "partList", title: "Reorder", rows: rows.filter((r) => r.status === "Reorder"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand }) });
-  if (excess) liveAlerts.push({ color: C.amber, text: `${excess} part${excess > 1 ? "s" : ""} above maximum · ${fmtMoney(excessValue)} tied up`,
-    onClick: () => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney }) });
-  if (pendingCount) liveAlerts.push({ color: C.purple, text: `${pendingCount} issue${pendingCount > 1 ? "s" : ""} awaiting user confirmation`,
-    onClick: () => openStack({ kind: "txnList", title: "Awaiting user confirmation",
-      rows: (P.pending || []).map((r) => ({
-        id: r.id, at: r.issued_at, part_id: r.part_id, part_no: r.part_no, part_name: r.part_name,
-        txn_type: "ISSUE", qty_delta: -(r.qty || 0), balance_after: null,
-        department: r.department, machine: r.machine,
-      })),
-      note: `${pendingCount} issue(s) the store has handed out but nobody has confirmed fitted yet — Stage 2 of the two-stage issue. The person who installs the part re-scans it (Scan Part → Confirm) to record the line/machine and mark it installed. Tap a row for that part's history.`,
-    }) });
-  if (erpGapCount) liveAlerts.push({ color: C.cyan, text: `${erpGapCount} part${erpGapCount > 1 ? "s" : ""} differ from ERP`, onClick: () => openErpGap() });
-  // The three KPIs with no chart of their own are reachable here instead: click
-  // the alert to drill into its exact rows.
-  const pendingErp = P.erpPend?.pending ?? 0;
-  if (pendingErp) liveAlerts.push({ color: C.purple, text: `${pendingErp} movement${pendingErp > 1 ? "s" : ""} pending ERP sync`,
+  if (failedFeeds.length) liveAlerts.push({ color: "#94a3b8", onClick: reload,
+    text: `Could not load: ${failedFeeds.join(", ")} — tap to retry` });
+  if (zero) liveAlerts.push({ color: C.red, text: `${plural(zero, "part")} OUT OF STOCK`, onClick: openZero });
+  if (belowMin) liveAlerts.push({ color: C.red, text: `${plural(belowMin, "part")} below minimum`, onClick: openBelowMin });
+  if (reorderN) liveAlerts.push({ color: C.reorder, text: `${plural(reorderN, "part")} at reorder level`, onClick: openReorder });
+  if (excess) liveAlerts.push({ color: C.amber, text: `${plural(excess, "part")} above maximum · ${fmtMoney(excessValue ?? excessValueRows)} tied up`, onClick: openExcess });
+  if (confirmCount) liveAlerts.push({ color: C.purple, text: `${plural(confirmCount, "issue")} awaiting user confirmation`, onClick: openConfirmations });
+  if (erpGapCount) liveAlerts.push({ color: C.cyan, text: `${plural(erpGapCount, "part")} differ from the ERP ${snapDay ? `${snapDay} ` : ""}snapshot`, onClick: openErpGap });
+  if (pendingErp) liveAlerts.push({ color: C.purple, text: `${plural(pendingErp, "movement")} queued for ERP (write-back ${erp?.write?.active ? "on" : "off"})`,
     onClick: () => openTxns("Pending ERP", {
-      fetch: () => spareStockService.erpPendingList("MAINTENANCE").then((r) => r.data.data?.rows || []),
+      fetch: () => spareStockService.erpPendingList(STORE).then((r) => r.data.data?.rows || []),
       note: `${fmtInt(pendingErp)} stock movement(s) queued to push to ERP — each waits here while the ERP write is off. Tap a row for that part's history.`,
     }) });
-  const issuedLines = P.today?.issued_lines ?? 0;
-  if (issuedLines) liveAlerts.push({ color: C.blue, text: `${fmtInt(P.today?.issued_qty ?? 0)} issued this shift · ${issuedLines} line${issuedLines > 1 ? "s" : ""}`,
-    onClick: () => openTxns("Today's Issue", {
-      fetch: () => spareStockService.todayIssues("MAINTENANCE").then((r) => r.data.data || []),
-      deptData,
-    }) });
+  const issuedLines = today?.issued_lines ?? 0;
+  if (issuedLines) liveAlerts.push({ color: C.blue, text: `${fmtInt(issuedQty)} issued this shift · ${plural(issuedLines, "line")}`,
+    onClick: openTodayIssues });
   const cycle = (dir) => {
     setSectionId((cur) => {
       const i = Math.max(0, sectionOpts.findIndex((o) => o === cur));
       return sectionOpts[(i + dir + sectionOpts.length) % sectionOpts.length];
     });
   };
-
-  // In-board drill: Explore Data opens a full-screen view WITHIN the board
-  // (it never leaves the dashboard) — a parts list with a chart, and each part
-  // drills into its own stock-history charts + movement ledger.
-  const openStack = (frame) => setStack([frame]);
-  const pushFrame = (frame) => setStack((s) => [...s, frame]);
-  const popTo = (i) => setStack((s) => s.slice(0, i + 1));
-  const openHistory = async (part) => {
-    const h = await spareStockService.history(part.part_id, 100).then((r) => r.data.data).catch(() => []);
-    pushFrame({ kind: "partHistory", title: part.part_no, part, history: Array.isArray(h) ? h : [] });
-  };
-  // A transaction feed drill (for Today's Issue / Pending ERP) — off the ledger.
-  // opts.fetch lets a caller supply an exact list (e.g. only the pending-ERP
-  // movements, or only this shift's issues) so the drill ties out to its KPI;
-  // without it, the generic recent-activity feed is shown.
-  const openTxns = async (title, opts = {}) => {
-    const fetcher = opts.fetch || (() => spareStockService.activity("MAINTENANCE", 60).then((r) => r.data.data));
-    const a = await fetcher().catch(() => []);
-    let list = Array.isArray(a) ? a : [];
-    if (opts.filter) list = list.filter(opts.filter);
-    openStack({ kind: "txnList", title, rows: list, note: opts.note, deptData: opts.deptData });
-  };
-  const openErpGap = () => openStack({ kind: "erpGap", title: "Current Stock — ERP vs Physical", rows: erpRows, summary: P.erpSum });
 
   const autoDay = hour >= 8 && hour < 20;
   const isDay = shiftOverride == null ? autoDay : shiftOverride;
@@ -575,11 +892,12 @@ export default function TvDashboard() {
     <div className="min-h-screen w-full flex flex-col gap-[0.5vh] p-[0.7vh] text-[var(--dx-t2)] transition-colors duration-300" style={{ ...themeVars, background: "var(--dx-board)" }}>
 
       {/* ---------- header ---------- */}
-      <div className="shrink-0 rounded-2xl px-[2vh] py-[0.8vh] flex items-center gap-[1.6vh] text-white overflow-hidden relative"
+      <div className="shrink-0 rounded-2xl px-[2vh] py-[0.8vh] text-white overflow-hidden relative"
         style={{
           background: "radial-gradient(720px 300px at 82% -50%, rgba(56,189,248,0.42), transparent 62%), radial-gradient(520px 240px at 10% 150%, rgba(37,99,235,0.32), transparent 60%), linear-gradient(120deg,#0a2340 0%,#123a6b 48%,#0a2038 100%)",
           boxShadow: "0 14px 40px rgba(10,32,70,0.40), inset 0 1px 0 rgba(255,255,255,0.08)",
         }}>
+      <div className="flex items-center gap-[1.6vh]">
         {/* The logo doubles as "back to the app" — tap it to leave the wallboard. */}
         <button type="button" onClick={() => navigate("/store/MAINTENANCE")}
           title="Back to the app" aria-label="Back to the app"
@@ -599,7 +917,11 @@ export default function TvDashboard() {
           <div className="mt-[0.3vh] flex items-center justify-center gap-[1vh]">
             <span className="h-px w-[3.2vh]" style={{ background: "linear-gradient(90deg,transparent,rgba(56,189,248,0.75))" }} />
             <span className="flex items-center gap-[0.7vh] text-[1.25vh] font-bold tracking-[0.42em] text-cyan-100/90">
-              <span className="w-[0.9vh] h-[0.9vh] rounded-full bg-emerald-400 animate-pulse" style={{ boxShadow: "0 0 8px #34d399" }} />
+              {/* Green only while every feed loaded; a failed call turns it amber
+                  (the ticker says which) rather than pulse "live" over stale data. */}
+              <span className={`w-[0.9vh] h-[0.9vh] rounded-full ${failedFeeds.length ? "bg-amber-400" : "bg-emerald-400 animate-pulse"}`}
+                style={{ boxShadow: failedFeeds.length ? "0 0 8px #fbbf24" : "0 0 8px #34d399" }}
+                title={failedFeeds.length ? "Some figures failed to load — see the alert bar" : "Refreshes on every stock movement"} />
               LIVE DASHBOARD
             </span>
             <span className="h-px w-[3.2vh]" style={{ background: "linear-gradient(90deg,rgba(56,189,248,0.75),transparent)" }} />
@@ -652,6 +974,13 @@ export default function TvDashboard() {
           <button onClick={toggleFs} title={isFs ? "Exit fullscreen" : "Fullscreen"} className="text-white/60 hover:text-white">{isFs ? <Minimize size={16} /> : <Maximize size={16} />}</button>
         </div>
       </div>
+      {/* ERP status on its own row, so it never squeezes the title on a
+          portrait board: how old ERP's stock figures are, and whether the
+          app's movements are being written back. */}
+      <div className="mt-[0.5vh] flex flex-wrap items-center justify-center gap-[0.8vh]">
+        <ErpChips erp={erp} state={erpInfoState} />
+      </div>
+      </div>
 
       {/* ---------- live alert ticker (below the heading) ---------- */}
       {liveAlerts.length > 0 && (
@@ -690,24 +1019,37 @@ export default function TvDashboard() {
       {/* Six across in one row: on a wide board each 3-col card was far wider
           than its stat, so the number sat in a corner with a big empty gap. */}
       <div className="grid grid-cols-3 landscape:grid-cols-6 gap-[0.8vh]">
-        {/* The six KPI cards are read-only. Their detail opens from the charts
-            below (Total / Stock Value / Excess) or from the Live Alerts panel,
-            which carries the clickable drills for Short Parts, Pending ERP and
-            Today's Issue. */}
-        <Kpi icon={Box} title="Total Parts" value={fmtInt(total)} trend={P.today?.received_lines ? `+${P.today.received_lines}` : null}
-          sub="Active parts in store" color={C.blue} />
-        <Kpi icon={Database} title="Stock Value" value={fmtMoney(P.sum?.stock_value)} sub="Physical qty × std rate" color={C.green} />
-        <Kpi icon={AlertTriangle} title="Short Parts" value={fmtInt(short)} sub="Below minimum stock" color={C.red} />
-        <Kpi icon={Boxes} title="Excess Parts" value={fmtInt(excess)} sub={`${fmtMoney(excessValue)} over max`} color={C.amber} />
-        <Kpi icon={ClipboardList} title="Pending ERP" value={fmtInt(P.erpPend?.pending ?? 0)} sub="Movements pending in ERP" color={C.purple} />
-        <Kpi icon={ShoppingCart} title="Today's Issue" value={fmtInt(P.today?.issued_qty)} trend={P.today?.issued_lines ? `${P.today.issued_lines} lines` : null}
-          sub="Parts issued this shift" color={C.blue} />
+        {/* The headline figures, all off the overview — the same numbers the
+            desktop dashboard shows. Each tile opens its list in the board's
+            drill. Total parts sits in the part-type donut; Pending ERP in the
+            header's write-back chip; this shift's issues beside the
+            department split (and in the ticker when there are any). */}
+        <Kpi icon={AlertTriangle} title="Critical Parts" state={ovState} value={statusVal(critical)} color={hot(critical, C.red)}
+          sub={noneCounted ? "No part counted yet" : "Zero stock + below minimum"} onClick={openCritical} />
+        <Kpi icon={PackageX} title="Zero Stock" state={ovState} value={statusVal(zero)} color={hot(zero, C.rose)}
+          sub={noneCounted ? "No part counted yet" : "Counted and found empty"} onClick={openZero} />
+        <Kpi icon={TrendingDown} title="Below Minimum" state={ovState} value={statusVal(belowMin)} color={hot(belowMin, C.orange)}
+          sub={noneCounted ? "No part counted yet" : "Under the planned minimum"} onClick={openBelowMin} />
+        <Kpi icon={Boxes} title="Excess Parts" state={ovState} value={statusVal(excess)} color={hot(excess, C.amber)}
+          extra={excess && excessValue ? fmtMoney(excessValue) : null}
+          sub={noneCounted ? "No part counted yet" : "Above max · ₹ tied up (qty × rate)"} onClick={openExcess} />
+        {/* SRVs are store-level: a section view still shows the store's figure,
+            and says so rather than pass it off as the section's. The source is
+            named — it is the app's SRV register, not every arrival. */}
+        <Kpi icon={ClipboardList} title="SRV Pending" state={srvState}
+          value={srvUntracked ? "—" : fmtInt(srvCount)} color={srvUntracked ? C.muted : hot(srvCount, C.purple)}
+          sub={srvUntracked ? "No SRV recorded in the app yet" : secView ? "Whole store · app SRV register" : "Awaiting SRV · app SRV register"}
+          onClick={openSrv} />
+        <Kpi icon={Database} title="Stock Value" state={ovState} color={C.green} onClick={openStockValue}
+          value={kpis?.valued_parts === 0 ? "—" : fmtMoney(kpis?.stock_value)}
+          sub={kpis?.valued_parts === 0 ? "No counted part has a rate yet" : "Physical qty × std rate"} />
       </div>
 
       {/* ---------- charts ---------- */}
       <div className="grid grid-cols-1 landscape:grid-cols-2 gap-[0.8vh]">
         <Card className="p-[0.7vh]">
           <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
+          {rowsState !== "ok" ? <PanelState state={rowsState} onRetry={reload} h="12.5vh" /> : (
           <div className="flex items-center gap-[1vh]">
             <div className="w-[12.5vh] h-[12.5vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -729,7 +1071,7 @@ export default function TvDashboard() {
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
-              <DonutHub value={fmtInt(total)} label="Total Parts" size="1.5vh" />
+              <DonutHub value={fmtInt(rows.length)} label="Total Parts" size="1.5vh" />
             </div>
             <div className="flex-1 min-w-0 flex flex-wrap justify-center content-center gap-x-[2.5vh] gap-y-[0.5vh]">
               {(cats.length ? cats : []).map((c) => (
@@ -743,6 +1085,7 @@ export default function TvDashboard() {
               {!cats.length && <div className="basis-full text-center text-[1.5vh] text-[var(--dx-t4)]">No parts in this section</div>}
             </div>
           </div>
+          )}
         </Card>
 
         <Card className="p-[0.7vh]">
@@ -750,9 +1093,12 @@ export default function TvDashboard() {
           <div className="flex items-center gap-[2vh] text-[1.2vh] text-[var(--dx-t2)] px-[0.6vh] pb-[0.3vh]">
             <span className="flex items-center gap-[0.5vh]"><span className="w-[1.3vh] h-[1.3vh] rounded-sm shrink-0" style={{ background: "linear-gradient(#60a5fa,#2563eb)" }} />Issued Qty</span>
             <span className="flex items-center gap-[0.5vh]"><span className="w-[1.8vh] h-[0.4vh] rounded-full shrink-0" style={{ background: C.green }} />Trend</span>
+            {/* Only what this app's issue ledger holds — months before go-live
+                are absent, not zero. */}
+            <span className="ml-auto text-[1.1vh] text-[var(--dx-t4)] truncate">App issue ledger · months with issues</span>
           </div>
           <div className="h-[12vh]">
-            {monthlyData.length ? (
+            {monthlyState !== "ok" ? <PanelState state={monthlyState} onRetry={reload} h="100%" /> : monthlyData.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={monthlyData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
                   <defs>
@@ -769,7 +1115,7 @@ export default function TvDashboard() {
                 </ComposedChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No consumption data yet</div>
+              <div className="h-full flex items-center justify-center text-center text-[1.6vh] text-[var(--dx-t4)]">No issue recorded in the app's ledger yet</div>
             )}
           </div>
         </Card>
@@ -779,19 +1125,39 @@ export default function TvDashboard() {
       <div className="grid grid-cols-1 landscape:grid-cols-2 gap-[0.8vh]">
         <Card className="p-[0.7vh]">
           <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
-          <div className="flex items-center justify-around pt-[1vh]">
-            <Gauge pct={(healthy / counted) * 100} color={C.green} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
-            <Gauge pct={(excess / counted) * 100} color={C.amber} label="Excess" sub={`${fmtInt(excess)} Parts`} />
-            <Gauge pct={(short / counted) * 100} color={C.red} label="Short" sub={`${fmtInt(short)} Parts`} />
-          </div>
+          {/* Shares of the COUNTED parts, all four bands, so they add to 100% —
+              a part nobody has counted has no status to judge, and says so. */}
+          {ovState !== "ok" ? <PanelState state={ovState} onRetry={reload} h="11vh" />
+            : !counted ? <PanelState empty="No part counted yet — stock health needs a physical count" h="11vh" />
+              : (
+                <>
+                  <div className="flex items-center justify-around pt-[0.6vh]">
+                    <Gauge w="11.5vh" pct={(healthy / counted) * 100} color={C.green} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
+                    <Gauge w="11.5vh" pct={(reorderN / counted) * 100} color={C.reorder} label="Reorder" sub={`${fmtInt(reorderN)} Parts`} />
+                    <Gauge w="11.5vh" pct={(critical / counted) * 100} color={C.red} label="Critical" sub={`${fmtInt(critical)} Parts`} />
+                    <Gauge w="11.5vh" pct={(excess / counted) * 100} color={C.amber} label="Excess" sub={`${fmtInt(excess)} Parts`} />
+                  </div>
+                  <div className="mt-[0.4vh] text-center text-[1.15vh] text-[var(--dx-t4)]">
+                    Share of {fmtInt(counted)} counted parts
+                    {kpis?.uncounted_parts ? ` · ${fmtInt(kpis.uncounted_parts)} never counted (not judged)` : ""}
+                  </div>
+                </>
+              )}
         </Card>
 
         <Card className="p-[0.7vh]">
-          <PanelHead icon={FileBarChart} color={C.purple} title="Department-wise Issue (This Month)" />
-          <div className="space-y-[1.1vh] pt-[0.6vh]">
-            {deptData.length ? deptData.map((d) => <DeptBar key={d.name} {...d} />)
-              : <div className="text-[1.5vh] text-[var(--dx-t4)] py-[3vh] text-center">No issues this month</div>}
-          </div>
+          {/* This shift's issues keep a steady place here — a real "0" reads
+              as a reading, "—" when the figure failed — and open the list. */}
+          <PanelHead icon={FileBarChart} color={C.purple} title="Department-wise Issue (This Month)"
+            action={ovState === "loading" ? undefined
+              : `This shift: ${fmtInt(issuedQty)} issued${issuedLines ? ` · ${plural(issuedLines, "line")}` : ""}`}
+            onAction={openTodayIssues} />
+          {deptState !== "ok" ? <PanelState state={deptState} onRetry={reload} h="11vh" /> : (
+            <div className="space-y-[1.1vh] pt-[0.6vh]">
+              {deptData.length ? deptData.map((d) => <DeptBar key={d.name} {...d} />)
+                : <div className="text-[1.5vh] text-[var(--dx-t4)] py-[3vh] text-center">No issue recorded this month</div>}
+            </div>
+          )}
         </Card>
       </div>
 
@@ -800,8 +1166,8 @@ export default function TvDashboard() {
       {/* ---------- stock value by section ---------- */}
       <Card className="p-[0.7vh]">
         <PanelHead icon={Database} color={C.green} title="Stock Value by Section"
-          action="View Details" onAction={() => openStack({ kind: "partList", title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, chart: "bySection", sectionNames: sectionName })} />
-        {valueBySection.length ? (
+          action="View Details" onAction={openStockValue} />
+        {ovState !== "ok" ? <PanelState state={ovState} onRetry={reload} h="12.5vh" /> : valueBySection.length ? (
           <div className="flex items-center gap-[1vh]">
             <div className="w-[12.5vh] h-[12.5vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -827,7 +1193,7 @@ export default function TvDashboard() {
             </div>
             <div className="flex-1 min-w-0 flex flex-wrap justify-center content-center gap-x-[2.5vh] gap-y-[0.5vh]">
               {valueBySection.map((c) => (
-                <button key={c.sid} onClick={() => openValueSection(c.sid)}
+                <button key={c.sid ?? "none"} onClick={() => openValueSection(c.sid)}
                   className="flex items-center gap-[1vh] text-[1.35vh] rounded-md px-[0.5vh] py-[0.2vh] hover:bg-[var(--dx-track)] transition-colors">
                   <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
                   <span className="text-left text-[var(--dx-t2)] truncate max-w-[20vh]">{c.name}</span>
@@ -838,15 +1204,15 @@ export default function TvDashboard() {
             </div>
           </div>
         ) : (
-          <div className="h-[13vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No stock value yet</div>
+          <div className="h-[13vh] flex items-center justify-center text-center text-[1.6vh] text-[var(--dx-t4)]">No valued stock yet — needs a count and a rate</div>
         )}
       </Card>
 
       {/* ---------- excess stock value ---------- */}
       <Card className="p-[0.7vh]">
         <PanelHead icon={Boxes} color={C.amber} title="Excess Stock Value"
-          action="View Details" onAction={() => openStack({ kind: "partList", title: "Excess Parts", rows: rows.filter((r) => r.status === "Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney })} />
-        {excessSections.length ? (
+          action="View Details" onAction={openExcess} />
+        {rowsState !== "ok" ? <PanelState state={rowsState} onRetry={reload} h="12.5vh" /> : excessSections.length ? (
           <div className="flex items-center gap-[1vh]">
             <div className="w-[12.5vh] h-[12.5vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -868,7 +1234,7 @@ export default function TvDashboard() {
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
-              <DonutHub value={fmtMoney(excessValue)} label="Excess Value" size="1.2vh" />
+              <DonutHub value={fmtMoney(excessValue ?? excessValueRows)} label="Excess Value" size="1.2vh" />
             </div>
             <div className="flex-1 min-w-0 flex flex-wrap justify-center content-center gap-x-[2.5vh] gap-y-[0.5vh]">
               {excessSections.map((c) => (
@@ -883,40 +1249,52 @@ export default function TvDashboard() {
             </div>
           </div>
         ) : (
-          <div className="h-[13vh] flex items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No excess stock — nothing above its maximum</div>
+          <div className="h-[13vh] flex items-center justify-center text-center text-[1.6vh] text-[var(--dx-t4)]">
+            {noneCounted || rowsNoneCounted ? "No part counted yet — excess needs a physical count" : "No excess stock — nothing above its maximum"}
+          </div>
         )}
       </Card>
       </div>
 
       {/* ---------- ERP current stock ---------- */}
       <Card className="p-[0.7vh]">
-        <PanelHead icon={Database} color={C.cyan} title="Current Stock — ERP vs Physical" action="View Details" onAction={openErpGap} />
-        <div className="grid grid-cols-2 landscape:grid-cols-4 gap-[0.8vh]">
-          {[
-            { label: "ERP Stock", value: fmtInt(Math.round(erpTotal)), sub: "units · from ERP", color: C.cyan },
-            { label: "Physical Stock", value: fmtInt(Math.round(physTotal)), sub: "units · store count", color: C.blue },
-            { label: "Match Accuracy", value: P.erpSum?.accuracy_pct != null ? `${P.erpSum.accuracy_pct}%` : "—", sub: "ERP = physical", color: C.green },
-            { label: "With Gap", value: fmtInt(erpGapCount), sub: "short / excess vs ERP", color: C.amber },
-          ].map((s) => (
-            <div key={s.label} className="rounded-xl p-[1.3vh]" style={{ background: "var(--dx-track)" }}>
-              <div className="text-[1.3vh] text-[var(--dx-t3)]">{s.label}</div>
-              <div className="mt-[0.4vh] text-[2.7vh] font-extrabold leading-none" style={{ color: s.color }}>{s.value}</div>
-              <div className="mt-[0.3vh] text-[1.15vh] text-[var(--dx-t4)]">{s.sub}</div>
+        <PanelHead icon={Database} color={C.cyan} title={`Current Stock — ERP vs Physical${secView ? " (whole store)" : ""}`}
+          action="View Details" onAction={openErpGap} />
+        {erpState !== "ok" ? <PanelState state={erpState} onRetry={reload} h="9vh" /> : (
+          <>
+            {/* Units are summed over the parts in BOTH — an ERP figure and a
+                count — so the two totals describe the same parts. */}
+            <div className="grid grid-cols-2 landscape:grid-cols-4 gap-[0.8vh]">
+              {[
+                { label: "ERP Stock", value: erpSum.reconciled ? fmtInt(Math.round(erpSum.erp_units)) : "—", sub: `units · ${snapDay ? `${snapDay} snapshot` : "no snapshot"}`, color: C.cyan },
+                { label: "Physical Stock", value: erpSum.reconciled ? fmtInt(Math.round(erpSum.physical_units)) : "—", sub: "units · store count, same parts", color: C.blue },
+                { label: "Match Accuracy", value: erpSum.accuracy_pct != null ? `${erpSum.accuracy_pct}%` : "—", sub: `of ${fmtInt(erpSum.reconciled)} parts in both`, color: C.green },
+                { label: "With Gap", value: erpSum.reconciled ? fmtInt(erpGapCount) : "—", sub: "short / excess vs snapshot", color: C.amber },
+              ].map((s) => (
+                <div key={s.label} className="rounded-xl p-[1.3vh]" style={{ background: "var(--dx-track)" }}>
+                  <div className="text-[1.3vh] text-[var(--dx-t3)]">{s.label}</div>
+                  <div className="mt-[0.4vh] text-[2.7vh] font-extrabold leading-none" style={{ color: s.color }}>{s.value}</div>
+                  <div className="mt-[0.3vh] text-[1.15vh] text-[var(--dx-t4)] truncate">{s.sub}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        {erpSyncedAt && (
-          <div className="mt-[1vh] text-[1.25vh] text-[var(--dx-t4)]">
-            ERP snapshot: {new Date(erpSyncedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} · updates live once ERP starts pushing spare stock
-          </div>
+            <div className="mt-[1vh] text-[1.25vh] text-[var(--dx-t4)]">
+              {snapWord
+                ? <>ERP figures are the <span className={snapDays ? "font-semibold text-amber-600" : ""}>{snapWord}</span> — not a live feed</>
+                : "No ERP stock snapshot received yet"}
+              {` · ${fmtInt(erpSum.no_physical)} ERP parts not counted · ${fmtInt(erpSum.not_synced)} counted parts not in the snapshot`}
+            </div>
+          </>
         )}
       </Card>
 
-      {/* ---------- top short parts + recent transactions (side by side in landscape) ---------- */}
+      {/* ---------- top critical parts + recent transactions (side by side in landscape) ---------- */}
       <div className="grid grid-cols-1 landscape:grid-cols-2 gap-[0.8vh]">
       <Card className="p-[0.7vh]">
-        <PanelHead icon={AlertTriangle} color={C.red} title="Top Short Parts (Below Minimum)" />
+        <PanelHead icon={AlertTriangle} color={C.red} title="Top Critical Parts (Zero / Below Min)"
+          action={critical ? "View All" : undefined} onAction={openCritical} />
         <div>
+        {ovState !== "ok" ? <PanelState state={ovState} onRetry={reload} h="14vh" /> : (
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.25vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
@@ -927,7 +1305,7 @@ export default function TvDashboard() {
           </thead>
           <tbody className="divide-y divide-[var(--dx-divide)]">
             {topShort.length ? topShort.map((r, i) => (
-              <tr key={r.part_id}>
+              <tr key={r.part_id} onClick={() => openHistory(r)} className="cursor-pointer hover:bg-[var(--dx-track)] transition-colors">
                 <td className="py-[0.9vh] pr-[1vh] text-[var(--dx-t4)]">{i + 1}</td>
                 <td className="pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[26vh]">{r.part_name}</td>
@@ -941,32 +1319,42 @@ export default function TvDashboard() {
                 <td className="pr-[1vh] text-[var(--dx-t3)]">{r.location || "—"}</td>
               </tr>
             )) : (
-              <tr><td colSpan={7} className="py-[3vh] text-center text-[1.5vh] text-emerald-600 font-semibold">✓ No parts below minimum</td></tr>
+              <tr>
+                <td colSpan={7} className="py-[3vh] text-center text-[1.5vh] font-semibold">
+                  {noneCounted ? <span className="text-[var(--dx-t4)]">No part counted yet — nothing to judge against Min</span> : (
+                    <span className="inline-flex items-center gap-[0.6vh] text-emerald-600">
+                      <CircleCheck size={18} aria-hidden="true" /> No counted part at zero or below minimum
+                    </span>
+                  )}
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
+        )}
         </div>
       </Card>
 
       {/* ---------- recent transactions (Live Alerts now runs in the top ticker) ---------- */}
       <Card className="p-[0.7vh]">
-        <PanelHead icon={PackagePlus} color={C.green} title="Recent Transactions" />
+        <PanelHead icon={PackagePlus} color={C.green} title={`Recent Transactions${secView ? " (whole store)" : ""}`} />
         <div>
+        {recentState !== "ok" ? <PanelState state={recentState} onRetry={reload} h="14vh" /> : (
         <table className="w-full text-[1.4vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
-              <th className="py-[0.7vh] pr-[1vh]">Time</th><th className="pr-[1vh]">Type</th><th className="pr-[1vh]">Part No.</th>
+              <th className="py-[0.7vh] pr-[1vh]">When</th><th className="pr-[1vh]">Type</th><th className="pr-[1vh]">Part No.</th>
               <th className="pr-[1vh] text-center">Qty</th><th className="pr-[1vh]">Dept.</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--dx-divide)]">
-            {(P.activity || []).slice(0, 6).map((r, i) => {
-              const issue = r.txn_type === "ISSUE";
+            {recent.slice(0, 6).map((r, i) => {
               return (
                 <tr key={i}>
-                  <td className="py-[0.8vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{timeOf(r.at || r.created_at)}</td>
+                  <td className="py-[0.8vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums whitespace-nowrap">{whenOf(r.at || r.created_at)}</td>
                   <td className="pr-[1vh]">
-                    <span className="rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold" style={issue ? { background: "rgba(244,63,94,0.16)", color: "var(--pill-red)" } : { background: "rgba(16,185,129,0.18)", color: "var(--pill-green)" }}>{r.txn_type}</span>
+                    {/* The drills' colours: an OPENING count is slate, not a green receipt. */}
+                    <span className="rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold" style={typeStyle(r.txn_type)}>{r.txn_type}</span>
                   </td>
                   <td className="pr-[1vh] font-semibold text-[var(--dx-t1)]">{r.part_no}</td>
                   <td className="pr-[1vh] text-center font-bold">{fmtInt(Math.abs(r.qty_delta ?? r.qty ?? 0))}</td>
@@ -974,9 +1362,10 @@ export default function TvDashboard() {
                 </tr>
               );
             })}
-            {!(P.activity || []).length && <tr><td colSpan={5} className="py-[2.5vh] text-center text-[var(--dx-t4)] text-[1.5vh]">No recent activity</td></tr>}
+            {!recent.length && <tr><td colSpan={5} className="py-[2.5vh] text-center text-[var(--dx-t4)] text-[1.5vh]">No movement recorded yet</td></tr>}
           </tbody>
         </table>
+        )}
         </div>
       </Card>
       </div>
@@ -1007,7 +1396,9 @@ export default function TvDashboard() {
                 ? <TxnListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
                 : stack[stack.length - 1].kind === "erpGap"
                   ? <ErpGapView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
-                  : <PartListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />}
+                  : stack[stack.length - 1].kind === "srvList"
+                    ? <SrvListView frame={stack[stack.length - 1]} />
+                    : <PartListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />}
           </div>
         </div>
       )}
@@ -1079,6 +1470,17 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
     return Object.entries(by).map(([sid, value]) => ({ sid: Number(sid), name: sectionNames[sid] || "—", value: Math.round(value) }))
       .sort((a, b) => b.value - a.value).map((it, i) => ({ ...it, color: PIE[i % PIE.length] }));
   })();
+  // The drill was opened before the board's parts list arrived (or after it
+  // failed) — say that, rather than an empty list that reads as "no parts".
+  if (frame.rowsState && frame.rowsState !== "ok") {
+    return (
+      <Card className="p-[3vh] text-center text-[1.8vh] text-[var(--dx-t3)]">
+        {frame.rowsState === "error"
+          ? "The parts list could not be loaded, so this list can't be shown. Close it and tap the retry alert on the board."
+          : "The parts list is still loading — close this and open it again in a moment."}
+      </Card>
+    );
+  }
   const isByType = frame.chart === "byType";
   const isBySection = frame.chart === "bySection";
   const chartData = isByType ? byType : isBySection ? bySection : top;
@@ -1222,7 +1624,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <td className="pr-[1vh]"><StatusPill status={r.status} /></td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={showValue ? 5 : 4} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{pick ? `No ${pick} parts` : "No parts in this section"}</td></tr>}
+            {!shown.length && <tr><td colSpan={showValue ? 5 : 4} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{pick ? `No ${pick} parts` : "No parts in this list"}</td></tr>}
           </tbody>
         </table>
       </Card>
@@ -1234,13 +1636,19 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
   const part = frame.part || {};
   const hist = frame.history || [];
   const chart = hist.slice().reverse().map((h) => ({ d: fmtDay(h.at || h.created_at), bal: Number(h.balance_after ?? 0) }));
+  const emptyText = frame.error ? "Couldn't load this part's history — close and tap the part again" : "No movement recorded yet";
+  // Still fetching: nothing below may read as "no movement" or "since …" yet.
+  const loading = Boolean(frame.loading);
   // "Kab se pada" — how long it has sat unused: since the last issue if any, else
-  // since its earliest recorded movement / count.
+  // since its earliest recorded movement / count. The ledger only starts when the
+  // app did, so with no issue on record this is "no issue recorded since", never
+  // "in stock since" — the part may well have sat there long before.
   const lastIssue = hist.find((h) => h.txn_type === "ISSUE");
   const sinceAt = (lastIssue && (lastIssue.at || lastIssue.created_at))
     || (hist.length && (hist[hist.length - 1].at || hist[hist.length - 1].created_at))
     || part.last_counted_at || null;
-  const lyingDays = sinceAt ? Math.max(0, Math.floor((Date.now() - new Date(sinceAt).getTime()) / 86400000)) : null;
+  const sinceT = sinceAt ? parseServerTime(sinceAt) : null;
+  const lyingDays = sinceT ? Math.max(0, Math.floor((Date.now() - sinceT.getTime()) / 86400000)) : null;
   return (
     <div className="flex flex-col gap-[1.4vh]">
       <Card className="p-[1.6vh]">
@@ -1256,8 +1664,8 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
             <Stat label="Max" value={fmtInt(part.max_stock_level)} />
             <Stat label="Value" value={fmtMoney(part.stock_value)} />
             <Stat label="Location" value={part.location || "—"} />
-            <Stat label={lastIssue ? "Not issued since" : "In stock since"}
-              value={sinceAt ? `${fmtDay(sinceAt)}${lyingDays != null ? ` · ${lyingDays}d` : ""}` : "—"} />
+            <Stat label={lastIssue ? "Not issued since" : "No issue recorded since"}
+              value={!loading && sinceAt ? `${fmtDay(sinceAt)}${lyingDays != null ? ` · ${lyingDays}d` : ""}` : "—"} />
           </div>
         </div>
       </Card>
@@ -1265,7 +1673,7 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
       <Card className="p-[1.6vh]">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Stock Level History</h3>
         <div className="h-[32vh]">
-          {chart.length ? (
+          {loading ? <PanelState state="loading" h="100%" /> : chart.length ? (
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={chart} margin={{ top: 8, right: 54, left: -12, bottom: 0 }}>
                 <defs>
@@ -1283,12 +1691,13 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
                 <Line type="monotone" dataKey="bal" name="Balance" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3, fill: "#2563eb" }} />
               </ComposedChart>
             </ResponsiveContainer>
-          ) : <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No movement history yet</div>}
+          ) : <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">{emptyText}</div>}
         </div>
       </Card>
 
       <Card className="p-[1.6vh] overflow-auto">
-        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Movements ({hist.length})</h3>
+        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{loading ? "Movements" : `Movements (${hist.length})`}</h3>
+        {loading ? <PanelState state="loading" h="14vh" /> : (
         <table className="w-full text-[1.4vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
@@ -1309,9 +1718,10 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
                 <td className="pr-[1vh] text-[var(--dx-t3)]">{h.created_by || h.confirmed_by || "—"}</td>
               </tr>
             ))}
-            {!hist.length && <tr><td colSpan={7} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">No movements recorded</td></tr>}
+            {!hist.length && <tr><td colSpan={7} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{emptyText}</td></tr>}
           </tbody>
         </table>
+        )}
       </Card>
     </div>
   );
@@ -1345,7 +1755,10 @@ function TxnListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
         </Card>
       )}
       <Card className="p-[1.6vh] overflow-auto flex-1">
-        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{rows.length} movement(s) · tap a row for that part's history</h3>
+        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">
+          {frame.loading ? "Loading movements…" : `${rows.length} movement(s) · tap a row for that part's history`}
+        </h3>
+        {frame.loading ? <PanelState state="loading" h="30vh" /> : (
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
@@ -1357,7 +1770,7 @@ function TxnListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
             {rows.map((r, i) => (
               <tr key={i} onClick={() => r.part_id && onOpen({ part_id: r.part_id, part_no: r.part_no, part_name: r.part_name })}
                 className="cursor-pointer hover:bg-[var(--dx-track)] transition-colors">
-                <td className="py-[0.8vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{(r.at || "").slice(0, 10)}</td>
+                <td className="py-[0.8vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{dayISOOf(r.at)}</td>
                 <td className="pr-[1vh]"><span className="rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold" style={typeStyle(r.txn_type)}>{r.txn_type}</span></td>
                 <td className="pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[22vh]">{r.part_name}</td>
@@ -1365,9 +1778,14 @@ function TxnListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <td className="pr-[1vh] text-center">{fmtInt(r.balance_after)}</td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={6} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">No movements</td></tr>}
+            {!rows.length && (
+              <tr><td colSpan={6} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">
+                {frame.error ? "Couldn't load these movements — close and try again" : "No movements"}
+              </td></tr>
+            )}
           </tbody>
         </table>
+        )}
       </Card>
     </div>
   );
@@ -1383,7 +1801,7 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
     { k: "short", label: "Short vs ERP", color: "#dc2626" },
     { k: "excess", label: "Excess vs ERP", color: "#d97706" },
     { k: "no_physical", label: "Not counted", color: "#64748b" },
-    { k: "not_synced", label: "Not in ERP", color: "#64748b" },
+    { k: "not_synced", label: "Not in ERP snapshot", color: "#64748b" },
   ];
   const statusStyle = (st) =>
     st === "MATCH" ? { background: "rgba(16,185,129,0.18)", color: "var(--pill-green)" }
@@ -1394,6 +1812,7 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh] h-full">
       <Card className="p-[1.6vh] flex flex-col">
         <h3 className="dx-radiant mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">Biggest ERP vs Physical gaps</h3>
+        {frame.note && <p className="mb-[1vh] text-[1.4vh] text-[var(--dx-t3)]">{frame.note}</p>}
         <div className="min-h-[30vh] flex-1">
           {top.length ? (
             <ResponsiveContainer width="100%" height="100%">
@@ -1408,7 +1827,13 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <Bar dataKey="value" fill="url(#dg-hcyan)" radius={[0, 6, 6, 0]} barSize={16} />
               </BarChart>
             </ResponsiveContainer>
-          ) : <div className="flex h-full items-center justify-center text-[1.6vh] text-[var(--dx-t4)]">No gaps — ERP matches physical</div>}
+          ) : (
+            <div className="flex h-full items-center justify-center text-center text-[1.6vh] text-[var(--dx-t4)]">
+              {frame.error ? "Couldn't load the ERP comparison — close and tap the retry alert on the board"
+                : s.reconciled ? "No gaps — ERP matches physical on every part in both"
+                  : "No part has both an ERP figure and a count yet"}
+            </div>
+          )}
         </div>
         <div className="mt-[1vh] flex flex-wrap gap-[0.8vh]">
           {chips.map((ch) => (
@@ -1445,8 +1870,69 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <td className="pr-[1vh]"><span className="rounded-full px-[1vh] py-[0.2vh] text-[1.2vh] font-bold" style={statusStyle(r.status)}>{r.status}</span></td>
               </tr>
             ))}
+            {!rows.length && (
+              <tr><td colSpan={6} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">
+                {frame.error ? "Couldn't load the ERP comparison" : "No part has an ERP figure or a count yet"}
+              </td></tr>
+            )}
           </tbody>
         </table>
+      </Card>
+    </div>
+  );
+}
+
+// SRV / GRN pending — the lines behind the SRV Pending tile, from the app's SRV
+// register (fetched when the drill opens). Store-level: SRVs are not per section.
+function SrvListView({ frame }) {
+  const rows = frame.rows || [];
+  return (
+    <div className="flex flex-col gap-[1.4vh] h-full">
+      <Card className="p-[1.5vh] text-[1.55vh] font-medium text-[var(--dx-t2)] border-l-4" style={{ borderLeftColor: "#7c3aed" }}>
+        Material that has arrived and is waiting for an SRV to be raised or for an engineer's clearance — as recorded in this app's SRV register.
+      </Card>
+      <Card className="p-[1.6vh] overflow-auto flex-1">
+        <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">
+          {frame.loading ? "Loading pending SRV lines…"
+            : frame.error ? "SRV / GRN pending" : `${rows.length} pending line${rows.length === 1 ? "" : "s"}`}
+        </h3>
+        {frame.loading ? <PanelState state="loading" h="30vh" /> : (
+        <table className="w-full text-[1.45vh]">
+          <thead>
+            <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
+              <th className="py-[0.7vh] pr-[1vh]">SRV No.</th><th className="pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
+              <th className="pr-[1vh]">Supplier</th><th className="pr-[1vh]">Gate Entry</th>
+              <th className="pr-[1vh] text-center">Qty</th><th className="pr-[1vh]">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--dx-divide)]">
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="py-[0.8vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{r.srv_no || "—"}</td>
+                <td className="pr-[1vh] font-semibold text-[var(--dx-t1)]">{r.part_no || "—"}</td>
+                <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[22vh]">{r.part_name || "—"}</td>
+                <td className="pr-[1vh] text-[var(--dx-t3)] truncate max-w-[18vh]">{r.supplier_name || "—"}</td>
+                <td className="pr-[1vh] text-[var(--dx-t3)] whitespace-nowrap">
+                  {r.gate_entry_no || "—"}{r.gate_entry_time ? ` · ${fmtPlantDay(r.gate_entry_time)}` : ""}
+                </td>
+                <td className="pr-[1vh] text-center font-semibold">{fmtInt(r.qty_received ?? r.qty_invoiced)}</td>
+                <td className="pr-[1vh]">
+                  <span className="rounded-full px-[1vh] py-[0.2vh] text-[1.2vh] font-bold whitespace-nowrap" style={{ background: "rgba(124,58,237,0.16)", color: "#8b5cf6" }}>
+                    {String(r.status || "—").replace(/_/g, " ")}
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {!rows.length && (
+              <tr><td colSpan={7} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">
+                {frame.error ? "Couldn't load the SRV list — close and tap the tile again"
+                  : frame.untracked ? "No SRV has been recorded in this app for the store yet, so pending SRVs are not tracked here"
+                    : "Nothing pending — no SRV line is waiting in the app's register"}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+        )}
       </Card>
     </div>
   );

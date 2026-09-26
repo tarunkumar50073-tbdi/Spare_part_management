@@ -136,6 +136,11 @@ def test_overview_endpoint_permissions(client):
     assert c.get(f"/api/v1/dashboard/spare/overview?store_code={STORE}").status_code == 403
 
 
+def test_overview_is_open_to_the_wallboard_right_alone(client):
+    c = _login(client, perms={"live_dashboard": {"view": True}})
+    assert c.get(f"/api/v1/dashboard/spare/overview?store_code={STORE}").status_code == 200
+
+
 def test_overview_endpoint_ok_and_needs_store(client):
     c = _login(client, perms={"spare_store": {"view": True}})
     assert c.get("/api/v1/dashboard/spare/overview").status_code == 400
