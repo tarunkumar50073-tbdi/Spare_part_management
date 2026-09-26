@@ -106,6 +106,7 @@ const NAV_BY_STORE = {
       label: "Operations",
       items: [
         { to: "/scan-part", label: "Scan Part", icon: ScanBarcode, mod: "scan_part" },
+        { to: "/work-queue", label: "Work Queue", icon: ClipboardList, mod: "scan_part" },
         { to: "/store-stock-spare", label: "Store Stock", icon: Package, mod: "store_stock" },
       ],
     },

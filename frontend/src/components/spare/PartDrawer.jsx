@@ -12,9 +12,9 @@ import PrintBarcodeModal from "../PrintBarcodeModal.jsx";
 import Traceability from "./Traceability.jsx";
 import { useCan } from "../Can.jsx";
 import { spareStockService } from "../../services/spareStockService.js";
-import { barcodeService } from "../../services/barcodeService.js";
 import { invalidateStock } from "../../lib/stockQueries.js";
 import { splitLocation } from "../../lib/inventory.js";
+import { BUCKETS, statusMeta } from "../../lib/scanStatus.js";
 import { fmtDate, fmtStamp, money, num, parseServerTime } from "../../lib/format.js";
 
 // One spare, everything about it — the same drawer from the dashboard, the
@@ -46,6 +46,32 @@ function Section({ title, icon: Icon, children, aside }) {
   );
 }
 
+// Where the part's quantity sits right now (overview.buckets — the same split
+// the Scan Part workstation shows). Only non-zero buckets; nothing at all when
+// the server sent no split, so an older payload shows no invented zeros.
+function Buckets({ buckets, primary }) {
+  if (!buckets) return null;
+  const shown = BUCKETS.filter((b) => Number(buckets[b.key]) > 0);
+  if (!shown.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Quantity by status">
+      {primary?.key && (
+        <span className={`badge ${statusMeta(primary.key).badge}`} title="The part's headline status">
+          {primary.label || statusMeta(primary.key).label}
+        </span>
+      )}
+      {shown.map((b) => (
+        <span key={b.key}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 dark:border-navy-700 dark:text-slate-300">
+          <span className={`h-1.5 w-1.5 rounded-full ${statusMeta(b.status).dot}`} aria-hidden="true" />
+          {b.label}
+          <b className="font-semibold tabular text-slate-800 dark:text-white">{num(buckets[b.key])}</b>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function Tile({ label, value, tone = "", sub }) {
   return (
     <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-navy-700">
@@ -60,6 +86,15 @@ export default function PartDrawer({ partId, onClose }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const canCount = useCan("store_stock", "edit");
+  // Printing is gated like POST /barcode/print (any-of scan_part / store_stock /
+  // part_master "edit"). The browser print runs BEFORE that call records it, so
+  // a user who cannot record a print must not be able to start one — else a
+  // label comes out with no print history behind it (spec 8). Each hook is
+  // called on every render, never inside a short-circuit.
+  const canPrintScan = useCan("scan_part", "edit");
+  const canPrintStock = useCan("store_stock", "edit");
+  const canPrintMaster = useCan("part_master", "edit");
+  const canPrint = canPrintScan || canPrintStock || canPrintMaster;
   const [counting, setCounting] = useState(false);
   const [draft, setDraft] = useState("");
   const [printing, setPrinting] = useState(false);
@@ -69,10 +104,6 @@ export default function PartDrawer({ partId, onClose }) {
     queryKey: ["stock", "part-overview", partId],
     queryFn: () => spareStockService.partOverview(partId).then((r) => r.data.data),
     enabled: partId != null,
-  });
-  const { data: labelConfig = null } = useQuery({
-    queryKey: ["label-config"], staleTime: 10 * 60_000, enabled: printing,
-    queryFn: () => barcodeService.labelConfig().then((r) => r.data.data),
   });
 
   const go = (to) => { onClose(); navigate(to); };
@@ -106,12 +137,16 @@ export default function PartDrawer({ partId, onClose }) {
             <button type="button" className="btn-secondary" onClick={() => setTracing(true)}>
               <Route size={14} aria-hidden="true" /> Trace
             </button>
-            <button type="button" className="btn-secondary" onClick={() => setPrinting(true)}>
-              <Printer size={14} aria-hidden="true" /> Label
-            </button>
-            <button type="button" className="btn-primary" onClick={() => go("/scan-part")}
-              title="Issue, receive, return and move are done by scanning the part">
-              <ScanBarcode size={14} aria-hidden="true" /> Scan Part
+            {canPrint && (
+              <button type="button" className="btn-secondary" onClick={() => setPrinting(true)}>
+                <Printer size={14} aria-hidden="true" /> Label
+              </button>
+            )}
+            {/* Deep link: Scan Part opens on this very part (contract), so the
+                operator lands on its status and actions without re-scanning. */}
+            <button type="button" className="btn-primary" onClick={() => go(`/scan-part?part=${partId}`)}
+              title="Issue, receive, return, inspect and RGP are done on the Scan Part workstation">
+              <ScanBarcode size={14} aria-hidden="true" /> Open in Scan Part
             </button>
           </>
         )}>
@@ -172,6 +207,7 @@ export default function PartDrawer({ partId, onClose }) {
                 <Tile label="Max" value={st.max == null ? "—" : num(st.max)} />
                 <Tile label="Value" value={st.stock_value == null ? "—" : money(st.stock_value)} />
               </div>
+              <Buckets buckets={ov.buckets} primary={ov.primary_status} />
               <p className="mt-2 text-[11px] text-slate-400">
                 {st.shortfall != null && <>Short of max by <b>{num(st.shortfall)}</b> · </>}
                 {/* The opening upload loaded quantities without a count date, so a
@@ -261,7 +297,8 @@ export default function PartDrawer({ partId, onClose }) {
                       <span className="w-28 shrink-0 tabular text-slate-500">{fmtStamp(t.at)}</span>
                       <span className={`w-20 shrink-0 font-semibold ${TXN_TONE[t.txn_type] || ""}`}>{t.txn_type}</span>
                       <span className="min-w-0 flex-1 truncate text-slate-500">
-                        {[t.department, t.issued_to, t.machine, t.reference].filter(Boolean).join(" · ") || t.remarks || ""}
+                        {[t.department, t.issued_to, t.machine, t.die_no && `Die ${t.die_no}`, t.reference]
+                          .filter(Boolean).join(" · ") || t.remarks || ""}
                       </span>
                       <span className="w-14 shrink-0 text-right font-semibold tabular">{t.qty_delta > 0 ? "+" : ""}{num(t.qty_delta)}</span>
                       <span className="w-12 shrink-0 text-right tabular text-slate-400">{num(t.balance_after)}</span>
@@ -279,9 +316,16 @@ export default function PartDrawer({ partId, onClose }) {
           </div>
         )}
       </Modal>
-      {p && (
-        <PrintBarcodeModal open={printing} onClose={() => { setPrinting(false); invalidateStock(qc); }}
-          part={{ ...p, id: p.id }} config={labelConfig} />
+      {/* The label carries Part No + description + location (spec 3), so the
+          location goes in with the part. No source: the modal picks Reprint
+          when the part was printed before, else Part Master. Mounted only for
+          a user who may record the print (see canPrint). */}
+      {p && printing && canPrint && (
+        <PrintBarcodeModal open
+          part={{ id: p.id, part_no: p.part_no, part_name: p.part_name, is_active: p.is_active,
+            location: ov.location?.location ?? p.location ?? null }}
+          onClose={() => setPrinting(false)}
+          onPrinted={() => invalidateStock(qc)} />
       )}
       {p && tracing && <Traceability part={{ id: p.id, part_no: p.part_no }} onClose={() => setTracing(false)} />}
     </>

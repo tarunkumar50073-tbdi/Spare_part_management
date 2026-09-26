@@ -8,6 +8,7 @@ import { spareStockService } from "../services/spareStockService.js";
 import { NO_ROWS, stockKeys, useStockList } from "../lib/stockQueries.js";
 import { downloadXlsx } from "../utils/excel.js";
 import { parseServerTime } from "../lib/format.js";
+import { reasonLabel } from "../lib/scanStatus.js";
 
 // Part Ledger rendered as the ERP "Stock Ledger (Valuation)": search/scan a part,
 // then its FULL ledger shows automatically (opening + every receipt + every issue
@@ -18,6 +19,28 @@ const fmt = (v) => (v == null || v === "" ? "—" : v);
 // balance per movement; rate/value use the part's single current standard rate
 // (unit_price) until ERP feeds real per-transaction rates.
 const DOC_TYPE = { OPENING: "OP", RECEIPT: "RC", ISSUE: "IS", RETURN: "RT", ADJUSTMENT: "AD" };
+// What a movement was, in words. Under the QR flow a RECEIPT row is written
+// only when stock really becomes available — quality clearance of a GRN'd
+// receipt, or the RGP GRN of reworked material — and a RETURN row only when
+// the store inspection passes it Good (models/spare_stock.py). The row's status
+// says which; older rows keep the plain word.
+const MOVEMENT = { OPENING: "Opening", RECEIPT: "Receipt", ISSUE: "Issue", RETURN: "Return", ADJUSTMENT: "Adjustment" };
+const movementOf = (r) => {
+  if (r.txn_type === "RECEIPT" && r.status === "STOCK_AVAILABLE") return "Receipt (quality cleared)";
+  if (r.txn_type === "RECEIPT" && r.status === "RGP_GRN") return "RGP GRN";
+  if (r.txn_type === "RETURN" && r.status === "INSPECTED_GOOD") return "Return (inspected good)";
+  return MOVEMENT[r.txn_type] || r.txn_type;
+};
+// "Maintenance / R. Kumar · Line L-03 · Machine Press-07 · Die D-12" — where the
+// part went (spec 12), plus why it came back on a return. Only what was recorded.
+const destOf = (r) => {
+  const who = [r.department, r.issued_to].filter(Boolean).join(" / ");
+  const line = [r.line_name, r.line_no].filter(Boolean).join(" ");
+  const where = [line && `Line ${line}`, r.machine && `Machine ${r.machine}`, r.die_no && `Die ${r.die_no}`]
+    .filter(Boolean).join(" · ");
+  const why = r.txn_type === "RETURN" && r.return_reason ? `Reason: ${reasonLabel(r.return_reason)}` : "";
+  return [who, where, why].filter(Boolean).join(" · ");
+};
 const q3 = (n) => (Number(n) || 0).toFixed(3);   // quantities: 265.000
 const m2 = (n) => (Number(n) || 0).toFixed(2);   // rates / values: 11.19
 // Ledger stamps (`at`) are UTC from the server — parseServerTime reads them as
@@ -157,17 +180,15 @@ export default function SparePartHistory() {
         const delta = Number(r.qty_delta) || 0;
         const closing = Number(r.balance_after) || 0;
         const isIn = delta >= 0;
-        // "where it went" — department / person / machine on an issue.
-        const dest = [r.department, r.issued_to].filter(Boolean).join(" / ")
-          + (r.machine ? `${(r.department || r.issued_to) ? " · " : ""}${r.machine}` : "");
         return {
           ...base,
           id: r.id,
           tranDt: r.at || null,
           docNo: r.reference || r.invoice_no || r.return_no || "—",
           docType: DOC_TYPE[r.txn_type] || r.txn_type,
+          movement: movementOf(r),
           tranType: isIn ? "R" : "I",
-          dest: dest || "—",
+          dest: destOf(r) || "—",
           openingQty: closing - delta,
           recvQty: isIn ? delta : 0,
           issueQty: isIn ? 0 : -delta,
@@ -184,7 +205,7 @@ export default function SparePartHistory() {
         const ob = Number([...before].sort((a, b) => stampMs(b.at) - stampMs(a.at))[0].balance_after) || 0;
         list.unshift({
           ...base, id: "opening-balance", tranDt: filters.from, docNo: "—", docType: "OB",
-          tranType: "—", dest: "—", openingQty: ob, recvQty: 0, issueQty: 0,
+          movement: "Opening balance", tranType: "—", dest: "—", openingQty: ob, recvQty: 0, issueQty: 0,
           closingStock: ob, closingValue: ob * rate,
         });
       }
@@ -199,10 +220,11 @@ export default function SparePartHistory() {
 
   const exportLedger = () => {
     if (!ledger.length) return;
-    const headers = ["Group", "Sub Group", "Item Cd", "Item Desc", "UOM", "Tran Dt", "Doc No", "Doc Type", "Tran Type", "Dept / Issued To / Machine",
+    const headers = ["Group", "Sub Group", "Item Cd", "Item Desc", "UOM", "Tran Dt", "Doc No", "Doc Type", "Movement", "Tran Type",
+      "Dept / Issued To · Line / Machine / Die",
       "Opening Qty", "Opening Rate", "Recv Qty", "Recv Rate", "Issue Qty", "Issue Rate", "Closing Stock", "Closing Rate", "Closing Value"];
     const body = ledger.map((l) => [
-      l.group, l.subGroup, l.itemCd, l.itemDesc, l.uom, erpDate(l.tranDt), l.docNo, l.docType, l.tranType, l.dest,
+      l.group, l.subGroup, l.itemCd, l.itemDesc, l.uom, erpDate(l.tranDt), l.docNo, l.docType, l.movement, l.tranType, l.dest,
       Number(l.openingQty), Number(l.openingRate), Number(l.recvQty), Number(l.recvRate),
       Number(l.issueQty), Number(l.issueRate), Number(l.closingStock), Number(l.closingRate), Number(l.closingValue),
     ]);
@@ -290,7 +312,7 @@ export default function SparePartHistory() {
                     <th className="pr-3">Doc No</th>
                     <th className="pr-3">Doc Type</th>
                     <th className="pr-3">Tran Type</th>
-                    <th className="pr-3">Dept / Issued To · Machine</th>
+                    <th className="pr-3">Dept / Issued To · Line / Machine / Die</th>
                     <th className="pr-3 text-right">Opening Qty</th>
                     <th className="pr-3 text-right">Opening Rate</th>
                     <th className="pr-3 text-right">Recv Qty</th>
@@ -312,7 +334,10 @@ export default function SparePartHistory() {
                       <td className="pr-3">{l.uom}</td>
                       <td className="pr-3 tabular-nums">{erpDate(l.tranDt)}</td>
                       <td className="pr-3">{l.docNo}</td>
-                      <td className="pr-3">{l.docType}</td>
+                      <td className="pr-3">
+                        {l.docType}
+                        {l.movement && <span className="ml-1.5 text-[11px] text-slate-400">{l.movement}</span>}
+                      </td>
                       <td className="pr-3">{l.tranType}</td>
                       <td className="pr-3 text-slate-600 dark:text-slate-300">{l.dest}</td>
                       <td className="pr-3 text-right tabular-nums">{q3(l.openingQty)}</td>

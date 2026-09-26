@@ -4,9 +4,10 @@ import { fmtStamp, num, parseServerTime } from "../../lib/format.js";
 
 // The two-stage spare issue, drawn for ONE ISSUE ledger row: the store hands the
 // part over (Stage 1), then the fitter re-scans it and confirms the line +
-// machine it went on (Stage 2). Every step is read from what the row actually
-// records — status, confirmed_at, line/machine, actual_qty — never from what
-// "should" have happened. Statuses: ISSUE_STATUSES in models/spare_stock.py.
+// machine (+ die, when there is one) it went on (Stage 2). Every step is read
+// from what the row actually records — status, confirmed_at, line/machine/die,
+// actual_qty — never from what "should" have happened. Statuses:
+// ISSUE_STATUSES in models/spare_stock.py.
 
 const DAY_MS = 86_400_000;
 // Unconfirmed longer than this is flagged amber — two days is ample time for
@@ -18,8 +19,10 @@ export const ISSUE_STATUS = {
   PENDING_USER_CONFIRMATION: { label: "Awaiting user confirmation", badge: "badge-warning" },
   PARTIALLY_USED: { label: "Installed — partly used", badge: "badge-success" },
   INSTALLED: { label: "Installed", badge: "badge-success" },
-  RETURNED: { label: "Returned to store", badge: "badge-neutral" },
-  PARTIALLY_RETURNED: { label: "Partly returned to store", badge: "badge-neutral" },
+  // A return goes to the store inspection first (spec 14) — it is not stock
+  // again until inspected Good, so the label says where it actually is.
+  RETURNED: { label: "Returned to store (inspection)", badge: "badge-neutral" },
+  PARTIALLY_RETURNED: { label: "Partly returned to store (inspection)", badge: "badge-neutral" },
   CANCELLED: { label: "Cancelled", badge: "badge-neutral" },
 };
 // The two statuses the Stage-2 queue holds (pending_confirmations).
@@ -108,8 +111,14 @@ const STATE = {
 
 // How an issue can end other than by being fitted.
 const ENDINGS = {
-  RETURNED: { Icon: Undo2, text: "Came back on a return slip — nothing of this issue is still out." },
-  PARTIALLY_RETURNED: { Icon: Undo2, text: "Some came back on a return slip — the rest is still out." },
+  RETURNED: {
+    Icon: Undo2,
+    text: "Came back to the store against this issue — nothing of it is still out. The store inspects it before any of it is stock again.",
+  },
+  PARTIALLY_RETURNED: {
+    Icon: Undo2,
+    text: "Some came back to the store against this issue and waits for the store inspection — the rest is still out.",
+  },
   CANCELLED: { Icon: Ban, text: "This issue is closed." },
 };
 
@@ -150,6 +159,8 @@ function buildSteps(issue) {
         issue.confirmed_at && fmtStamp(issue.confirmed_at),
         line ? `Line ${line}` : "Line not given",
         issue.machine ? `Machine ${issue.machine}` : "Machine not given",
+        // Die is optional (spec 11) — named only when one was recorded.
+        issue.die_no && `Die ${issue.die_no}`,
         issue.confirmed_by && `by ${issue.confirmed_by}`,
       ],
     }
@@ -161,6 +172,7 @@ function buildSteps(issue) {
           : legacy ? "Not tracked for this issue"
             : closed ? "Not confirmed before the issue closed" : "Not confirmed yet",
         issue.machine && `Machine named at issue: ${issue.machine}`,
+        issue.die_no && `Die named at issue: ${issue.die_no}`,
       ],
     };
 

@@ -27,6 +27,8 @@ import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as
 import { storeService } from "../services/storeService.js";
 import { partService } from "../services/partService.js";
 import { spareStockService } from "../services/spareStockService.js";
+import { spareFlowService } from "../services/spareFlowService.js";
+import { RECEIPT_STATUS } from "../lib/scanStatus.js";
 
 const STORE_CODE = "MAINTENANCE";
 
@@ -352,6 +354,24 @@ const PENDING_COLUMNS = [
   { key: "invoice_no", label: "Invoice", render: (r) => r.invoice_no || "—" },
   { key: "qty_received", label: "Qty", align: "right", render: (r) => num(r.qty_received ?? r.qty_invoiced) },
   { key: "status", label: "Stage", render: (r) => <Badge status={r.status} /> },
+];
+
+// GRN / Quality pending — the app's receipts waiting for the supervisor's GRN
+// or the Maintenance / Tool Room quality clearance (spec 1/9: one receiving
+// step, no separate SRV). PENDING_COLUMNS stays for an older overview.
+const receiptStage = (r) => RECEIPT_STATUS[r.status]?.label || r.status || "—";
+const RECEIPT_PENDING_COLUMNS = [
+  { key: "receipt_no", label: "Receipt No", sortable: true, render: (r) => r.receipt_no || "—" },
+  { key: "part_no", label: "Part No", sortable: true },
+  { key: "part_name", label: "Description" },
+  { key: "ven_name", label: "Supplier", render: (r) => r.ven_name || "—" },
+  { key: "invoice_no", label: "Invoice", render: (r) => r.invoice_no || "—" },
+  { key: "grn_no", label: "GRN No", render: (r) => r.grn_no || "—" },
+  { key: "qty_received", label: "Qty", align: "right", render: (r) => num(r.qty_received) },
+  {
+    key: "status", label: "Stage", exportValue: receiptStage,
+    render: (r) => <span className={`badge ${RECEIPT_STATUS[r.status]?.badge || "badge-neutral"}`}>{receiptStage(r)}</span>,
+  },
 ];
 
 // Value asked the question, so value is what this list is ordered and shown
@@ -687,17 +707,45 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   parts = [], stockRows = [], reorderPlanned = true, onReorderExport, sectionId }) {
   const navigate = useNavigate();
   const kpi = overview?.kpis || null;
-  // Store-wide figures (consumption, SRVs) are never quoted on a section page.
+  // Store-wide figures (consumption, receiving) are never quoted on a section page.
   const storeLevel = sectionId == null;
   const belowMin = useMemo(() => deriveBelowMin(stockRows), [stockRows]);
   const [pendingOpen, setPendingOpen] = useState(false);
-  const [pendingRows, setPendingRows] = useState([]);
+  // Rows kept with the source they came from, so the columns always match them;
+  // `state` keeps a load or a failure from reading as "nothing waiting".
+  const [pending, setPending] = useState({ receipts: false, rows: [], state: "idle" });
+  const pendingRows = pending.rows;
 
+  // Spec 1: spare receiving has no separate SRV step — material waits for the
+  // supervisor's GRN, then the quality clearance. The overview's receipt count
+  // (receiving_pending) is the figure on that attention line and its drill
+  // lists those receipts; an older overview without the block keeps its SRV
+  // figure and SRV list.
+  const receiving = overview?.receiving_pending ?? null;
+  const attention = useMemo(() => (overview?.attention || []).map((it) => {
+    if (it.key !== "srv_pending") return it;
+    if (!receiving) return { ...it, label: "GRN / Quality pending" };
+    const count = receiving.total ?? it.count;
+    return {
+      ...it, label: "GRN / Quality pending", count,
+      hint: "Received material waiting for the supervisor's GRN or the quality clearance",
+      severity: count ? "warning" : "ok",
+    };
+  }), [overview, receiving]);
+
+  const fromReceipts = Boolean(receiving);
   useEffect(() => {
-    if (!pendingOpen) return;
-    spareStockService.pendingList(STORE_CODE, "all")
-      .then((r) => setPendingRows(r.data.data)).catch(() => setPendingRows([]));
-  }, [pendingOpen]);
+    if (!pendingOpen) return undefined;
+    let alive = true;
+    setPending({ receipts: fromReceipts, rows: [], state: "loading" });
+    // Silent: the modal shows its own "Couldn't load" line on a failure.
+    const load = fromReceipts
+      ? spareFlowService.queues(STORE_CODE, { silent: true }).then((r) => r.data.data?.quality || [])
+      : spareStockService.pendingList(STORE_CODE, "all").then((r) => r.data.data || []);
+    load.then((rows) => { if (alive) setPending({ receipts: fromReceipts, rows, state: "ok" }); })
+      .catch(() => { if (alive) setPending({ receipts: fromReceipts, rows: [], state: "error" }); });
+    return () => { alive = false; };
+  }, [pendingOpen, fromReceipts]);
 
   // Three things a spares master either has or does not. Averaged rather than
   // weighted — there is no basis yet for saying a missing rate matters more
@@ -988,7 +1036,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               </div>
             </div>
           ) : (
-            <AttentionBoard items={overview.attention} onOpen={openAttention} onAction={actAttention} />
+            <AttentionBoard items={attention} onOpen={openAttention} onAction={actAttention} />
           )}
         </section>
       )}
@@ -1368,23 +1416,41 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
         document.body,
       )}
 
-      {/* SRV lines waiting on an SRV being raised or on an engineer. */}
+      {/* Receipts waiting for the GRN or the quality clearance (or, on an
+          older overview, SRV lines waiting on an SRV or an engineer). */}
       <Modal open={pendingOpen} onClose={() => setPendingOpen(false)} size="full"
-        title="SRV Pending">
+        title="GRN / Quality Pending">
         <div className="space-y-3">
           <p className="text-xs text-slate-400 -mt-1">
-            Arrived but no SRV raised, or the SRV is with an engineer for clearance
+            {pending.receipts
+              ? "Received in the store, waiting for the supervisor's GRN or the Maintenance / Tool Room quality clearance — not store stock until cleared"
+              : "Arrived but no SRV raised, or the SRV is with an engineer for clearance"}
           </p>
-          {pendingRows.length === 0 ? (
-            <NotCaptured
-              what="No inbound line is waiting"
-              needs="Gate entry and SRV lines for this store appear here as soon as ERP pushes them. No gate entry has been recorded against a spare part yet."
-              endpoint="GET /spare-stock/pending/list"
-            />
+          {pending.state === "loading" ? (
+            <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-10 w-full" />)}</div>
+          ) : pending.state === "error" ? (
+            <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+              Couldn&apos;t load the pending list — close and open it again.
+            </p>
+          ) : pendingRows.length === 0 ? (
+            pending.receipts ? (
+              <NotCaptured
+                what="No receipt is waiting"
+                needs="Material received on Scan Part (Receive) is listed here until its GRN is recorded and quality clears it."
+                endpoint="GET /spare-flow/queues"
+              />
+            ) : (
+              <NotCaptured
+                what="No inbound line is waiting"
+                needs="Gate entry and SRV lines for this store appear here as soon as ERP pushes them. No gate entry has been recorded against a spare part yet."
+                endpoint="GET /spare-stock/pending/list"
+              />
+            )
           ) : (
-            <Table columns={PENDING_COLUMNS} rows={pendingRows} pageSize={0} maxHeight="60vh"
-              searchable={pendingRows.length > 10 ? "Search SRV, part or supplier…" : false}
-              exportName="spares_srv_pending" emptyMessage="Nothing pending" />
+            <Table key={pending.receipts ? "receipts" : "srv"}
+              columns={pending.receipts ? RECEIPT_PENDING_COLUMNS : PENDING_COLUMNS} rows={pendingRows} pageSize={0} maxHeight="60vh"
+              searchable={pendingRows.length > 10 ? "Search receipt, part or supplier…" : false}
+              exportName={pending.receipts ? "spares_grn_quality_pending" : "spares_srv_pending"} emptyMessage="Nothing pending" />
           )}
         </div>
       </Modal>

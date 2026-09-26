@@ -43,6 +43,7 @@ const TITLES = {
   "/erp-control": "ERP Control Center",
   "/data-quality": "Data Quality",
   "/notifications": "Notifications",
+  "/work-queue": "Work Queue",
 };
 
 // Below this width the full rail (w-64) would leave a phone or small tablet a
