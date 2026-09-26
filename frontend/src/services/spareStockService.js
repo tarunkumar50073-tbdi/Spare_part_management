@@ -88,6 +88,10 @@ export const spareStockService = {
   // The ISSUE rows since shift start — the drill behind Today's Issue.
   todayIssues: (storeCode, sectionId) =>
     api.get("/spare-stock/today/issues", { params: { store_code: storeCode, section_id: sectionId } }),
+  // The RECEIPT rows since shift start — the drill behind Today Added to Stock
+  // (each with its source: ERP GRN / RGP GRN, and the supplier when known).
+  todayReceipts: (storeCode, sectionId) =>
+    api.get("/spare-stock/today/receipts", { params: { store_code: storeCode, section_id: sectionId } }),
   // Store return slip — take an issued part back. payload: { qty?, reason, note?,
   // returned_by? }. Omitting the body returns the whole outstanding quantity.
   returnItem: (ledgerId, payload) => api.post(`/spare-stock/issues/${ledgerId}/return`, payload || {}),
