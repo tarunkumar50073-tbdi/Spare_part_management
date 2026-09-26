@@ -404,6 +404,42 @@ const STOCK_VALUE_COLUMNS = [
   },
 ];
 
+// Today's movements, as the two "today" tiles open them — the ledger rows since
+// the shift started, newest first. Times are server stamps (UTC) → fmtStamp.
+const whenCol = {
+  key: "at", label: "Time", sortable: true, sortValue: (r) => r.at || "",
+  render: (r) => <span className="whitespace-nowrap tabular">{fmtStamp(r.at)}</span>, exportValue: (r) => fmtStamp(r.at),
+};
+const partCol = {
+  key: "part_no", label: "Part", sortable: true, searchValue: (r) => `${r.part_no || ""} ${r.part_name || ""}`,
+  render: (r) => (
+    <div className="min-w-0">
+      <div className="font-mono text-[13px] font-medium text-slate-800 dark:text-white">{r.part_no || "—"}</div>
+      <div className="max-w-[260px] truncate text-[11px] text-slate-400">{r.part_name}</div>
+    </div>
+  ),
+};
+const TODAY_IN_COLUMNS = [
+  whenCol, partCol,
+  { key: "qty_delta", label: "Added", sortable: true, align: "right",
+    render: (r) => <span className="font-semibold text-emerald-600">+{num(r.qty_delta)} {r.uom || ""}</span> },
+  { key: "reference", label: "GRN / RGP no.", sortable: true, render: (r) => r.reference || "—" },
+  { key: "source", label: "From", sortable: true, render: (r) => r.source || "—" },
+  { key: "supplier", label: "Supplier", sortable: true, render: (r) => r.supplier || "—" },
+  { key: "balance_after", label: "In stock after", align: "right", render: (r) => num(r.balance_after) },
+];
+const TODAY_OUT_COLUMNS = [
+  whenCol, partCol,
+  { key: "qty_delta", label: "Issued", sortable: true, align: "right",
+    render: (r) => <span className="font-semibold text-rose-600">{num(Math.abs(r.qty_delta))} {r.uom || ""}</span>,
+    exportValue: (r) => Math.abs(r.qty_delta) },
+  { key: "department", label: "Department", sortable: true, render: (r) => r.department || "—" },
+  { key: "issued_to", label: "Issued to", sortable: true,
+    render: (r) => (r.issued_to ? `${r.issued_to}${r.issued_to_code ? ` (${r.issued_to_code})` : ""}` : "—") },
+  { key: "machine", label: "Machine", render: (r) => r.machine || "—" },
+  { key: "created_by", label: "By", render: (r) => r.created_by || "—" },
+];
+
 // Every headline figure opens the list behind it. A KPI you cannot open is a
 // number the floor has to take on trust — and the first question anyone asks
 // about "3 below minimum" is which three.
@@ -892,6 +928,29 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
     title, subtitle, rows, exportName, columns: BELOW_MIN_COLUMNS, onRowClick: onStockClick,
   });
 
+  // The two "today" tiles: their rows are fetched when opened (same shift-start
+  // boundary as the card, so the list always ties out to the figure). A failed
+  // read is toasted by the api interceptor and nothing opens.
+  const openToday = async (dir) => {
+    const inbound = dir === "in";
+    try {
+      const res = inbound
+        ? await spareStockService.todayReceipts(STORE_CODE, sectionId ?? undefined)
+        : await spareStockService.todayIssues(STORE_CODE, sectionId ?? undefined);
+      const rows = res.data.data || [];
+      const qty = rows.reduce((s, r) => s + Math.abs(Number(r.qty_delta) || 0), 0);
+      setDrill({
+        title: inbound ? "Today Added to Stock" : "Today Issued",
+        subtitle: inbound
+          ? `${num(qty)} pcs added since the shift started — stock-ins read from ERP GRNs / RGP GRNs`
+          : `${num(qty)} pcs issued since the shift started`,
+        rows, columns: inbound ? TODAY_IN_COLUMNS : TODAY_OUT_COLUMNS,
+        exportName: inbound ? "spare_today_added" : "spare_today_issued",
+        onRowClick: onStockClick,
+      });
+    } catch { /* interceptor toasts */ }
+  };
+
   const counted = stockRows.filter((r) => r.qty_on_hand != null);
   const byStatus = (status) => stockRows.filter((r) => r.status === status);
 
@@ -1021,10 +1080,12 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               added here when the qty quality accepted in ERP reaches store stock. */}
           <KpiCard featured tone="green" label="Today Added to Stock" icon={ArrowDownToLine}
             value={kpi?.today?.received_qty ?? 0} unit="pcs"
-            hint={`${kpi?.today?.received_lines ?? 0} stock-in line${kpi?.today?.received_lines === 1 ? "" : "s"}`} />
+            hint={`${kpi?.today?.received_lines ?? 0} stock-in line${kpi?.today?.received_lines === 1 ? "" : "s"}`}
+            onClick={() => openToday("in")} />
           <KpiCard featured tone="red" label="Today Issued" icon={ArrowUpFromLine}
             value={kpi?.today?.issued_qty ?? 0} unit="pcs"
-            hint={`${kpi?.today?.issued_lines ?? 0} issue line${kpi?.today?.issued_lines === 1 ? "" : "s"}`} />
+            hint={`${kpi?.today?.issued_lines ?? 0} issue line${kpi?.today?.issued_lines === 1 ? "" : "s"}`}
+            onClick={() => openToday("out")} />
         </div>
       </section>
 

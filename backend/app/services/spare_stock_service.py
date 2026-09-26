@@ -1583,6 +1583,8 @@ class SpareStockService:
             "remarks": e.remarks,
             "department": e.department,
             "machine": e.machine,
+            "issued_to": e.issued_to,
+            "issued_to_code": e.issued_to_code,
             "created_by": e.created_by,
         }
 
@@ -1618,6 +1620,38 @@ class SpareStockService:
                 and (not section_id or (e.part and e.part.section_id == section_id))]
         rows.sort(key=lambda e: e.id, reverse=True)
         return [self._activity_row(e) for e in rows]
+
+    # What a RECEIPT row's status says about where the stock-in came from.
+    _STOCK_IN_SOURCE = {
+        "ERP_GRN": "ERP GRN — quality accepted in ERP",
+        "RGP_GRN": "RGP GRN — rework back from supplier",
+        "STOCK_AVAILABLE": "Quality clearance recorded in the app",
+    }
+
+    def today_receipts(self, store_code, section_id=None):
+        """The RECEIPT rows since the shift started — the rows behind 'Today
+        Added to Stock', on the SAME boundary as today_movements so the list ties
+        out to the card (row count == received_lines, qty == received_qty). Each
+        row says where the stock-in came from and, for an ERP GRN / RGP GRN, the
+        supplier its journal row carries. Newest first."""
+        from app.models.spare_flow import SpareTransaction
+        since_utc, _ = self._today_shift_start()
+        rows = [e for e in self.ledger_repo.list_for_store_between(store_code, since_utc)
+                if e.txn_type == "RECEIPT"
+                and (not section_id or (e.part and e.part.section_id == section_id))]
+        rows.sort(key=lambda e: e.id, reverse=True)
+        ids = [e.id for e in rows]
+        supplier = dict(
+            db.session.query(SpareTransaction.ledger_id, SpareTransaction.supplier_name)
+            .filter(SpareTransaction.ledger_id.in_(ids), SpareTransaction.supplier_name.isnot(None)).all()
+        ) if ids else {}
+        out = []
+        for e in rows:
+            d = self._activity_row(e)
+            d["source"] = self._STOCK_IN_SOURCE.get(e.status, "Receipt")
+            d["supplier"] = supplier.get(e.id)
+            out.append(d)
+        return out
 
     def history_for_part(self, part_id, limit=25, txn_type=None, department=None,
                          machine=None, since=None, until=None):

@@ -289,6 +289,12 @@ def today_issues():
     return success_response(service.today_issues(_store_code(), section_id=_section()))
 
 
+@bp.route("/today/receipts", methods=["GET"])
+def today_receipts():
+    """The RECEIPT rows since shift start — the drill behind Today Added to Stock."""
+    return success_response(service.today_receipts(_store_code(), section_id=_section()))
+
+
 @bp.route("/activity", methods=["GET"])
 def activity():
     return success_response(service.recent_activity(
