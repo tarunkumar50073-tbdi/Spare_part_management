@@ -228,9 +228,12 @@ def erp_sync():
 @bp.route("/issues/<int:ledger_id>/return", methods=["POST"])
 @permission_required("scan_part", "edit")
 def return_issue(ledger_id):
-    """Take an issued part back on a store return slip. Body is optional — the
-    legacy one-click return of a returnable tool sends none (whole quantity, no
-    reason); the return-slip form sends qty + reason + who returned it."""
+    """Take an issued part back against its original issue (spec 13). It is
+    held for the store inspection — on-hand does not change until the
+    inspection passes it as good. Body is optional — the legacy one-click
+    return of a returnable tool sends none (whole quantity, no reason); the
+    return form sends qty + reason + who returned it. The response carries
+    `return`, the return document now waiting for inspection."""
     row = service.ledger_repo.get_by_id(ledger_id)
     if not row or not row.part:
         raise NotFoundError(f"Issue {ledger_id} not found")
@@ -241,9 +244,11 @@ def return_issue(ledger_id):
         qty=(float(data["qty"]) if data.get("qty") is not None else None),
         reason=data.get("reason"), note=data.get("note"),
         returned_by=data.get("returned_by"), user=_username(),
+        scanned_code=data.get("scanned_code"), scan_source=data.get("scan_source"),
     )
-    publish("stock", {"ledger_id": ledger_id, "action": "return"})
-    return success_response(result, f"Returned to store · slip {result.get('return_no')}")
+    publish("stock", {"part_id": row.part_id, "ledger_id": ledger_id, "action": "return"})
+    return success_response(
+        result, f"Returned to store · {result.get('return_no')} — waiting for inspection")
 
 
 @bp.route("/parts/<int:part_id>/returnable-issues", methods=["GET"])
@@ -351,7 +356,9 @@ def set_quantity(part_id):
 @bp.route("/parts/<int:part_id>/issue", methods=["POST"])
 @permission_required("scan_part", "edit")
 def issue_part(part_id):
-    """Stage 1 — store issues to a department + person (no machine/line)."""
+    """Stage 1 — store issues to a department + person (no machine/line). The
+    response is the part's stock row plus `issue`, the ISSUE row just written
+    (the id the installation update and a return point at)."""
     _require_part_store(part_id)
     data = validate_payload(SpareIssueSchema(), request.get_json(force=True) or {})
     row = service.issue(
@@ -359,6 +366,7 @@ def issue_part(part_id):
         machine=data.get("machine"), returnable=data.get("returnable", False),
         reference=data.get("reference"), remarks=data.get("remarks"), user=_username(),
         issued_to=data.get("issued_to"),
+        scanned_code=data.get("scanned_code"), scan_source=data.get("scan_source"),
     )
     who = data.get("issued_to")
     where = data["department"] + (f" · {who}" if who else "")
@@ -369,20 +377,27 @@ def issue_part(part_id):
 @bp.route("/issues/<int:ledger_id>/confirm", methods=["POST"])
 @permission_required("scan_part", "edit")
 def confirm_issue(ledger_id):
-    """Stage 2 — the user at the line confirms line + machine + installation."""
+    """Stage 2 — the user at the line records line + machine + die + usage.
+    Repeatable ("Update Line / Machine") while something of the issue is
+    still out; every update is kept in the part history.
+
+    Only the place keys the request actually carries are passed on: a key
+    left out keeps the issue's current value, while one sent as null / blank
+    clears it (the Update form sends an emptied Die as null)."""
     row = service.ledger_repo.get_by_id(ledger_id)
     if not row or not row.part:
         raise NotFoundError(f"Issue {ledger_id} not found")
     require_store_access(row.part.store_code)
     data = validate_payload(SpareConfirmSchema(), request.get_json(force=True) or {})
+    first = row.confirmed_at is None
+    place = {k: data[k] for k in ("line_name", "line_no", "machine", "die_no") if k in data}
     result = service.confirm_installation(
-        ledger_id, line_name=data.get("line_name"), line_no=data.get("line_no"),
-        machine=data.get("machine"),
+        ledger_id, **place,
         actual_qty=(float(data["actual_qty"]) if data.get("actual_qty") is not None else None),
         user=_username(), remarks=data.get("remarks"),
     )
-    publish("stock", {"ledger_id": ledger_id, "action": "confirm"})
-    return success_response(result, "Installation confirmed")
+    publish("stock", {"part_id": row.part_id, "ledger_id": ledger_id, "action": "confirm"})
+    return success_response(result, "Installation confirmed" if first else "Line / machine updated")
 
 
 @bp.route("/pending-confirmations", methods=["GET"])
@@ -400,6 +415,9 @@ def part_pending_confirmations(part_id):
 @bp.route("/parts/<int:part_id>/receive", methods=["POST"])
 @permission_required("scan_part", "edit")
 def receive_part(part_id):
+    """Physical receipt (spec 1 / 9) — records a receipt waiting for the ERP
+    GRN and the quality clearance; adds no stock. The response is the part's
+    (unchanged) stock row plus `receipt`."""
     _require_part_store(part_id)
     data = validate_payload(SpareReceiveSchema(), request.get_json(force=True) or {})
     row = service.receive(
@@ -407,10 +425,14 @@ def receive_part(part_id):
         reference=data.get("reference"), remarks=data.get("remarks"), user=_username(),
         supplier_id=data.get("supplier_id"), invoice_no=data.get("invoice_no"),
         invoice_date=data.get("invoice_date"), check_result=data.get("check_result"),
-        department=data.get("department"),
+        department=data.get("department"), ven_cd=data.get("ven_cd"),
+        ven_name=data.get("ven_name"), supplier_source=data.get("supplier_source"),
+        scanned_code=data.get("scanned_code"), scan_source=data.get("scan_source"),
     )
     publish("stock", {"part_id": part_id, "action": "receive"})
-    return success_response(row, "Stock received")
+    receipt_no = (row.get("receipt") or {}).get("receipt_no")
+    return success_response(
+        row, f"Received · {receipt_no} — waiting for GRN and quality clearance (not in stock yet)")
 
 
 @bp.route("/parts/<int:part_id>/update-location", methods=["POST"])

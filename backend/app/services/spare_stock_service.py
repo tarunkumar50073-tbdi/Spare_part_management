@@ -15,7 +15,9 @@ from sqlalchemy.orm import Session as OrmSession
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.part import Part
-from app.models.spare_stock import CHECK_RESULTS
+from app.models.spare_stock import (
+    CHECK_RESULTS, ERP_ORIGIN_RECEIPT_STATUSES, RETURN_ROW_INSPECTED, SpareStock,
+)
 from app.repositories.supplier_window_schedule_repository import SHIFT_START
 from app.repositories.part_repository import PartRepository
 from app.repositories.spare_stock_repository import (
@@ -23,6 +25,7 @@ from app.repositories.spare_stock_repository import (
 )
 from app.repositories.erp_stock_repository import ERPStockRepository
 from app.services.erp_gap_service import ERPGapService
+from app.services.spare_journal_service import SpareJournalService
 from app.utils.db_tx import atomic
 from app.utils.excel_io import bulk_import, build_export, build_template, to_number, to_text
 from app.utils.exceptions import BadRequestError, NotFoundError
@@ -90,6 +93,22 @@ EXPORT_COLUMNS = [
     ("Status", "status"), ("Last Counted", "last_counted_at"),
 ]
 
+# The ledger types the ERP stock-write push sends (the stock movements; OPENING
+# and ADJUSTMENT are the store's own counts, not movements ERP must mirror).
+ERP_PUSH_TYPES = ("ISSUE", "RECEIPT", "RETURN")
+
+
+def _clean(value):
+    """Trimmed text or None — a blank field is "not given", never an empty value."""
+    return (value or "").strip() or None
+
+
+# "The caller did not mention this field" for confirm_installation's place
+# fields. None cannot mean that: an operator who empties Die (the part moved to
+# a machine with no die) sends null to CLEAR it, and treating that as "keep"
+# would leave the old die on the issue and in the journal as its current place.
+_KEEP = object()
+
 
 class SpareStockService:
     def __init__(self):
@@ -97,16 +116,21 @@ class SpareStockService:
         self.ledger_repo = SpareStockLedgerRepository()
         self.part_repo = PartRepository()
         self.erp_repo = ERPStockRepository()
+        self.journal = SpareJournalService()
 
     # ---- movement ----
 
     def _write(self, part_id, new_qty, txn_type, reference=None, remarks=None,
                user=None, counted=False, department=None, machine=None,
-               returnable=False, return_of_id=None, extra=None):
+               returnable=False, return_of_id=None, extra=None, return_ledger=False):
         """Set a part's quantity and record why, in one go. The ledger row and
         the maintained qty are written together — a balance that moved with no
         row to explain it is worse than no history at all. `extra` carries the
-        two-stage-issue / structured-receiving columns onto the ledger row."""
+        two-stage-issue / structured-receiving columns onto the ledger row.
+
+        Returns (stock_row, delta). With return_ledger=True it returns
+        (stock_row, delta, ledger_row) — the row a journal entry or a document
+        points at (None for a zero-delta write, which records no row)."""
         row = self.repo.get_or_create(part_id)
         before = float(row.qty_on_hand or 0)
         delta = round(new_qty - before, 2)
@@ -118,8 +142,9 @@ class SpareStockService:
         # An import that re-states the same figure is not a movement. Writing a
         # zero-delta row for all 481 parts on every upload would bury the real
         # ones within a week.
+        ledger = None
         if delta != 0:
-            self.ledger_repo.create(
+            ledger = self.ledger_repo.create(
                 part_id=part_id, qty_delta=delta, balance_after=new_qty,
                 txn_type=txn_type, reference=reference, remarks=remarks,
                 created_by=user, department=department, machine=machine,
@@ -130,7 +155,23 @@ class SpareStockService:
         # and flag the session so they are dropped again after the commit.
         _STOCK_CACHE.clear()
         db.session.info["spare_stock_dirty"] = True
+        if return_ledger:
+            return row, delta, ledger
         return row, delta
+
+    @staticmethod
+    def _lock(model, row_id):
+        """Take the database write lock before a re-check that must not race.
+
+        SQLite serialises writers, but a plain SELECT holds no lock: two
+        requests can both read "3 still out" and both act on it. Touching the
+        row first (its updated_at) makes this transaction the writer, so what it
+        reads next is what is committed, and a concurrent request waits
+        (busy_timeout) and then reads this one's result. On a server database
+        the same UPDATE is a row lock. Call it first inside `with atomic():`,
+        then refresh any row already loaded before it."""
+        db.session.query(model).filter(model.id == row_id).update(
+            {model.updated_at: utcnow()}, synchronize_session=False)
 
     def set_quantity(self, part_id, qty, txn_type="ADJUSTMENT", reference=None,
                      remarks=None, user=None):
@@ -157,14 +198,20 @@ class SpareStockService:
         return names or set(DEPARTMENTS)
 
     def issue(self, part_id, qty, department, machine=None, returnable=False,
-              reference=None, remarks=None, user=None, issued_to=None, status=None):
+              reference=None, remarks=None, user=None, issued_to=None, status=None,
+              scanned_code=None, scan_source=None):
         """Stage 1 of the two-stage issue: the store issues a spare to a
         department + person. Machine/line are NOT required here — the store may
         not know where it will be fitted; the user confirms those later
         (confirm_installation). Deducts on-hand, writes an ISSUE ledger row, and
         refuses to issue more than is on the shelf. Department is validated
         against the live master, so a newly-added department works with no code
-        change."""
+        change.
+
+        The ISSUE ledger row is the issue document every later step points at
+        (installation updates, returns), so the journal ISSUE row carries its id
+        as both issue_id and ledger_id, and the result hands the row back as
+        `issue` — the screen never has to guess which row it just created."""
         part = self.part_repo.get_by_id(part_id)
         if not part:
             raise NotFoundError(f"Part {part_id} not found")
@@ -175,58 +222,124 @@ class SpareStockService:
             raise BadRequestError("Issue quantity must be greater than zero")
         if department not in self._valid_department_names():
             raise BadRequestError(f"Unknown department '{department}'")
-        machine = (machine or "").strip() or None
-        issued_to = (issued_to or "").strip() or None
+        machine = _clean(machine)
+        issued_to = _clean(issued_to)
         status = status or "PENDING_USER_CONFIRMATION"
         with atomic():
             row = self.repo.get_or_create(part.id)
+            # Lock, then re-read on-hand, so two terminals can't both issue the
+            # last pieces on the shelf.
+            self._lock(SpareStock, row.id)
+            db.session.refresh(row)
             on_hand = float(row.qty_on_hand or 0)
             if qty > on_hand:
                 raise BadRequestError(f"Cannot issue {qty:g}: only {on_hand:g} on hand")
-            row, _ = self._write(
+            row, _, ledger = self._write(
                 part.id, round(on_hand - qty, 2), "ISSUE",
                 reference=reference, remarks=remarks, user=user,
                 department=department, machine=machine, returnable=bool(returnable),
                 extra={"issued_to": issued_to, "status": status},
+                return_ledger=True,
             )
-        return self._row_dict(part, row)
+            self.journal.record(
+                part.id, "ISSUE", qty, store_code=part.store_code, user=user,
+                new_status=status, from_bucket="AVAILABLE", to_bucket="ISSUED",
+                issue_id=ledger.id, ledger_id=ledger.id,
+                department=department, issued_to=issued_to, machine=machine,
+                remarks=remarks, scanned_code=_clean(scanned_code), scan_source=_clean(scan_source),
+            )
+        result = self._row_dict(part, row)
+        result["issue"] = self._issue_row_dict(ledger)
+        return result
 
-    def confirm_installation(self, ledger_id, line_name=None, line_no=None,
-                             machine=None, actual_qty=None, user=None, remarks=None):
-        """Stage 2: the user who fitted the part re-scans it and records WHERE it
-        went — production line + machine + how many were actually used +
-        installation confirmation. Enriches the same ISSUE row (no stock moves;
-        the quantity was already deducted at issue). Store issue details are
-        preserved."""
+    def confirm_installation(self, ledger_id, line_name=_KEEP, line_no=_KEEP,
+                             machine=_KEEP, actual_qty=None, user=None, remarks=None,
+                             die_no=_KEEP):
+        """Stage 2 and every "Update Line / Machine" after it (spec 11/12): the
+        person who fitted the part records WHERE it is — line, machine, die —
+        and how much of what is still out was actually used.
+
+        Repeatable while the issue is not cancelled and something of it is
+        still out (issued - returned > 0): a part can move to another machine
+        or die, and the store needs its latest place. The ISSUE row holds the
+        CURRENT values; each update also appends an INSTALLATION journal row
+        with the previous / new status and the line / machine / die in force
+        after it, so an earlier location is never lost.
+
+        A place field left out keeps its current value (the fitter re-confirms
+        what did not change); one passed as None or blank CLEARS it — a part
+        moved to a machine with no die must not keep showing the old die, and
+        a wrongly entered line or machine must be removable. Status follows the
+        latest update: INSTALLED when everything still out was used, else
+        PARTIALLY_USED. No stock moves — the quantity left available at issue."""
+        from app.models.spare_stock import SpareStockLedger
         row = self.ledger_repo.get_by_id(ledger_id)
         if not row or row.txn_type != "ISSUE":
             raise NotFoundError(f"Issue {ledger_id} not found")
-        if row.status in ("INSTALLED", "PARTIALLY_USED", "CANCELLED", "RETURNED"):
-            raise BadRequestError(f"This issue is already {row.status.lower().replace('_', ' ')}")
+        if row.status == "CANCELLED":
+            raise BadRequestError("This issue was cancelled")
+        part = row.part
+        if part is not None and not part.is_active:
+            raise BadRequestError(f"Part '{part.part_no}' is inactive")
+        place = {"line_name": line_name, "line_no": line_no,
+                 "machine": machine, "die_no": die_no}
+        remarks = _clean(remarks)
         issued_qty = abs(float(row.qty_delta))
-        used = float(actual_qty) if actual_qty is not None else issued_qty
-        if used < 0 or used > issued_qty:
-            raise BadRequestError(f"Actual usage must be between 0 and {issued_qty:g}")
-        line_name = (line_name or "").strip() or None
-        line_no = (line_no or "").strip() or None
-        machine = (machine or "").strip() or row.machine
-        new_status = "INSTALLED" if used >= issued_qty else "PARTIALLY_USED"
-        self.ledger_repo.update(
-            row, line_name=line_name, line_no=line_no, machine=machine,
-            actual_qty=round(used, 2), confirmed_by=user, confirmed_at=utcnow(),
-            status=new_status,
-            remarks=(remarks.strip() if remarks and remarks.strip() else row.remarks),
-        )
-        return self._issue_row_dict(row)
+        with atomic():
+            # Lock, then re-read: a return landing at the same moment must not
+            # let this update claim quantity that already came back.
+            self._lock(SpareStockLedger, row.id)
+            db.session.refresh(row)
+            if row.status == "CANCELLED":
+                raise BadRequestError("This issue was cancelled")
+            outstanding = round(issued_qty - self._returned_qty(row.id), 2)
+            if outstanding <= 0:
+                raise BadRequestError("Nothing of this issue is still out — it has all been returned")
+            used = outstanding if actual_qty is None else round(float(actual_qty), 2)
+            if used < 0 or used > outstanding:
+                raise BadRequestError(
+                    f"Actual usage must be between 0 and {outstanding:g} (still out on this issue)")
+            prev_status = row.status
+            new_status = "INSTALLED" if used >= outstanding else "PARTIALLY_USED"
+            # Resolved after the re-read, so a field kept is the value committed
+            # now, not one a concurrent update has since replaced.
+            current = {k: (getattr(row, k) if v is _KEEP else _clean(v))
+                       for k, v in place.items()}
+            self.ledger_repo.update(
+                row, **current,
+                actual_qty=used, confirmed_by=user, confirmed_at=utcnow(),
+                status=new_status, remarks=remarks or row.remarks,
+            )
+            self.journal.record(
+                row.part_id, "INSTALLATION", used,
+                store_code=part.store_code if part else None, user=user,
+                prev_status=prev_status, new_status=new_status, issue_id=row.id,
+                department=row.department, issued_to=row.issued_to,
+                line_name=row.line_name, line_no=row.line_no, machine=row.machine,
+                die_no=row.die_no, remarks=remarks,
+            )
+        result = self._issue_row_dict(row)
+        result.update({"returned_qty": round(issued_qty - outstanding, 2),
+                       "outstanding_qty": outstanding})
+        return result
 
     def receive(self, part_id, qty, reference=None, remarks=None, user=None,
                 supplier_id=None, invoice_no=None, invoice_date=None,
-                check_result=None, department=None, status=None):
-        """Physically receive spare stock into the store — a RECEIPT that adds to
-        on-hand. Spare receiving is deliberately direct: NO RQC and NO
-        Pending-Put-Away. The structured fields (supplier / invoice / physical
-        check / responsible section) are all optional, so the plain 'qty +
-        reference' call still works exactly as before."""
+                check_result=None, department=None, ven_cd=None, ven_name=None,
+                supplier_source=None, scanned_code=None, scan_source=None):
+        """Physically receive supplier material (spec 1 / 9). This adds NO
+        stock: it records a receipt (SpareReceiptService) that waits for the
+        supervisor's ERP GRN and the Maintenance / Tool Room quality clearance,
+        and only that clearance puts the accepted quantity on the shelf. Kept so
+        the older direct-receive callers land in the same flow instead of adding
+        stock that quality never saw.
+
+        The older free-text `reference` and responsible `department` have no
+        column on a receipt (who inspects is chosen at the GRN step), so when
+        given they are kept word for word in the receipt remarks rather than
+        dropped or guessed into another field. The result is the part's stock
+        row (unchanged) plus `receipt`, the document now waiting for its GRN."""
+        from app.services.spare_receipt_service import SpareReceiptService
         part = self.part_repo.get_by_id(part_id)
         if not part:
             raise NotFoundError(f"Part {part_id} not found")
@@ -239,22 +352,24 @@ class SpareStockService:
                 raise BadRequestError(f"check_result must be one of {list(CHECK_RESULTS)}")
         if department and department not in self._valid_department_names():
             raise BadRequestError(f"Unknown department '{department}'")
-        extra = {
-            "status": status or "PHYSICALLY_RECEIVED",
-            "supplier_id": supplier_id,
-            "invoice_no": (invoice_no or "").strip() or None,
-            "invoice_date": invoice_date,
-            "check_result": check_result or None,
-        }
-        with atomic():
-            row = self.repo.get_or_create(part.id)
-            new_qty = round(float(row.qty_on_hand or 0) + qty, 2)
-            row, _ = self._write(
-                part.id, new_qty, "RECEIPT",
-                reference=reference, remarks=remarks, user=user,
-                department=department, extra=extra,
-            )
-        return self._row_dict(part, row)
+        notes = (f"Ref {_clean(reference)}" if _clean(reference) else None,
+                 f"Dept {department}" if department else None,
+                 _clean(remarks))
+        receipt_remarks = " · ".join(n for n in notes if n)[:255] or None
+
+        receipts = SpareReceiptService()
+        receipt = receipts.receive(
+            part.id, round(qty, 2), user=user, supplier_id=supplier_id,
+            ven_cd=ven_cd, ven_name=ven_name, supplier_source=supplier_source,
+            invoice_no=invoice_no, invoice_date=invoice_date,
+            check_result=check_result or None, remarks=receipt_remarks,
+            scanned_code=scanned_code, scan_source=scan_source,
+        )
+        if not isinstance(receipt, dict):
+            receipt = receipts.to_dict(receipt)
+        result = self._row_dict(part, self.repo.get_by_part(part.id))
+        result["receipt"] = receipt
+        return result
 
     def update_location(self, part_id, new_location, reason=None, qty=None, user=None):
         """Move a spare to a new rack/shelf. Records the old + new location in the
@@ -325,142 +440,109 @@ class SpareStockService:
         } for r in rows]
 
     @staticmethod
-    def _consumed_qty(issue_row):
-        """How much of an ISSUE has been physically consumed (fitted) and so can
-        never come back. A confirmed installation records actual_qty; an
-        INSTALLED row with no figure is taken as fully used. Anything not yet
-        confirmed has consumed nothing."""
+    def _installed_qty(issue_row):
+        """How much of an ISSUE the fitter recorded as used on the line — for
+        display only. An INSTALLED row with no figure counts as fully used.
+        It no longer limits a return: an installed part can be removed from the
+        machine and sent back, so "still out" is issued - returned."""
         issued = abs(float(issue_row.qty_delta))
         if issue_row.status in ("INSTALLED", "PARTIALLY_USED") and issue_row.actual_qty is not None:
-            return min(float(issue_row.actual_qty), issued)
+            return round(min(float(issue_row.actual_qty), issued), 2)
         if issue_row.status == "INSTALLED":
             return issued
         return 0.0
 
-    def _returned_qty(self, ledger_id):
-        """Quantity already returned against one ISSUE — the sum of its RETURN
-        rows, so a second slip only credits what is still out."""
-        from sqlalchemy import func
-        from app.models.spare_stock import SpareStockLedger
-        total = (
-            db.session.query(func.coalesce(func.sum(func.abs(SpareStockLedger.qty_delta)), 0))
-            .filter(SpareStockLedger.return_of_id == ledger_id,
-                    SpareStockLedger.txn_type == "RETURN")
-            .scalar()
-        )
-        return round(float(total or 0), 2)
+    @staticmethod
+    def _returned_qty_map(issue_ids):
+        """{issue_id: quantity returned against it}, in a few set queries — the
+        one rule behind every "still out" figure (outstanding = issued -
+        returned):
 
-    def _next_return_no(self):
-        """A human-readable slip number, RET-YYYYMMDD-NNN, sequential within the
-        day. Derived from the highest slip already raised today so a restart
-        never reuses a number."""
+        * every return raised against the issue (spare_returns.qty), whatever
+          its inspection later decided — the part is back in the store;
+        * legacy direct RETURN ledger rows, written before returns went through
+          inspection. A RETURN row written by a GOOD inspection
+          (RETURN_ROW_INSPECTED) is quantity already counted from its return,
+          so it is not summed a second time."""
+        from sqlalchemy import func, or_
+        from app.models.spare_flow import SpareReturn
         from app.models.spare_stock import SpareStockLedger
-        stamp = datetime.now().strftime("%Y%m%d")
-        prefix = f"RET-{stamp}-"
-        last = (
-            db.session.query(SpareStockLedger.return_no)
-            .filter(SpareStockLedger.return_no.like(f"{prefix}%"))
-            .order_by(SpareStockLedger.return_no.desc())
-            .first()
-        )
-        seq = 1
-        if last and last[0]:
-            try:
-                seq = int(last[0].rsplit("-", 1)[1]) + 1
-            except (ValueError, IndexError):
-                seq = 1
-        return f"{prefix}{seq:03d}"
+
+        ids = sorted({i for i in (issue_ids or ()) if i is not None})
+        out = {i: 0.0 for i in ids}
+        # Chunked so a long list stays under SQLite's bound-parameter limit.
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            returns = (db.session.query(SpareReturn.issue_id, func.sum(SpareReturn.qty))
+                       .filter(SpareReturn.issue_id.in_(chunk))
+                       .group_by(SpareReturn.issue_id))
+            legacy = (db.session.query(SpareStockLedger.return_of_id,
+                                       func.sum(func.abs(SpareStockLedger.qty_delta)))
+                      .filter(SpareStockLedger.return_of_id.in_(chunk),
+                              SpareStockLedger.txn_type == "RETURN",
+                              # NULL status = a legacy direct return; `!=` alone
+                              # would drop it (NULL never compares true).
+                              or_(SpareStockLedger.status.is_(None),
+                                  SpareStockLedger.status != RETURN_ROW_INSPECTED))
+                      .group_by(SpareStockLedger.return_of_id))
+            for issue_id, total in (*returns.all(), *legacy.all()):
+                out[issue_id] += float(total or 0)
+        return {k: round(v, 2) for k, v in out.items()}
+
+    @staticmethod
+    def _returned_qty(issue_id):
+        """Quantity already returned against one ISSUE (see _returned_qty_map)."""
+        return SpareStockService._returned_qty_map([issue_id]).get(issue_id, 0.0)
 
     def return_item(self, ledger_id, qty=None, reason=None, note=None,
-                    returned_by=None, user=None):
-        """Take an issued part back on a store return slip. Works for ANY issue,
-        not just a returnable tool/die: a part the user department could not fit
-        and sent back is the main case. Adds the returned quantity to on-hand,
-        writes a RETURN ledger row carrying the slip number + reason + who
-        returned it, and closes (or partly closes) the ISSUE it came from.
+                    returned_by=None, user=None, scanned_code=None, scan_source=None):
+        """Take an issued part back to the store against its ORIGINAL issue
+        (spec 13). Works for ANY issue, not just a returnable tool/die, and an
+        installed part may come back too (removed from the machine).
 
-        Partial returns are allowed — several slips can draw down one issue — and
-        nothing already fitted (consumed) or already returned can be credited
-        again, so stock is never invented."""
-        from app.models.spare_stock import SpareStockLedger
-        issue_row = self.ledger_repo.get_by_id(ledger_id)
-        if not issue_row or issue_row.txn_type != "ISSUE":
-            raise BadRequestError("That is not an issue that can be returned")
-        if issue_row.status == "CANCELLED":
-            raise BadRequestError("This issue was cancelled and cannot be returned")
-        part = issue_row.part
-        issued_qty = abs(float(issue_row.qty_delta))
-        consumed = self._consumed_qty(issue_row)
-        outstanding = round(issued_qty - consumed - self._returned_qty(ledger_id), 2)
-        if outstanding <= 0:
-            raise BadRequestError("Nothing left to return on this issue")
-
-        qty_back = outstanding if qty is None else round(float(qty), 2)
-        if qty_back <= 0:
-            raise BadRequestError("Return quantity must be greater than zero")
-        if qty_back > outstanding:
-            raise BadRequestError(f"Cannot return {qty_back:g}: only {outstanding:g} still out")
-
-        reason = (reason or "").strip() or "Returned to store"
-        returned_by = (returned_by or "").strip() or None
-        remarks = (note or "").strip() or reason
-        with atomic():
-            # Re-check outstanding inside the transaction so two concurrent slips
-            # can't both credit the same quantity.
-            outstanding = round(issued_qty - consumed - self._returned_qty(ledger_id), 2)
-            if qty_back > outstanding:
-                raise BadRequestError(f"Cannot return {qty_back:g}: only {outstanding:g} still out")
-            return_no = self._next_return_no()
-            row = self.repo.get_or_create(issue_row.part_id)
-            new_qty = round(float(row.qty_on_hand or 0) + qty_back, 2)
-            row, _ = self._write(
-                issue_row.part_id, new_qty, "RETURN",
-                reference=issue_row.reference, remarks=remarks, user=user,
-                department=issue_row.department, machine=issue_row.machine,
-                return_of_id=ledger_id,
-                extra={"return_no": return_no, "return_reason": reason,
-                       "returned_by": returned_by},
-            )
-            # Fully back (nothing outstanding left) closes the issue out as
-            # RETURNED so it drops off the Stage-2 confirmation queue; a partial
-            # return marks it PARTIALLY_RETURNED and leaves the remainder out.
-            new_status = "RETURNED" if qty_back >= outstanding else "PARTIALLY_RETURNED"
-            self.ledger_repo.update(issue_row, status=new_status)
-        result = self._row_dict(part, row)
-        result.update({"return_no": return_no, "returned_qty": qty_back,
-                       "issue_id": ledger_id, "issue_status": new_status})
+        Nothing returned goes straight back on the shelf any more (spec 14): the
+        return is held for the store inspection (SpareReturnService), and only a
+        GOOD inspection adds it to available stock — on-hand is unchanged here.
+        The ISSUE becomes RETURNED when nothing is left out, else
+        PARTIALLY_RETURNED. The result keeps the older keys (the stock row,
+        return_no, returned_qty, issue_id, issue_status) for the screens that
+        read them, plus `return`: the return document waiting for inspection."""
+        from app.services.spare_return_service import SpareReturnService
+        ret = SpareReturnService().return_to_store(
+            ledger_id, qty=qty, reason=reason, note=note, returned_by=returned_by,
+            user=user, scanned_code=scanned_code, scan_source=scan_source,
+        )
+        part = self.part_repo.get_by_id(ret["part_id"])
+        result = self._row_dict(part, self.repo.get_by_part(part.id))
+        result.update({"return_no": ret["return_no"], "returned_qty": ret["qty"],
+                       "issue_id": ledger_id, "issue_status": ret["issue_status"],
+                       "return": ret})
         return result
 
     def returnable_issues_for_part(self, part_id):
-        """Issues of this part that still have stock out on the floor — what the
-        store picks from when a department brings a part back. Every ISSUE with a
-        positive outstanding quantity (issued, minus what was fitted, minus what
-        has already been returned), newest first. Covers ordinary issues, not
-        only returnable tools."""
+        """Issues of this part with something still out — what the store picks
+        from when a department brings a part back (spec 13: a return is recorded
+        against its ORIGINAL issue). Outstanding = issued - returned; an
+        installed part still counts as out, since it can be removed from the
+        machine and sent back. Newest first; ordinary issues, not only
+        returnable tools. Carries the issue's current line / machine / die and
+        installation so the return screen shows where the part came from."""
         from app.models.spare_stock import SpareStockLedger
-        issues = (
-            SpareStockLedger.query.filter(
+        issues = [
+            i for i in SpareStockLedger.query.filter(
                 SpareStockLedger.part_id == part_id,
                 SpareStockLedger.txn_type == "ISSUE",
             ).order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc()).all()
-        )
-        # One pass over this part's RETURN rows, summed per issue, so the list
-        # doesn't fire a query per issue.
-        returned_by_issue = {}
-        for r in (SpareStockLedger.query.filter(
-                SpareStockLedger.part_id == part_id,
-                SpareStockLedger.txn_type == "RETURN",
-                SpareStockLedger.return_of_id.isnot(None)).all()):
-            returned_by_issue[r.return_of_id] = returned_by_issue.get(r.return_of_id, 0.0) + abs(float(r.qty_delta))
+            if i.status != "CANCELLED"
+        ]
+        # Returned quantities for all of them at once, not a query per issue.
+        returned = self._returned_qty_map([i.id for i in issues])
 
         out = []
         for i in issues:
-            if i.status == "CANCELLED":
-                continue
             issued_qty = abs(float(i.qty_delta))
-            consumed = self._consumed_qty(i)
-            already = round(returned_by_issue.get(i.id, 0.0), 2)
-            outstanding = round(issued_qty - consumed - already, 2)
+            already = returned.get(i.id, 0.0)
+            outstanding = round(issued_qty - already, 2)
             if outstanding <= 0:
                 continue
             out.append({
@@ -469,29 +551,36 @@ class SpareStockService:
                 "part_no": i.part.part_no if i.part else None,
                 "part_name": i.part.part_name if i.part else None,
                 "issued_qty": issued_qty,
-                "consumed_qty": round(consumed, 2),
+                # Kept for the screens that show "N fitted"; informational only
+                # (see _installed_qty) — it no longer reduces what can come back.
+                "consumed_qty": self._installed_qty(i),
+                "actual_qty": float(i.actual_qty) if i.actual_qty is not None else None,
                 "returned_qty": already,
                 "outstanding_qty": outstanding,
                 "department": i.department,
                 "issued_to": i.issued_to,
+                "line_name": i.line_name,
+                "line_no": i.line_no,
                 "machine": i.machine,
+                "die_no": i.die_no,
                 "returnable": bool(i.returnable),
                 "status": i.status,
                 "reference": i.reference,
                 "issued_by": i.created_by,
                 "issued_at": i.created_at.isoformat() if i.created_at else None,
+                "confirmed_by": i.confirmed_by,
+                "confirmed_at": i.confirmed_at.isoformat() if i.confirmed_at else None,
             })
         return out
 
     def outstanding_returnables(self, store_code):
         """Returnable tools/dies still out on the floor — every returnable ISSUE
-        that no RETURN has closed out yet, newest first."""
-        from app.extensions import db
+        (not cancelled) with something not yet returned, newest first. A partial
+        return leaves the rest outstanding (the first RETURN used to close the
+        whole issue), and a return counts as back even while it waits for
+        inspection: the tool is in the store then, not on the floor."""
+        from sqlalchemy import or_
         from app.models.spare_stock import SpareStockLedger
-        returned = (
-            db.session.query(SpareStockLedger.return_of_id)
-            .filter(SpareStockLedger.return_of_id.isnot(None))
-        )
         rows = (
             db.session.query(SpareStockLedger)
             .join(Part, Part.id == SpareStockLedger.part_id)
@@ -499,21 +588,37 @@ class SpareStockService:
                 Part.store_code == store_code,
                 SpareStockLedger.txn_type == "ISSUE",
                 SpareStockLedger.returnable.is_(True),
-                SpareStockLedger.id.notin_(returned),
+                or_(SpareStockLedger.status.is_(None), SpareStockLedger.status != "CANCELLED"),
             )
             .order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc())
             .all()
         )
-        return [{
-            "id": r.id,
-            "part_no": r.part.part_no if r.part else None,
-            "part_name": r.part.part_name if r.part else None,
-            "qty": abs(float(r.qty_delta)),
-            "department": r.department,
-            "machine": r.machine,
-            "reference": r.reference,
-            "issued_at": r.created_at.isoformat() if r.created_at else None,
-        } for r in rows]
+        returned = self._returned_qty_map([r.id for r in rows])
+        out = []
+        for r in rows:
+            issued_qty = abs(float(r.qty_delta))
+            outstanding = round(issued_qty - returned.get(r.id, 0.0), 2)
+            if outstanding <= 0:
+                continue
+            out.append({
+                "id": r.id,
+                "part_id": r.part_id,
+                "part_no": r.part.part_no if r.part else None,
+                "part_name": r.part.part_name if r.part else None,
+                "qty": issued_qty,
+                "issued_qty": issued_qty,
+                "returned_qty": returned.get(r.id, 0.0),
+                "outstanding_qty": outstanding,
+                "department": r.department,
+                "issued_to": r.issued_to,
+                "line_name": r.line_name,
+                "machine": r.machine,
+                "die_no": r.die_no,
+                "status": r.status,
+                "reference": r.reference,
+                "issued_at": r.created_at.isoformat() if r.created_at else None,
+            })
+        return out
 
     # ---- reading ----
 
@@ -567,7 +672,7 @@ class SpareStockService:
     @staticmethod
     def _issue_row_dict(row):
         """One ISSUE row with its two-stage detail — used by the confirmation
-        queue and the confirm response."""
+        queue, the issue response and the installation-update response."""
         return {
             "id": row.id,
             "part_id": row.part_id,
@@ -580,6 +685,7 @@ class SpareStockService:
             "machine": row.machine,
             "line_name": row.line_name,
             "line_no": row.line_no,
+            "die_no": row.die_no,
             "status": row.status,
             "returnable": row.returnable,
             "reference": row.reference,
@@ -1353,6 +1459,26 @@ class SpareStockService:
 
     # ---- ERP outbound sync (mock-now / real-later) ----
 
+    @staticmethod
+    def _erp_pending_filter():
+        """Filter clauses for the movements still waiting to push to ERP — one
+        definition shared by the count, the drill list and the sync, so the
+        three always agree. A RECEIPT whose status is in
+        ERP_ORIGIN_RECEIPT_STATUSES (a quality clearance or an RGP GRN) is left
+        out: its stock-in already happened in ERP through the supervisor's GRN,
+        and pushing it would add it a second time. Legacy RECEIPT rows (other
+        or no status) still count."""
+        from sqlalchemy import or_
+        from app.models.spare_stock import SpareStockLedger
+        return (
+            SpareStockLedger.txn_type.in_(ERP_PUSH_TYPES),
+            SpareStockLedger.erp_pushed_at.is_(None),
+            # NULL-safe: `status NOT IN (...)` alone would drop NULL-status rows.
+            or_(SpareStockLedger.txn_type != "RECEIPT",
+                SpareStockLedger.status.is_(None),
+                SpareStockLedger.status.notin_(ERP_ORIGIN_RECEIPT_STATUSES)),
+        )
+
     def pending_erp_count(self, store_code):
         """How many stock movements are waiting to be pushed to ERP."""
         from app.extensions import db
@@ -1361,9 +1487,7 @@ class SpareStockService:
         return (
             db.session.query(func.count(SpareStockLedger.id))
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code,
-                    SpareStockLedger.txn_type.in_(("ISSUE", "RECEIPT", "RETURN")),
-                    SpareStockLedger.erp_pushed_at.is_(None))
+            .filter(Part.store_code == store_code, *self._erp_pending_filter())
             .scalar() or 0
         )
 
@@ -1390,7 +1514,8 @@ class SpareStockService:
         oldest first, stamping erp_pushed_at on each success. Writing needs BOTH
         ERP_STOCK_WRITE_ENABLED and ERP_API_BASE_URL; until then nothing is
         pushed and the movements stay pending — run this again once ERP is
-        approved + configured and it clears the backlog."""
+        approved + configured and it clears the backlog. Receipts that came in
+        through an ERP GRN are never pushed (see _erp_pending_filter)."""
         from app.extensions import db
         from app.models.base import utcnow
         from app.models.spare_stock import SpareStockLedger
@@ -1399,9 +1524,7 @@ class SpareStockService:
         rows = (
             db.session.query(SpareStockLedger)
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code,
-                    SpareStockLedger.txn_type.in_(("ISSUE", "RECEIPT", "RETURN")),
-                    SpareStockLedger.erp_pushed_at.is_(None))
+            .filter(Part.store_code == store_code, *self._erp_pending_filter())
             .order_by(SpareStockLedger.id.asc())
             .all()
         )
@@ -1463,9 +1586,7 @@ class SpareStockService:
         q = (
             db.session.query(SpareStockLedger)
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code,
-                    SpareStockLedger.txn_type.in_(("ISSUE", "RECEIPT", "RETURN")),
-                    SpareStockLedger.erp_pushed_at.is_(None))
+            .filter(Part.store_code == store_code, *self._erp_pending_filter())
             .order_by(SpareStockLedger.id.asc())
         )
         if limit:
@@ -1519,6 +1640,7 @@ class SpareStockService:
             "machine": e.machine,
             "line_name": e.line_name,
             "line_no": e.line_no,
+            "die_no": e.die_no,
             "actual_qty": float(e.actual_qty) if e.actual_qty is not None else None,
             "invoice_no": e.invoice_no,
             "invoice_date": e.invoice_date.isoformat() if e.invoice_date else None,

@@ -127,48 +127,63 @@ def test_stage2_partial_usage_marks_partially_used():
     assert res["actual_qty"] == 4.0
 
 
-def test_cannot_confirm_twice():
+def test_installation_update_is_repeatable_and_keeps_history():
+    """"Update Line / Machine" (spec 11/12): a part can move to another machine;
+    the ISSUE row shows the latest place and the journal keeps every one — the
+    earlier location is never overwritten out of history (audit finding)."""
+    from app.models.spare_flow import SpareTransaction
     svc = SpareStockService()
     p = _part(); _stock(p.id, 10)
     svc.issue(p.id, 2, "Maintenance")
     lid = _issue_row(p.id).id
-    svc.confirm_installation(lid, machine="MC-1")
-    with pytest.raises(BadRequestError):
-        svc.confirm_installation(lid, machine="MC-1")
+    svc.confirm_installation(lid, machine="MC-1", user="fitter1")
+    res = svc.confirm_installation(lid, machine="MC-5", die_no="DIE-12", user="fitter2")
+    assert res["machine"] == "MC-5" and res["die_no"] == "DIE-12"
+    assert res["confirmed_by"] == "fitter2" and res["status"] == "INSTALLED"
+    rows = (SpareTransaction.query.filter_by(issue_id=lid, txn_type="INSTALLATION")
+            .order_by(SpareTransaction.id).all())
+    assert [r.machine for r in rows] == ["MC-1", "MC-5"]
+    assert [(r.prev_status, r.new_status) for r in rows] == [
+        ("PENDING_USER_CONFIRMATION", "INSTALLED"), ("INSTALLED", "INSTALLED")]
 
 
-def test_cannot_reconfirm_partially_used():
-    """A partially-used issue is terminal too — re-confirming it would silently
-    overwrite the recorded line/machine/actual_qty (audit finding)."""
+def test_reconfirming_partially_used_updates_the_current_usage():
+    """A partially-used issue can be updated again (more of it fitted later);
+    usage stays capped at what is still out."""
     svc = SpareStockService()
     p = _part(); _stock(p.id, 10)
     svc.issue(p.id, 6, "Tool Room")
     lid = _issue_row(p.id).id
-    svc.confirm_installation(lid, machine="MC-2", actual_qty=4)   # -> PARTIALLY_USED
-    with pytest.raises(BadRequestError):
-        svc.confirm_installation(lid, machine="MC-2", actual_qty=5)
+    assert svc.confirm_installation(lid, machine="MC-2", actual_qty=4)["status"] == "PARTIALLY_USED"
+    res = svc.confirm_installation(lid, actual_qty=6)          # machine left out keeps MC-2
+    assert res["status"] == "INSTALLED" and res["actual_qty"] == 6.0
+    assert res["machine"] == "MC-2"
+    with pytest.raises(BadRequestError):                        # more than was issued
+        svc.confirm_installation(lid, actual_qty=7)
 
 
-# ---- returnable guards (audit: double-return / return-after-install) ----
+# ---- returnable guards (audit: double-return) ----
 
 def test_returnable_double_return_rejected():
     svc = SpareStockService()
     p = _part(); _stock(p.id, 5)
     svc.issue(p.id, 1, "Tool Room", returnable=True)
     lid = _issue_row(p.id).id
-    svc.return_item(lid)                       # first return credits the shelf
-    with pytest.raises(BadRequestError):       # second return must not double-credit
+    svc.return_item(lid)                       # first return is held for inspection
+    with pytest.raises(BadRequestError):       # a second return must not count it again
         svc.return_item(lid)
 
 
-def test_installed_returnable_cannot_be_returned():
+def test_installed_returnable_can_be_returned():
+    """A fitted tool can be removed from the machine and brought back."""
     svc = SpareStockService()
     p = _part(); _stock(p.id, 5)
     svc.issue(p.id, 1, "Tool Room", returnable=True)
     lid = _issue_row(p.id).id
     svc.confirm_installation(lid, machine="MC-1")   # -> INSTALLED
-    with pytest.raises(BadRequestError):
-        svc.return_item(lid)
+    res = svc.return_item(lid, reason="Machine Change")
+    assert res["issue_status"] == "RETURNED"
+    assert res["return"]["machine"] == "MC-1"       # where it came back from
 
 
 def test_pending_confirmations_queue():
@@ -182,16 +197,18 @@ def test_pending_confirmations_queue():
     assert not any(r["id"] == lid for r in svc.pending_confirmations("MAINTENANCE"))
 
 
-# ---- structured receiving ----
+# ---- structured receiving (now a receipt waiting for GRN + quality, spec 9) ----
 
 def test_receive_structured_fields_stored():
+    from app.models.spare_flow import SpareReceipt
     svc = SpareStockService()
     p = _part(); _stock(p.id, 0)
-    svc.receive(p.id, 8, invoice_no="INV-9", check_result="OK", reference="GRN-1")
-    row = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").first()
-    assert row.invoice_no == "INV-9"
-    assert row.check_result == "OK"
-    assert row.status == "PHYSICALLY_RECEIVED"
+    svc.receive(p.id, 8, invoice_no="INV-9", check_result="ok", reference="GRN-1", user="sup")
+    receipt = SpareReceipt.query.filter_by(part_id=p.id).one()
+    assert receipt.invoice_no == "INV-9"
+    assert receipt.check_result == "OK"
+    assert receipt.status == "RECEIVED"
+    assert not SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").count()
 
 
 def test_receive_invalid_check_result_rejected():
@@ -201,13 +218,16 @@ def test_receive_invalid_check_result_rejected():
         svc.receive(p.id, 1, check_result="BROKEN")
 
 
-def test_receive_plain_call_still_works():
-    """The simple qty+reference receive keeps working (no structured fields)."""
+def test_receive_plain_call_adds_no_stock():
+    """The simple qty+reference receive keeps working — as a receipt; the
+    shelf only grows when quality clears it."""
+    from app.models.spare_flow import SpareReceipt
+    from app.models.spare_stock import SpareStock
     svc = SpareStockService()
     p = _part(); _stock(p.id, 5)
     svc.receive(p.id, 3, reference="GRN-77")
-    from app.models.spare_stock import SpareStock
-    assert float(SpareStock.query.filter_by(part_id=p.id).first().qty_on_hand) == 8.0
+    assert float(SpareStock.query.filter_by(part_id=p.id).first().qty_on_hand) == 5.0
+    assert float(SpareReceipt.query.filter_by(part_id=p.id).one().qty_received) == 3.0
 
 
 # ---- update location + history ----
@@ -259,10 +279,14 @@ def test_two_stage_via_routes(client):
                     json={"qty": 2, "department": "Maintenance", "issued_to": "Vijay"})
     assert r.status_code == 200
     lid = _issue_row(p.id).id
+    assert r.get_json()["data"]["issue"]["id"] == lid     # no guessing which row
     c = client.post(f"/api/v1/spare-stock/issues/{lid}/confirm",
-                    json={"line_name": "Recliner", "line_no": "L1", "machine": "MC-3"})
+                    json={"line_name": "Recliner", "line_no": "L1", "machine": "MC-3",
+                          "die_no": "DIE-7"})
     assert c.status_code == 200
-    assert c.get_json()["data"]["status"] == "INSTALLED"
+    body = c.get_json()["data"]
+    assert body["status"] == "INSTALLED" and body["die_no"] == "DIE-7"
+    assert body["outstanding_qty"] == 2.0
 
 
 def test_consumption_by_period_month_and_year():
@@ -292,11 +316,11 @@ def test_erp_write_disabled_by_default_movements_stay_pending():
     assert st["write_enabled"] is False and st["active"] is False
     p = _part(); _stock(p.id, 10)
     svc.issue(p.id, 2, "Maintenance")     # would be ERP minus
-    svc.receive(p.id, 5)                   # would be ERP plus
+    svc.receive(p.id, 5)                   # a receipt only — its stock-in comes via the ERP GRN
     res = svc.sync_pending_to_erp("MAINTENANCE")
     assert res["configured"] is False
     assert res["write_enabled"] is False   # nothing pushed — ERP untouched
-    assert res["pending"] >= 2
+    assert res["pending"] >= 1
 
 
 def test_erp_write_needs_both_flag_and_url(app):

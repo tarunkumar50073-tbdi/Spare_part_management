@@ -25,9 +25,10 @@ class SpareStockSetSchema(Schema):
 
 
 class SpareReceiveSchema(Schema):
-    """Physically receiving new stock: a positive quantity added to on-hand, plus
-    optional structured detail (supplier / invoice / physical check / responsible
-    section). No RQC and no put-away — spec-compliant for spares."""
+    """Physically receiving supplier material (spec 1 / 9): a positive quantity
+    plus optional detail (supplier / invoice / physical check / responsible
+    section). It records a receipt waiting for the ERP GRN and the quality
+    clearance — it does NOT add to on-hand (see SpareStockService.receive)."""
     class Meta:
         unknown = EXCLUDE
 
@@ -35,17 +36,25 @@ class SpareReceiveSchema(Schema):
     reference = fields.String(allow_none=True, validate=validate.Length(max=80))
     remarks = fields.String(allow_none=True, validate=validate.Length(max=255))
     supplier_id = fields.Integer(allow_none=True)
+    # An ERP vendor (gate entry / GRN) — the receipt service refuses a code ERP
+    # has never shown supplying this part.
+    ven_cd = fields.String(allow_none=True, validate=validate.Length(max=30))
+    ven_name = fields.String(allow_none=True, validate=validate.Length(max=160))
+    supplier_source = fields.String(allow_none=True, validate=validate.Length(max=20))
     invoice_no = fields.String(allow_none=True, validate=validate.Length(max=60))
     invoice_date = fields.Date(allow_none=True)
     check_result = fields.String(allow_none=True, validate=validate.OneOf(list(CHECK_RESULTS)))
     department = fields.String(allow_none=True, validate=validate.Length(max=40))
+    scanned_code = fields.String(allow_none=True, validate=validate.Length(max=80))
+    scan_source = fields.String(allow_none=True, validate=validate.Length(max=20))
 
 
 class SpareIssueSchema(Schema):
     """Stage 1 issue: a positive quantity deducted from on-hand, to a department +
     person. Machine/line are NOT captured here (the store may not know them) —
     the user confirms them later. Department is checked against the master in the
-    service."""
+    service. scanned_code / scan_source say how the part was identified (spec 24
+    audit), and go on the journal row."""
     class Meta:
         unknown = EXCLUDE
 
@@ -56,16 +65,23 @@ class SpareIssueSchema(Schema):
     returnable = fields.Boolean(load_default=False)  # a die/tool expected back
     reference = fields.String(allow_none=True, validate=validate.Length(max=80))
     remarks = fields.String(allow_none=True, validate=validate.Length(max=255))
+    scanned_code = fields.String(allow_none=True, validate=validate.Length(max=80))
+    scan_source = fields.String(allow_none=True, validate=validate.Length(max=20))
 
 
 class SpareConfirmSchema(Schema):
-    """Stage 2 confirmation by the user at the line — where the part was fitted."""
+    """Stage 2 confirmation by the user at the line — where the part was fitted
+    — and every later "Update Line / Machine" (repeatable). A place field left
+    out keeps the current value; one sent as null / blank clears it, so no
+    load_default here — the route must be able to tell the two apart.
+    actual_qty is checked against what is still out in the service."""
     class Meta:
         unknown = EXCLUDE
 
     line_name = fields.String(allow_none=True, validate=validate.Length(max=60))
     line_no = fields.String(allow_none=True, validate=validate.Length(max=30))
     machine = fields.String(allow_none=True, validate=validate.Length(max=60))
+    die_no = fields.String(allow_none=True, validate=validate.Length(max=60))
     actual_qty = fields.Decimal(allow_none=True, places=2, validate=validate.Range(min=0))
     remarks = fields.String(allow_none=True, validate=validate.Length(max=255))
 
@@ -81,11 +97,13 @@ class SpareLocationSchema(Schema):
 
 
 class SpareReturnSchema(Schema):
-    """A store return slip: a department sending an issued part back. qty is
-    optional (omitted returns the whole outstanding quantity); reason is the slip
-    reason (a RETURN_REASONS label or free text); note is any extra remark;
-    returned_by is the person who handed it over. reason stays optional so the
-    legacy one-click return of a returnable tool still works."""
+    """A part coming back to the store against its original issue (spec 13) —
+    held for the store inspection, not put back in stock. qty is optional
+    (omitted returns everything still out on the issue); reason is one of
+    RETURN_REASONS (models/spare_stock.py) or the operator's own words for
+    "Other", so it is free text up to 60 characters, not an enum; note is any
+    extra remark; returned_by is the person who handed it over. reason stays
+    optional so the legacy one-click return of a returnable tool still works."""
     class Meta:
         unknown = EXCLUDE
 
@@ -93,3 +111,5 @@ class SpareReturnSchema(Schema):
     reason = fields.String(allow_none=True, validate=validate.Length(max=60))
     note = fields.String(allow_none=True, validate=validate.Length(max=255))
     returned_by = fields.String(allow_none=True, validate=validate.Length(max=80))
+    scanned_code = fields.String(allow_none=True, validate=validate.Length(max=80))
+    scan_source = fields.String(allow_none=True, validate=validate.Length(max=20))

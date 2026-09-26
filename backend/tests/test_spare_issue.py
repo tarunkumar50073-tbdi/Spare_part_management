@@ -1,13 +1,19 @@
 """Spare issue flow (new feature): issuing a spare to a department writes an
 ISSUE ledger row tagged with the department, deducts on-hand, and feeds
 Department-wise Consumption. Refuses to over-issue below zero.
+
+Since the QR traceability flow (spec 9 / 13 / 14) a return is held for the
+store inspection — on-hand moves only when the inspection passes it as GOOD —
+and a physical receive records a receipt instead of adding stock.
 """
 import pytest
 
 from app.extensions import db
 from app.models.part import Part
+from app.models.spare_flow import SpareReceipt, SpareReturn
 from app.models.spare_stock import SpareStock, SpareStockLedger
 from app.models.user import User, UserStoreAccess
+from app.services.spare_return_service import SpareReturnService
 from app.services.spare_stock_service import SpareStockService
 from app.utils.exceptions import BadRequestError, NotFoundError
 
@@ -52,6 +58,25 @@ def test_issue_deducts_and_tags_department():
     assert row is not None
     assert float(row.qty_delta) == -5.0
     assert row.department == "Press Shop"
+
+
+def test_issue_hands_back_its_row_and_journals_it():
+    """The response carries the ISSUE row just written (the id installation and
+    return point at), and one journal ISSUE row names it as issue and ledger."""
+    from app.models.spare_flow import SpareTransaction
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 6)
+    res = svc.issue(p.id, 2, "Tool Room", issued_to="Asha", user="storekpr",
+                    scanned_code=p.part_no, scan_source="USB_SCANNER")
+    assert res["qty_on_hand"] == 4.0
+    lid = _last_issue_id(p.id)
+    assert res["issue"]["id"] == lid and res["issue"]["qty"] == 2.0
+    assert res["issue"]["status"] == "PENDING_USER_CONFIRMATION"
+    j = SpareTransaction.query.filter_by(part_id=p.id, txn_type="ISSUE").one()
+    assert (j.issue_id, j.ledger_id) == (lid, lid)
+    assert (j.from_bucket, j.to_bucket) == ("AVAILABLE", "ISSUED")
+    assert (j.department, j.issued_to, j.created_by) == ("Tool Room", "Asha", "storekpr")
+    assert (j.scanned_code, j.scan_source) == (p.part_no, "USB_SCANNER")
 
 
 def test_issue_more_than_on_hand_is_rejected():
@@ -121,14 +146,18 @@ def test_returnable_issue_is_outstanding_then_returns():
     mine = [r for r in svc.outstanding_returnables("MAINTENANCE") if r["part_no"] == p.part_no]
     assert len(mine) == 1
     assert mine[0]["machine"] == "DIE-3" and mine[0]["qty"] == 2.0
+    assert mine[0]["outstanding_qty"] == 2.0
     ledger_id = mine[0]["id"]
 
-    svc.return_item(ledger_id)                          # bring it back
-    assert _on_hand(p.id) == 10.0                        # stock restored
+    res = svc.return_item(ledger_id)                    # bring it back
+    assert _on_hand(p.id) == 8.0                         # held for inspection, not stock yet
     assert not any(r["id"] == ledger_id for r in svc.outstanding_returnables("MAINTENANCE"))
 
     with pytest.raises(BadRequestError):                # can't return twice
         svc.return_item(ledger_id)
+
+    SpareReturnService().inspect(res["return"]["id"], "GOOD", 2)
+    assert _on_hand(p.id) == 10.0                        # the inspection restores it
 
 
 def test_non_returnable_issue_is_not_outstanding():
@@ -147,29 +176,37 @@ def _last_issue_id(part_id):
 
 # ---- store return slip (a department sending an issued part back) ----
 
-def test_return_slip_returns_a_normal_non_returnable_issue():
+def test_return_goes_to_inspection_and_good_puts_it_back():
     """The user's case: an ordinary part is issued, does not fit, and the dept
-    sends it back on a return slip — even though it was never flagged returnable."""
+    sends it back — even though it was never flagged returnable. It is recorded
+    against the original issue and held for inspection (spec 13/14): on-hand
+    moves only when the inspection passes it as GOOD."""
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 10)
     svc.issue(p.id, 3, "Press Shop", returnable=False)  # a plain issue
     lid = _last_issue_id(p.id)
 
-    res = svc.return_item(lid, reason="Did not fit", returned_by="Ramesh", user="storekpr")
-    assert _on_hand(p.id) == 10.0                        # all 3 back on the shelf
+    res = svc.return_item(lid, reason="Fitment Issue", returned_by="Ramesh", user="storekpr")
+    assert _on_hand(p.id) == 7.0                         # not stock until inspected
     assert res["returned_qty"] == 3.0
-    assert res["return_no"].startswith("RET-")           # a slip number was raised
+    assert res["return_no"].startswith("RET-")           # a return number was raised
     assert res["issue_status"] == "RETURNED"
+    doc = res["return"]
+    assert doc["status"] == "INSPECTION_PENDING" and doc["qty_pending"] == 3.0
+    assert doc["issue_id"] == lid and doc["department"] == "Press Shop"
+    assert doc["reason"] == "Fitment Issue" and doc["returned_by"] == "Ramesh"
+    assert not SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RETURN").count()
+    assert db.session.get(SpareStockLedger, lid).status == "RETURNED"
 
-    ret = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RETURN").first()
+    SpareReturnService().inspect(doc["id"], "GOOD", 3, user="storekpr")
+    assert _on_hand(p.id) == 10.0                        # all 3 back on the shelf
+    ret = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RETURN").one()
     assert ret.return_no == res["return_no"]
-    assert ret.return_reason == "Did not fit"
+    assert ret.return_reason == "Fitment Issue"
     assert ret.returned_by == "Ramesh"
     assert float(ret.qty_delta) == 3.0                   # positive — stock came in
     assert ret.return_of_id == lid
-
-    issue = SpareStockLedger.query.get(lid)
-    assert issue.status == "RETURNED"
+    assert ret.status == "INSPECTED_GOOD"
 
 
 def test_partial_return_leaves_remainder_outstanding():
@@ -178,15 +215,15 @@ def test_partial_return_leaves_remainder_outstanding():
     svc.issue(p.id, 6, "Maintenance")
     lid = _last_issue_id(p.id)
 
-    r1 = svc.return_item(lid, qty=4, reason="Excess — not required")
-    assert _on_hand(p.id) == 8.0                          # 4 back
+    r1 = svc.return_item(lid, qty=4, reason="Excess / Not Required")
+    assert _on_hand(p.id) == 4.0                          # held for inspection
     assert r1["issue_status"] == "PARTIALLY_RETURNED"
 
     out = next(r for r in svc.returnable_issues_for_part(p.id) if r["id"] == lid)
     assert out["outstanding_qty"] == 2.0 and out["returned_qty"] == 4.0
 
-    r2 = svc.return_item(lid, qty=2, reason="Excess — not required")
-    assert _on_hand(p.id) == 10.0                         # remainder back
+    r2 = svc.return_item(lid, qty=2, reason="Excess / Not Required")
+    assert _on_hand(p.id) == 4.0                          # still nothing inspected
     assert r2["issue_status"] == "RETURNED"
     assert not any(r["id"] == lid for r in svc.returnable_issues_for_part(p.id))
 
@@ -199,21 +236,24 @@ def test_cannot_return_more_than_is_out():
     with pytest.raises(BadRequestError):
         svc.return_item(lid, qty=5)          # only 2 are out
     assert _on_hand(p.id) == 3.0             # nothing credited
+    assert not SpareReturn.query.filter_by(issue_id=lid).count()
 
 
-def test_installed_issue_has_nothing_to_return():
-    """A part that was actually fitted (INSTALLED) cannot be returned — crediting
-    it would invent stock that never physically came back."""
+def test_installed_issue_can_be_returned():
+    """An installed part can be removed from the machine and sent back: what is
+    still out is issued - returned, whatever was fitted. It still waits for
+    inspection before it is stock again."""
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 10)
     svc.issue(p.id, 3, "Maintenance")
     lid = _last_issue_id(p.id)
     svc.confirm_installation(lid, machine="M-1", actual_qty=3)   # all fitted
-    with pytest.raises(BadRequestError):
-        svc.return_item(lid)
+    res = svc.return_item(lid, reason="Machine Change")
+    assert res["returned_qty"] == 3.0 and res["issue_status"] == "RETURNED"
+    assert _on_hand(p.id) == 7.0
 
 
-def test_partially_used_can_return_the_unfitted_remainder():
+def test_partially_used_issue_can_return_everything_still_out():
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 10)
     svc.issue(p.id, 5, "Maintenance")
@@ -221,22 +261,24 @@ def test_partially_used_can_return_the_unfitted_remainder():
     svc.confirm_installation(lid, machine="M-2", actual_qty=2)   # 2 fitted, 3 spare
 
     out = next(r for r in svc.returnable_issues_for_part(p.id) if r["id"] == lid)
-    assert out["outstanding_qty"] == 3.0
-    res = svc.return_item(lid, reason="Did not fit")
-    assert _on_hand(p.id) == 8.0            # 10 - 5 issued + 3 returned
-    assert res["returned_qty"] == 3.0
+    assert out["outstanding_qty"] == 5.0     # fitted parts can come off the machine too
+    assert out["consumed_qty"] == 2.0 and out["actual_qty"] == 2.0   # informational
+    assert out["machine"] == "M-2"
+    res = svc.return_item(lid, reason="Fitment Issue")
+    assert res["returned_qty"] == 5.0
+    assert _on_hand(p.id) == 5.0            # 10 - 5 issued; the return waits for inspection
 
 
-def test_return_slips_get_sequential_numbers():
+def test_return_numbers_are_sequential_and_never_reused():
     svc = SpareStockService()
     a = _part(); _set_physical(a.id, 5)
     b = _part(); _set_physical(b.id, 5)
-    svc.issue(a.id, 1, "Maintenance"); svc.return_item(_last_issue_id(a.id), reason="Wrong part")
-    svc.issue(b.id, 1, "Maintenance"); n2 = svc.return_item(_last_issue_id(b.id), reason="Wrong part")["return_no"]
-    seqs = [int(r.return_no.rsplit("-", 1)[1]) for r in SpareStockLedger.query.filter(
-        SpareStockLedger.return_no.isnot(None)).all()]
-    assert len(set(seqs)) == len(seqs)      # no number reused
-    assert n2.startswith("RET-")
+    svc.issue(a.id, 1, "Maintenance"); n1 = svc.return_item(_last_issue_id(a.id), reason="Wrong Part")["return_no"]
+    svc.issue(b.id, 1, "Maintenance"); n2 = svc.return_item(_last_issue_id(b.id), reason="Wrong Part")["return_no"]
+    nos = [r.return_no for r in SpareReturn.query.all()]
+    assert len(set(nos)) == len(nos)        # no number reused
+    assert n1.startswith("RET-") and n2.startswith("RET-")
+    assert int(n2.rsplit("-", 1)[1]) > int(n1.rsplit("-", 1)[1])
 
 
 def test_cancelled_issue_cannot_be_returned():
@@ -250,13 +292,19 @@ def test_cancelled_issue_cannot_be_returned():
         svc.return_item(lid)
 
 
-def test_receive_adds_stock():
+def test_receive_records_a_receipt_and_adds_no_stock():
+    """Spec 9: physical receipt is not stock — it waits for the ERP GRN and the
+    quality clearance, which alone adds the accepted quantity."""
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 5)
-    svc.receive(p.id, 8, reference="GRN-77")
-    assert _on_hand(p.id) == 13.0
-    row = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").first()
-    assert row is not None and float(row.qty_delta) == 8.0
+    res = svc.receive(p.id, 8, reference="GRN-77", user="storeman")
+    assert _on_hand(p.id) == 5.0
+    assert res["qty_on_hand"] == 5.0
+    assert not SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").count()
+    receipt = SpareReceipt.query.filter_by(part_id=p.id).one()
+    assert receipt.status == "RECEIVED" and float(receipt.qty_received) == 8.0
+    assert res["receipt"]["id"] == receipt.id
+    assert "GRN-77" in (receipt.remarks or "")   # the typed reference is kept, not dropped
 
 
 def test_scan_resolves_by_part_no_and_is_store_scoped():
@@ -271,20 +319,48 @@ def test_scan_resolves_by_part_no_and_is_store_scoped():
         svc.resolve_scan("MAINTENANCE", "NO-SUCH-CODE")
 
 
+def _receipt_row(part_id, qty, status):
+    """A RECEIPT ledger row with the given status: a legacy direct receive
+    (PHYSICALLY_RECEIVED / None) or an ERP-origin one (STOCK_AVAILABLE after a
+    quality clearance, RGP_GRN after an RGP GRN)."""
+    svc = SpareStockService()
+    row = svc.repo.get_or_create(part_id)
+    _, _, ledger = svc._write(part_id, round(float(row.qty_on_hand or 0) + qty, 2), "RECEIPT",
+                              extra={"status": status}, return_ledger=True)
+    db.session.commit()
+    return ledger.id
+
+
 def test_movements_are_pending_erp_until_synced():
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 10)
     before = svc.pending_erp_count("MAINTENANCE")
 
     svc.issue(p.id, 2, "Maintenance")
-    svc.receive(p.id, 5, reference="GRN-1")
+    svc.receive(p.id, 5, reference="GRN-1", user="storeman")   # a receipt, no ledger row
+    _receipt_row(p.id, 3, "PHYSICALLY_RECEIVED")               # a legacy direct receive
     after = svc.pending_erp_count("MAINTENANCE")
-    assert after - before == 2  # the ISSUE and the RECEIPT are both pending
+    assert after - before == 2  # the ISSUE and the legacy RECEIPT are both pending
 
     # ERP endpoint not configured -> nothing pushed, everything stays pending
     res = svc.sync_pending_to_erp("MAINTENANCE")
     assert res["configured"] is False
     assert svc.pending_erp_count("MAINTENANCE") == after
+
+
+def test_erp_origin_receipts_are_never_pending_erp():
+    """A quality clearance / RGP GRN RECEIPT came in through the supervisor's
+    ERP GRN — pushing it would add it to ERP a second time. Legacy RECEIPT rows
+    (another status or none) are still pushed."""
+    svc = SpareStockService()
+    p = _part(); _set_physical(p.id, 10)
+    before = svc.pending_erp_count("MAINTENANCE")
+    cleared = _receipt_row(p.id, 4, "STOCK_AVAILABLE")
+    rgp_grn = _receipt_row(p.id, 1, "RGP_GRN")
+    no_status = _receipt_row(p.id, 2, None)
+    assert svc.pending_erp_count("MAINTENANCE") - before == 1   # only the NULL-status row
+    ids = {r["id"] for r in svc.pending_erp_movements("MAINTENANCE")}
+    assert no_status in ids and cleared not in ids and rgp_grn not in ids
 
 
 def test_reorder_list_suggests_qty_up_to_max():
@@ -362,7 +438,8 @@ def test_pending_erp_movements_match_the_count():
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 20)
     svc.issue(p.id, 4, "Maintenance")
-    svc.receive(p.id, 6, reference="GRN-9")
+    _receipt_row(p.id, 6, "PHYSICALLY_RECEIVED")   # legacy direct receive: pending
+    _receipt_row(p.id, 2, "STOCK_AVAILABLE")       # quality clearance: never pushed
 
     count = svc.pending_erp_count("MAINTENANCE")
     rows = svc.pending_erp_movements("MAINTENANCE")
@@ -370,7 +447,7 @@ def test_pending_erp_movements_match_the_count():
     # Only stock movements (never OPENING/ADJUSTMENT) are pending.
     assert all(r["txn_type"] in ("ISSUE", "RECEIPT", "RETURN") for r in rows)
     mine = [r for r in rows if r["part_no"] == p.part_no]
-    assert {r["txn_type"] for r in mine} == {"ISSUE", "RECEIPT"}
+    assert sorted(r["txn_type"] for r in mine) == ["ISSUE", "RECEIPT"]
 
 
 def test_consumption_trend_has_a_point_per_day_and_counts_issue():
