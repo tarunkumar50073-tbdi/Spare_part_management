@@ -324,16 +324,18 @@ class InventoryControlService:
         q = r["qty_on_hand"]
         issued = float(f.get("issued_90d") or 0)
         mn = r["min_stock_level"]
+        # Only the fields this page actually renders / filters / exports. Six
+        # more (old_part_no, sub_category "type", section_id, uom, stock_value,
+        # last_counted_at) used to ship on every one of ~4,800 rows and were
+        # never read here — dropped to shrink the payload (the section NAME is
+        # kept; only the redundant id went).
         return {
             "part_id": r["part_id"], "part_no": r["part_no"], "part_name": r["part_name"],
-            "old_part_no": r["old_part_no"],
-            # sub_category is the useful grouping; category is one value for every spare.
-            "type": (r["sub_category"] or "").strip() or "Uncategorised",
-            "section_id": r["section_id"], "section": names.get(r["section_id"], "Unassigned"),
-            "location": r["location"], "uom": r["uom"],
+            "section": names.get(r["section_id"], "Unassigned"),
+            "location": r["location"],
             "qty_on_hand": q, "min_stock_level": mn,
             "reorder_level": r["reorder_level"], "max_stock_level": r["max_stock_level"],
-            "unit_price": r["unit_price"], "stock_value": r["stock_value"], "status": r["status"],
+            "unit_price": r["unit_price"], "status": r["status"],
             # None where no minimum is planned — "not short of a plan" is not 0.
             "short_qty": (round(mn - q, 2) if q < mn else 0.0) if mn else None,
             "last_issue_at": f.get("last_issue_at"),
@@ -341,7 +343,6 @@ class InventoryControlService:
             "days_cover": round(q / (issued / window), 1) if issued > 0 else None,
             "supplier": f.get("supplier"), "supplier_code": f.get("supplier_code"),
             "last_arrival": f.get("last_arrival"),
-            "last_counted_at": r["last_counted_at"],
         }
 
     @staticmethod

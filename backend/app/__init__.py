@@ -1,5 +1,6 @@
 """Application factory: wires extensions, blueprints, and error handling
 together (MVC + Repository pattern)."""
+import gzip
 import os
 from datetime import timedelta
 
@@ -89,6 +90,45 @@ def _set_sqlite_pragmas(dbapi_connection, connection_record):
         cursor.close()
 
 
+# Below this many bytes gzip's own overhead isn't worth it (and tiny JSON acks
+# don't matter). Big list payloads — Inventory Control, the stock list, the
+# dashboards — are far above it.
+_GZIP_MIN_BYTES = 1024
+
+
+def _register_gzip(app):
+    """gzip JSON / text responses. The plant runs Flask behind waitress with no
+    nginx, so nothing compresses for us and large JSON (the Inventory Control
+    overview was ~1.8 MB — mostly repeated keys and strings) crossed the LAN
+    uncompressed. gzip shrinks that kind of body ~85-90%; browsers and axios
+    decompress transparently, so no client changes. Streamed responses (SSE,
+    file sends) and non-text bodies are left untouched."""
+
+    @app.after_request
+    def _compress(response):
+        if "gzip" not in request.headers.get("Accept-Encoding", "").lower():
+            return response
+        ctype = (response.content_type or "").split(";")[0].strip()
+        if (response.direct_passthrough
+                or not (200 <= response.status_code < 300)
+                or "Content-Encoding" in response.headers
+                or ctype == "text/event-stream"
+                or not (ctype == "application/json" or ctype.startswith("text/"))):
+            return response
+        data = response.get_data()
+        if len(data) < _GZIP_MIN_BYTES:
+            return response
+        response.set_data(gzip.compress(data, 6))
+        response.headers["Content-Encoding"] = "gzip"
+        response.headers["Content-Length"] = str(len(response.get_data()))
+        vary = response.headers.get("Vary")
+        if not vary:
+            response.headers["Vary"] = "Accept-Encoding"
+        elif "accept-encoding" not in vary.lower():
+            response.headers["Vary"] = f"{vary}, Accept-Encoding"
+        return response
+
+
 def create_app(env_name=None):
     env_name = env_name or os.getenv("FLASK_ENV", "development")
     app = Flask(__name__)
@@ -124,6 +164,9 @@ def create_app(env_name=None):
     # shadow one of them. No-op until the frontend has been built.
     from app.spa import register_spa
     register_spa(app)
+
+    # Compress large JSON/text responses (no proxy does it for us).
+    _register_gzip(app)
 
     # Ensure all models are imported so db.create_all() can discover them.
     from app import models  # noqa: F401
