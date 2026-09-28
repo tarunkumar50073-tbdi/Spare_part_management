@@ -31,6 +31,7 @@ const NAV = [
   { label: "All Services", to: "/services", keywords: "menu launcher screens" },
   { label: "Audit Trail", to: "/audit-trail", mod: "audit_trail", keywords: "log who what when history" },
   { label: "User Management", to: "/admin", admin: true, keywords: "users roles permissions rbac" },
+  { label: "Rights Matrix", to: "/rights-matrix", admin: true, keywords: "rights matrix permissions modules users grid access control" },
   { label: "Settings", to: "/settings", admin: true, keywords: "config barcode label store section" },
 ];
 

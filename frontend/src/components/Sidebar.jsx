@@ -418,6 +418,11 @@ export default function Sidebar({ collapsed = false, onToggle }) {
               {!collapsed && <span className="truncate">User Management</span>}
               {collapsed && <Flyout>User Management</Flyout>}
             </NavLink>
+            <NavLink to="/rights-matrix" className={navItemClass} title={collapsed ? "Rights Matrix" : undefined}>
+              <Grid3x3 size={18} className="shrink-0" aria-hidden="true" />
+              {!collapsed && <span className="truncate">Rights Matrix</span>}
+              {collapsed && <Flyout>Rights Matrix</Flyout>}
+            </NavLink>
             <NavLink to="/settings" className={navItemClass} title={collapsed ? "Settings" : undefined}>
               <Settings size={18} className="shrink-0" aria-hidden="true" />
               {!collapsed && <span className="truncate">Settings</span>}

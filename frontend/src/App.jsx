@@ -51,6 +51,7 @@ const CurrentStock = React.lazy(() => import("./pages/CurrentStock.jsx"));
 const WindowTimeBoard = React.lazy(() => import("./pages/WindowTimeBoard.jsx"));
 const TvDashboard = React.lazy(() => import("./pages/TvDashboard.jsx"));
 const Admin = React.lazy(() => import("./pages/Admin.jsx"));
+const RightsMatrix = React.lazy(() => import("./pages/RightsMatrix.jsx"));
 const Settings = React.lazy(() => import("./pages/Settings.jsx"));
 const AllServices = React.lazy(() => import("./pages/AllServices.jsx"));
 const ErpControlCenter = React.lazy(() => import("./pages/spare/ErpControlCenter.jsx"));
@@ -119,6 +120,7 @@ function AuthenticatedApp() {
           <Route path="/dashboard" element={<StoreRoute store="CHILD_PART"><StoreDashboard /></StoreRoute>} />
           <Route path="/store/MAINTENANCE" element={<RequirePermission mod="spare_store"><MaintenanceStore /></RequirePermission>} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/rights-matrix" element={<RightsMatrix />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/services" element={<AllServices />} />
           {/* A section is its own address, so the sidebar can link straight to

@@ -31,6 +31,7 @@ const TITLES = {
   "/supplier-vehicles": "Supplier Vehicle Management",
   "/vehicle-in-out": "Vehicle In / Out",
   "/admin": "User Management",
+  "/rights-matrix": "Rights Matrix",
   "/settings": "Settings",
   "/store-stock-spare": "Store Stock",
   "/spare-erp-gap": "ERP vs Physical Gap",
