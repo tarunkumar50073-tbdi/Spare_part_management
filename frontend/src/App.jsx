@@ -61,6 +61,7 @@ const DataQuality = React.lazy(() => import("./pages/spare/DataQuality.jsx"));
 const NotificationCenter = React.lazy(() => import("./pages/spare/NotificationCenter.jsx"));
 const WorkQueue = React.lazy(() => import("./pages/spare/WorkQueue.jsx"));
 const EmployeeMaster = React.lazy(() => import("./pages/EmployeeMaster.jsx"));
+const EquipmentMaster = React.lazy(() => import("./pages/EquipmentMaster.jsx"));
 
 // SPA navigation (and browser reloads) don't reset scroll on their own, so
 // coming back from the Live Dashboard — or reopening the app — used to land
@@ -133,6 +134,7 @@ function AuthenticatedApp() {
           <Route path="/parts" element={<RequirePermission mod="part_master"><PartMaster /></RequirePermission>} />
           <Route path="/departments" element={<RequirePermission mod="departments"><DepartmentMaster /></RequirePermission>} />
           <Route path="/employees" element={<RequirePermission mod="employees"><EmployeeMaster /></RequirePermission>} />
+          <Route path="/equipment" element={<RequirePermission mod="equipment"><EquipmentMaster /></RequirePermission>} />
           <Route path="/report-recipients" element={<ReportRecipientMaster />} />
           <Route path="/part-history" element={<StoreRoute store="CHILD_PART"><PartHistory /></StoreRoute>} />
           <Route path="/vehicle-in-out" element={<RequirePermission mod="vehicle_in_out"><VehicleInOut /></RequirePermission>} />

@@ -32,6 +32,9 @@ PERMISSION_MODULES = [
     # People parts are issued to (mobile no. -> name / code / department). The
     # issue screen can add a missing person with scan_part edit too.
     {"key": "employees", "label": "Employee Master"},
+    # Line / Machine / Die pick-lists for the install screen. The install form
+    # can add a missing value with scan_part edit too.
+    {"key": "equipment", "label": "Line / Machine / Die Master"},
     {"key": "reports", "label": "Reports"},
     {"key": "audit_trail", "label": "Audit Trail"},
     {"key": "live_dashboard", "label": "Live Dashboard"},

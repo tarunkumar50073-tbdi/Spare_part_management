@@ -1,11 +1,9 @@
 import React, { useId, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Wrench } from "lucide-react";
 import QtyStepper from "../../QtyStepper.jsx";
+import EquipmentSelect from "../../EquipmentSelect.jsx";
 import { ISSUE_STATUS } from "../../spare/IssueLifecycle.jsx";
-import { useStores } from "../../../context/StoreContext.jsx";
 import { spareFlowService } from "../../../services/spareFlowService.js";
-import { spareStockService } from "../../../services/spareStockService.js";
 import { fmtStamp, num } from "../../../lib/format.js";
 import { DocPicker, EmptyNote, Facts, Field, FormError, FormShell, GoneNote, Note } from "./FormKit.jsx";
 import { clean, fmtQty, placeText, qtyError, qtyOf, useActionFlow, useDocChoice } from "./flow.js";
@@ -25,8 +23,6 @@ const nowHint = (v) => (v ? `Now: ${v} — empty the box to clear it` : undefine
 export default function InstallForm({ scan, target, onDone, onCancel }) {
   const uid = useId();
   const { part } = scan;
-  const { activeCode } = useStores();
-  const storeCode = activeCode || "MAINTENANCE";
   const flow = useActionFlow(onDone);
   const issues = useMemo(
     () => (scan.open_issues || []).filter((i) => qtyOf(i.outstanding_qty) > 0),
@@ -34,14 +30,6 @@ export default function InstallForm({ scan, target, onDone, onCancel }) {
   const pick = useDocChoice(issues, target);
   const issue = pick.doc;
   const outstanding = qtyOf(issue?.outstanding_qty);
-
-  // Machines already recorded in this store — the same machine is then always
-  // spelled the same way (free text is still allowed for a new one).
-  const machines = useQuery({
-    queryKey: ["stock", "machines", storeCode],
-    queryFn: () => spareStockService.machines(storeCode).then((r) => r.data.data || []),
-    staleTime: 5 * 60_000,
-  });
 
   const startFrom = (i) => ({
     line_name: i?.line_name || "", line_no: i?.line_no || "", machine: i?.machine || "", die_no: i?.die_no || "",
@@ -151,24 +139,23 @@ export default function InstallForm({ scan, target, onDone, onCancel }) {
       {issue && (
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Line name" htmlFor={`${uid}-ln`} hint={nowHint(issue.line_name)}>
-              <input id={`${uid}-ln`} value={form.line_name} maxLength={60} onChange={(e) => set("line_name")(e.target.value)}
-                className="input-field" placeholder="Seat slider, recliner…" />
+            <Field label="Line name" htmlFor={`${uid}-ln`}
+              hint={nowHint(issue.line_name) || "Pick a line or type a new one — picking fills the line no. too"}>
+              <EquipmentSelect kind="LINE" id={`${uid}-ln`} value={form.line_name} maxLength={60}
+                placeholder="Seat slider, recliner…" onChange={set("line_name")}
+                onPick={(e) => { set("line_name")(e.name); set("line_no")(e.code || ""); }} />
             </Field>
             <Field label="Line no." htmlFor={`${uid}-lno`} hint={nowHint(issue.line_no)}>
               <input id={`${uid}-lno`} value={form.line_no} maxLength={30} onChange={(e) => set("line_no")(e.target.value)}
-                className="input-field" placeholder="Line-03" />
+                className="input-field" placeholder="L-03" />
             </Field>
-            <Field label="Machine" htmlFor={`${uid}-mc`} hint={nowHint(issue.machine) || "Pick a known machine or type a new one"}>
-              <input id={`${uid}-mc`} value={form.machine} maxLength={60} list={`${uid}-machines`}
-                onChange={(e) => set("machine")(e.target.value)} className="input-field" placeholder="Press-07" autoComplete="off" />
-              <datalist id={`${uid}-machines`}>
-                {(machines.data || []).map((m) => <option key={m} value={m} />)}
-              </datalist>
+            <Field label="Machine" htmlFor={`${uid}-mc`} hint={nowHint(issue.machine) || "Pick a machine or type a new one"}>
+              <EquipmentSelect kind="MACHINE" id={`${uid}-mc`} value={form.machine} maxLength={60}
+                placeholder="Press-07" onChange={set("machine")} />
             </Field>
-            <Field label="Die" htmlFor={`${uid}-die`} hint={nowHint(issue.die_no)}>
-              <input id={`${uid}-die`} value={form.die_no} maxLength={60} onChange={(e) => set("die_no")(e.target.value)}
-                className="input-field" placeholder="Die-12" />
+            <Field label="Die" htmlFor={`${uid}-die`} hint={nowHint(issue.die_no) || "Pick a die or type a new one"}>
+              <EquipmentSelect kind="DIE" id={`${uid}-die`} value={form.die_no} maxLength={60}
+                placeholder="Die-12" onChange={set("die_no")} />
             </Field>
             <Field label="Actual usage" required htmlFor={`${uid}-act`} error={show("actual")}
               hint={`0 – ${num(outstanding)}${part.uom ? ` ${part.uom}` : ""} (still out on this issue)`}>

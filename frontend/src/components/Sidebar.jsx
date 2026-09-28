@@ -142,6 +142,7 @@ const NAV_BY_STORE = {
         { to: "/scan-audit", label: "Scan Audit", icon: ScanSearch, mod: "scan_audit" },
         { to: "/departments", label: "Department Emails", icon: Mail, mod: "departments" },
         { to: "/employees", label: "Employee Master", icon: Users, mod: "employees" },
+        { to: "/equipment", label: "Line / Machine / Die", icon: Factory, mod: "equipment" },
       ],
     },
     {

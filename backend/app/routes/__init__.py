@@ -51,6 +51,7 @@ def register_routes(app):
     from app.routes.spare_scan_routes import bp as spare_scan_bp
     from app.routes.erp_grn_routes import bp as erp_grn_bp
     from app.routes.employee_routes import bp as employee_bp
+    from app.routes.equipment_routes import bp as equipment_bp
     from app.routes.gate_label_routes import bp as gate_label_bp
 
     app.register_blueprint(supplier_bp)
@@ -102,6 +103,7 @@ def register_routes(app):
     app.register_blueprint(spare_scan_bp)
     app.register_blueprint(erp_grn_bp)
     app.register_blueprint(employee_bp)
+    app.register_blueprint(equipment_bp)
     app.register_blueprint(gate_label_bp)
 
     @app.route("/api/v1/health", methods=["GET"])
