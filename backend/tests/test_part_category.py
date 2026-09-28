@@ -31,6 +31,21 @@ def test_derive_component_type_keywords():
     assert derive_component_type("APEL13-80-P8.8") is None            # pure code -> uncategorised
 
 
+def test_derive_new_maintenance_rules():
+    # 2026-09-28 additions: electrical / pneumatic / consumable spares that used
+    # to fall through to uncategorised, plus typo variants and priority checks.
+    assert derive_component_type("LED INDICATOR DIA 22.5 MM 24 VDC") == "Indicator/Lamp"
+    assert derive_component_type("PNEUMATIC SILENCER 1/8 (AN10-01) SMC") == "Silencer/Muffler"
+    assert derive_component_type("CAPACITOR 36MFD 440VAC") == "Capacitor"
+    assert derive_component_type("REALY WLCD1 (MINILEC)") == "Relay"                 # typo of relay
+    assert derive_component_type("CONTOROLLER - PCON-C-56PI") == "Controller/Drive"  # typo
+    assert derive_component_type("MPCB 3VU1340, 1.6-2.4 AMP SIEMENS") == "MCB/Breaker"
+    assert derive_component_type("QRC SOCKET KK130S (QUICK COUPLER)") == "Fitting/Union"  # coupler beats socket
+    assert derive_component_type("SAFETY LIGHT CURTAIN GL-R24H KEYENCE") == "Light Curtain"
+    assert derive_component_type("WOOD RUFF KEY (MODEL 008)") == "Machine Key"
+    assert derive_component_type("APEL13-80-P8.8-W8.15-SKC (MISUMI)") is None         # still a pure code
+
+
 def test_derive_bulk_sets_subcategory_with_dry_run():
     a = _part("PROXIMITY SENSOR XYZ")
     b = _part("PILOT PIN STAL5-LC80")
