@@ -29,10 +29,9 @@ export default function BarcodeScanInput({ onScan, placeholder = "Scan a barcode
   const startSeqRef = useRef(0);
   useEffect(() => { disabledRef.current = disabled; }, [disabled]);
 
-  const cameraCapable =
-    typeof window !== "undefined" &&
-    (window.isSecureContext || window.location.hostname === "localhost") &&
-    !!navigator.mediaDevices?.getUserMedia;
+  // Gun-only by policy (user decision 2026-10-05): camera disabled so the toggle
+  // never shows. Kept unreachable for easy re-enable later.
+  const cameraCapable = false;
 
   useEffect(() => {
     if (method === "gun" && autoFocus && !disabled) inputRef.current?.focus();

@@ -53,10 +53,11 @@ export default function ScanPanel({
   const startSeqRef = useRef(0); // invalidates an in-flight async camera start
   useEffect(() => { busyRef.current = busy; }, [busy]);
 
-  const cameraCapable =
-    typeof window !== "undefined" &&
-    (window.isSecureContext || window.location.hostname === "localhost") &&
-    !!navigator.mediaDevices?.getUserMedia;
+  // Scan is GUN-ONLY by policy (user decision 2026-10-05): the camera method is
+  // disabled so the toggle never shows and the gun is the only way in. The camera
+  // code below is kept (unreachable) so it can be re-enabled if tablet scanning is
+  // ever wanted — flip this back to the secure-context check.
+  const cameraCapable = false;
 
   // ---------- gun: keep the field ready for the next scan ----------
   const focus = () => {

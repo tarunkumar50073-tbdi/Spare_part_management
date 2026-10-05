@@ -111,7 +111,7 @@ function DoneStrip({ message, onDismiss }) {
 
 function IdleCard({ labelMode }) {
   const ways = [
-    { icon: ScanLine, text: "Scan — the part’s QR label or the supplier’s barcode, with the gun or the camera" },
+    { icon: ScanLine, text: "Scan — the part’s QR label or the supplier’s barcode, with the scanner gun" },
     { icon: Search, text: "Search Part No. — by number, description or rack location" },
     { icon: Keyboard, text: "Manual Entry — type a code when a label won’t scan" },
     ...(labelMode ? [{ icon: Truck, text: "A gate entry no. scanned here opens that gate entry’s labels" }] : []),
