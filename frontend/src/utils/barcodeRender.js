@@ -383,7 +383,7 @@ function binSheetDocument(body, w, h) {
 // per gate entry, on its own paper (default 150 x 100 mm). The title runs across
 // the top on one line; below it the fields the app fills from the gate entry and
 // the part — Part Name, Part No, Gate Entry No, Lot Qty, GE Date,
-// Supplier/Customer, Bill No, Location — sit beside the QR (which carries the
+// Supplier/Customer, Location — sit beside the QR (which carries the
 // Gate Entry No + Part No), and the format footer is at the bottom. A 1 mm
 // border is inset 2 mm from the paper edge so it always prints. No blank QC /
 // SRV / TIL / Shift / Lot Status / Reason fields.
@@ -414,7 +414,7 @@ function lotTagMarkup(t, qrMm) {
           ${lotPair("Part No", t.part_no, "Gate Entry No", t.gate_no)}
           ${lotPair("Lot Qty", lotQty, "GE Date", lotDate(t.gate_date))}
           <div class="lt-full"><b>Supplier/Customer :</b> ${escapeHtml(t.supplier || "")}</div>
-          ${lotPair("Bill No", t.bill_no, "Location", t.location)}
+          ${lotPair("Location", t.location, "", "")}
         </div>
         <div class="lt-qr" style="width:${qrMm}mm;height:${qrMm}mm">${qrSvgString(qrPayload || t.part_no || "")}</div>
       </div>

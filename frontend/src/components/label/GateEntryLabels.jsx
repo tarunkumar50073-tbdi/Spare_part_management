@@ -114,7 +114,7 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
     if (reasonMissing) { setReasonTried(true); return; }
     printLabels(buildLotTagsHtml(items.map((it) => ({
       part_no: it.part_no, part_name: it.part_name, lot_qty: it.qty, uom: it.uom,
-      location: it.location, supplier: entry.ven_name, bill_no: entry.bill_no,
+      location: it.location, supplier: entry.ven_name,
       gate_no: entry.gate_entry_no, gate_date: entry.gate_entry_dt,
     })), config));
     setJob({
