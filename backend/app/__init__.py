@@ -267,6 +267,11 @@ def _patch_schema():
         db.session.execute(text("ALTER TABLE parts ADD COLUMN reorder_level NUMERIC(12, 2)"))
         db.session.commit()
 
+    # Free-text specification (part-master Specification column) — searchable.
+    if "specification" not in part_cols:
+        db.session.execute(text("ALTER TABLE parts ADD COLUMN specification VARCHAR(255)"))
+        db.session.commit()
+
     srv_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(srvs)")).fetchall()]
     if srv_cols and "gate_out_time" not in srv_cols:
         db.session.execute(text("ALTER TABLE srvs ADD COLUMN gate_out_time DATETIME"))

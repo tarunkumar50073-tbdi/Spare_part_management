@@ -12,7 +12,7 @@ import { usePrinterStatus } from "./label/usePrinterStatus";
 import { useLabelConfig } from "./label/useLabelConfig";
 import { useBoxWidth } from "./label/useBoxWidth";
 import { barcodeService } from "../services/barcodeService";
-import { buildLabelHtml, labelSymbology, printLabels } from "../utils/barcodeRender";
+import { buildLabelHtml, labelLevel, labelSymbology, printLabels } from "../utils/barcodeRender";
 import { PRINT_SOURCE } from "../lib/scanStatus";
 import { fmtDate, fmtStamp, num } from "../lib/format";
 
@@ -87,13 +87,18 @@ function Detail({ label, children }) {
 
 export default function PrintBarcodeModal({
   open = true, part, source: sourceProp, onClose, onPrinted, config: configProp,
-  defaultCopies = 1, qtyHint = null,
+  defaultCopies = 1, qtyHint = null, kind = "plain",
 }) {
   const qc = useQueryClient();
   const partId = part?.id ?? part?.part_id ?? null;
   const partNo = part?.part_no || "";
   const description = part?.part_name || "";
   const location = part?.location || null;
+  // The permanent rack tag (kind "location") also prints the Min / Max stock
+  // levels; they ride on the part the caller passes.
+  const minLevel = part?.min_stock_level ?? null;
+  const maxLevel = part?.max_stock_level ?? null;
+  const isLocationTag = kind === "location";
   // Read when the dialog (re)starts only: a caller's value that changes later
   // (a refreshed scan result) must not reset a label half-way through.
   const startCopies = useRef(defaultCopies);
@@ -183,6 +188,7 @@ export default function PrintBarcodeModal({
     if (reasonMissing) { setReasonTried(true); return; }
     printLabels(buildLabelHtml({
       barcodeValue: partNo, partNo, description, location, config, copies: qty,
+      kind, minLevel, maxLevel,
     }));
     setJob({
       source, copies: qty, printerName, reason: needsReason ? reason.trim() : undefined,
@@ -310,7 +316,8 @@ export default function PrintBarcodeModal({
             )}
             <div ref={previewRef} className="flex justify-center rounded-lg bg-slate-50 p-4 dark:bg-navy-800">
               <BarcodeLabel value={partNo} partNo={partNo} description={description} location={location}
-                config={config} maxWidth={Math.min(big ? 660 : 300, previewW || 300)} maxHeight={big ? 330 : 150} />
+                config={config} kind={kind} minLevel={minLevel} maxLevel={maxLevel}
+                maxWidth={Math.min(big ? 660 : 300, previewW || 300)} maxHeight={big ? 330 : 150} />
             </div>
             <p className="text-center text-[11px] text-slate-500 dark:text-slate-400">
               Label {Number(config?.width_mm) || 100} × {Number(config?.height_mm) || 50} mm ·
@@ -395,6 +402,11 @@ export default function PrintBarcodeModal({
               <Detail label="Location">
                 {location || <span className="text-amber-600 dark:text-amber-400">— (not set)</span>}
               </Detail>
+              {isLocationTag && (
+                <Detail label="Min / Max">
+                  <span className="tabular">{labelLevel(minLevel)} / {labelLevel(maxLevel)}</span>
+                </Detail>
+              )}
               <Detail label="Label Quantity">
                 <span className="tabular">{qty}</span>
                 {hintCopies === qty && qtyHint?.grn_no && (

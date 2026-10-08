@@ -3,6 +3,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from app.extensions import db
 from app.models.part import Part
+from app.models.supplier import Supplier
 from app.repositories.base_repository import BaseRepository
 
 
@@ -44,9 +45,18 @@ class PartRepository(BaseRepository):
     def search(self, keyword=None, is_active=None, store_code=None, section_id=None, missing=None):
         query = self.model.query
         if keyword:
-            like = f"%{keyword}%"
-            query = query.filter(
-                (self.model.part_no.ilike(like)) | (self.model.part_name.ilike(like))
+            # Partial match (so a part is found without typing the whole code)
+            # across the Part No., its old / new numbers, the description and the
+            # supplier (code or name). A left join keeps parts with no supplier.
+            like = f"%{keyword.strip()}%"
+            query = query.outerjoin(Supplier, self.model.supplier_id == Supplier.id).filter(
+                (self.model.part_no.ilike(like))
+                | (self.model.part_name.ilike(like))
+                | (self.model.specification.ilike(like))
+                | (self.model.old_part_no.ilike(like))
+                | (self.model.new_part_no.ilike(like))
+                | (Supplier.vendor_code.ilike(like))
+                | (Supplier.supplier_name.ilike(like))
             )
         if is_active is not None:
             query = query.filter(self.model.is_active == is_active)

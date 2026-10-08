@@ -57,6 +57,17 @@ LABEL_DEFAULTS = {
     "show_description": True,
     "show_location": True,
     "description_max_chars": 48,
+    # Lot tag (the paper tag for an arrived lot): one tag per part per gate
+    # entry, showing the lot qty. Printed on its own larger paper (150 x 100 mm)
+    # rather than the small stock label above.
+    "lot_width_mm": 150,
+    "lot_height_mm": 100,
+    # Bin location sheet (the permanent, laminated rack tag): one sheet per bin,
+    # a row per part, printed at this face size. The default is the store's bin
+    # face (130 x 90 mm); the frontend groups parts by rack location and
+    # auto-fits the rows to this size.
+    "bin_width_mm": 130,
+    "bin_height_mm": 90,
 }
 LABEL_SETTING_KEY = "barcode_label"
 

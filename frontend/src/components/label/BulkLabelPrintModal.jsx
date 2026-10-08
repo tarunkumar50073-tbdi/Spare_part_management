@@ -105,8 +105,9 @@ export default function BulkLabelPrintModal({ parts, config: configProp, onClose
     const labels = toPrint.map((p) => ({
       barcode_value: p.part_no, part_no: p.part_no, part_name: p.part_name,
       location: p.location, copies: perPart,
+      min_stock_level: p.min_stock_level, max_stock_level: p.max_stock_level,
     }));
-    printLabels(buildLabelsHtml(labels, config));
+    printLabels(buildLabelsHtml(labels, config, "location"));
     setJob({
       ids: toPrint.map((p) => p.part_id), copies: perPart,
       reason: withReason ? reason.trim() : undefined, printerName,
@@ -199,8 +200,10 @@ export default function BulkLabelPrintModal({ parts, config: configProp, onClose
             {first && (
               <div ref={previewRef} className="flex flex-col items-center gap-1.5 rounded-lg bg-slate-50 p-4 dark:bg-navy-800">
                 <BarcodeLabel value={first.part_no} partNo={first.part_no} description={first.part_name}
-                  location={first.location} config={config} maxWidth={Math.min(300, previewW || 300)} maxHeight={150} />
-                <span className="text-[11px] text-slate-400">First label of the job · each QR carries only its Part No.</span>
+                  location={first.location} config={config} kind="location"
+                  minLevel={first.min_stock_level} maxLevel={first.max_stock_level}
+                  maxWidth={Math.min(300, previewW || 300)} maxHeight={150} />
+                <span className="text-[11px] text-slate-400">First tag of the job · each QR carries only its Part No., with Min / Max.</span>
               </div>
             )}
 

@@ -259,7 +259,7 @@ export default function DataQuality() {
       )}
 
       <p className="text-[11px] text-slate-400 leading-relaxed">
-        Not checked: lead time, safety stock, specification, bin capacity and count frequency — the part master has
+        Not checked: lead time, safety stock, bin capacity and count frequency — the part master has
         no field for them yet, so there is nothing to measure. Part Master edits, deletions and imports — including
         fixes made here — are logged in the Audit Trail under entity PART.
       </p>

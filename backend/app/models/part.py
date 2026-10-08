@@ -60,6 +60,9 @@ class Part(BaseModel):
     # under category (e.g. category=BOP, sub_category=SOB/Seat Parts/...).
     category = db.Column(db.String(30), nullable=True)
     sub_category = db.Column(db.String(50), nullable=True)
+    # Free-text technical specification of the part (e.g. "SMPS 230VAC O/P
+    # DC12VDC 3A"). Shown on the drawer and searchable; Excel-uploadable.
+    specification = db.Column(db.String(255), nullable=True)
 
     new_part_no = db.Column(db.String(30), nullable=True)
     old_part_no = db.Column(db.String(30), nullable=True)

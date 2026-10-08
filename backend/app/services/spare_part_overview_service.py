@@ -78,8 +78,7 @@ class SparePartOverviewService:
                 "uom": part.uom, "category": part.category, "type": part.sub_category,
                 "old_part_no": part.old_part_no, "new_part_no": part.new_part_no,
                 "unit_price": row["unit_price"], "is_active": part.is_active,
-                # No specification field exists on the part master yet.
-                "specification": None,
+                "specification": part.specification,
             },
             "stock": {
                 "qty_on_hand": row["qty_on_hand"], "status": row["status"],

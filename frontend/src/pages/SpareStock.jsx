@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Check, CircleCheck, ClipboardList, Hourglass, IndianRupee, Package, ShoppingCart, Undo2, Wrench, X,
+  Check, CircleCheck, ClipboardList, Hourglass, IndianRupee, LayoutGrid, Package, ShoppingCart, Undo2, Wrench, X,
 } from "lucide-react";
 import CardHead from "../components/CardHead.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
@@ -17,7 +17,7 @@ import { NO_ROWS, invalidateStock, stockKeys, useStockList } from "../lib/stockQ
 import { useStores } from "../context/StoreContext.jsx";
 import { downloadFile } from "../utils/download.js";
 import { downloadXlsx } from "../utils/excel.js";
-import BulkLabelPrintModal from "../components/label/BulkLabelPrintModal.jsx";
+import BinSheetPrintModal from "../components/label/BinSheetPrintModal.jsx";
 import { storeService } from "../services/storeService.js";
 import { barcodeService } from "../services/barcodeService.js";
 import { GAP_FILTERS, STATUS_RANK, fmtDay, matchesGap, splitLocation, typeOf } from "../lib/inventory.js";
@@ -99,7 +99,7 @@ export default function SpareStock() {
   // Bulk selection, by part_id — kept across filter changes, cleared on demand.
   const [selected, setSelected] = useState(() => new Set());
   // The selected parts whose labels are being printed (the bulk print dialog).
-  const [printParts, setPrintParts] = useState(null);
+  const [binParts, setBinParts] = useState(null);
   const [report, setReport] = useState(null);
   // {partId} of the row being typed into, and the value typed so far.
   const [editing, setEditing] = useState(null);
@@ -263,11 +263,21 @@ export default function SpareStock() {
   // Labels are printed first and recorded only after the operator confirms
   // they came out (source STORE_STOCK) — the dialog owns that flow, including
   // which parts already carry a label and need a reprint reason.
-  const printSelected = () => {
+  const toPrintPart = (r) => ({
+    part_id: r.part_id, part_no: r.part_no, part_name: r.part_name, location: r.location,
+    min_stock_level: r.min_stock_level, max_stock_level: r.max_stock_level,
+  });
+  const selectedForPrint = () => selectedRows.map(toPrintPart);
+  const printBinSheets = () => {
     if (!selectedRows.length || selectedRows.length > 300) return;
-    setPrintParts(selectedRows.map((r) => ({
-      part_id: r.part_id, part_no: r.part_no, part_name: r.part_name, location: r.location,
-    })));
+    setBinParts(selectedForPrint());
+  };
+  // Every bin sheet for the parts currently in view (use the section filter):
+  // groups them by rack location and prints one 130x90 sheet per bin — no need
+  // to tick each part.
+  const printSectionBins = () => {
+    if (!visible.length) return;
+    setBinParts(visible.map(toPrintPart));
   };
 
   const dash = <span className="text-slate-300 dark:text-slate-600">—</span>;
@@ -463,11 +473,20 @@ export default function SpareStock() {
           <InventoryFilters
             sections={sections} types={types} section={section} type={type} gap={gap}
             onChange={setParam} active={filtersActive} onClear={() => applyView({})} />
-          <SavedViews current={{ status: filter, section, type, gap }} onApply={applyView} canSave={filtersActive} />
+          <div className="flex flex-wrap items-center gap-2">
+            {section && canEditStock && (
+              <button type="button" onClick={printSectionBins} disabled={Boolean(binParts) || !visible.length}
+                title="Print one 130×90 mm location sheet per bin for this whole section — grouped by rack location"
+                className="btn-secondary py-1 text-[13px] disabled:opacity-40">
+                <LayoutGrid size={14} aria-hidden="true" /> All bin sheets ({visible.length.toLocaleString("en-IN")})
+              </button>
+            )}
+            <SavedViews current={{ status: filter, section, type, gap }} onApply={applyView} canSave={filtersActive} />
+          </div>
         </div>
         <div className="mb-3">
-          <BulkBar count={selected.size} onExport={exportSelected} onPrint={printSelected}
-            printing={Boolean(printParts)} canPrint={canEditStock} onClear={() => setSelected(new Set())} />
+          <BulkBar count={selected.size} onExport={exportSelected} onPrintBins={printBinSheets}
+            printing={Boolean(binParts)} canPrint={canEditStock} onClear={() => setSelected(new Set())} />
         </div>
         <Table
           columns={columns}
@@ -551,9 +570,9 @@ export default function SpareStock() {
       )}
 
       <UploadReportModal report={report} onClose={() => setReport(null)} />
-      {printParts && (
-        <BulkLabelPrintModal parts={printParts} config={labelConfig}
-          onClose={() => setPrintParts(null)} />
+      {binParts && (
+        <BinSheetPrintModal parts={binParts} config={labelConfig}
+          onClose={() => setBinParts(null)} />
       )}
     </div>
   );

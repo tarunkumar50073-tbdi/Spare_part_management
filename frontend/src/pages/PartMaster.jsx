@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { Pencil, Trash2, Search, Printer, Repeat2 } from "lucide-react";
+import { Pencil, Trash2, Search, Repeat2 } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
@@ -10,7 +10,6 @@ import Pagination from "../components/Pagination.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
 import Can, { useCan } from "../components/Can.jsx";
 import PartImportModal from "../components/PartImportModal.jsx";
-import PrintBarcodeModal from "../components/PrintBarcodeModal.jsx";
 import { partService } from "../services/partService.js";
 import { supplierService } from "../services/supplierService.js";
 import { barcodeService } from "../services/barcodeService.js";
@@ -71,7 +70,6 @@ export default function PartMaster() {
   const [editCell, setEditCell] = useState(null);
   const [editValue, setEditValue] = useState("");
   // Barcode label printing (Spare Parts store only).
-  const [printPart, setPrintPart] = useState(null);
   const [labelConfig, setLabelConfig] = useState(null);
 
   useEffect(() => {
@@ -350,14 +348,6 @@ export default function PartMaster() {
               <Pencil size={16} />
             </button>
           </Can>
-          {activeCode === "MAINTENANCE" && (
-            <Can mod="scan_part" edit>
-              <button onClick={() => setPrintPart(r)} title="Print barcode label"
-                className="text-navy-700 dark:text-slate-300 hover:text-toyotared">
-                <Printer size={16} />
-              </button>
-            </Can>
-          )}
           <Can mod="part_master" edit>
             <button onClick={() => handleDelete(r)} className="text-rose-500 hover:text-rose-700">
               <Trash2 size={16} />
@@ -375,7 +365,8 @@ export default function PartMaster() {
           <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
           <input
             className="input-field pl-9"
-            placeholder="Search part no or name..."
+            placeholder="Search part no, description, spec or supplier…"
+            aria-label="Search by part no, old or new part no, description, specification or supplier — any part of it"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
@@ -664,13 +655,6 @@ export default function PartMaster() {
         sectionId={sections.length === 1 ? sections[0].id : undefined}
         onClose={() => setImportFile(null)}
         onImported={() => { load(page, keyword, missing); loadCounts(); }}
-      />
-
-      <PrintBarcodeModal
-        open={!!printPart}
-        part={printPart}
-        config={labelConfig}
-        onClose={() => setPrintPart(null)}
       />
     </div>
   );

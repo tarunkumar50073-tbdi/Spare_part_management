@@ -1,23 +1,27 @@
 import React, { useMemo } from "react";
 import {
-  barcodeSvgString, labelDescription, labelLayout, ptToMm, qrSvgString,
+  barcodeSvgString, labelDescription, labelLayout, labelLevel, ptToMm, qrSvgString,
 } from "../utils/barcodeRender";
 
 // On-screen preview of the physical label: the QR (or the 1D barcode an admin
-// picked) carrying only the Part No., plus Part No., short description and
-// location as text. It is drawn from the SAME geometry the print document uses
-// (utils/barcodeRender labelLayout), scaled from mm to px, so the preview is
-// what comes out of the printer — not a look-alike.
+// picked) carrying only the Part No., plus Part No., short description and the
+// kind's extra line(s) as text. It is drawn from the SAME geometry the print
+// document uses (utils/barcodeRender labelLayout), scaled from mm to px, so the
+// preview is what comes out of the printer — not a look-alike. `kind` matches
+// the print: "plain" (location only), "location" (location + Min / Max) or
+// "lot" (the lot quantity).
 export default function BarcodeLabel({
-  value, partNo, description, location, config,
+  value, partNo, description, location, config, kind = "plain",
+  minLevel, maxLevel, lotQty, uom, gateRef, gateDate,
   // The label is scaled to fit inside this box, keeping its real proportion.
   maxWidth = 320, maxHeight = 160,
 }) {
-  const L = labelLayout(config, partNo);
+  const L = labelLayout(config, partNo, kind);
   const code = value || partNo;
   const desc = labelDescription(description, config);
   const showPn = config?.show_part_no !== false;
   const showDs = config?.show_description !== false;
+  const gateMeta = [gateRef ? `Gate ${gateRef}` : "", gateDate || ""].filter(Boolean).join(" · ");
 
   const svg = useMemo(() => {
     if (!code) return "";
@@ -81,7 +85,36 @@ export default function BarcodeLabel({
             {desc}
           </div>
         )}
-        {L.showLocation && (
+        {kind === "location" && (
+          <>
+            <div style={{
+              fontSize: pt(L.locPt), fontWeight: 700, lineHeight: 1.1, marginTop: px(1.2),
+              overflowWrap: "anywhere",
+            }}>
+              Location: {location || "—"}
+            </div>
+            <div style={{ fontSize: pt(L.mmPt), lineHeight: 1.1, marginTop: px(1), overflowWrap: "anywhere" }}>
+              Min: <b>{labelLevel(minLevel)}</b>
+              <span style={{ marginLeft: px(4) }}>Max: <b>{labelLevel(maxLevel)}</b></span>
+            </div>
+          </>
+        )}
+        {kind === "lot" && (
+          <>
+            <div style={{
+              fontSize: pt(L.lotPt), fontWeight: 700, lineHeight: 1.1, marginTop: px(1.2),
+              overflowWrap: "anywhere",
+            }}>
+              Lot Qty: <b>{labelLevel(lotQty)}{uom ? ` ${uom}` : ""}</b>
+            </div>
+            {gateMeta && (
+              <div style={{ fontSize: pt(L.metaPt), lineHeight: 1.1, marginTop: px(0.8), color: "#333", overflowWrap: "anywhere" }}>
+                {gateMeta}
+              </div>
+            )}
+          </>
+        )}
+        {kind === "plain" && L.showLocation && (
           <div style={{
             fontSize: pt(L.locPt), fontWeight: 700, lineHeight: 1.1, marginTop: px(1.2),
             overflowWrap: "anywhere",

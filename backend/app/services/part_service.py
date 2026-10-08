@@ -28,6 +28,7 @@ FIELD_ALIASES = {
     "max_stock_level": {"maxstocklevel", "maxstock", "max"},
     "category": {"category"},
     "sub_category": {"subcategory"},
+    "specification": {"specification", "spec", "specs", "specdetails"},
     "new_part_no": {"newpartno", "newpartnumber"},
     "old_part_no": {"oldpartno", "oldpartnumber", "referencecode"},
     "package_standard": {"packagestandard", "packgstnd", "packingstandard"},
@@ -45,7 +46,7 @@ REQUIRED_FIELDS = ["part_no", "part_name"]
 
 TEMPLATE_COLUMNS = [
     "Part No", "Part Name", "UOM", "Barcode", "Part Type (DOL/OTHER)", "Min Stock Level", "Reorder Level", "Max Stock Level",
-    "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "New Part No", "Old Part No", "Package Standard",
+    "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "Specification", "New Part No", "Old Part No", "Package Standard",
     "Supplier Code", "Daily Consumption", "Unit Price", "Location", "Rework Location",
 ]
 
@@ -53,7 +54,7 @@ EXPORT_COLUMNS = [
     ("Part No", "part_no"), ("Part Name", "part_name"), ("UOM", "uom"), ("Barcode", "barcode"),
     ("Part Type", "part_type"), ("Min Stock Level", "min_stock_level"),
     ("Reorder Level", "reorder_level"), ("Max Stock Level", "max_stock_level"), ("Status", "status_label"),
-    ("Category", "category"), ("Sub Category", "sub_category"),
+    ("Category", "category"), ("Sub Category", "sub_category"), ("Specification", "specification"),
     ("New Part No", "new_part_no"), ("Old Part No", "old_part_no"), ("Package Standard", "package_standard"),
     ("Supplier Code", "supplier_code"), ("Daily Consumption", "daily_consumption"), ("Unit Price", "unit_price"),
     ("Location", "location"), ("Rework Location", "rework_location"), ("Store", "store_code"),
@@ -261,6 +262,7 @@ class PartService:
                 "max_stock_level": to_number(raw_row.get("max_stock_level"), None),
                 "category": category,
                 "sub_category": to_text(raw_row.get("sub_category"), "") or None,
+                "specification": to_text(raw_row.get("specification"), "") or None,
                 "new_part_no": to_text(raw_row.get("new_part_no"), "") or None,
                 "old_part_no": to_text(raw_row.get("old_part_no"), "") or None,
                 "package_standard": to_number(raw_row.get("package_standard"), None),
@@ -407,6 +409,7 @@ class PartService:
                 "max_stock_level": float(part.max_stock_level) if part.max_stock_level is not None else "",
                 "status_label": "Active" if part.is_active else "Inactive",
                 "category": part.category or "", "sub_category": part.sub_category or "",
+                "specification": part.specification or "",
                 "new_part_no": part.new_part_no or "", "old_part_no": part.old_part_no or "",
                 "package_standard": float(part.package_standard) if part.package_standard is not None else "",
                 "supplier_code": part.supplier.vendor_code if part.supplier else "",

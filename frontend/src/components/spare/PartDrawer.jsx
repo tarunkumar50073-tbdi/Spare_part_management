@@ -4,11 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import {
-  CircleCheck, Database, History, Info, MapPin, Printer, Route, ScanBarcode, Siren, TriangleAlert, Truck,
+  CircleCheck, Database, History, Info, MapPin, Route, ScanBarcode, Siren, TriangleAlert, Truck,
 } from "lucide-react";
 import Modal from "../Modal.jsx";
 import Badge from "../Badge.jsx";
-import PrintBarcodeModal from "../PrintBarcodeModal.jsx";
 import Traceability from "./Traceability.jsx";
 import { useCan } from "../Can.jsx";
 import { spareStockService } from "../../services/spareStockService.js";
@@ -118,14 +117,9 @@ export default function PartDrawer({ partId, onClose }) {
   // a user who cannot record a print must not be able to start one — else a
   // label comes out with no print history behind it (spec 8). Each hook is
   // called on every render, never inside a short-circuit.
-  const canPrintScan = useCan("scan_part", "edit");
-  const canPrintStock = useCan("store_stock", "edit");
-  const canPrintMaster = useCan("part_master", "edit");
-  const canPrint = canPrintScan || canPrintStock || canPrintMaster;
   const canSeeReceiving = useCan("spare_store", "view");
   const [counting, setCounting] = useState(false);
   const [draft, setDraft] = useState("");
-  const [printing, setPrinting] = useState(false);
   const [tracing, setTracing] = useState(false);
 
   const { data: ov, isPending, isError, refetch } = useQuery({
@@ -183,11 +177,6 @@ export default function PartDrawer({ partId, onClose }) {
             <button type="button" className="btn-secondary" onClick={() => setTracing(true)}>
               <Route size={14} aria-hidden="true" /> Trace
             </button>
-            {canPrint && (
-              <button type="button" className="btn-secondary" onClick={() => setPrinting(true)}>
-                <Printer size={14} aria-hidden="true" /> Label
-              </button>
-            )}
             {/* Deep link: Scan Part opens on this very part (contract), so the
                 operator lands on its status and actions without re-scanning. */}
             <button type="button" className="btn-primary" onClick={() => go(`/scan-part?part=${partId}`)}
@@ -365,17 +354,6 @@ export default function PartDrawer({ partId, onClose }) {
           </div>
         )}
       </Modal>
-      {/* The label carries Part No + description + location (spec 3), so the
-          location goes in with the part. No source: the modal picks Reprint
-          when the part was printed before, else Part Master. Mounted only for
-          a user who may record the print (see canPrint). */}
-      {p && printing && canPrint && (
-        <PrintBarcodeModal open
-          part={{ id: p.id, part_no: p.part_no, part_name: p.part_name, is_active: p.is_active,
-            location: ov.location?.location ?? p.location ?? null }}
-          onClose={() => setPrinting(false)}
-          onPrinted={() => invalidateStock(qc)} />
-      )}
       {p && tracing && <Traceability part={{ id: p.id, part_no: p.part_no }} onClose={() => setTracing(false)} />}
     </>
   );

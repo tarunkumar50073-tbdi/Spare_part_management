@@ -1,18 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, ChevronRight, CircleCheckBig, CircleX, LoaderCircle, MapPin, PackageOpen, Printer, RotateCcw, Search,
+  ArrowLeft, ChevronRight, CircleCheckBig, CircleX, LoaderCircle, PackageOpen, Printer, RotateCcw, Search,
   TriangleAlert, Truck, X,
 } from "lucide-react";
 import Modal from "../Modal";
-import QtyStepper from "../QtyStepper";
 import PrintSteps from "./PrintSteps";
 import PrinterStatus from "./PrinterStatus";
 import { usePrinterStatus } from "./usePrinterStatus";
 import { useLabelConfig } from "./useLabelConfig";
 import ErpAsOf from "../scan/ErpAsOf.jsx";
 import { barcodeService } from "../../services/barcodeService";
-import { buildLabelsHtml, labelSymbology, printLabels } from "../../utils/barcodeRender";
+import { buildLotTagsHtml, labelSymbology, printLabels } from "../../utils/barcodeRender";
 import { PRINT_SOURCE, gatePrintMeta, normGateNo } from "../../lib/scanStatus";
 import { fmtDate, num } from "../../lib/format";
 
@@ -50,53 +49,27 @@ const DAY_WINDOWS = [7, 30, 90];
 const DEFAULT_DAYS = 30;
 const WIDEST_DAYS = DAY_WINDOWS[DAY_WINDOWS.length - 1];
 const LIST_LIMIT = 100;         // entries the server returns at most
-const MAX_COPIES = 100;         // labels per part in one print (the server's limit)
-const MAX_TOTAL = 500;          // labels in one print job (the server's limit)
+const MAX_TOTAL = 500;          // tags in one print job (the server's limit)
 const REASON_MAX = 255;
 const SEARCH_DELAY_MS = 300;
 // Answers where the server looked at the print and said no. Sending the same
 // record again gets the same answer, so the operator is not told a retry helps.
 const REFUSED_STATUSES = new Set([400, 403, 404, 409, 422]);
-const STEPS = ["Labels", "Confirm", "Print", "Done"];
+const STEPS = ["Tags", "Confirm", "Print", "Done"];
 const STEP_INDEX = { confirm: 1, verify: 2, done: 3, notPrinted: 3 };
 
 const plural = (n, word) => `${Number(n).toLocaleString("en-IN")} ${word}${Number(n) === 1 ? "" : "s"}`;
-const wholeCopies = (v) => {
-  const n = Math.round(Number(v));
-  return Number.isFinite(n) ? Math.min(MAX_COPIES, Math.max(1, n)) : 1;
-};
 // The gate time is the plant's own clock as ERP wrote it — shown as given,
 // never converted.
 const when = (e) => [e?.gate_entry_dt ? fmtDate(e.gate_entry_dt) : null, e?.gate_entry_time || null]
   .filter(Boolean).join(" · ") || "Date not recorded";
 const vendorOf = (e) => [e?.ven_name, e?.ven_cd].filter(Boolean).join(" · ") || "Vendor not recorded";
 
-// Why the offered label count is not simply the gate qty.
-function capNote(item) {
-  const q = Number(item.qty);
-  if (item.qty != null && q > MAX_COPIES) return `Gate qty ${num(q)} — at most ${MAX_COPIES} labels per part in one print.`;
-  if (item.qty != null) return `Gate qty ${num(q)} is not a whole number — check the label count.`;
-  return "No gate qty in the ERP row — check the label count.";
-}
-
 function Detail({ label, children }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2 text-sm">
       <dt className="shrink-0 text-slate-500 dark:text-slate-400">{label}</dt>
       <dd className="min-w-0 text-right font-medium text-slate-800 dark:text-slate-100">{children}</dd>
-    </div>
-  );
-}
-
-function NoLocationNote({ count }) {
-  if (!count) return null;
-  return (
-    <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
-      <TriangleAlert size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
-      <span>
-        {plural(count, "part")} {count === 1 ? "has" : "have"} no location — {count === 1 ? "its label" : "their labels"} will
-        print <b>Location: —</b>. If a part has a rack place, set its location first and print after.
-      </span>
     </div>
   );
 }
@@ -132,18 +105,20 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
   const reprints = items.filter((it) => Number(it.printed_copies) > 0);
   const needsReason = reprints.length > 0;
   const reasonMissing = needsReason && !reason.trim();
-  const total = items.reduce((s, it) => s + it.copies, 0);
-  const noLocation = config?.show_location !== false ? items.filter((it) => !it.location).length : 0;
+  // One lot tag (the QC receiving form) per part; the lot qty is a field on the
+  // form, not a copy count.
+  const total = items.length;
   const sourceLabel = `${PRINT_SOURCE.GATE_ENTRY} ${entry.gate_entry_no}`;
 
   const confirmAndPrint = () => {
     if (reasonMissing) { setReasonTried(true); return; }
-    printLabels(buildLabelsHtml(items.map((it) => ({
-      barcode_value: it.part_no, part_no: it.part_no, part_name: it.part_name,
-      location: it.location, copies: it.copies,
+    printLabels(buildLotTagsHtml(items.map((it) => ({
+      part_no: it.part_no, part_name: it.part_name, lot_qty: it.qty, uom: it.uom,
+      location: it.location, supplier: entry.ven_name, bill_no: entry.bill_no,
+      gate_no: entry.gate_entry_no, gate_date: entry.gate_entry_dt,
     })), config));
     setJob({
-      items: items.map((it) => ({ part_id: it.part_id, copies: it.copies })),
+      items: items.map((it) => ({ part_id: it.part_id, copies: 1 })),
       total, printerName, reason: needsReason ? reason.trim() : undefined,
     });
     setRecordError(null);
@@ -233,31 +208,28 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
         {step === "confirm" && (
           <>
             <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-navy-800">
-              <ul className="max-h-64 divide-y divide-slate-100 overflow-y-auto dark:divide-navy-800" aria-label="Labels to print">
+              <ul className="max-h-64 divide-y divide-slate-100 overflow-y-auto dark:divide-navy-800" aria-label="Tags to print">
                 {items.map((it) => (
                   <li key={it.part_id} className="flex items-start justify-between gap-3 px-3 py-2">
                     <span className="min-w-0">
                       <span className="block break-all font-mono text-sm font-semibold text-slate-800 dark:text-white">{it.part_no}</span>
                       <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">{it.part_name || "No description"}</span>
-                      <span className="block text-[11px] text-slate-500 dark:text-slate-400">
-                        {it.location
-                          ? <>Location <b className="font-semibold text-slate-700 dark:text-slate-200">{it.location}</b></>
-                          : <span className="text-amber-700 dark:text-amber-300">Location — (not set)</span>}
-                        {Number(it.printed_copies) > 0 && (
-                          <span className="text-amber-700 dark:text-amber-300"> · {num(it.printed_copies)} printed before for this gate entry</span>
-                        )}
-                      </span>
+                      {Number(it.printed_copies) > 0 && (
+                        <span className="block text-[11px] text-amber-700 dark:text-amber-300">A tag was printed before for this gate entry</span>
+                      )}
                     </span>
                     <span className="shrink-0 text-right">
-                      <span className="block text-base font-bold tabular text-slate-800 dark:text-white">{it.copies}</span>
-                      <span className="block text-[10px] uppercase tracking-wide text-slate-400">{it.copies === 1 ? "label" : "labels"}</span>
+                      <span className="block text-base font-bold tabular text-slate-800 dark:text-white">
+                        {num(it.qty)}{it.uom ? <span className="text-xs font-normal text-slate-500 dark:text-slate-400"> {it.uom}</span> : null}
+                      </span>
+                      <span className="block text-[10px] uppercase tracking-wide text-slate-400">lot qty · 1 tag</span>
                     </span>
                   </li>
                 ))}
               </ul>
               <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-navy-800 dark:bg-navy-800/60">
                 <span className="text-slate-600 dark:text-slate-300">Total — {plural(items.length, "part")}</span>
-                <b className="tabular text-slate-800 dark:text-white">{plural(total, "label")}</b>
+                <b className="tabular text-slate-800 dark:text-white">{plural(total, "tag")}</b>
               </div>
             </div>
 
@@ -276,8 +248,6 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
               </Detail>
             </dl>
 
-            <NoLocationNote count={noLocation} />
-
             {needsReason && (
               <div className="space-y-1.5">
                 <label htmlFor="gate-reprint-reason" className="kpi-label block">
@@ -289,7 +259,7 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
                   maxLength={REASON_MAX}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="Why these labels are printed again — e.g. labels torn, faded, lost"
+                  placeholder="Why these tags are printed again — e.g. tags torn, faded, lost"
                   className={`input-field resize-none ${reasonTried && reasonMissing ? "border-rose-400 focus:ring-rose-300" : ""}`}
                   aria-invalid={reasonTried && reasonMissing}
                   aria-describedby="gate-reprint-why"
@@ -299,7 +269,7 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
                   <span id="gate-reprint-why" className={reasonTried && reasonMissing ? "text-rose-600 dark:text-rose-400" : "text-slate-500 dark:text-slate-400"}>
                     {reasonTried && reasonMissing
                       ? "A reprint reason is required"
-                      : `${plural(reprints.length, "part")} already ${reprints.length === 1 ? "has" : "have"} labels recorded for this gate entry — printing ${reprints.length === 1 ? "it" : "them"} again is a reprint.`}
+                      : `${plural(reprints.length, "part")} already ${reprints.length === 1 ? "has" : "have"} a tag recorded for this gate entry — printing ${reprints.length === 1 ? "it" : "them"} again is a reprint.`}
                   </span>
                   <span className="shrink-0 tabular text-slate-400">{reason.length} / {REASON_MAX}</span>
                 </div>
@@ -307,7 +277,7 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
             )}
 
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              All {plural(total, "label")} go out as one print job through the browser's print dialog — choose{" "}
+              All {plural(total, "tag")} go out as one print job through the browser's print dialog — choose{" "}
               {printerName ? <b>{printerName}</b> : "the label printer"} there. Printing adds no stock and completes no
               GRN or quality step.
             </p>
@@ -319,9 +289,9 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
             <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300">
               <Printer size={22} aria-hidden="true" />
             </span>
-            <p className="text-base font-semibold text-slate-800 dark:text-white">Did the labels print correctly?</p>
+            <p className="text-base font-semibold text-slate-800 dark:text-white">Did the tags print correctly?</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Check all {plural(job?.total ?? total, "label")} for {plural(items.length, "part")} came out and the{" "}
+              Check all {plural(job?.total ?? total, "tag")} for {plural(items.length, "part")} came out and the{" "}
               {labelSymbology(config) === "QR" ? "QRs are" : "barcodes are"} sharp. Only a confirmed print is recorded in the print history — if some did not come out, choose No:
               nothing is recorded and you can print again.
             </p>
@@ -330,8 +300,8 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
                 <b>Not recorded{recordError.refused ? "" : " yet"}:</b>{" "}
                 {String(recordError.message).replace(/\.\s*$/, "")}.{" "}
                 {recordError.refused
-                  ? "The labels did print, but the server refused to record them, so they are not in the print history. Trying again will not help until that is fixed — tell the store admin."
-                  : "The labels are printed — try recording them again."}
+                  ? "The tags did print, but the server refused to record them, so they are not in the print history. Trying again will not help until that is fixed — tell the store admin."
+                  : "The tags are printed — try recording them again."}
               </div>
             )}
           </div>
@@ -342,7 +312,7 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
             <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300">
               <CircleCheckBig size={24} aria-hidden="true" />
             </span>
-            <p className="text-base font-semibold text-emerald-700 dark:text-emerald-300">{plural(result.labels, "label")} printed</p>
+            <p className="text-base font-semibold text-emerald-700 dark:text-emerald-300">{plural(result.labels, "tag")} printed</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Recorded in print history — Gate Entry {result.gate_entry_no || entry.gate_entry_no} ·{" "}
               {plural(result.parts, "part")}
@@ -372,66 +342,50 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
 // ---------------------------------------------------------------------------
 // One gate entry, opened: its spare items with the label count per part.
 
-function ItemRow({ row, canPrint, copiesValue, onPick, onCopies, onRelease }) {
+function ItemRow({ row, canPrint, onPick }) {
   const id = `gate-item-${row.part_id}`;
   const off = !canPrint || !row.active;
   return (
-    <li className={`grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 px-4 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] ${
+    <li className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 px-4 py-3 ${
       row.chosen ? "" : "bg-slate-50/60 dark:bg-navy-800/30"}`}>
       <input id={id} type="checkbox" className="mt-1 h-4 w-4 cursor-pointer accent-toyotared disabled:cursor-not-allowed"
         checked={row.chosen} disabled={off} onChange={(e) => onPick(row.part_id, e.target.checked)} />
       <label htmlFor={id} className={`min-w-0 ${off ? "" : "cursor-pointer"}`}>
         <span className="block break-all font-mono text-sm font-semibold text-slate-800 dark:text-white">{row.part_no}</span>
         <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{row.part_name || "No description"}</span>
-        <span className="mt-0.5 flex items-start gap-1 text-[11px]">
-          <MapPin size={11} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
-          {row.location
-            ? <span className="text-slate-600 dark:text-slate-300">{row.location}</span>
-            : <span className="text-amber-700 dark:text-amber-300">No location — the label will print “Location: —”</span>}
-        </span>
         {!row.active && (
-          <span className="mt-1 block"><span className="badge badge-danger">Inactive part — no label</span></span>
+          <span className="mt-1 block"><span className="badge badge-danger">Inactive part — no tag</span></span>
         )}
       </label>
-      <div className="col-start-2 text-xs sm:col-start-auto sm:text-right">
-        <p className="kpi-label">Gate qty</p>
-        <p className="font-semibold tabular text-slate-800 dark:text-slate-100">
-          {num(row.qty)}{row.uom ? <span className="font-normal text-slate-500 dark:text-slate-400"> {row.uom}</span> : null}
+      {/* One lot tag per part — the lot qty (the gate qty) is printed on the
+          tag, so there is no per-part copy count. */}
+      <div className="text-right text-xs">
+        <p className="kpi-label">Lot qty</p>
+        <p className="text-base font-bold tabular text-slate-800 dark:text-white">
+          {num(row.qty)}{row.uom ? <span className="text-xs font-normal text-slate-500 dark:text-slate-400"> {row.uom}</span> : null}
         </p>
         <p className={`text-[11px] ${row.printed ? "text-emerald-700 dark:text-emerald-300" : "text-slate-400"}`}>
-          {row.printed ? `${num(row.printed_copies)} printed` : "None printed"}
+          {row.printed ? "tag printed" : "1 tag"}
         </p>
-      </div>
-      {/* The - / + buttons hand the caret back to the gun (a button keeping
-          focus would take the next read's Enter as one more press); typing in
-          the number box keeps it there. */}
-      <div className="col-start-2 sm:col-start-auto"
-        onClick={(e) => { if (e.target.closest?.("button")) onRelease?.(); }}>
-        <p className="kpi-label mb-1">Label copies</p>
-        <QtyStepper id={`${id}-copies`} label={`Label copies for ${row.part_no}`} value={copiesValue}
-          onChange={(v) => onCopies(row.part_id, v)} min={1} max={MAX_COPIES} disabled={off || !row.chosen} />
-        {row.copies_capped && (
-          <p className="mt-1 max-w-[11rem] text-[11px] leading-snug text-amber-700 dark:text-amber-300">{capNote(row)}</p>
-        )}
       </div>
     </li>
   );
 }
 
-function EntryDetail({ entry, canPrint, configReady, picked, copies, lastPrinted, onPick, onPickAll, onCopies, onPrint, onBack, onRelease }) {
+function EntryDetail({ entry, canPrint, configReady, picked, lastPrinted, onPick, onPickAll, onPrint, onBack, onRelease }) {
   const rows = useMemo(() => (entry.items || []).map((it) => {
     const active = it.is_active !== false;
     const printed = Number(it.printed_copies) > 0;
     return {
       ...it, active, printed,
-      // Ticked by default only while the part has no labels for this gate entry.
+      // Ticked by default only while the part has no tag for this gate entry.
       chosen: active && (picked[it.part_id] ?? !printed),
-      copies: wholeCopies(copies[it.part_id] ?? it.default_copies),
     };
-  }), [entry, picked, copies]);
+  }), [entry, picked]);
   const selectable = rows.filter((r) => r.active);
   const chosen = rows.filter((r) => r.chosen);
-  const total = chosen.reduce((s, r) => s + r.copies, 0);
+  // One tag per chosen part — the lot qty is printed on the tag.
+  const total = chosen.length;
   const allChosen = selectable.length > 0 && selectable.every((r) => r.chosen);
   const someChosen = chosen.length > 0;
   const allRef = useRef(null);
@@ -466,8 +420,8 @@ function EntryDetail({ entry, canPrint, configReady, picked, copies, lastPrinted
         <div role="status" className="flex items-start gap-2 border-b border-emerald-100 bg-emerald-50 px-4 py-2 text-xs text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200">
           <CircleCheckBig size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
           <span>
-            <b>{plural(lastPrinted.labels, "label")} printed</b> for {plural(lastPrinted.parts, "part")} — recorded in print history.
-            {lastPrinted.parts < rows.length ? " Tick any other part to print its labels too." : ""}
+            <b>{plural(lastPrinted.labels, "tag")} printed</b> for {plural(lastPrinted.parts, "part")} — recorded in print history.
+            {lastPrinted.parts < rows.length ? " Tick any other part to print its tag too." : ""}
           </span>
         </div>
       )}
@@ -490,27 +444,26 @@ function EntryDetail({ entry, canPrint, configReady, picked, copies, lastPrinted
                 onChange={() => onPickAll(selectable.map((r) => r.part_id), !allChosen)} />
               Select all
             </label>
-            <span className="text-[11px] text-slate-400">Label count = gate qty — change it per part</span>
+            <span className="text-[11px] text-slate-400">One tag per part — the lot qty prints on the tag</span>
           </div>
           <ul className="max-h-[26rem] divide-y divide-slate-100 overflow-y-auto dark:divide-navy-800" aria-label={`Items of gate entry ${entry.gate_entry_no}`}>
             {rows.map((r) => (
-              <ItemRow key={r.part_id} row={r} canPrint={canPrint}
-                copiesValue={copies[r.part_id] ?? r.default_copies} onPick={onPick} onCopies={onCopies} onRelease={onRelease} />
+              <ItemRow key={r.part_id} row={r} canPrint={canPrint} onPick={onPick} />
             ))}
           </ul>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 dark:border-navy-800">
             <div className="min-w-0 text-sm text-slate-600 dark:text-slate-300">
               <b className="tabular text-slate-800 dark:text-white">{chosen.length}</b> of {plural(rows.length, "part")} ·{" "}
-              <b className="tabular text-slate-800 dark:text-white">{plural(total, "label")}</b>
+              <b className="tabular text-slate-800 dark:text-white">{plural(total, "tag")}</b>
               {tooMany && (
                 <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">
-                  At most {MAX_TOTAL} labels in one print — untick some parts and print them next.
+                  At most {MAX_TOTAL} tags in one print — untick some parts and print them next.
                 </p>
               )}
             </div>
             <button type="button" className="btn-primary" disabled={!canStart}
               onClick={() => onPrint(entry, chosen)}>
-              <Printer size={16} aria-hidden="true" /> Print {plural(total, "label")}
+              <Printer size={16} aria-hidden="true" /> Print {plural(total, "tag")}
             </button>
           </div>
         </>
@@ -538,7 +491,7 @@ function EntryRow({ entry, onOpen }) {
           <span className="block truncate text-xs text-slate-600 dark:text-slate-300">{vendorOf(entry)}</span>
           <span className="block text-[11px] text-slate-500 dark:text-slate-400">
             <b className="tabular font-semibold">{num(entry.spare_items)}</b> spare item{Number(entry.spare_items) === 1 ? "" : "s"} ·{" "}
-            <b className="tabular font-semibold">{num(entry.labels_total)}</b> label{Number(entry.labels_total) === 1 ? "" : "s"}
+            <b className="tabular font-semibold">{num(entry.spare_items)}</b> tag{Number(entry.spare_items) === 1 ? "" : "s"}
           </span>
         </span>
         <span className={`badge ${meta.badge} shrink-0`}>{meta.label}</span>
@@ -557,7 +510,6 @@ export default function GateEntryLabels({ storeCode, canPrint = false, openReque
   const [pending, setPending] = useState(null);
   const [notFound, setNotFound] = useState(null);
   const [picked, setPicked] = useState({});       // part_id -> ticked (overrides the default)
-  const [copies, setCopies] = useState({});       // part_id -> label copies (overrides the gate qty)
   const [printing, setPrinting] = useState(null); // { entry, items } — frozen for the dialog
   const [lastPrinted, setLastPrinted] = useState(null); // { no, labels, parts }
 
@@ -592,7 +544,6 @@ export default function GateEntryLabels({ storeCode, canPrint = false, openReque
   const openEntry = useCallback((no) => {
     setOpenNo(no);
     setPicked({});
-    setCopies({});
     setNotFound(null);
   }, []);
 
@@ -650,8 +601,7 @@ export default function GateEntryLabels({ storeCode, canPrint = false, openReque
     setPending({ no: normGateNo(raw), raw, notify: false, searched: true });
   };
 
-  // A tick hands the caret back to the gun; a label count does not (its box is
-  // typed in — the item row hands back after a - / + click only).
+  // A tick hands the caret back to the gun so the next read is a scan.
   const onPick = useCallback((partId, on) => {
     setPicked((p) => ({ ...p, [partId]: on }));
     onRelease?.();
@@ -660,7 +610,6 @@ export default function GateEntryLabels({ storeCode, canPrint = false, openReque
     setPicked((p) => ({ ...p, ...Object.fromEntries(ids.map((id) => [id, on])) }));
     onRelease?.();
   }, [onRelease]);
-  const onCopies = useCallback((partId, v) => setCopies((c) => ({ ...c, [partId]: v })), []);
   // The clear-search and dismiss buttons take themselves off the page, and
   // Retry is disabled while it loads — the focus they had would drop to the
   // page and the next gun read with it.
@@ -682,11 +631,11 @@ export default function GateEntryLabels({ storeCode, canPrint = false, openReque
     setPrinting({
       entry: {
         gate_entry_no: entry.gate_entry_no, gate_entry_dt: entry.gate_entry_dt, gate_entry_time: entry.gate_entry_time,
-        ven_name: entry.ven_name, ven_cd: entry.ven_cd,
+        ven_name: entry.ven_name, ven_cd: entry.ven_cd, bill_no: entry.bill_no,
       },
       items: rows.map((r) => ({
         part_id: r.part_id, part_no: r.part_no, part_name: r.part_name, location: r.location,
-        copies: r.copies, printed_copies: r.printed_copies,
+        qty: r.qty, uom: r.uom, printed_copies: r.printed_copies,
       })),
     });
   };
@@ -698,7 +647,6 @@ export default function GateEntryLabels({ storeCode, canPrint = false, openReque
   // is no longer ticked by default).
   const onRecorded = useCallback((done) => {
     setPicked({});
-    setCopies({});
     setLastPrinted({ no: normGateNo(done.gate_entry_no || printing?.entry.gate_entry_no), labels: done.labels, parts: done.parts });
   }, [printing]);
 
@@ -708,9 +656,9 @@ export default function GateEntryLabels({ storeCode, canPrint = false, openReque
   let body;
   if (openNo && entry) {
     body = (
-      <EntryDetail entry={entry} canPrint={canPrint} configReady={configReady} picked={picked} copies={copies}
+      <EntryDetail entry={entry} canPrint={canPrint} configReady={configReady} picked={picked}
         lastPrinted={lastPrinted?.no === openNo ? lastPrinted : null}
-        onPick={onPick} onPickAll={onPickAll} onCopies={onCopies} onPrint={startPrint} onBack={back} onRelease={onRelease} />
+        onPick={onPick} onPickAll={onPickAll} onPrint={startPrint} onBack={back} onRelease={onRelease} />
     );
   } else if (openNo && (listQ.isFetching || listQ.isPending)) {
     body = (
@@ -830,11 +778,11 @@ export default function GateEntryLabels({ storeCode, canPrint = false, openReque
           </span>
           <div className="min-w-0 flex-1">
             <h2 id="gate-labels-title" className="text-sm font-semibold text-slate-800 dark:text-white">
-              Gate Entry (ERP) — QR labels for material that arrived
+              Gate Entry (ERP) — lot tags for material that arrived
             </h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Open a gate entry — or scan its no. with the gun — and print all its Spare Parts Store labels in one go.
-              Each part&apos;s label count is its gate qty.
+              Open a gate entry — or scan its no. with the gun — and print one lot tag per Spare Parts Store part.
+              Each tag shows the lot qty that arrived on the gate entry.
             </p>
             {data?.erp && <ErpAsOf erp={data.erp} className="mt-1.5" />}
           </div>
