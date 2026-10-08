@@ -12,6 +12,7 @@
 // hardcoded here.
 import JsBarcode from "jsbarcode";
 import { QRCodeDecoderErrorCorrectionLevel, QRCodeEncoder } from "@zxing/library";
+import { TB_LOGO } from "./tbLogo.js";
 
 // Render a QR code as an SVG string. The payload is the Part No only (the QR is
 // the part's permanent identity; everything dynamic is read from the database
@@ -324,7 +325,9 @@ export function binSheetLayout(config, n) {
   const linePt = Math.round(clamp(rowMm * 0.7, 5, 11));
   const headPt = Math.round(clamp(headMm * 1.3, 7, 12));
   const descLines = rows <= 4 ? 2 : 1;    // long names get a second line while there is room
-  return { w, h, pad, headMm, rowMm, qrMm, descPt, linePt, headPt, descLines };
+  // A small company logo chip at the left of the header, beside the bin name.
+  const logoMm = clamp(headMm * 1.8, 11, 15);
+  return { w, h, pad, headMm, rowMm, qrMm, descPt, linePt, headPt, descLines, logoMm };
 }
 
 function binRowMarkup(row, L, config) {
@@ -346,7 +349,10 @@ export function buildBinSheetsHtml(bins, config) {
   const h = Number(config?.bin_height_mm) || 90;
   const body = (bins || []).map((bin) => {
     const L = binSheetLayout(config, bin.rows.length);
-    const head = `<div class="bhead" style="height:${L.headMm}mm;font-size:${L.headPt}pt">${escapeHtml(bin.base)}</div>`;
+    const head = `<div class="bhead" style="height:${L.headMm}mm">`
+      + `<div class="blogo" style="width:${L.logoMm}mm"></div>`
+      + `<div class="bloc" style="font-size:${L.headPt}pt">${escapeHtml(bin.base)}</div>`
+      + `</div>`;
     const rows = bin.rows.map((r) => binRowMarkup(r, L, config)).join("");
     return `<div class="bsheet">${head}${rows}</div>`;
   }).join("");
@@ -362,8 +368,11 @@ function binSheetDocument(body, w, h) {
       display: flex; flex-direction: column; font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff;
       border: 0.4mm solid #000; }
     .bsheet:last-child { page-break-after: auto; break-after: auto; }
-    .bhead { flex: none; display: flex; align-items: center; justify-content: center; background: #000; color: #fff;
-      font-weight: 700; letter-spacing: 0.5px; }
+    .bhead { flex: none; display: flex; align-items: stretch; }
+    .blogo { flex: none; background: #fff no-repeat center; background-image: url("${TB_LOGO}");
+      background-size: contain; background-origin: content-box; padding: 0.5mm; border-right: 0.3mm solid #000; }
+    .bloc { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; background: #000;
+      color: #fff; font-weight: 700; letter-spacing: 0.5px; }
     .brow { flex: none; display: flex; align-items: center; border-top: 0.3mm solid #000; overflow: hidden; }
     .brow:first-of-type { border-top: none; }
     .bqr { flex: none; }
