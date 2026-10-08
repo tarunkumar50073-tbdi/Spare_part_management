@@ -205,9 +205,10 @@ export function HealthBar({ health = [], total, onStatus }) {
 // ------------------------------------------------------------------ value panel
 
 /** Where the money on the shelf is: the two numbers that move working capital
- *  (to restock, tied up above max), then by section and by part type. Every
- *  bar and figure opens the parts behind it. */
-export function ValuePanel({ value, onRestock, onExcess, onSection, onType }) {
+ *  (to restock, tied up above max), then by section. Every bar and figure opens
+ *  the parts behind it. The by-part-type split lives in its own "Stock value by
+ *  category" panel above (section tabs + drill), so it is not repeated here. */
+export function ValuePanel({ value, onRestock, onExcess, onSection }) {
   if (!value) return null;
   const callout = "rounded-lg border px-3 py-2 text-left transition-colors hover:border-toyotared";
   return (
@@ -231,13 +232,6 @@ export function ValuePanel({ value, onRestock, onExcess, onSection, onType }) {
       <HorizontalBars data={(value.by_section || []).map((s) => ({ ...s, name: s.name }))}
         color="#0f8d7e" valueFormat={compactMoney} emptyMessage="No valued stock yet"
         onBarClick={onSection} />
-      {(value.by_type || []).length > 1 && (
-        <>
-          <p className="mb-1.5 mt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-400">By part type</p>
-          <HorizontalBars data={value.by_type.slice(0, 6)} color="#8b5cf6" valueFormat={compactMoney}
-            onBarClick={(d) => !d.other && onType?.(d)} />
-        </>
-      )}
     </div>
   );
 }

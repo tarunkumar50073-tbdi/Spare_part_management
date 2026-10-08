@@ -13,6 +13,12 @@ export function useCountUp(target, { duration = 600 } = {}) {
   const numeric = typeof target === "number" && Number.isFinite(target) ? target : null;
   const [display, setDisplay] = useState(numeric ?? 0);
   const fromRef = useRef(numeric ?? 0);
+  // Whether a real number has been shown yet. The FIRST one is the figure
+  // arriving — usually after a null / loading render — not a change to play at
+  // the viewer, so it lands directly. Counting up to it from a placeholder 0
+  // reads as "nothing, then stock", which misleads. Only later updates (a live
+  // SSE / poll refresh of a tile already showing a number) count up.
+  const seenRef = useRef(false);
 
   useEffect(() => {
     if (numeric === null) return undefined;
@@ -22,9 +28,12 @@ export function useCountUp(target, { duration = 600 } = {}) {
       setDisplay(numeric);
     };
 
+    const first = !seenRef.current;
+    seenRef.current = true;
+
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const from = fromRef.current;
-    if (reduced || from === numeric) {
+    if (first || reduced || from === numeric) {
       settle();
       return undefined;
     }

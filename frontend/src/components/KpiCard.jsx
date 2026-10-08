@@ -120,7 +120,13 @@ export default function KpiCard({
   onClick,
 }) {
   const colors = TONES[tone] || TONES.navy;
-  const shown = useCountUp(value);
+  // While loading, feed the counter nothing — not the placeholder `value` (often
+  // a literal 0). The hook runs before the skeleton `return` below, so a 0 here
+  // would seed the counter and the real figure would then ramp up from 0. With
+  // `undefined`, the first real value the hook sees is the actual figure, which
+  // it lands directly (see useCountUp). So `loading` genuinely suppresses the
+  // intro count-up, not just the painted number.
+  const shown = useCountUp(loading ? undefined : value);
 
   if (loading) {
     return (

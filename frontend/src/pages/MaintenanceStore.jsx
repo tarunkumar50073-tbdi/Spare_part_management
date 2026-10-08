@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -104,6 +104,46 @@ function useStoreStats(parts) {
   }, [parts]);
 }
 
+// Part-types (sub_category) rolled up by stock value for a set of stock rows,
+// with the long tail past the top N collected into one "Others". Each entry is
+// { category, value, parts, qty, isOther? } — enough to draw a tile; the tile's
+// drill re-filters the rows by category on click, so nothing heavy is kept here.
+const CAT_UNTYPED = "Uncategorised";
+const catKey = (r) => (r.sub_category || "").trim() || CAT_UNTYPED;
+function categoryBreakdown(rows, topN = 7) {
+  const by = new Map();
+  for (const r of rows) {
+    const k = catKey(r);
+    const e = by.get(k) || { category: k, value: 0, parts: 0, qty: 0 };
+    e.value += Number(r.stock_value) || 0;
+    e.qty += Number(r.qty_on_hand) || 0;
+    e.parts += 1;
+    by.set(k, e);
+  }
+  const all = [...by.values()].sort((a, b) => b.value - a.value);
+  if (all.length <= topN + 1) return all;
+  const tail = all.slice(topN);
+  return [...all.slice(0, topN), {
+    category: `Others · ${tail.length} types`, isOther: true,
+    value: tail.reduce((s, e) => s + e.value, 0),
+    parts: tail.reduce((s, e) => s + e.parts, 0),
+    qty: tail.reduce((s, e) => s + e.qty, 0),
+  }];
+}
+
+// A tile tone per category — the app's own KPI tones, cycled for variety (a
+// part type has no inherent colour); Others stays navy. Icons are a light guess
+// from the name, so a tile reads at a glance without a per-type icon table.
+const CAT_TONES = ["blue", "violet", "cyan", "green", "amber", "navy"];
+function catIconFor(name, isOther) {
+  if (isOther) return Gem;
+  const n = (name || "").toLowerCase();
+  if (/electr|bolt|solenoid|sensor|robot|motor|valve|switch|relay|cable|wire/.test(n)) return Bolt;
+  if (/draw/.test(n)) return Pencil;
+  if (/press|die|punch|insert|bend|tool|carbide|tap|cutter|shaft|bush|pin|plate|mould|mold|grind|spring|stripper/.test(n)) return Settings;
+  return Package;
+}
+
 // Rack colours, assigned by size order rather than fixed per rack name — the
 // racks in a spares store are whatever the sheet happens to use (R3, R4, R12
 // today), so a hardcoded map would leave a new rack uncoloured.
@@ -173,7 +213,21 @@ function useSpareDashboardData(sectionId, enabled = true) {
   const sid = sectionId ?? null;
   const ov = useStockOverview(STORE_CODE, sid, { enabled });
   const list = useStockList(STORE_CODE, sid, { enabled });
-  return { overview: ov.data ?? null, stockRows: list.data ?? NO_ROWS };
+  // First-load gate for the KPI tiles: the overview ONLY. Every headline figure
+  // the five tiles show comes from the overview payload (~18 KB — including the
+  // total-parts count), so they must NOT wait on the ~2 MB stock list, which
+  // feeds the drills / reorder panel and loads alongside in the background.
+  // `isLoading` (not `isPending`) is already false for a disabled query and
+  // false on error, so a failed fetch falls back to each card's 0 / — instead
+  // of a stuck skeleton.
+  return {
+    overview: ov.data ?? null,
+    stockRows: list.data ?? NO_ROWS,
+    loading: ov.isLoading,
+    // The ~2 MB stock list, for panels that genuinely need every row (the
+    // category breakdown, the drills) — they skeleton on this, not on `loading`.
+    listLoading: list.isLoading,
+  };
 }
 
 // Needs Reordering: the worst 50 — empty, then below minimum, then at the
@@ -537,7 +591,9 @@ function DrillDown({ drill, onClose }) {
             {drill.title}
           </h2>
           <p className="text-xs text-white/70 truncate">
-            {drill.subtitle ? `${drill.subtitle} · ` : ""}{num(rows.length)} row{rows.length === 1 ? "" : "s"}
+            {drill.loading || drill.error
+              ? drill.subtitle
+              : `${drill.subtitle ? `${drill.subtitle} · ` : ""}${num(rows.length)} row${rows.length === 1 ? "" : "s"}`}
           </p>
         </div>
         <button onClick={onClose} title="Close"
@@ -564,20 +620,33 @@ function DrillDown({ drill, onClose }) {
           </div>
         )}
         <div className="card min-w-0">
-          <Table
-            columns={drill.columns}
-            rows={rows}
-            // Opening a part closes this drill rather than stacking a dialog over it.
-            onRowClick={drill.onRowClick && ((row) => { onClose(); drill.onRowClick(row); })}
-            searchable={rows.length > 10 ? "Search this list…" : false}
-            pageSize={0}
-            maxHeight="68vh"
-            // A drill can be the whole store (4.8k rows) — window the long ones
-            // so opening it doesn't mount every row at once.
-            virtualize={rows.length > 300}
-            exportName={drill.exportName}
-            emptyMessage="Nothing in this list — the figure is zero"
-          />
+          {drill.loading ? (
+            // A fetched-on-open list (the Today tiles): show a skeleton so the
+            // click responds at once instead of the panel sitting empty.
+            <div className="space-y-2" aria-busy="true" aria-label="Loading the list">
+              {Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton h-9 w-full" />)}
+            </div>
+          ) : drill.error ? (
+            <div className="flex flex-col items-center gap-2 py-16 text-center">
+              <TriangleAlert size={24} className="text-toyotared" aria-hidden="true" />
+              <p className="text-sm text-slate-500 dark:text-slate-400">{drill.subtitle}</p>
+            </div>
+          ) : (
+            <Table
+              columns={drill.columns}
+              rows={rows}
+              // Opening a part closes this drill rather than stacking a dialog over it.
+              onRowClick={drill.onRowClick && ((row) => { onClose(); drill.onRowClick(row); })}
+              searchable={rows.length > 10 ? "Search this list…" : false}
+              pageSize={0}
+              maxHeight="68vh"
+              // A drill can be the whole store (4.8k rows) — window the long ones
+              // so opening it doesn't mount every row at once.
+              virtualize={rows.length > 300}
+              exportName={drill.exportName}
+              emptyMessage="Nothing in this list — the figure is zero"
+            />
+          )}
         </div>
       </div>
     </div>,
@@ -756,7 +825,8 @@ function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick }) {
 // A stock row is not a part row — it carries part_id, and the detail modal
 // needs the part itself. The parent already holds the list, so it resolves.
 function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
-  parts = [], stockRows = [], reorderPlanned = true, onReorderExport, sectionId }) {
+  parts = [], stockRows = [], reorderPlanned = true, onReorderExport, sectionId, loading = false,
+  sections = [], listLoading = false }) {
   const navigate = useNavigate();
   const kpi = overview?.kpis || null;
   // Store-wide figures (consumption, receiving) are never quoted on a section page.
@@ -840,6 +910,11 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   );
 
   const [drill, setDrill] = useState(null);
+  // A live mirror of the open drill, so an async opener (openToday) can tell
+  // whether the drill it opened is still the one on screen before replacing it —
+  // if the user has since closed it or opened another, its late result is dropped.
+  const drillRef = useRef(null);
+  useEffect(() => { drillRef.current = drill; }, [drill]);
 
   // Consumption filters purely by a calendar From–To range now — no presets.
   // With no range set it shows all-time, straight off `ops` (no fetch); a range
@@ -929,26 +1004,36 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   });
 
   // The two "today" tiles: their rows are fetched when opened (same shift-start
-  // boundary as the card, so the list always ties out to the figure). A failed
-  // read is toasted by the api interceptor and nothing opens.
+  // boundary as the card, so the list always ties out to the figure). The drill
+  // opens IMMEDIATELY in a loading state so the click always responds — then it
+  // fills with the rows, or shows an error if the read fails (also toasted by
+  // the api interceptor). A late result is dropped if the user has moved on.
   const openToday = async (dir) => {
     const inbound = dir === "in";
+    const title = inbound ? "Today Added to Stock" : "Today Issued";
+    const columns = inbound ? TODAY_IN_COLUMNS : TODAY_OUT_COLUMNS;
+    const tag = {}; // this open's identity — see drillRef
+    setDrill({ title, subtitle: "Loading…", rows: [], columns, loading: true, onRowClick: onStockClick, _tag: tag });
     try {
       const res = inbound
         ? await spareStockService.todayReceipts(STORE_CODE, sectionId ?? undefined)
         : await spareStockService.todayIssues(STORE_CODE, sectionId ?? undefined);
+      if (drillRef.current?._tag !== tag) return; // superseded (closed / another drill)
       const rows = res.data.data || [];
       const qty = rows.reduce((s, r) => s + Math.abs(Number(r.qty_delta) || 0), 0);
       setDrill({
-        title: inbound ? "Today Added to Stock" : "Today Issued",
+        title,
         subtitle: inbound
           ? `${num(qty)} pcs added since the shift started — stock-ins read from ERP GRNs / RGP GRNs`
           : `${num(qty)} pcs issued since the shift started`,
-        rows, columns: inbound ? TODAY_IN_COLUMNS : TODAY_OUT_COLUMNS,
+        rows, columns,
         exportName: inbound ? "spare_today_added" : "spare_today_issued",
         onRowClick: onStockClick,
       });
-    } catch { /* interceptor toasts */ }
+    } catch {
+      if (drillRef.current?._tag !== tag) return; // interceptor already toasted
+      setDrill({ title, subtitle: "Could not load this list — tap the tile to try again", rows: [], columns, error: true, onRowClick: onStockClick, _tag: tag });
+    }
   };
 
   const counted = stockRows.filter((r) => r.qty_on_hand != null);
@@ -1033,6 +1118,38 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
     );
   };
 
+  // ---- Stock value by category (part type), by section ----
+  // On the store page the tabs switch the scope (All / each section); a section
+  // page shows only its own categories (no tabs). Everything is read off the
+  // loaded stock rows (sub_category + stock_value + section_id), so no extra call.
+  const [catTab, setCatTab] = useState("ALL");
+  const catSections = useMemo(
+    () => (sections || []).filter((s) => stockRows.some((r) => String(r.section_id) === String(s.id))),
+    [sections, stockRows]);
+  const catScopeRows = useMemo(() => {
+    if (!storeLevel || catTab === "ALL") return stockRows;
+    return stockRows.filter((r) => String(r.section_id) === String(catTab));
+  }, [stockRows, catTab, storeLevel]);
+  const catList = useMemo(() => categoryBreakdown(catScopeRows), [catScopeRows]);
+  const catTotal = useMemo(
+    () => catScopeRows.reduce((s, r) => s + (Number(r.stock_value) || 0), 0), [catScopeRows]);
+  const catTopNames = useMemo(
+    () => new Set(catList.filter((c) => !c.isOther).map((c) => c.category)), [catList]);
+  const openCat = (c) => {
+    const rows = (c.isOther
+      ? catScopeRows.filter((r) => !catTopNames.has(catKey(r)))
+      : catScopeRows.filter((r) => catKey(r) === c.category))
+      .slice().sort((a, b) => (Number(b.stock_value) || 0) - (Number(a.stock_value) || 0));
+    const scope = storeLevel && catTab !== "ALL"
+      ? ` · ${catSections.find((s) => String(s.id) === String(catTab))?.name || ""}` : "";
+    setDrill({
+      title: c.category.replace(/ · .*/, ""),
+      subtitle: `${money(c.value)} · ${num(c.parts)} parts${scope}`,
+      rows, columns: STOCK_VALUE_COLUMNS, onRowClick: onStockClick, valueChart: true,
+      exportName: `category_${c.category}`.replace(/[^\w]+/g, "_").toLowerCase(),
+    });
+  };
+
   return (
     <>
       {/* ---- Operational KPIs: what the store is doing right now. Rendered even
@@ -1055,12 +1172,18 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
             ~175px, and once the chip takes its column the label truncates to
             "TOT…" and the figure clips. A KPI you cannot read is not a KPI. */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <KpiCard featured tone="blue" label="Total Spare Parts" icon={Wrench} value={stats.total}
+          {/* The count comes from the overview (same total the Live Stock hint
+              shows), so this tile lands with the others and never waits on the
+              ~2 MB stock list; `stats.total` is only the fallback if the
+              overview failed. The drill still opens the full list (which loads
+              in the background). */}
+          <KpiCard featured tone="blue" label="Total Spare Parts" icon={Wrench}
+            value={kpi ? kpi.total_parts : stats.total} loading={loading}
             onClick={opener(partsDrill("Total Spare Parts", "Every active part in this list", parts, "spares_all"))} />
-          <KpiCard featured tone="navy" label="Live Stock" icon={Package} value={kpi ? kpi.total_qty : 0} unit="pcs"
+          <KpiCard featured tone="navy" label="Live Stock" icon={Package} value={kpi ? kpi.total_qty : 0} unit="pcs" loading={loading}
             hint={kpi ? `${num(kpi.counted_parts)} of ${num(kpi.total_parts)} counted` : ""}
             onClick={opener(stockDrill("Live Stock", "Counted parts and what is on the shelf", counted, "spare_live_stock"))} />
-          <KpiCard featured tone="green" label="Stock Value" icon={IndianRupee}
+          <KpiCard featured tone="green" label="Stock Value" icon={IndianRupee} loading={loading}
             value={compactMoney(kpi?.stock_value || null)} valueTitle={money(kpi?.stock_value)}
             hint={kpi?.valued_parts ? `${num(kpi.valued_parts)} carry a rate` : "No rated part counted yet"}
             onClick={opener({
@@ -1072,21 +1195,71 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               // the list — the highest-value spares, graphically, on drill.
               valueChart: true,
             })} />
-          {/* All five tiles always show, each with its fallback figure (0 / —)
-              until the data lands — no skeletons that could sit blank. Today
-              Received / Issued simply stay 0 on a section page, which has no
-              store-wide ops. */}
+          {/* While the data loads the five tiles show a skeleton, then land the
+              real figure directly (no count-up from a placeholder 0 — that read
+              as "no stock, then stock"). On a fetch error they fall back to each
+              card's 0 / — instead of a stuck skeleton. Today Received / Issued
+              simply settle at 0 on a section page, which has no store-wide ops. */}
           {/* Stock-ins, not arrivals: receiving happens in ERP, and a line is
               added here when the qty quality accepted in ERP reaches store stock. */}
           <KpiCard featured tone="green" label="Today Added to Stock" icon={ArrowDownToLine}
-            value={kpi?.today?.received_qty ?? 0} unit="pcs"
+            value={kpi?.today?.received_qty ?? 0} unit="pcs" loading={loading}
             hint={`${kpi?.today?.received_lines ?? 0} stock-in line${kpi?.today?.received_lines === 1 ? "" : "s"}`}
             onClick={() => openToday("in")} />
           <KpiCard featured tone="red" label="Today Issued" icon={ArrowUpFromLine}
-            value={kpi?.today?.issued_qty ?? 0} unit="pcs"
+            value={kpi?.today?.issued_qty ?? 0} unit="pcs" loading={loading}
             hint={`${kpi?.today?.issued_lines ?? 0} issue line${kpi?.today?.issued_lines === 1 ? "" : "s"}`}
             onClick={() => openToday("out")} />
         </div>
+      </section>
+
+      {/* ---- Stock value by category (part type) — what each kind of spare is
+           worth. On the store page the tabs reveal one section at a time; a card
+           opens its parts. A section page shows just that section's types. ---- */}
+      <section>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h3 className="section-title">Stock value by category</h3>
+            <p className="section-hint">
+              {storeLevel ? "By part type — pick a section to see its split" : "By part type in this section"}
+            </p>
+          </div>
+          <span className="text-xs text-slate-400">Total {money(catTotal)}</span>
+        </div>
+        {storeLevel && catSections.length > 1 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {[{ id: "ALL", name: "All" }, ...catSections].map((s) => {
+              const on = String(catTab) === String(s.id);
+              return (
+                <button key={s.id} type="button" onClick={() => setCatTab(String(s.id))}
+                  className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${on
+                    ? "border-toyotared bg-toyotared text-white"
+                    : "border-slate-200 text-slate-600 hover:border-toyotared hover:text-toyotared dark:border-navy-700 dark:text-slate-300"}`}>
+                  {s.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {listLoading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {Array.from({ length: 8 }).map((_, i) => <div key={i} className="skeleton h-[108px] rounded-xl2" />)}
+          </div>
+        ) : catList.length === 0 ? (
+          <p className="text-sm text-slate-400">No categorised stock to show here yet.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {catList.map((c, i) => (
+              <KpiCard key={c.category} featured
+                tone={c.isOther ? "navy" : CAT_TONES[i % CAT_TONES.length]}
+                icon={catIconFor(c.category, c.isOther)}
+                label={c.category}
+                value={compactMoney(c.value || null)} valueTitle={money(c.value)}
+                hint={`${num(c.parts)} part${c.parts === 1 ? "" : "s"} · ${num(c.qty)} qty`}
+                onClick={() => openCat(c)} />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Master Data has no KPI strip — the same story is told by the charts in
@@ -1149,9 +1322,6 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               onExcess={() => openStatus("Above Maximum")}
               onSection={(d) => valueDrill(`${d.name} — stock value`, `${money(d.value)} on the shelf in this section`,
                 stockRows.filter((r) => r.section_id === d.section_id), `spares_value_section_${d.section_id}`)}
-              onType={(d) => valueDrill(`${d.name} — stock value`, `${money(d.value)} across ${num(d.parts)} parts of this type`,
-                stockRows.filter((r) => ((r.sub_category || "").trim() || "Uncategorised") === d.name),
-                `spares_value_type_${d.name.replace(/[^\w-]+/g, "_").toLowerCase()}`)}
             />
             {/* Min · Current · Max moved here from Inventory Health, which is
                 where the status donut already lives. The two together are the
@@ -1610,7 +1780,7 @@ function SectionDetail({ section }) {
   }, [section.id]);
 
   const stats = useStoreStats(rows);
-  const { overview, stockRows } = useSpareDashboardData(section.id);
+  const { overview, stockRows, loading: dataLoading, listLoading: dataListLoading } = useSpareDashboardData(section.id);
   // Bin Washing M/C spares are ordered as the machine needs them, not planned
   // to a min/max, so the reorder panel is noise there even though the rows
   // carry limits. Other sections plan against their maximum as usual.
@@ -1632,6 +1802,8 @@ function SectionDetail({ section }) {
         overview={overview}
         parts={rows}
         stockRows={stockRows}
+        loading={dataLoading}
+        listLoading={dataListLoading}
         reorderPlanned={reorderPlanned}
         sectionId={section.id}
       />
@@ -1655,7 +1827,7 @@ export default function MaintenanceStore() {
 
   // Skipped when a section is open: this component still runs its hooks before
   // handing off to SectionDetail, and the store-wide figures would go unused.
-  const { overview, stockRows } = useSpareDashboardData(undefined, !sectionId);
+  const { overview, stockRows, loading: dataLoading, listLoading: dataListLoading } = useSpareDashboardData(undefined, !sectionId);
   // `parts` is derived from the stock list rather than fetched separately — the
   // stock rows already carry every part field (plus on-hand / status / value),
   // so pulling the ~4,800-row part master a SECOND time on load was pure
@@ -1742,6 +1914,9 @@ export default function MaintenanceStore() {
         overview={overview}
         parts={parts}
         stockRows={stockRows}
+        loading={dataLoading}
+        listLoading={dataListLoading}
+        sections={sections}
         onReorderExport={downloadReorderExcel}
       />
 
