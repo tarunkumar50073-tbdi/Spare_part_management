@@ -84,6 +84,7 @@ export default function SpareStock() {
   const filter = FILTERS.some((f) => f.key === params.get("status")) ? params.get("status") : "";
   const section = params.get("section") || "";
   const type = params.get("type") || "";
+  const rack = params.get("rack") || "";
   const gap = GAP_FILTERS.some((g) => g.key === params.get("gap")) ? params.get("gap") : "";
   const setParam = (key, value) => setParams((prev) => {
     const next = new URLSearchParams(prev);
@@ -229,12 +230,20 @@ export default function SpareStock() {
     return Object.entries(by).map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [enriched]);
+  // The distinct racks (the "R13" head of a location), for the rack filter that
+  // drives the whole-rack bin-sheet print.
+  const racks = useMemo(() => {
+    const set = new Set();
+    enriched.forEach((r) => { if (r.rack) set.add(r.rack); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [enriched]);
   // Section / type / data-gap first; the status chips count within that, so
   // "Below Min 12" means twelve of the rows the other filters left.
   const scoped = useMemo(() => enriched.filter((r) =>
     (!section || String(r.section_id) === section)
     && (!type || r.type_name === type)
-    && matchesGap(r, gap)), [enriched, section, type, gap]);
+    && (!rack || r.rack === rack)
+    && matchesGap(r, gap)), [enriched, section, type, rack, gap]);
   const visible = useMemo(
     () => (filter ? scoped.filter((r) => r.status === filter) : scoped),
     [scoped, filter],
@@ -244,7 +253,7 @@ export default function SpareStock() {
     scoped.forEach((r) => { by[r.status] = (by[r.status] || 0) + 1; });
     return by;
   }, [scoped]);
-  const filtersActive = Boolean(filter || section || type || gap);
+  const filtersActive = Boolean(filter || section || type || gap || rack);
 
   // ---- bulk actions on the selected parts ----
   const selectedRows = useMemo(
@@ -471,12 +480,12 @@ export default function SpareStock() {
         </div>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <InventoryFilters
-            sections={sections} types={types} section={section} type={type} gap={gap}
+            sections={sections} types={types} racks={racks} section={section} type={type} rack={rack} gap={gap}
             onChange={setParam} active={filtersActive} onClear={() => applyView({})} />
           <div className="flex flex-wrap items-center gap-2">
-            {section && canEditStock && (
+            {(section || rack) && canEditStock && (
               <button type="button" onClick={printSectionBins} disabled={Boolean(binParts) || !visible.length}
-                title="Print one 130×90 mm location sheet per bin for this whole section — grouped by rack location"
+                title="Print one 130×90 mm location sheet per bin for the current filter (whole section or rack) — grouped by rack location"
                 className="btn-secondary py-1 text-[13px] disabled:opacity-40">
                 <LayoutGrid size={14} aria-hidden="true" /> All bin sheets ({visible.length.toLocaleString("en-IN")})
               </button>

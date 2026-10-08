@@ -7,13 +7,18 @@ import { GAP_FILTERS } from "../../lib/inventory.js";
 
 const select = "input-field py-1.5 text-[13px] w-auto min-w-[9rem] max-w-[14rem]";
 
-export function InventoryFilters({ sections, types, section, type, gap, onChange, onClear, active }) {
+export function InventoryFilters({ sections, types, racks = [], section, type, rack, gap, onChange, onClear, active }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <select aria-label="Section" className={select} value={section}
         onChange={(e) => onChange("section", e.target.value)}>
         <option value="">All sections</option>
         {sections.map((s) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+      </select>
+      <select aria-label="Rack" className={select} value={rack || ""}
+        onChange={(e) => onChange("rack", e.target.value)}>
+        <option value="">All racks</option>
+        {racks.map((rk) => <option key={rk} value={rk}>{rk}</option>)}
       </select>
       <select aria-label="Part type" className={select} value={type}
         onChange={(e) => onChange("type", e.target.value)}>
