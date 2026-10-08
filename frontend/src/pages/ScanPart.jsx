@@ -701,38 +701,17 @@ export default function ScanPart() {
       mode={mode} onMode={onMode} />
   );
 
-  // Receive & Label: the ERP gate entry is the primary way (left, wide); one
-  // part at a time is the secondary block beside it, with the gun's box at its
-  // top — so the caret handed back to the gun never scrolls the gate list away.
+  // Receive & Label: the ERP gate entry lot tags are the only receiving label.
+  // (The old "Or one part" single-part QR label was removed at the user's ask —
+  // the lot tag is what the store prints for arriving material.) The gate panel
+  // owns the gun: its own search box takes the scanned gate entry no.
   if (labelMode) {
     return (
       <div className="space-y-4">
         {statusBar}
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-          <div className="min-w-0">
-            <GateEntryLabels storeCode={storeCode} canPrint={canPrint} openRequest={gateRequest}
-              onEntries={onGateEntries} onRelease={refocusGun} />
-          </div>
-          <section className="min-w-0 space-y-4" aria-labelledby="scan-one-part-title">
-            <div className="flex items-start gap-2.5 px-1 pt-1">
-              <span className="mt-0.5 h-4 w-1 shrink-0 rounded-full bg-slate-300 dark:bg-navy-700" aria-hidden="true" />
-              <div className="min-w-0">
-                <h2 id="scan-one-part-title" className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Or one part — scan, search or type
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  A part that is not on a gate entry, or one more label for a part.
-                </p>
-              </div>
-            </div>
-            {stepBar}
-            {identifyBlock}
-            {partBlock}
-            {partSide}
-            <WorkQueueLink storeCode={storeCode} />
-          </section>
-        </div>
-        {dialogs}
+        <GateEntryLabels storeCode={storeCode} canPrint={canPrint} openRequest={gateRequest}
+          onEntries={onGateEntries} onRelease={refocusGun} />
+        <WorkQueueLink storeCode={storeCode} />
       </div>
     );
   }

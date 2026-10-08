@@ -512,6 +512,11 @@ export default function GateEntryLabels({ storeCode, canPrint = false, openReque
   const [picked, setPicked] = useState({});       // part_id -> ticked (overrides the default)
   const [printing, setPrinting] = useState(null); // { entry, items } — frozen for the dialog
   const [lastPrinted, setLastPrinted] = useState(null); // { no, labels, parts }
+  // This panel owns the scanner gun now (Receive & Label has no separate gun
+  // box): keep the search box focused whenever the list is showing, so a gate
+  // entry no. scanned with the gun lands here.
+  const searchRef = useRef(null);
+  useEffect(() => { if (!openNo && !printing) searchRef.current?.focus(); }, [openNo, printing]);
 
   useEffect(() => {
     const t = text.trim();
@@ -683,6 +688,7 @@ export default function GateEntryLabels({ storeCode, canPrint = false, openReque
           <div className="relative min-w-[12rem] flex-1">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
             <input
+              ref={searchRef}
               type="text"
               value={text}
               onChange={(e) => { setText(e.target.value); setNotFound(null); }}
