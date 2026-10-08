@@ -40,11 +40,13 @@ REQUIRED_FIELDS = ["part_no", "qty_on_hand"]
 # A short-lived cache for the whole-store stock list. One dashboard refresh fires
 # list + summary + analytics, which each rebuild list_stock over every part; the
 # combined "all sections" view makes that ~4,800 rows built three times. Caching
-# the built rows for a few seconds means one build serves all three. It is cleared
-# on every stock write (see _write), so an issue / receipt / count still shows at
-# once; the TTL only bounds staleness if a write path ever bypasses _write.
+# the built rows for a minute means one build serves a whole burst of screens —
+# moving between sections / the dashboard / Store Stock re-uses it instead of
+# rebuilding ~4,800 rows each time. It is cleared on every stock write (see
+# _write), so an issue / receipt / count still shows at once; the TTL only bounds
+# staleness if a write path ever bypasses _write.
 _STOCK_CACHE = {}
-_STOCK_CACHE_TTL = 5.0
+_STOCK_CACHE_TTL = 60.0
 
 
 def _clear_after_commit(session):

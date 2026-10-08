@@ -37,6 +37,11 @@ export function useStockList(code, sectionId = null, { enabled = true } = {}) {
     queryKey: stockKeys.list(code, sectionId),
     queryFn: () => fetchStockList(code, sectionId),
     enabled: enabled && Boolean(code),
+    // The big (~4,800-row) list — keep it fresh for the whole work session so
+    // moving between sections / screens re-uses the cache instead of refetching.
+    // A real change still refreshes it at once: an app write invalidates it, and
+    // the SSE "stock" push (useRealtime) invalidates across tabs.
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -50,5 +55,7 @@ export function useStockOverview(code, sectionId = null, { enabled = true } = {}
     queryKey: stockKeys.overview(code, sectionId),
     queryFn: () => spareStockService.overview(code, sectionId ?? undefined).then((r) => r.data.data),
     enabled: enabled && Boolean(code),
+    // Same as the list: cached for the session; writes / the SSE push refresh it.
+    staleTime: 5 * 60_000,
   });
 }
