@@ -62,6 +62,7 @@ const DataQuality = React.lazy(() => import("./pages/spare/DataQuality.jsx"));
 const NotificationCenter = React.lazy(() => import("./pages/spare/NotificationCenter.jsx"));
 const WorkQueue = React.lazy(() => import("./pages/spare/WorkQueue.jsx"));
 const ConfirmInstallation = React.lazy(() => import("./pages/spare/ConfirmInstallation.jsx"));
+const PutAwayCheck = React.lazy(() => import("./pages/spare/PutAwayCheck.jsx"));
 const EmployeeMaster = React.lazy(() => import("./pages/EmployeeMaster.jsx"));
 const EquipmentMaster = React.lazy(() => import("./pages/EquipmentMaster.jsx"));
 
@@ -178,6 +179,7 @@ function AuthenticatedApp() {
           {/* QR traceability: every open receipt / return / RGP / issue awaiting a step. */}
           <Route path="/work-queue" element={<RequirePermission mod="scan_part"><WorkQueue /></RequirePermission>} />
           <Route path="/confirm-installation" element={<RequirePermission mod="install_confirm"><ConfirmInstallation /></RequirePermission>} />
+          <Route path="/put-away" element={<RequirePermission mod="store_stock"><PutAwayCheck /></RequirePermission>} />
           {/* Anything else: say so, instead of an empty page inside the layout. */}
           <Route path="*" element={<NotFound />} />
         </Route>
@@ -213,6 +215,19 @@ export default function App() {
         <AuthProvider>
           <ConfirmProvider>
             <Toaster position="top-right" toastOptions={{ duration: 3500 }} />
+            {/* TEST instance marker — only on the dummy copy. Detected by the
+                test frontend's own port (5174, set in start-test.bat) or the
+                VITE_TEST_MODE flag. A fixed, click-through badge so it is always
+                visible but never blocks the UI; production (5173) never shows it. */}
+            {(import.meta.env.VITE_TEST_MODE === "1"
+              || (typeof window !== "undefined" && window.location.port === "5174")) && (
+              <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, pointerEvents: "none" }}
+                className="flex justify-center">
+                <span className="rounded-b-lg bg-amber-500 px-4 py-1 text-xs font-bold text-white shadow-lg">
+                  ⚠ TEST MODE — dummy data · real stock / history pe koi asar nahi
+                </span>
+              </div>
+            )}
             <AuthenticatedApp />
           </ConfirmProvider>
         </AuthProvider>

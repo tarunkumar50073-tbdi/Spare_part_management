@@ -39,6 +39,13 @@ SERVICES = [
      "category": "Inventory", "icon": "🔧", "mod": "install_confirm",
      "keywords": ["confirm", "installation", "install", "line", "machine", "die", "fitted",
                   "fitter", "issued to me", "where used", "lagaya", "line machine bharo"]},
+    # Put-away check: scan the part/lot tag then the bin's location QR -> Right /
+    # Wrong Location, so a part is never shelved in the wrong bin (no mixing).
+    {"key": "put_away_check", "title": "Put-away Check", "route": "/put-away",
+     "category": "Inventory", "icon": "📍", "mod": "store_stock",
+     "keywords": ["put away", "putaway", "put-away", "location", "bin", "shelf", "rack",
+                  "wrong location", "right location", "mixing", "verify", "check", "rakhna",
+                  "sahi jagah", "galat location", "bin check"]},
     {"key": "store_stock", "title": "Store Stock", "route": "/store-stock-spare",
      "category": "Inventory", "icon": "📦", "mod": "store_stock",
      "keywords": ["stock", "count", "counting", "opening", "quantity", "qty", "in stock",

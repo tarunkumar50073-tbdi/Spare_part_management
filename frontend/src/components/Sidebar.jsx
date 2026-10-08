@@ -108,6 +108,7 @@ const NAV_BY_STORE = {
         { to: "/scan-part", label: "Scan Part", icon: ScanBarcode, mod: "scan_part" },
         { to: "/work-queue", label: "Work Queue", icon: ClipboardList, mod: "scan_part" },
         { to: "/confirm-installation", label: "Confirm Installation", icon: Wrench, mod: "install_confirm" },
+        { to: "/put-away", label: "Put-away Check", icon: PackageCheck, mod: "store_stock" },
         { to: "/store-stock-spare", label: "Store Stock", icon: Package, mod: "store_stock" },
       ],
     },

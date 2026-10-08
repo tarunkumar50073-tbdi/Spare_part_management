@@ -318,16 +318,20 @@ export function binSheetLayout(config, n) {
   const h = Number(config?.bin_height_mm) || 90;
   const rows = Math.max(1, n);
   const pad = 1.3;
-  const headMm = clamp(h * 0.09, 5, 8);
+  // Header is tall enough to carry a scannable location QR (put-away check) on
+  // the right, beside the logo and the bin name.
+  const headMm = clamp(h * 0.12, 10, 12);
   const rowMm = (h - headMm) / rows;
   const qrMm = clamp(rowMm - pad * 2, 7, Math.min(rowMm, w * 0.16));
   const descPt = Math.round(clamp(rowMm * 0.85, 6, 13));
   const linePt = Math.round(clamp(rowMm * 0.7, 5, 11));
   const headPt = Math.round(clamp(headMm * 1.3, 7, 12));
   const descLines = rows <= 4 ? 2 : 1;    // long names get a second line while there is room
-  // A small company logo chip at the left of the header, beside the bin name.
-  const logoMm = clamp(headMm * 1.8, 11, 15);
-  return { w, h, pad, headMm, rowMm, qrMm, descPt, linePt, headPt, descLines, logoMm };
+  // A small company logo chip at the left of the header, beside the bin name,
+  // and a location QR at the right (scan the bin for the put-away check).
+  const logoMm = clamp(headMm * 1.6, 11, 15);
+  const locQrMm = clamp(headMm - pad, 8, 11);
+  return { w, h, pad, headMm, rowMm, qrMm, descPt, linePt, headPt, descLines, logoMm, locQrMm };
 }
 
 function binRowMarkup(row, L, config) {
@@ -349,9 +353,15 @@ export function buildBinSheetsHtml(bins, config) {
   const h = Number(config?.bin_height_mm) || 90;
   const body = (bins || []).map((bin) => {
     const L = binSheetLayout(config, bin.rows.length);
+    // Location QR on the right of the header — scan the bin in the put-away
+    // check. Encodes the bin's base location (same value a part's location
+    // reduces to). Skipped for the "(no location)" catch-all bin.
+    const locQr = bin.base && bin.base !== "(no location)"
+      ? `<div class="bqrloc" style="width:${L.locQrMm}mm">${qrSvgString(bin.base)}</div>` : "";
     const head = `<div class="bhead" style="height:${L.headMm}mm">`
       + `<div class="blogo" style="width:${L.logoMm}mm"></div>`
       + `<div class="bloc" style="font-size:${L.headPt}pt">${escapeHtml(bin.base)}</div>`
+      + locQr
       + `</div>`;
     const rows = bin.rows.map((r) => binRowMarkup(r, L, config)).join("");
     return `<div class="bsheet">${head}${rows}</div>`;
@@ -373,6 +383,9 @@ function binSheetDocument(body, w, h) {
       background-size: contain; background-origin: content-box; padding: 0.5mm; border-right: 0.3mm solid #000; }
     .bloc { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; background: #000;
       color: #fff; font-weight: 700; letter-spacing: 0.5px; }
+    .bqrloc { flex: none; background: #fff; display: flex; align-items: center; justify-content: center;
+      padding: 0.5mm; border-left: 0.3mm solid #000; }
+    .bqrloc svg { display: block; width: 100%; height: 100%; }
     .brow { flex: none; display: flex; align-items: center; border-top: 0.3mm solid #000; overflow: hidden; }
     .brow:first-of-type { border-top: none; }
     .bqr { flex: none; }
