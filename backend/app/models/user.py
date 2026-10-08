@@ -23,6 +23,13 @@ PERMISSION_MODULES = [
     {"key": "spare_store", "label": "Spare Parts Store (dashboard)"},
     {"key": "store_stock", "label": "Store Stock (count / edit)"},
     {"key": "scan_part", "label": "Scan Part — issue / receive / return"},
+    # Stage-2 only: a line user may confirm where an issued part was fitted
+    # (line / machine / die + how much was used) WITHOUT the full issue /
+    # receive / return rights that scan_part carries. There is no per-part QR to
+    # re-scan (we print lot tags and bin sheets, not part labels), so the confirm
+    # screen is a list of parts already issued, not a scanner. The confirm
+    # endpoint accepts this right OR scan_part edit; it still needs store access.
+    {"key": "install_confirm", "label": "Confirm Installation — line / machine (user)"},
     {"key": "part_ledger", "label": "Part Ledger"},
     {"key": "erp_gap", "label": "ERP vs Physical Gap"},
     {"key": "part_master", "label": "Part Master"},

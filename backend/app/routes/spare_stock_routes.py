@@ -386,7 +386,10 @@ def issue_part(part_id):
 
 
 @bp.route("/issues/<int:ledger_id>/confirm", methods=["POST"])
-@permission_required("scan_part", "edit")
+# Stage 2 is open to a line user holding only install_confirm, as well as to a
+# full scan_part user — issuing (Stage 1) stays scan_part-only. Store access is
+# still checked below against the part's store.
+@permission_required(("scan_part", "install_confirm"), "edit")
 def confirm_issue(ledger_id):
     """Stage 2 — the user at the line records line + machine + die + usage.
     Repeatable ("Update Line / Machine") while something of the issue is

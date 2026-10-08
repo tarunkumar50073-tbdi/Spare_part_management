@@ -22,7 +22,10 @@ service = EquipmentService()
 
 
 @bp.route("", methods=["GET"])
-@permission_required(("scan_part", "equipment"), "view")
+# A line user confirming an installation picks the Line / Machine / Die here, so
+# install_confirm may read the list too (it still cannot add — that stays
+# scan_part / equipment edit; the floor can type a missing one as free text).
+@permission_required(("scan_part", "equipment", "install_confirm"), "view")
 def list_equipment():
     """The install form loads its dropdowns from here (?kind=LINE/MACHINE/DIE)."""
     active = request.args.get("active")

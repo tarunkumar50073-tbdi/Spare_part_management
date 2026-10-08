@@ -61,6 +61,7 @@ const ConsumptionAnalytics = React.lazy(() => import("./pages/spare/ConsumptionA
 const DataQuality = React.lazy(() => import("./pages/spare/DataQuality.jsx"));
 const NotificationCenter = React.lazy(() => import("./pages/spare/NotificationCenter.jsx"));
 const WorkQueue = React.lazy(() => import("./pages/spare/WorkQueue.jsx"));
+const ConfirmInstallation = React.lazy(() => import("./pages/spare/ConfirmInstallation.jsx"));
 const EmployeeMaster = React.lazy(() => import("./pages/EmployeeMaster.jsx"));
 const EquipmentMaster = React.lazy(() => import("./pages/EquipmentMaster.jsx"));
 
@@ -176,6 +177,7 @@ function AuthenticatedApp() {
           <Route path="/notifications" element={<NotificationCenter />} />
           {/* QR traceability: every open receipt / return / RGP / issue awaiting a step. */}
           <Route path="/work-queue" element={<RequirePermission mod="scan_part"><WorkQueue /></RequirePermission>} />
+          <Route path="/confirm-installation" element={<RequirePermission mod="install_confirm"><ConfirmInstallation /></RequirePermission>} />
           {/* Anything else: say so, instead of an empty page inside the layout. */}
           <Route path="*" element={<NotFound />} />
         </Route>
