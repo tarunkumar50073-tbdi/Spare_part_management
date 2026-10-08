@@ -50,8 +50,19 @@ class AdminService:
     def _apply_stores(user, stores):
         if stores is None:
             return
-        wanted = sorted({s for s in stores if s})
-        user.store_access = [UserStoreAccess(store_code=s) for s in wanted]
+        wanted = {s for s in stores if s}
+        # Diff the collection rather than replacing it wholesale: re-adding a
+        # store the user already has would INSERT a duplicate (user_id,
+        # store_code) before the orphaned old row is deleted in the same flush,
+        # tripping the uq_user_store unique constraint ("Database integrity
+        # constraint violated" on save). Keep unchanged rows, drop the rest, add
+        # only the genuinely new ones.
+        for access in list(user.store_access):
+            if access.store_code not in wanted:
+                user.store_access.remove(access)
+        have = {a.store_code for a in user.store_access}
+        for code in sorted(wanted - have):
+            user.store_access.append(UserStoreAccess(store_code=code))
 
     @staticmethod
     def _check_password(pw):
