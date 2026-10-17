@@ -41,6 +41,7 @@ def register_routes(app):
     from app.routes.spare_dashboard_routes import bp as spare_dashboard_bp
     from app.routes.erp_control_routes import bp as erp_control_bp
     from app.routes.receiving_monitor_routes import bp as receiving_monitor_bp
+    from app.routes.short_rejection_routes import bp as short_rejection_bp
     from app.routes.inventory_control_routes import bp as inventory_control_bp
     from app.routes.consumption_analytics_routes import bp as consumption_analytics_bp
     from app.routes.data_quality_routes import bp as data_quality_bp
@@ -53,6 +54,8 @@ def register_routes(app):
     from app.routes.employee_routes import bp as employee_bp
     from app.routes.equipment_routes import bp as equipment_bp
     from app.routes.gate_label_routes import bp as gate_label_bp
+    from app.routes.part_request_routes import bp as part_request_bp
+    from app.routes.mail_engine_routes import bp as mail_engine_bp
 
     app.register_blueprint(supplier_bp)
     app.register_blueprint(part_bp)
@@ -93,6 +96,7 @@ def register_routes(app):
     app.register_blueprint(spare_dashboard_bp)
     app.register_blueprint(erp_control_bp)
     app.register_blueprint(receiving_monitor_bp)
+    app.register_blueprint(short_rejection_bp)
     app.register_blueprint(inventory_control_bp)
     app.register_blueprint(consumption_analytics_bp)
     app.register_blueprint(data_quality_bp)
@@ -105,6 +109,8 @@ def register_routes(app):
     app.register_blueprint(employee_bp)
     app.register_blueprint(equipment_bp)
     app.register_blueprint(gate_label_bp)
+    app.register_blueprint(part_request_bp)
+    app.register_blueprint(mail_engine_bp)
 
     @app.route("/api/v1/health", methods=["GET"])
     def health_check():

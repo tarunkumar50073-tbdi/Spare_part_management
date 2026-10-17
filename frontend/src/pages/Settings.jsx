@@ -4,9 +4,10 @@ import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ShieldCheck, Users, Mail, FileText, Boxes, Grid3x3, Factory,
-  Store as StoreIcon, Tag, ServerCog, ChevronRight, Lock, Printer,
+  Store as StoreIcon, Tag, ServerCog, ChevronRight, Lock, Printer, DatabaseBackup,
 } from "lucide-react";
 import { settingsService } from "../services/settingsService.js";
+import { fmtStamp } from "../lib/format.js";
 import { barcodeService } from "../services/barcodeService.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useStores } from "../context/StoreContext.jsx";
@@ -94,6 +95,107 @@ function Row({ label, children }) {
   );
 }
 
+// A backup file's size, e.g. "16.9 MB".
+const fmtSize = (bytes) => {
+  if (bytes == null) return "—";
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+};
+
+// The daily database backup (the store's "Roz ka automatic backup", 16 Oct
+// 2026): when it runs, the newest good copy, the last failure if the last try
+// failed, and "Back up now" for a copy on the spot (e.g. before a big change).
+function BackupBox({ backup, onDone }) {
+  const [running, setRunning] = useState(false);
+  const { last, newest } = backup;
+  const failed = last && last.ok === false;
+
+  const backUpNow = async () => {
+    setRunning(true);
+    try {
+      const res = await settingsService.backupNow();
+      if (res.data.data?.ok) toast.success(res.data.message || "Backup saved");
+      else toast.error(res.data.message || "Backup not made");
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Could not run the backup");
+    } finally {
+      setRunning(false);
+      onDone();
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 p-4 sm:col-span-2 lg:col-span-3 dark:border-navy-800">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-white">
+          <DatabaseBackup size={15} className="text-toyotared" /> Database backup
+        </p>
+        {backup.available && (
+          <button type="button" onClick={backUpNow} disabled={running} className="btn-secondary disabled:opacity-50">
+            {running ? "Backing up…" : "Back up now"}
+          </button>
+        )}
+      </div>
+      {!backup.available ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {backup.error || "Not available — this database is not a file, so there is nothing to copy."}
+        </p>
+      ) : (
+        <>
+          <Row label="Automatic backup">
+            <YesNo ok={backup.enabled} yes={`Daily at ${backup.time}`} no="Off" />
+          </Row>
+          <Row label="Last backup">
+            <span className="block text-right">
+              {newest
+                ? `${fmtStamp(newest.at)} · ${newest.file} · ${fmtSize(newest.size_bytes)} · kept ${backup.keep_days} days`
+                : "None yet"}
+            </span>
+          </Row>
+          {/* "Back up now" copies have their own name, so the night's automatic
+              backup never replaces the copy taken before a big change (review,
+              16 Oct 2026). */}
+          <Row label="Last “Back up now”">
+            <span className="block text-right">
+              {backup.newest_manual
+                ? `${fmtStamp(backup.newest_manual.at)} · ${backup.newest_manual.file} · ${fmtSize(backup.newest_manual.size_bytes)} · newest ${backup.keep_manual ?? 10} kept`
+                : "None"}
+            </span>
+          </Row>
+          {failed && (
+            <p className="mt-1 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">
+              Last try failed ({fmtStamp(last.at)}): {last.error}
+            </p>
+          )}
+          {backup.error && !(failed && last.error === backup.error) && (
+            <p className="mt-1 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">
+              {backup.error}
+            </p>
+          )}
+          {backup.future_dated?.length > 0 && (
+            <p className="mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+              Dated in the future (the clock was ahead when it was made), so not counted as a backup:{" "}
+              <span className="break-all font-mono">{backup.future_dated.join(", ")}</span>. Check the server’s date and time.
+            </p>
+          )}
+          <Row label="Folder">
+            <span className="block text-right">
+              <span className="break-all font-mono text-xs">{backup.folder}</span>
+              <span className="text-slate-400"> · {backup.count} daily · {backup.manual_count ?? 0} “Back up now”</span>
+            </span>
+          </Row>
+          <p className="mt-1 text-[11px] text-slate-400">
+            A verified copy of the database every day; the newest {backup.keep_days} are kept. “Back up now” copies are
+            kept apart (newest {backup.keep_manual ?? 10}) and the hand-made backup_before_* copies are never touched. The
+            time, days kept and the on/off switch are set in the server’s <code>.env</code> (BACKUP_TIME,
+            BACKUP_KEEP_DAYS, BACKUP_KEEP_MANUAL, BACKUP_ENABLED).
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const { user } = useAuth();
   const { stores: liveStores } = useStores();
@@ -106,6 +208,9 @@ export default function Settings() {
   const [printer, setPrinter] = useState(undefined);
   const [savingPrinter, setSavingPrinter] = useState(false);
   const qc = useQueryClient();
+
+  // Re-read System status, e.g. after "Back up now" so the new copy shows.
+  const reloadStatus = () => settingsService.systemStatus().then((r) => setStatus(r.data.data)).catch(() => {});
 
   useEffect(() => {
     if (!user?.is_admin) return;
@@ -403,6 +508,19 @@ export default function Settings() {
         )}
       </div>
 
+      {/* 3c — outgoing mail server (SMTP): the form moved to Email & Notifications */}
+      <div className="card">
+        <SectionHead icon={Mail} title="Mail server (SMTP)"
+          hint="Moved to Email & Notifications, beside the mail queue, rules and logs." />
+        <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-300">
+          The mail server settings and the test mail are now on the Email Configuration screen. Nothing
+          was reset — the saved host, port and sender are the same ones, edited there.
+        </p>
+        <Link to="/email/configuration" className="btn-secondary mt-3">
+          Open Email Configuration <ChevronRight size={16} aria-hidden="true" />
+        </Link>
+      </div>
+
       {/* 4 — read-only system status */}
       {status && (
         <div className="card">
@@ -413,10 +531,13 @@ export default function Settings() {
                 <Mail size={15} className="text-toyotared" /> Email
               </p>
               <Row label="SMTP configured"><YesNo ok={status.email.configured} yes="Yes" no="No" /></Row>
-              <Row label="Daily auto-mail"><YesNo ok={status.email.daily_mail_enabled} /></Row>
-              <Row label="Send hour">{String(status.email.daily_mail_hour).padStart(2, "0")}:00</Row>
               <Row label="From">{status.email.from_display || "—"}</Row>
               <Row label="TLS / SSL">{status.email.use_ssl ? "SSL" : status.email.use_tls ? "STARTTLS" : "None"}</Row>
+              {/* When each mail goes out is set per rule now; the .env flag and
+                  hour this block used to show are only a rule's starting values. */}
+              <Row label="Mail schedules">
+                <Link to="/email/rules" className="text-toyotared hover:underline">Notification Rules</Link>
+              </Row>
             </div>
 
             <div className="rounded-xl border border-slate-200 dark:border-navy-800 p-4">
@@ -436,6 +557,8 @@ export default function Settings() {
               </p>
               <Row label="Max file size">{status.uploads.max_mb ? `${status.uploads.max_mb} MB` : "—"}</Row>
             </div>
+
+            {status.backup && <BackupBox backup={status.backup} onDone={reloadStatus} />}
           </div>
 
           <div className="mt-4 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">

@@ -129,6 +129,37 @@ def _register_gzip(app):
         return response
 
 
+def _register_security_headers(app):
+    """Baseline hardening headers on every response: block cross-origin framing
+    (clickjacking of the kiosk / supervisor queue), stop MIME sniffing, and drop
+    the referrer. These are framing/sniffing controls only, so they do not change
+    how the SPA loads its own scripts/styles. A full script/style CSP is a
+    separate, test-gated step and is intentionally NOT set here."""
+
+    @app.after_request
+    def _security_headers(response):
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'")
+        return response
+
+
+_SESSION_HOURS_DEFAULT = 12.0
+
+
+def _session_hours():
+    """How long one sign-in lasts, in hours: SESSION_LIFETIME_HOURS from the
+    environment, 12 by default. Anything that is not a positive number of hours
+    (up to 31 days) falls back to 12 instead of stopping the server."""
+    raw = os.getenv("SESSION_LIFETIME_HOURS", "").strip()
+    try:
+        hours = float(raw) if raw else _SESSION_HOURS_DEFAULT
+    except ValueError:
+        return _SESSION_HOURS_DEFAULT
+    return hours if 0 < hours <= 24 * 31 else _SESSION_HOURS_DEFAULT
+
+
 def create_app(env_name=None):
     env_name = env_name or os.getenv("FLASK_ENV", "development")
     app = Flask(__name__)
@@ -146,9 +177,27 @@ def create_app(env_name=None):
     # API with the operator's cookie; HttpOnly keeps it out of reach of any
     # script on the page. Not marked Secure: the plant deployment is plain
     # HTTP on the LAN, and a Secure cookie would simply never be sent.
-    app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
-    app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
-    app.config.setdefault("PERMANENT_SESSION_LIFETIME", timedelta(hours=12))
+    # ASSIGNED, not setdefault: Flask's own defaults already fill these keys
+    # (SameSite None, a 31-day life), so setdefault never applied them — a
+    # sign-in cookie lived 31 days and carried no SameSite (the store's "chhote
+    # security fix", 16 Oct 2026). SESSION_LIFETIME_HOURS overrides the 12 h.
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=_session_hours())
+    # One sign-in lasts 12 h from the moment of signing in, however busy the
+    # screen. Flask's default re-issues the cookie on every request, which
+    # slides the 12 h forward for as long as a screen keeps polling — it would
+    # never run out. With this off the cookie is written once at login (and
+    # cleared at logout): its expiry stays login + 12 h, and Flask refuses its
+    # signature after 12 h on the server too, so a copied cookie dies with it.
+    # The 30-minute idle sign-out on the screens (AuthContext) is unchanged.
+    app.config["SESSION_REFRESH_EACH_REQUEST"] = False
+    # MAIL_ENGINE_FORCE_OFF=1 keeps the mail engine switched off whatever the
+    # database says. For a server started on a COPY of the plant's data (the
+    # TEST instance): the copy brings the real recipients, the switched-on rules
+    # and the queued mails with it, and must never mail any of them.
+    app.config.setdefault("MAIL_ENGINE_FORCE_OFF",
+                          os.getenv("MAIL_ENGINE_FORCE_OFF", "").strip().lower() in ("1", "true", "yes", "on"))
 
     db.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)
@@ -167,6 +216,7 @@ def create_app(env_name=None):
 
     # Compress large JSON/text responses (no proxy does it for us).
     _register_gzip(app)
+    _register_security_headers(app)
 
     # Ensure all models are imported so db.create_all() can discover them.
     from app import models  # noqa: F401
@@ -189,7 +239,8 @@ def create_app(env_name=None):
 
     _start_erp_ledger_poller(app)
     _start_erp_sync_poller(app)
-    _start_window_time_mailer(app)
+    _start_email_engine(app)
+    _start_backup_worker(app)
 
     return app
 
@@ -216,15 +267,44 @@ def _start_erp_sync_poller(app):
     ERPSyncService().start_poller(app)
 
 
-def _start_window_time_mailer(app):
-    """Start the once-a-day window-time mail thread — only in the request-serving
-    process (not the Werkzeug reloader parent), and only when
-    WINDOW_TIME_MAIL_ENABLED is true and SMTP is configured."""
+def _start_email_engine(app):
+    """Start the mail engine's worker thread ("email-engine": the queue, its
+    retries, the scheduled rules and the reminders) — like the pollers above,
+    only in the process that serves requests, never in the Werkzeug reloader
+    parent. It replaces the two once-a-day mail threads (window-time, reorder):
+    their schedule is now a rule the worker checks on every tick, so a server
+    that was down at the hour catches up instead of losing the day's mail.
+
+    Unlike those threads it is not gated on SMTP being set up at boot. And
+    serve.py (waitress) has no reloader at all, so it says so with
+    DX_NO_RELOADER=1: without that, a .env that still carries
+    FLASK_ENV=development would make this guard treat the one real process as
+    the reloader parent and no mail would ever leave the queue. On start the
+    worker puts mails a crash left in SENDING back in the queue."""
     import os
-    if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    if (app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+            and os.environ.get("DX_NO_RELOADER") != "1"):
         return  # reloader parent; the worker child will start it
-    from app.services.window_time_mail_service import WindowTimeMailService
-    WindowTimeMailService().start_scheduler(app)
+    from app.services.email_engine import EmailEngine
+    EmailEngine.start_worker(app)
+
+
+def _start_backup_worker(app):
+    """Start the daily database backup worker ("db-backup", the store's "Roz ka
+    automatic backup" of 16 Oct 2026; see backup_service) — like the mail
+    engine, only in the process that serves requests: never in the Werkzeug
+    reloader parent, and under serve.py (DX_NO_RELOADER=1) even when .env still
+    says development. A failure to start is logged, never fatal: the app must
+    come up whatever happens to its backup."""
+    import os
+    if (app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+            and os.environ.get("DX_NO_RELOADER") != "1"):
+        return  # reloader parent; the worker child will start it
+    try:
+        from app.services.backup_service import BackupService
+        BackupService.start_worker(app)
+    except Exception:  # noqa: BLE001
+        app.logger.exception("database backup worker could not start; the app runs on without it")
 
 
 def _patch_schema():
@@ -270,6 +350,19 @@ def _patch_schema():
     # Free-text specification (part-master Specification column) — searchable.
     if "specification" not in part_cols:
         db.session.execute(text("ALTER TABLE parts ADD COLUMN specification VARCHAR(255)"))
+        db.session.commit()
+
+    # Reorder-mail recipient role: To / Cc / Bcc (older rows default to To).
+    dr_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(department_recipients)")).fetchall()]
+    if dr_cols and "role" not in dr_cols:
+        db.session.execute(text("ALTER TABLE department_recipients ADD COLUMN role VARCHAR(3) NOT NULL DEFAULT 'TO'"))
+        db.session.commit()
+
+    # Section umbrella: sibling sections (Press Tool Room / General Tool Room)
+    # grouped under one name for a single sidebar page and one reorder mail.
+    sec_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(sections)")).fetchall()]
+    if sec_cols and "group_name" not in sec_cols:
+        db.session.execute(text("ALTER TABLE sections ADD COLUMN group_name VARCHAR(60)"))
         db.session.commit()
 
     srv_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(srvs)")).fetchall()]

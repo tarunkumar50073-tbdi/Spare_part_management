@@ -8,6 +8,7 @@ import Pagination from "../components/Pagination.jsx";
 import { inventoryOverviewService } from "../services/inventoryOverviewService.js";
 import { useStoreCategories } from "../constants/categories.js";
 import { downloadFile } from "../utils/download.js";
+import { compactMoney, num } from "../lib/format.js";
 
 const STATUSES = ["Healthy", "Short", "Excess", "Dead Stock", "Unknown"];
 const CATEGORY_META = {
@@ -70,7 +71,9 @@ function CategoryCard({ card, onFilter }) {
   );
 }
 
-function DonutCard({ title, data, colors }) {
+// `centre` formats the total shown in the ring's hole; `unit` is the small
+// word under it.
+function DonutCard({ title, data, colors, centre = num, unit }) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   return (
     <div className="card">
@@ -88,6 +91,10 @@ function DonutCard({ title, data, colors }) {
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+              <p className="text-[15px] font-bold leading-none tabular text-slate-900 dark:text-white">{centre(total)}</p>
+              {unit && <p className="mt-1 text-[10px] leading-none text-slate-400">{unit}</p>}
+            </div>
           </div>
           <div className="space-y-1.5 flex-1 min-w-0">
             {data.map((d) => (
@@ -224,11 +231,13 @@ export default function InventoryOverview() {
             outside the store's list would otherwise be drawn with none. */}
         <DonutCard
           title="Inventory Value by Category (₹)"
+          centre={compactMoney} unit="total"
           colors={Object.fromEntries(Object.entries(CATEGORY_META).map(([c, m]) => [c, m.color]))}
           data={Object.entries(valueByCategory).map(([name, value]) => ({ name, value }))}
         />
         <DonutCard
           title="Stock Status Summary"
+          unit="parts"
           colors={STATUS_COLORS}
           data={Object.entries(stockStatusSummary).map(([name, value]) => ({ name, value }))}
         />

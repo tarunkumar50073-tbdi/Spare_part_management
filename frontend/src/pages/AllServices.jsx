@@ -4,7 +4,7 @@ import { Search, Heart, ArrowRight } from "lucide-react";
 import Glyph from "../components/Glyph.jsx";
 import { assistantService } from "../services/assistantService.js";
 
-const CATEGORY_ORDER = ["Overview", "Inventory", "Masters", "Receiving", "Reports", "System"];
+const CATEGORY_ORDER = ["Overview", "Inventory", "Masters", "Receiving", "Reports", "Email & Notifications", "System"];
 const FAV_KEY = "dx_fav_services";
 
 const loadFavs = () => {

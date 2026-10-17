@@ -48,6 +48,8 @@ from app.repositories.spare_stock_repository import SpareStockRepository
 from app.services.barcode_service import BarcodeService
 from app.services.erp_grn_posting_service import STATUS as ERP_GRN_STATUS, ErpGrnPostingService
 from app.services.spare_flow_service import SpareFlowService
+from app.services.spare_return_service import TAKEN_BACK_REMARK
+from app.services.spare_rgp_service import rework_bin
 from app.services.spare_stock_service import SpareStockService
 from app.utils.exceptions import NotFoundError
 
@@ -444,6 +446,8 @@ class ScanResultService:
                             and g.expected_return_date < today),
             "status": g.status, "source_return_id": g.source_return_id,
             "return_no": g.source_return.return_no if g.source_return is not None else None,
+            # Where the RGP GRN puts it: the part's rework bin (None: its own location).
+            "rework_bin": rework_bin(g.part),
             "created_at": _iso(g.created_at),
         }
 
@@ -659,7 +663,9 @@ class ScanResultService:
           plus ONE "Added to store stock" row for each ledger row that put
           quantity back on the rack (ERP-accepted GRN, GOOD return inspection,
           RGP GRN, an older in-app quality clearance), so the moment it became
-          issuable is visible;
+          issuable is visible. A return taken straight back into stock (the
+          store's rule, 14 Oct 2026) is ONE row, "Returned to stock – <reason>",
+          carrying its +qty: its GOOD inspection and stock-in rows fold into it;
         * an installation recorded on an ISSUE row with no journal row for it;
         * the receiving history, read from ERP: gate entries and the part's GRN
           lines (`erp_lines`, one per GRN no., from ErpGrnPostingService);
@@ -679,15 +685,21 @@ class ScanResultService:
         installed_in_journal = {t.issue_id for t in journal
                                 if t.txn_type == "INSTALLATION" and t.issue_id}
         waiting = self._still_waiting(journal, returns, rgps)
+        # {return id: its RETURN ledger row} for the returns taken straight back.
+        taken_back = {t.return_id: ledger_by_id[t.ledger_id] for t in journal
+                      if self._taken_back(t) and t.ledger_id in ledger_by_id}
 
         # (sort stamp, rank, id, row). Rank only breaks exact ties: the
         # "Added to store stock" row sits just above the event that caused it.
         events = []
         added = set()
         for t in journal:
+            if self._taken_back(t) and t.return_id in taken_back:
+                continue                    # shown on its return's own row
             led = ledger_by_id.get(t.ledger_id)
+            back = taken_back.get(t.return_id) if t.txn_type == "RETURN_TO_STORE" else None
             events.append((t.created_at, 1, t.id, self._journal_row(
-                t, led, receipts, returns, rgps, waiting=waiting.get(t.id))))
+                t, led, receipts, returns, rgps, waiting=waiting.get(t.id), back=back)))
             if led is not None and led.id not in added and self._adds_available(led):
                 added.add(led.id)
                 events.append((t.created_at, 2, t.id, self._stock_available_row(led, t, returns)))
@@ -767,6 +779,13 @@ class ScanResultService:
         return led.txn_type in ("RECEIPT", "RETURN") and float(led.qty_delta) > 0
 
     @staticmethod
+    def _taken_back(t):
+        """The GOOD inspection SpareReturnService.return_to_store runs to take
+        a return straight back into stock (the store's rule, 14 Oct 2026) —
+        told by its remark, the one mark it leaves."""
+        return t.txn_type == "RETURN_INSPECTION" and t.remarks == TAKEN_BACK_REMARK
+
+    @staticmethod
     def _erp_posting(t, led):
         """The journal row ErpGrnPostingService writes when it adds an
         ERP-accepted GRN line to stock: txn_type GRN over a RECEIPT row with
@@ -778,11 +797,14 @@ class ScanResultService:
         return (t.remarks or "").startswith("ERP GRN ")
 
     @staticmethod
-    def _journal_row(t, led, receipts, returns, rgps, waiting=None):
+    def _journal_row(t, led, receipts, returns, rgps, waiting=None, back=None):
         """One journal event as a timeline row. `waiting` is how much of it
         still waits on the next step (_still_waiting): a "waiting for …" note
         is added only while that is true, so an old row never contradicts the
-        inspection / RGP GRN rows recorded after it."""
+        inspection / RGP GRN rows recorded after it. `back` is the RETURN
+        ledger row of a return taken straight back into stock (_taken_back):
+        the RETURN_TO_STORE row then reads "Returned to stock" and carries the
+        stock change itself."""
         rec = receipts.get(t.receipt_id)
         ret = returns.get(t.return_id)
         rgp = rgps.get(t.rgp_id)
@@ -792,7 +814,8 @@ class ScanResultService:
         grn_no = t.grn_no or (rec.grn_no if rec and kind in ("GRN", "QUALITY_CLEARANCE") else None)
         return_no = ret.return_no if ret else None
         department = t.department or (ret.department if ret else None)
-        reference = (rec.receipt_no if rec else None) or (led.reference if led is not None else None)
+        reference = ((rec.receipt_no if rec else None) or (led.reference if led is not None else None)
+                     or (back.reference if back is not None else None))
         where = _where(t.line_name, t.line_no, t.machine, t.die_no)
         qty = _f(t.qty)
         remarks = t.remarks
@@ -831,6 +854,9 @@ class ScanResultService:
         elif kind == "INSTALLATION":
             if not where:
                 title = "Installation updated"
+            elif qty == 0:
+                # Placed, nothing used yet — not "partly used".
+                title = f"Not used yet – {where}"
             elif t.new_status == "PARTIALLY_USED":
                 title = f"Partly used – {where}"
             else:
@@ -838,9 +864,12 @@ class ScanResultService:
             detail = _join(qty is not None and f"Actual usage {_g(qty)}")
         elif kind == "RETURN_TO_STORE":
             reason = _reason(t.return_reason or (ret.reason if ret else None))
-            title = f"Returned to store – {reason}" if reason else "Returned to store"
+            # Taken straight back (`back`): in store stock from this moment.
+            to = "stock" if back is not None else "store"
+            title = f"Returned to {to} – {reason}" if reason else f"Returned to {to}"
             detail = _join(department and f"From {department}",
                            ret and ret.returned_by and f"By {ret.returned_by}",
+                           back is not None and f"{_g(back.balance_after)} available after this",
                            _still(waiting, qty, "store inspection"))
         elif kind == "RETURN_INSPECTION":
             title = INSPECTION_TITLES.get(t.inspection_result, "Return inspected")
@@ -880,12 +909,14 @@ class ScanResultService:
         remarks = remarks if remarks and remarks not in (detail or "") else None
         # When the event put quantity back on the rack, the stock change is
         # shown once, on its own "Added to store stock" row — not here as well,
-        # where it would read as a second +qty.
+        # where it would read as a second +qty. A return taken straight back
+        # has no such row: its +qty is shown here, on the one event.
         shows_delta = led is not None and not ScanResultService._adds_available(led)
+        moved = led if shows_delta else back
         return _row(
             at=_iso(t.created_at), kind=kind, title=title,
             detail=_join(detail, remarks), qty=qty,
-            qty_delta=_f(led.qty_delta) if shows_delta else None,
+            qty_delta=_f(moved.qty_delta) if moved is not None else None,
             prev_status=t.prev_status, new_status=t.new_status,
             department=department, issued_to=t.issued_to, line_name=t.line_name,
             line_no=t.line_no, machine=t.machine, die_no=t.die_no, supplier=supplier,
@@ -969,6 +1000,8 @@ class ScanResultService:
         partly = used is not None and used < issued
         if not where:
             title = "Installation confirmed"
+        elif used == 0:
+            title = f"Not used yet – {where}"
         else:
             title = f"{'Partly used' if partly else 'Installed'} – {where}"
         return _row(

@@ -28,6 +28,7 @@ REM     Ye vars neeche ke dono windows ko inherit ho jaate hain. ---
 set "DATABASE_URL=sqlite:///C:/dx_store_data/dx_store_TEST.db"
 set "PORT=5002"
 set "ERP_SYNC_POLL_SECONDS=0"
+set "MAIL_ENGINE_FORCE_OFF=1"
 set "VITE_PORT=5174"
 set "VITE_API_TARGET=http://localhost:5002"
 set "VITE_TEST_MODE=1"

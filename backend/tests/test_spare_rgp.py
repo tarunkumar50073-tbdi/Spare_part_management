@@ -23,8 +23,9 @@ from app.models.spare_flow import SpareReturn, SpareRgp, SpareTransaction
 from app.models.spare_stock import SpareStock, SpareStockLedger
 from app.models.supplier import Supplier
 from app.models.user import User, UserStoreAccess
+from app.services.scan_result_service import ScanResultService
 from app.services.spare_journal_service import SpareJournalService
-from app.services.spare_rgp_service import SpareRgpService
+from app.services.spare_rgp_service import SpareRgpService, rework_bin
 from app.services.spare_stock_service import SpareStockService
 from app.utils.exceptions import BadRequestError, NotFoundError
 
@@ -611,3 +612,63 @@ def test_legacy_rgp_report_post_needs_child_store_edit(client):
     assert client.post("/api/v1/rgp", json=body).status_code == 403
     _login(client, _user(stores=("CHILD_PART",), perms={"child_store": {"view": True, "edit": True}}).id)
     assert client.post("/api/v1/rgp", json=body).status_code == 201
+
+
+# ---- where reworked material goes back (store rule, 14 Oct 2026) ----
+
+FRESH, REWORK = "R3-S6-B31(1)", "R2-S6-B35(1)"
+
+
+def _two_bin_part(location=FRESH, rework_location=REWORK):
+    p = _part()
+    p.location, p.rework_location = location, rework_location
+    db.session.commit()
+    return p
+
+
+def test_rgp_grn_step_names_the_rework_bin(client):
+    """A part with a rework location (CNTR3200): the RGP document, Scan Part's
+    open RGP, the Work Queue row, the RGP GRN message and the ledger remark all
+    say the reworked material goes to the REWORK bin, not the fresh one."""
+    svc = SpareRgpService()
+    p, ret = _returned(damaged=1, opening=4, part=_two_bin_part())
+    rgp = _out(ret, 1)
+    assert rgp["rework_bin"] == REWORK
+    svc.supplier_return(rgp["id"], 1, user="store1")
+
+    scan = ScanResultService().build(p.id)
+    mine = next(g for g in scan["open_rgps"] if g["id"] == rgp["id"])
+    assert mine["rework_bin"] == REWORK and mine["qty_grn_pending"] == 1.0
+    assert scan["part"]["location"] == FRESH and scan["part"]["rework_location"] == REWORK
+    queue = ScanResultService().queues("MAINTENANCE")["rgp_grn_pending"]
+    assert next(g for g in queue if g["id"] == rgp["id"])["rework_bin"] == REWORK
+
+    _login(client, _user().id)
+    r = client.post(f"/api/v1/spare-flow/rgps/{rgp['id']}/grn", json={"qty": 1, "grn_no": "GRN-RW1"})
+    assert r.status_code == 201, r.get_json()
+    body = r.get_json()
+    assert body["message"].endswith(f"put it in the rework bin {REWORK}")
+    assert body["data"]["rework_bin"] == REWORK and body["data"]["status"] == "CLOSED"
+    row = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").one()
+    assert row.remarks == f"RGP GRN GRN-RW1 · to the rework bin {REWORK}"
+    assert _on_hand(p.id) == 4.0                       # one stock figure, back in full
+
+
+def test_without_a_separate_rework_bin_it_goes_back_to_its_own_location(client):
+    """No rework location, or one that is the fresh bin itself: nothing is said
+    about a rework bin and the ledger remark stays as before."""
+    assert rework_bin(_two_bin_part(rework_location=None)) is None
+    assert rework_bin(_two_bin_part(rework_location="r3-s6-b31 (1)")) is None   # same bin
+    assert rework_bin(_two_bin_part(location=None)) == REWORK  # only a rework bin
+    assert rework_bin(None) is None
+
+    svc = SpareRgpService()
+    p, ret = _returned(damaged=1, part=_two_bin_part(rework_location=None))
+    rgp = _out(ret, 1)
+    assert rgp["rework_bin"] is None
+    svc.supplier_return(rgp["id"], 1)
+    _login(client, _user().id)
+    r = client.post(f"/api/v1/spare-flow/rgps/{rgp['id']}/grn", json={"qty": 1, "grn_no": "GRN-RW2"})
+    assert r.status_code == 201
+    assert "rework bin" not in r.get_json()["message"]
+    assert SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RECEIPT").one().remarks == "RGP GRN GRN-RW2"

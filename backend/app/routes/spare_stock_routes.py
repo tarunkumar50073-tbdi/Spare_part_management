@@ -3,6 +3,8 @@
 Every route is store-scoped on purpose: this is the Spare Parts Store's own
 stock, and nothing here should be able to read or write a child part's.
 """
+import io
+
 from flask import Blueprint, request, send_file, session
 
 from app.repositories.part_repository import PartRepository
@@ -10,9 +12,11 @@ from app.services.auth_service import AuthService
 from app.services.spare_flow_service import SpareFlowService
 from app.services.spare_receipt_service import ReceivingInErpError
 from app.services.spare_stock_service import SpareStockService
+from app.services.stock_mis_report import daily_stock_report, stock_only_report
 from app.schemas.spare_stock_schema import (
     SpareStockSetSchema, SpareIssueSchema,
     SpareConfirmSchema, SpareLocationSchema, SpareReturnSchema,
+    PutAwayRecordSchema,
 )
 from app.utils.authz import permission_required, require_store_access
 from app.utils.event_bus import publish
@@ -43,6 +47,17 @@ def _section():
     """Optional section filter (a section of the Spare store) — an int id, or
     None for the whole store. Used by the Live Dashboard's section switcher."""
     return request.args.get("section_id", type=int)
+
+
+def _section_ids():
+    """Optional section GROUP filter — `section_ids` as a comma list of ints
+    (e.g. Tool Room = Press Tool Room + General Tool Room), or None. Blank /
+    non-numeric ids are dropped, never 400'd."""
+    raw = request.args.get("section_ids")
+    if not raw:
+        return None
+    ids = [int(p) for p in (s.strip() for s in raw.split(",")) if p.isdigit()]
+    return ids or None
 
 
 def _date_range():
@@ -81,6 +96,7 @@ def _username():
 def list_stock():
     return success_response(service.list_stock(
         _store_code(), section_id=request.args.get("section_id", type=int),
+        section_ids=_section_ids(),
     ))
 
 
@@ -164,6 +180,15 @@ def consumption_trend():
     ))
 
 
+@bp.route("/movement-trend", methods=["GET"])
+def movement_trend():
+    date_from, date_to = _date_range()
+    return success_response(service.movement_trend(
+        _store_code(), days=request.args.get("days", default=30, type=int),
+        section_id=_section(), date_from=date_from, date_to=date_to,
+    ))
+
+
 @bp.route("/consumption-comparison", methods=["GET"])
 def consumption_comparison():
     return success_response(service.consumption_comparison(_store_code(), section_id=_section()))
@@ -177,7 +202,8 @@ def part_facts():
 @bp.route("/value-by-supplier", methods=["GET"])
 def value_by_supplier():
     return success_response(service.stock_value_by_last_supplier(
-        _store_code(), section_id=_section(), top=request.args.get("top", default=10, type=int)))
+        _store_code(), section_id=_section(), top=request.args.get("top", default=10, type=int),
+        section_ids=_section_ids()))
 
 
 @bp.route("/top-consumed", methods=["GET"])
@@ -229,12 +255,13 @@ def erp_sync():
 @bp.route("/issues/<int:ledger_id>/return", methods=["POST"])
 @permission_required("scan_part", "edit")
 def return_issue(ledger_id):
-    """Take an issued part back against its original issue (spec 13). It is
-    held for the store inspection — on-hand does not change until the
-    inspection passes it as good. Body is optional — the legacy one-click
-    return of a returnable tool sends none (whole quantity, no reason); the
-    return form sends qty + reason + who returned it. The response carries
-    `return`, the return document now waiting for inspection."""
+    """Take an issued part back against its original issue (spec 13). The
+    store's rule (14 Oct 2026): no inspection — the quantity goes straight
+    back into store stock (SpareReturnService.return_to_store). Body is
+    optional — the legacy one-click return of a returnable tool sends none
+    (whole quantity, no reason); the return form sends qty + reason + who
+    returned it. The response is the part's stock row after the return, with
+    `return`, the return document (closed, all of it good)."""
     row = service.ledger_repo.get_by_id(ledger_id)
     if not row or not row.part:
         raise NotFoundError(f"Issue {ledger_id} not found")
@@ -249,7 +276,7 @@ def return_issue(ledger_id):
     )
     publish("stock", {"part_id": row.part_id, "ledger_id": ledger_id, "action": "return"})
     return success_response(
-        result, f"Returned to store · {result.get('return_no')} — waiting for inspection")
+        result, f"Returned · {result.get('return_no')} — {result['returned_qty']:g} back in store stock")
 
 
 @bp.route("/parts/<int:part_id>/returnable-issues", methods=["GET"])
@@ -280,19 +307,19 @@ def excess():
 
 @bp.route("/today", methods=["GET"])
 def today():
-    return success_response(service.today_movements(_store_code(), section_id=_section()))
+    return success_response(service.today_movements(_store_code(), section_id=_section(), section_ids=_section_ids()))
 
 
 @bp.route("/today/issues", methods=["GET"])
 def today_issues():
     """The ISSUE rows since shift start — the drill behind Today's Issue."""
-    return success_response(service.today_issues(_store_code(), section_id=_section()))
+    return success_response(service.today_issues(_store_code(), section_id=_section(), section_ids=_section_ids()))
 
 
 @bp.route("/today/receipts", methods=["GET"])
 def today_receipts():
     """The RECEIPT rows since shift start — the drill behind Today Added to Stock."""
-    return success_response(service.today_receipts(_store_code(), section_id=_section()))
+    return success_response(service.today_receipts(_store_code(), section_id=_section(), section_ids=_section_ids()))
 
 
 @bp.route("/activity", methods=["GET"])
@@ -343,6 +370,32 @@ def part_stock(part_id):
 @bp.route("/scan", methods=["GET"])
 def scan_lookup():
     return success_response(service.resolve_scan(_store_code(), request.args.get("code")))
+
+
+@bp.route("/lot-qty", methods=["GET"])
+def lot_qty():
+    """Lot quantity for a scanned lot tag (gate_entry_no + part_no) — shown on the
+    Put-away Check screen. Read-only, store-scoped like the part scan; returns
+    {"qty": <number|null>} (null when it isn't a lot tag or nothing matches)."""
+    _store_code()
+    qty = service.lot_qty(request.args.get("gate_entry_no"), request.args.get("part_no"))
+    return success_response({"qty": qty})
+
+
+@bp.route("/put-away/record", methods=["POST"])
+@permission_required("store_stock", "edit")
+def put_away_record():
+    """Record a confirmed put-away (Put-away Check → Confirm Put Away): the part
+    was physically shelved in one of its bins (fresh, or rework when it has one).
+    Guards that the scanned location is one of them, captures the lot qty, and
+    stamps who/when. Does not move stock."""
+    data = validate_payload(PutAwayRecordSchema(), request.get_json(force=True) or {})
+    part = _require_part_store(data["part_id"])
+    row = service.record_put_away(
+        part, data["scanned_location"],
+        gate_entry_no=data.get("gate_entry_no"), user=_username(),
+    )
+    return success_response(row, "Put away confirmed", 201)
 
 
 @bp.route("/parts/<int:part_id>", methods=["PUT"])
@@ -426,6 +479,17 @@ def part_pending_confirmations(part_id):
     return success_response(service.pending_confirmations_for_part(part_id))
 
 
+@bp.route("/installations", methods=["GET"])
+def installations():
+    """Issues already confirmed as installed — where each one is fitted now,
+    newest confirmation first (q searches; limit 200 by default, at most
+    1000). Gated like /pending-confirmations: the store's own users. Updating
+    one is POST /issues/<id>/confirm."""
+    return success_response(service.installations(
+        _store_code(), q=request.args.get("q"),
+        limit=request.args.get("limit", default=200, type=int)))
+
+
 @bp.route("/parts/<int:part_id>/receive", methods=["POST"])
 def receive_part(part_id):
     """Receiving, the GRN and the quality clearance are done in ERP and read
@@ -491,6 +555,25 @@ def export_stock():
                      download_name="spare_stock.xlsx", mimetype=XLSX_MIME)
 
 
+@bp.route("/daily-report", methods=["GET"])
+def daily_report():
+    """The Daily Stock Report: the store's whole stock position as one MIS
+    workbook, ready to print (services/stock_mis_report). Store-scoped like the
+    export above."""
+    report = daily_stock_report(_store_code())
+    return send_file(io.BytesIO(report["content"]), as_attachment=True,
+                     download_name=report["filename"], mimetype=report["mime"])
+
+
+@bp.route("/daily-stock-only", methods=["GET"])
+def daily_stock_only():
+    """The Daily Stock Report (Stock Only): one sheet with only the stock of
+    every active part (services/stock_mis_report). Store-scoped like the MIS."""
+    report = stock_only_report(_store_code())
+    return send_file(io.BytesIO(report["content"]), as_attachment=True,
+                     download_name=report["filename"], mimetype=report["mime"])
+
+
 @bp.route("/import", methods=["POST"])
 @permission_required("store_stock", "edit")
 def import_stock():
@@ -508,3 +591,33 @@ def import_stock():
     if report.get("updated"):
         publish("stock", {"store_code": store_code, "action": "import"})
     return success_response(report, f"{report.get('updated', 0)} part(s) updated", 201)
+
+
+@bp.route("/erp-stock/template", methods=["GET"])
+def download_erp_template():
+    # Pre-filled with the store's part numbers + current ERP qty (audit AUTHZ:
+    # a named store is access-enforced).
+    code = request.args.get("store_code")
+    if code:
+        require_store_access(code)
+    buf = service.build_erp_template(code)
+    return send_file(buf, as_attachment=True,
+                     download_name="spare_erp_stock_template.xlsx", mimetype=XLSX_MIME)
+
+
+@bp.route("/erp-stock/import", methods=["POST"])
+@permission_required("store_stock", "edit")
+def import_erp_stock():
+    # The ERP side of ERP-vs-Physical, loaded from Excel until the ERP API is
+    # connected. store_code is REQUIRED + access-enforced (per-row store guard).
+    store_code = _store_code()
+    file = request.files.get("file")
+    if not file or file.filename == "":
+        raise BadRequestError("No file uploaded")
+    report = service.import_erp_stock(
+        file.stream, store_code=store_code,
+        user=_username(), sheet_name=request.form.get("sheet_name") or None,
+    )
+    if report.get("updated"):
+        publish("stock", {"store_code": store_code, "action": "erp-import"})
+    return success_response(report, f"{report.get('updated', 0)} part(s) ERP stock updated", 201)

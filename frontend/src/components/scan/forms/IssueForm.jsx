@@ -4,6 +4,7 @@ import QtyStepper from "../../QtyStepper.jsx";
 import EmployeeLookup from "../../EmployeeLookup.jsx";
 import { spareFlowService } from "../../../services/spareFlowService.js";
 import { num } from "../../../lib/format.js";
+import { partBins } from "../../../utils/binLocation.js";
 import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
 import { clean, fmtQty, qtyError, qtyOf, stepMin, useActionFlow, useDepartments } from "./flow.js";
 
@@ -62,6 +63,11 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
   const [remarks, setRemarks] = useState("");
   const [tried, setTried] = useState(false);
   const emp = person.employee;
+  // A part with a rework location sits in two bins — Fresh (new parts) and
+  // Rework (back from rework) — and shows both; otherwise the one `single` fact.
+  const labelledBins = partBins(part.location, part.rework_location).filter((b) => b.label);
+  const binFacts = (single) => (labelledBins.length
+    ? labelledBins.map((b) => ({ label: `${b.label} location`, value: b.location })) : [single]);
 
   const pickPerson = (next) => {
     const was = person.employee;
@@ -114,7 +120,7 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
         { label: "Employee code", value: emp.employee_code },
         { label: "Department", value: department },
         { label: "Mobile", value: `+91 ${emp.mobile}` },
-        { label: "From location", value: part.location },
+        ...binFacts({ label: "From location", value: part.location }),
         { label: "Available after issue", value: fmtQty(Math.round((available - payload.qty) * 100) / 100, part.uom) },
         { label: "Remarks", value: payload.remarks },
       ],
@@ -133,7 +139,7 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
         <Facts items={[
           { label: "Part No.", value: part.part_no, strong: true },
           { label: "Description", value: part.part_name },
-          { label: "Location", value: part.location, empty: "Not set" },
+          ...binFacts({ label: "Location", value: part.location, empty: "Not set" }),
           { label: "Available qty", value: fmtQty(available, part.uom), strong: true },
         ]} />
       }>

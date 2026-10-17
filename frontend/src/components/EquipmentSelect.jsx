@@ -67,9 +67,15 @@ export default function EquipmentSelect({
     }
   };
 
-  // Delay the close so a click on a suggestion (which blurs the input) lands.
+  // Leaving the box (Tab, a click elsewhere) closes the list a moment later.
   const onBlur = () => { closeTimer.current = setTimeout(() => setOpen(false), 150); };
-  const keepOpen = () => { if (closeTimer.current) clearTimeout(closeTimer.current); };
+  // A press inside the list must not take the focus from the box: the box would
+  // blur, the list close, and the click never land on the suggestion (a slow
+  // tap on the tablet lost every pick).
+  const keepFocus = (e) => {
+    e.preventDefault();
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+  };
 
   return (
     <div className="relative">
@@ -78,7 +84,7 @@ export default function EquipmentSelect({
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)} onBlur={onBlur} />
       {open && (matches.length > 0 || showAdd) && (
-        <ul onMouseDown={keepOpen}
+        <ul onMouseDown={keepFocus}
           className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-navy-700 dark:bg-navy-900">
           {matches.map((e) => (
             <li key={e.id}>

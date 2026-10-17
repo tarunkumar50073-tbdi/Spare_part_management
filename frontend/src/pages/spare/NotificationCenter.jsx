@@ -239,7 +239,7 @@ export default function NotificationCenter() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Notifications</h2>
+          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Notification Center</h2>
           <p className="text-xs text-slate-400 mt-0.5">
             {storeName} · worked out from the store's own data on every check, so an alert clears once its cause is fixed
           </p>

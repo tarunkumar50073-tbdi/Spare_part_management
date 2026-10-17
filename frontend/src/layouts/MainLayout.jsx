@@ -7,6 +7,7 @@ import BackToTop from "../components/BackToTop.jsx";
 import AssistantWidget from "../components/AssistantWidget.jsx";
 import ErrorBoundary from "../components/ErrorBoundary.jsx";
 import CommandPalette from "../components/CommandPalette.jsx";
+import AttentionPopup from "../components/AttentionPopup.jsx";
 import useRealtime from "../hooks/useRealtime.js";
 import { PartDrawerProvider } from "../context/PartDrawerContext.jsx";
 
@@ -16,6 +17,7 @@ const TITLES = {
   "/gate-entry": "Gate Entry",
   "/srvs": "SRV Workflow",
   "/put-away": "Pending Rack Allocation",
+  "/put-away-check": "Put-away Check",
   "/holding-area": "Holding Area",
   "/store-stock": "Store Stock",
   "/scan-part": "Scan Part",
@@ -38,12 +40,23 @@ const TITLES = {
   "/departments": "Department Emails",
   "/services": "All Services",
   "/inventory-control": "Critical · Reorder · Excess",
-  "/consumption": "Consumption Analytics",
+  "/issuance": "Issuance Report",
+  "/consumption": "Consumption Report",
   "/receiving": "Receiving & GRN",
   "/erp-control": "ERP Control Center",
   "/data-quality": "Data Quality",
-  "/notifications": "Notifications",
+  "/notifications": "Notification Center",
   "/work-queue": "Work Queue",
+  "/action-tracker": "Action Tracker",
+  "/email/control-center": "Control Center",
+  "/email/workflows": "Workflow Center",
+  "/email/configuration": "Email Configuration",
+  "/email/templates": "Email Templates",
+  "/email/send": "Send Email Alert",
+  "/email/queue": "Email Queue",
+  "/email/logs": "Email Logs",
+  "/email/rules": "Notification Rules",
+  "/email/reminders": "Reminder & Escalation",
   "/employees": "Employee Master",
   "/equipment": "Line / Machine / Die Master",
 };
@@ -88,17 +101,23 @@ export default function MainLayout() {
   const location = useLocation();
   useRealtime();   // one SSE connection for the whole shell
   const { activeStore } = useStores();
-  // On a section page the heading is that section's own name (Press Shop …),
+  // On a section page the heading is that section's own name (Maintenance …),
   // read from the store master by the id in the path.
   const sectionMatch = location.pathname.match(/^\/store\/[^/]+\/(\d+)$/);
   const section = sectionMatch && (activeStore?.sections || []).find((s) => String(s.id) === sectionMatch[1]);
+  // On a section GROUP page the heading is the group's name (Tool Room), read
+  // straight from the path (it is the group, not any one section).
+  const groupMatch = location.pathname.match(/^\/store\/[^/]+\/group\/([^/]+)$/);
+  const groupTitle = groupMatch && decodeURIComponent(groupMatch[1]);
   // The dashboard is one route shared by every store, so its heading comes
   // from whichever store is in scope rather than from the path.
   const title = section
     ? section.name
-    : location.pathname === "/dashboard"
-      ? activeStore?.name || "Store Dashboard"
-      : TITLES[location.pathname] || "TBDI Digital Store";
+    : groupTitle
+      ? groupTitle
+      : location.pathname === "/dashboard"
+        ? activeStore?.name || "Store Dashboard"
+        : TITLES[location.pathname] || "TBDI Digital SMP";
 
   return (
     // One part drawer for every screen in the shell (and Ctrl+K) — see
@@ -124,6 +143,8 @@ export default function MainLayout() {
       <BackToTop />
       <AssistantWidget />
       <CommandPalette />
+      {/* Greets a sign-in with what needs attention (once per login). */}
+      <AttentionPopup />
     </div>
     </PartDrawerProvider>
   );

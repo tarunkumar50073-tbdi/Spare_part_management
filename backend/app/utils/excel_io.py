@@ -12,6 +12,9 @@ import csv
 import io
 import re
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 # Uploads get sniffed by magic bytes, not by file extension — ERP and MES
 # exports routinely hand out an old .xls, or a plain CSV, under a .xlsx name,
@@ -308,6 +311,7 @@ def build_template(columns):
     wb = Workbook()
     ws = wb.active
     ws.append(columns)
+    format_table(ws)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -341,9 +345,66 @@ _FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
 
 
 def _excel_safe(value):
-    if isinstance(value, str) and value and value[0] in _FORMULA_LEAD:
+    if not isinstance(value, str):
+        return value
+    # A control character (a vertical tab pasted in with an ERP name, say) is
+    # refused by the xlsx writer and would cost the whole sheet: drop it.
+    value = ILLEGAL_CHARACTERS_RE.sub("", value)
+    if value and value[0] in _FORMULA_LEAD:
         return "'" + value
     return value
+
+
+# Shared styling so every export opens as a proper table (bold white-on-navy
+# header, frozen + filterable, thin borders, columns sized to content) instead
+# of bare values.
+_HDR_FONT = Font(bold=True, color="FFFFFF")
+_HDR_FILL = PatternFill("solid", fgColor="1F3A5F")
+_THIN = Side(style="thin", color="D4DBE6")
+_CELL_BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
+_HDR_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
+_BODY_ALIGN = Alignment(vertical="center")
+
+
+def format_table(ws):
+    """Turn a populated worksheet (row 1 = header) into a formatted table:
+    styled frozen+filterable header, bordered cells, content-sized columns."""
+    max_row, max_col = ws.max_row, ws.max_column
+    if max_row == 0 or max_col == 0:
+        return
+    widths = [10] * max_col
+    for r, row in enumerate(ws.iter_rows(min_row=1, max_row=max_row, max_col=max_col), start=1):
+        for c, cell in enumerate(row):
+            cell.border = _CELL_BORDER
+            if r == 1:
+                cell.font, cell.fill, cell.alignment = _HDR_FONT, _HDR_FILL, _HDR_ALIGN
+            else:
+                cell.alignment = _BODY_ALIGN
+            if cell.value is not None:
+                ln = len(str(cell.value)) + 2
+                if ln > widths[c]:
+                    widths[c] = min(50, ln)
+    for c in range(max_col):
+        ws.column_dimensions[get_column_letter(c + 1)].width = widths[c]
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(max_col)}{max_row}"
+
+
+def _append_safe_row(ws, values):
+    """Append one data row with every text through the formula guard. In a
+    workbook the guarded text is stored as plain text with Excel's own quote
+    prefix instead of a leading apostrophe: Excel never reads it as a formula,
+    and the cell shows the name as typed ("- MODEL-FT-650", not "'- MODEL...")."""
+    safe = [_excel_safe(v) for v in values]
+    guarded = [isinstance(v, str) and v != raw and v[:1] == "'" and v[1:2] in _FORMULA_LEAD
+               for v, raw in zip(safe, values)]
+    ws.append([v[1:] if g else v for v, g in zip(safe, guarded)])
+    # Only a row that has a guarded cell is looked at again: finding the last
+    # row scans the whole sheet, which made a 4,800-row export take 15-30 s.
+    if any(guarded):
+        for cell, g in zip(ws[ws.max_row], guarded):
+            if g:
+                cell.data_type, cell.quotePrefix = "s", True
 
 
 def build_export(columns, rows):
@@ -352,7 +413,8 @@ def build_export(columns, rows):
     ws = wb.active
     ws.append([label for label, _ in columns])
     for row in rows:
-        ws.append([_excel_safe(row.get(key, "")) for _, key in columns])
+        _append_safe_row(ws, [row.get(key, "") for _, key in columns])
+    format_table(ws)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

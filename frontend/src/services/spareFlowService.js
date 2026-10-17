@@ -27,7 +27,8 @@ export const spareFlowService = {
   issue: (partId, payload) => api.post(`/spare-stock/parts/${partId}/issue`, payload),
   // { line_name?, line_no?, machine?, die_no?, actual_qty?, remarks? } — repeatable.
   updateInstallation: (issueId, payload) => api.post(`/spare-stock/issues/${issueId}/confirm`, payload),
-  // { qty, reason, note?, returned_by? } -> a return held for inspection.
+  // { qty, reason, note?, returned_by? } -> a return taken straight back into
+  // store stock (store rule, 14 Oct 2026).
   returnToStore: (issueId, payload) => api.post(`/spare-stock/issues/${issueId}/return`, payload),
 
   // ---- return inspection (spec 14) ----

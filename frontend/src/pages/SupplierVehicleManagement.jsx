@@ -164,7 +164,11 @@ export default function SupplierVehicleManagement() {
           no_recipient_email: "no To address in Report Recipients",
           report_build_failed: "report build failed",
           send_failed: "mail server rejected it",
-        }[reason] || reason;
+          mail_engine_disabled: "the mail engine is off — the sheet is waiting in the Email Queue",
+          already_queued: "it is already waiting in the Email Queue",
+          already_tried_today: "it was already tried today — see Email Logs",
+          already_sent_today: "it was already sent today",
+        }[reason] || String(reason || "unknown reason").replace(/_/g, " ");
         toast(`Not sent: ${why}`, { icon: <TriangleAlert size={18} className="text-amber-500 shrink-0" /> });
       }
     } catch {

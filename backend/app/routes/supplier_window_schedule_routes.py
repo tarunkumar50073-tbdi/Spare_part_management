@@ -9,7 +9,7 @@ from app.schemas.supplier_window_schedule_schema import (
 )
 from app.utils.validators import validate_payload
 from app.utils.response import success_response
-from app.utils.authz import admin_required
+from app.utils.authz import admin_required, current_user
 
 bp = Blueprint("supplier_window_schedules", __name__, url_prefix="/api/v1/supplier-window-schedules")
 service = SupplierWindowScheduleService()
@@ -118,8 +118,10 @@ def email_report():
     Returns {status:'sent'|'skipped', reason, to, cc, report_date}. admin_required
     also lets the machine (X-API-Key) caller through, so a Windows Task Scheduler
     job can POST here on a fixed schedule. The button sends {"force": true} to
-    override the once-per-day guard; an unattended trigger POSTs without it."""
-    force = bool((request.get_json(silent=True) or {}).get("force", False))
+    override the once-per-day guard; an unattended trigger POSTs without it —
+    and only a signed-in administrator can force: from the key alone "force" is
+    ignored, so the key can never mail the sheet more than once a day."""
+    force = bool((request.get_json(silent=True) or {}).get("force", False)) and current_user() is not None
     return success_response(mail_service.send_current_month(force=force), "Window-time report email processed")
 
 

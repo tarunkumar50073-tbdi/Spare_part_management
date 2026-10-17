@@ -11,6 +11,7 @@ import { StoreProvider, storeHome, useStores } from "./context/StoreContext.jsx"
 import RequirePermission from "./components/RequirePermission.jsx";
 import StoreRoute from "./components/StoreRoute.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
+import { can } from "./utils/permissions.js";
 import { ConfirmProvider } from "./components/ConfirmDialog.jsx";
 
 // Route pages are code-split: each loads its own chunk on demand, so opening the
@@ -56,8 +57,10 @@ const Settings = React.lazy(() => import("./pages/Settings.jsx"));
 const AllServices = React.lazy(() => import("./pages/AllServices.jsx"));
 const ErpControlCenter = React.lazy(() => import("./pages/spare/ErpControlCenter.jsx"));
 const ReceivingMonitor = React.lazy(() => import("./pages/spare/ReceivingMonitor.jsx"));
+const ShortRejection = React.lazy(() => import("./pages/spare/ShortRejection.jsx"));
 const InventoryControl = React.lazy(() => import("./pages/spare/InventoryControl.jsx"));
 const ConsumptionAnalytics = React.lazy(() => import("./pages/spare/ConsumptionAnalytics.jsx"));
+const IssuanceReport = React.lazy(() => import("./pages/spare/IssuanceReport.jsx"));
 const DataQuality = React.lazy(() => import("./pages/spare/DataQuality.jsx"));
 const NotificationCenter = React.lazy(() => import("./pages/spare/NotificationCenter.jsx"));
 const WorkQueue = React.lazy(() => import("./pages/spare/WorkQueue.jsx"));
@@ -65,6 +68,18 @@ const ConfirmInstallation = React.lazy(() => import("./pages/spare/ConfirmInstal
 const PutAwayCheck = React.lazy(() => import("./pages/spare/PutAwayCheck.jsx"));
 const EmployeeMaster = React.lazy(() => import("./pages/EmployeeMaster.jsx"));
 const EquipmentMaster = React.lazy(() => import("./pages/EquipmentMaster.jsx"));
+const KioskRequest = React.lazy(() => import("./pages/spare/KioskRequest.jsx"));
+const PartRequests = React.lazy(() => import("./pages/spare/PartRequests.jsx"));
+const ActionTracker = React.lazy(() => import("./pages/spare/ActionTracker.jsx"));
+const EmailControlCenter = React.lazy(() => import("./pages/email/ControlCenter.jsx"));
+const EmailWorkflowCenter = React.lazy(() => import("./pages/email/WorkflowCenter.jsx"));
+const EmailConfiguration = React.lazy(() => import("./pages/email/EmailConfiguration.jsx"));
+const EmailTemplates = React.lazy(() => import("./pages/email/EmailTemplates.jsx"));
+const SendEmailAlert = React.lazy(() => import("./pages/email/SendEmailAlert.jsx"));
+const EmailQueue = React.lazy(() => import("./pages/email/EmailQueue.jsx"));
+const EmailLogs = React.lazy(() => import("./pages/email/EmailLogs.jsx"));
+const NotificationRules = React.lazy(() => import("./pages/email/NotificationRules.jsx"));
+const ReminderEscalation = React.lazy(() => import("./pages/email/ReminderEscalation.jsx"));
 
 // SPA navigation (and browser reloads) don't reset scroll on their own, so
 // coming back from the Live Dashboard — or reopening the app — used to land
@@ -80,6 +95,14 @@ function ScrollToTop() {
     window.scrollTo(0, 0);
   }, [pathname]);
   return null;
+}
+
+// Put-away Check is the third mode of Scan Part's header now. Its own address
+// still works: it lands there for whoever can open Scan Part, and stays a page
+// of its own for a user who holds Store Stock but not Scan Part.
+function PutAwayCheckRoute() {
+  const { user } = useAuth();
+  return can(user, "scan_part") ? <Navigate to="/scan-part?mode=putaway" replace /> : <PutAwayCheck />;
 }
 
 // Shown while a route's chunk loads — brief, since chunks are small and cached.
@@ -115,6 +138,9 @@ function AuthenticatedApp() {
         {/* The 53" LED "Live Dashboard": behind login, but deliberately OUTSIDE
             MainLayout — no sidebar, no top bar, it owns the whole screen. */}
         <Route path="/live-dashboard" element={<RequirePermission mod="live_dashboard"><TvDashboard /></RequirePermission>} />
+        {/* Kiosk (outside the locked store): a touchscreen request screen — like
+            the Live Dashboard it owns the whole screen, no sidebar/top bar. */}
+        <Route path="/kiosk" element={<RequirePermission mod="kiosk"><KioskRequest /></RequirePermission>} />
         <Route element={<MainLayout />}>
           {/* Stores are navigated from the sidebar, so / opens whichever one is
               in scope rather than putting a chooser in the way. */}
@@ -127,6 +153,10 @@ function AuthenticatedApp() {
           <Route path="/services" element={<AllServices />} />
           {/* A section is its own address, so the sidebar can link straight to
               it and the browser's back button behaves. */}
+          {/* A section GROUP (e.g. Tool Room) is its own address too — one page
+              with a dropdown over its sibling sections. Four segments, so it
+              never collides with the three-segment section route below. */}
+          <Route path="/store/MAINTENANCE/group/:groupName" element={<RequirePermission mod="spare_store"><MaintenanceStore /></RequirePermission>} />
           <Route path="/store/MAINTENANCE/:sectionId" element={<RequirePermission mod="spare_store"><MaintenanceStore /></RequirePermission>} />
           <Route path="/gate-entry" element={<RequirePermission mod="gate_entry"><GateEntry /></RequirePermission>} />
           <Route path="/srvs" element={<StoreRoute store="CHILD_PART"><SRVWorkflow /></StoreRoute>} />
@@ -172,14 +202,33 @@ function AuthenticatedApp() {
           {/* Spare Parts Store control screens (enterprise spec, phases 7-12). */}
           <Route path="/erp-control" element={<RequirePermission mod="erp_gap"><ErpControlCenter /></RequirePermission>} />
           <Route path="/receiving" element={<RequirePermission mod="spare_store"><ReceivingMonitor /></RequirePermission>} />
+          {/* What suppliers sent short and quality rejected — the Receiving & GRN right (17 Oct 2026). */}
+          <Route path="/short-rejection" element={<RequirePermission mod="spare_store"><ShortRejection /></RequirePermission>} />
           <Route path="/inventory-control" element={<RequirePermission mod="store_stock"><InventoryControl /></RequirePermission>} />
+          {/* Two reports since 17 Oct 2026 ("issuance and consumption ki report alag alag chahiye"),
+              behind the spare_store right the one Issuance & Consumption screen had. */}
+          <Route path="/issuance" element={<RequirePermission mod="spare_store"><IssuanceReport /></RequirePermission>} />
           <Route path="/consumption" element={<RequirePermission mod="spare_store"><ConsumptionAnalytics /></RequirePermission>} />
           <Route path="/data-quality" element={<RequirePermission mod="part_master"><DataQuality /></RequirePermission>} />
           <Route path="/notifications" element={<NotificationCenter />} />
           {/* QR traceability: every open receipt / return / RGP / issue awaiting a step. */}
           <Route path="/work-queue" element={<RequirePermission mod="scan_part"><WorkQueue /></RequirePermission>} />
           <Route path="/confirm-installation" element={<RequirePermission mod="install_confirm"><ConfirmInstallation /></RequirePermission>} />
-          <Route path="/put-away" element={<RequirePermission mod="store_stock"><PutAwayCheck /></RequirePermission>} />
+          <Route path="/put-away-check" element={<RequirePermission mod="store_stock"><PutAwayCheckRoute /></RequirePermission>} />
+          <Route path="/part-requests" element={<RequirePermission mod="scan_part"><PartRequests /></RequirePermission>} />
+          {/* Summary of issues · owner · target — the management view of the store. */}
+          <Route path="/action-tracker" element={<RequirePermission mod="spare_store"><ActionTracker /></RequirePermission>} />
+          {/* Email & Notifications — administrators only; each page gates itself
+              (AdminOnly), like Settings does. */}
+          <Route path="/email/control-center" element={<EmailControlCenter />} />
+          <Route path="/email/workflows" element={<EmailWorkflowCenter />} />
+          <Route path="/email/configuration" element={<EmailConfiguration />} />
+          <Route path="/email/templates" element={<EmailTemplates />} />
+          <Route path="/email/send" element={<SendEmailAlert />} />
+          <Route path="/email/queue" element={<EmailQueue />} />
+          <Route path="/email/logs" element={<EmailLogs />} />
+          <Route path="/email/rules" element={<NotificationRules />} />
+          <Route path="/email/reminders" element={<ReminderEscalation />} />
           {/* Anything else: say so, instead of an empty page inside the layout. */}
           <Route path="*" element={<NotFound />} />
         </Route>
@@ -195,7 +244,22 @@ function AuthenticatedApp() {
 // even when it was not the one in scope — and would still have opened it after
 // the store was hidden. Waits for the store list rather than guessing, because
 // the active store is only known once it has loaded.
+//
+// A login without the Spare Parts Store dashboard right — the Line User, Kiosk
+// device and Live Board templates (store's role templates, 17 Oct 2026) — would
+// land on "Access restricted" there. It goes to the first screen it may open
+// instead, in this order, and to All Services when it may open none of them.
+const FIRST_SCREENS = [
+  { to: "/scan-part", mod: "scan_part" },
+  { to: "/confirm-installation", mod: "install_confirm" },
+  { to: "/kiosk", mod: "kiosk" },
+  { to: "/live-dashboard", mod: "live_dashboard" },
+  { to: "/store-stock-spare", mod: "store_stock" },
+  { to: "/reports", mod: "reports" },
+];
+
 function StoreHome() {
+  const { user } = useAuth();
   const { activeCode, loading } = useStores();
   if (loading) return null;
   if (!activeCode) {
@@ -204,6 +268,10 @@ function StoreHome() {
         No store is available for this account.
       </p>
     );
+  }
+  if (activeCode === "MAINTENANCE" && !can(user, "spare_store")) {
+    const first = FIRST_SCREENS.find((s) => can(user, s.mod));
+    return <Navigate to={first ? first.to : "/services"} replace />;
   }
   return <Navigate to={storeHome(activeCode)} replace />;
 }

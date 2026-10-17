@@ -7,6 +7,10 @@ person-wise, not one address per department. The department still carries the
 from app.extensions import db
 from app.models.base import BaseModel
 
+# How each recipient is addressed on the reorder mail. TO/CC are visible to all;
+# BCC recipients are hidden from the others.
+ROLES = ("TO", "CC", "BCC")
+
 
 class DepartmentRecipient(BaseModel):
     __tablename__ = "department_recipients"
@@ -14,6 +18,8 @@ class DepartmentRecipient(BaseModel):
     department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=False, index=True)
     name = db.Column(db.String(120), nullable=False)   # person's name
     email = db.Column(db.String(255), nullable=True)
+    # To / Cc / Bcc on the reorder mail (default To). Older rows read as To.
+    role = db.Column(db.String(3), nullable=False, default="TO")
     is_active = db.Column(db.Boolean, nullable=False, default=True)
 
     department = db.relationship("Department", backref=db.backref("recipients", cascade="all, delete-orphan"))
@@ -21,7 +27,8 @@ class DepartmentRecipient(BaseModel):
     def to_dict(self):
         return {
             "id": self.id, "department_id": self.department_id,
-            "name": self.name, "email": self.email, "is_active": self.is_active,
+            "name": self.name, "email": self.email,
+            "role": (self.role or "TO").upper(), "is_active": self.is_active,
         }
 
     def __repr__(self):

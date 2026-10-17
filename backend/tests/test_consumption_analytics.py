@@ -6,12 +6,20 @@ stamped at 12:00 UTC so they land on the same plant day whatever the server's
 offset. Each test that needs "the ledger covers this window" plants its own
 OPENING row before the window; the store's first ledger row can only be as
 early or earlier, which is all coverage needs.
+
+The department of a breakdown, a filter and the filter bar is the one that
+CONSUMES the part — the owner of its section — never the one typed on the
+issue (the store's rule, 14 Oct 2026). The CA sections are owned by no
+department, so their parts count under the section's own name; the tests of
+the rule itself build their own store and departments (CA-<n>) and remove the
+departments afterwards.
 """
 from datetime import date, datetime, timedelta
 
 import pytest
 
 from app.extensions import db
+from app.models.department import Department
 from app.models.part import Part
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Section, Store
@@ -19,6 +27,7 @@ from app.models.user import User, UserStoreAccess
 from app.services.consumption_analytics_service import (
     ConsumptionAnalyticsService, _weeks_ending, detect_spikes,
 )
+from app.utils.exceptions import BadRequestError
 
 STORE = "MAINTENANCE"
 URL = "/api/v1/consumption-analytics"
@@ -46,11 +55,13 @@ def _part(sec, tag, rate=None, sub=None, store=STORE):
     return p
 
 
-def _row(part, qty, day, txn="ISSUE", dept=None, machine=None, status=None):
+def _row(part, qty, day, txn="ISSUE", dept=None, machine=None, status=None, **place):
+    """One ledger row at 12:00 UTC; `place` = line_name, line_no, die_no,
+    confirmed_at as Confirm Installation writes them."""
     db.session.add(SpareStockLedger(
         part_id=part.id, qty_delta=-qty if txn == "ISSUE" else qty, balance_after=0, txn_type=txn,
         department=dept, machine=machine, status=status,
-        created_at=datetime.combine(day, datetime.min.time()) + timedelta(hours=12)))
+        created_at=datetime.combine(day, datetime.min.time()) + timedelta(hours=12), **place))
     db.session.commit()
 
 
@@ -64,6 +75,9 @@ def march_1998():
         A  rate 10, type "CA Sensor"   3 on 03-01 (Tool Room, Press 1), 2 on 03-05 (Maintenance),
                                        5 on 02-20 (previous), 7 on 03-11 (after the window)
         B  no rate, type "CA Belt"     4 on 03-10 (Tool Room)
+
+    Tool Room / Maintenance are what the issues were TYPED with; the section,
+    owned by no department, is who consumes them all.
     """
     sec = _section()
     a = _part(sec, "A", rate=10, sub="CA Sensor")
@@ -106,15 +120,17 @@ def test_window_previous_and_change(march_1998):
     assert top[1]["value"] is None            # no rate -> no value, not zero
     assert r["issued_parts"] == 2
 
-    dept = {d["name"]: d for d in r["by_department"]}
-    assert dept["Tool Room"]["qty"] == 7.0 and dept["Maintenance"]["qty"] == 2.0
-    assert [d["name"] for d in r["by_department"]] == ["Tool Room", "Maintenance"]
+    # Who consumes it (the section, no department owning it), not who it was typed to.
+    assert r["by_department"] == [{"name": sec.name, "key": sec.name, "qty": 9.0, "lines": 3, "parts": 2,
+                                   "value": 50.0, "unvalued_lines": 1}]
+    assert "never the" in r["basis"]["department"]
     assert r["by_section"] == [{"name": sec.name, "key": sec.id, "qty": 9.0, "lines": 3, "parts": 2,
                                 "value": 50.0, "unvalued_lines": 1}]
     assert {t["name"]: t["qty"] for t in r["by_type"]} == {"CA Sensor": 5.0, "CA Belt": 4.0}
     machines = {m["name"]: m for m in r["by_machine"]}
     assert machines["Press 1"]["qty"] == 3.0 and machines["Press 1"]["key"] == "Press 1"
-    assert machines["Not recorded"]["qty"] == 6.0 and machines["Not recorded"]["key"] is None
+    # Never installed: waiting for the fitter, named as the table names it.
+    assert machines["Not recorded yet"]["qty"] == 6.0 and machines["Not recorded yet"]["key"] is None
 
 
 def test_series_is_zero_filled_and_previous_aligned(march_1998):
@@ -156,18 +172,30 @@ def test_value_is_none_not_zero_when_no_line_has_a_rate(march_1998):
     assert r["by_section"][0]["value"] is None
 
 
-def test_machine_awaiting_confirmation_is_not_missing_data():
+def test_machine_named_as_the_table_names_it():
+    """The By machine chart names an issue with no machine by the rule the
+    table's Line / Machine view uses (place_of): its die when fitted on a die
+    alone, "Installed, place not recorded" when installed with no place,
+    "Not recorded yet" when not installed — waiting for the fitter, not missing
+    data. Installed = through Confirm Installation (confirmed_at), whatever
+    status a later return gave it. A line with no machine shows by its line."""
     sec = _section()
     p = _part(sec, "M", rate=1)
+    fitted = datetime(1998, 6, 9, 9, 0)
     _row(p, 100, date(1998, 1, 5), txn="OPENING")
     _row(p, 2, date(1998, 6, 2), status="PENDING_USER_CONFIRMATION")
     _row(p, 1, date(1998, 6, 3), status="ISSUED_BY_STORE")
-    _row(p, 4, date(1998, 6, 4), status="INSTALLED")
-    _row(p, 5, date(1998, 6, 5), status="INSTALLED", machine="Press 9")
+    _row(p, 4, date(1998, 6, 4), status="RETURNED", confirmed_at=fitted)      # installed, then sent back
+    _row(p, 5, date(1998, 6, 5), status="INSTALLED", machine=" Press 9 ", confirmed_at=fitted)
+    _row(p, 6, date(1998, 6, 6), status="INSTALLED", die_no="D-9", confirmed_at=fitted)
+    _row(p, 7, date(1998, 6, 7), status="INSTALLED", line_name="Recliner", line_no="02", confirmed_at=fitted)
+    _row(p, 8, date(1998, 6, 8), status="INSTALLED", line_name="Recliner", die_no="D-9", confirmed_at=fitted)
     r = svc.analytics(STORE, date_from="1998-06-01", date_to="1998-06-10", section_id=sec.id)
     machines = {(m["name"], m["key"]): m["qty"] for m in r["by_machine"]}
-    assert machines == {("Press 9", "Press 9"): 5.0, ("Awaiting fitter's confirmation", None): 3.0,
-                        ("Not recorded", None): 4.0}
+    assert machines == {("Press 9", "Press 9"): 5.0, ("Not recorded yet", None): 3.0,
+                        ("Installed, place not recorded", None): 4.0, ("Die D-9", None): 6.0,
+                        ("Line Recliner 02", None): 7.0, ("Line Recliner", None): 8.0}
+    assert "Installed, place not recorded" in r["basis"]["machine"]
 
 
 def test_change_pct_is_none_on_a_zero_base(march_1998):
@@ -182,9 +210,11 @@ def test_change_pct_is_none_on_a_zero_base(march_1998):
 
 def test_filters(march_1998):
     sec, a, b = march_1998
-    dept = _run(sec, department="  tool room ")            # trimmed, case-insensitive
-    assert dept["current"]["qty"] == 7.0 and dept["filters"]["department"] == "tool room"
+    dept = _run(sec, department=f"  {sec.name.upper()} ")  # the consumer: trimmed, case-insensitive
+    assert dept["current"]["qty"] == 9.0 and dept["filters"]["department"] == sec.name.upper()
     assert dept["previous"]["qty"] == 5.0
+    typed = _run(sec, department="Tool Room")              # what the issue was typed with: not a consumer
+    assert typed["current"]["qty"] == 0.0 and typed["previous"]["qty"] == 0.0
     assert _run(sec, part_type="CA Belt")["current"]["qty"] == 4.0
     part = _run(sec, part_id=a.id)
     assert part["current"]["qty"] == 5.0
@@ -329,11 +359,11 @@ VIEW = {"spare_store": {"view": True}}
 def test_endpoint_ok_and_filters(client, march_1998):
     sec, a, _ = march_1998
     c = _login(client, perms=VIEW)
-    r = c.get(f"{URL}?store_code={STORE}&from=1998-03-01&to=1998-03-10&granularity=week"
-              f"&section_id={sec.id}&department=Tool%20Room")
+    r = c.get(URL, query_string={"store_code": STORE, "from": "1998-03-01", "to": "1998-03-10",
+                                 "granularity": "week", "section_id": sec.id, "department": sec.name})
     assert r.status_code == 200
     body = r.get_json()["data"]
-    assert body["current"]["qty"] == 7.0 and body["window"]["granularity"] == "week"
+    assert body["current"]["qty"] == 9.0 and body["window"]["granularity"] == "week"
     assert {"current", "previous", "series", "top_parts", "by_department", "by_section", "by_type",
             "by_machine", "spikes", "filters", "ledger_since", "basis"} <= set(body)
 
@@ -344,7 +374,8 @@ def test_endpoint_ok_and_filters(client, march_1998):
 @pytest.mark.parametrize("query", [
     "from=1998-13-01",                         # not a date
     "from=1998-03-10&to=1998-03-01",           # backwards
-    "from=1990-01-01&to=1991-02-05",           # 401 days
+    "from=1990-01-01&to=1995-01-05",           # 1,831 days: past 5 years
+    "from=1990-01-01&to=1991-02-05&granularity=day",   # 401 days, day by day
     "granularity=hour",
     "section_id=abc",
     "part_id=1.5",
@@ -380,4 +411,118 @@ def test_options(client, march_1998):
     body = r.get_json()["data"]
     assert {"id": sec.id, "name": sec.name} in body["sections"]
     assert {"CA Sensor", "CA Belt"} <= {t["name"] for t in body["types"]}
-    assert {"Tool Room", "Maintenance"} <= set(body["departments"])
+    # The section is owned by no department: it consumes under its own name.
+    assert sec.name in body["departments"]
+    # Never a department that only takes parts out or buys them.
+    assert not {"Store", "Purchase"} & set(body["departments"])
+
+
+def test_cancelled_issue_is_not_consumption(march_1998):
+    sec, a, _ = march_1998
+    _row(a, 50, date(1998, 3, 2), dept="Tool Room", status="CANCELLED")
+    r = _run(sec)
+    assert (r["current"]["qty"], r["current"]["lines"]) == (9.0, 3)
+    assert "cancelled issues aside" in r["basis"]["quantity"]
+
+
+def test_a_rate_of_0_is_a_missing_rate_as_in_the_table():
+    """A part at rate 0 is unrated on the chart as in the table under it
+    (spare_report_service._money): the chart's note ("X of Y issue lines ...
+    no rate") and the table's ("N issues have no rate") count the same issues,
+    and the money agrees (review, 15 Oct 2026)."""
+    from app.services.consumption_table_service import ConsumptionTableService
+    sec = _section()
+    zero, rated = _part(sec, "Z", rate=0), _part(sec, "R", rate=10)
+    _row(zero, 100, date(1998, 1, 5), txn="OPENING")
+    _row(zero, 2, date(1998, 7, 2))
+    _row(rated, 3, date(1998, 7, 3))
+    span = {"date_from": "1998-07-01", "date_to": "1998-07-10", "section_id": sec.id}
+    r = svc.analytics(STORE, **span)
+    table = ConsumptionTableService().table(STORE, "part", **span)
+    assert (r["current"]["value"], r["current"]["unvalued_lines"], r["current"]["lines"]) == (30.0, 1, 2)
+    assert table["unrated_issues"] == r["current"]["unvalued_lines"]
+    assert table["rows"][-1]["Value"] == r["current"]["value"]
+    top = {t["part_id"]: t for t in r["top_parts"]}
+    assert (top[zero.id]["unit_price"], top[zero.id]["value"]) == (None, None)
+
+
+def test_five_year_window_and_day_by_day_cap(march_1998):
+    sec, _, _ = march_1998
+    r = svc.analytics(STORE, date_from="1994-01-01", date_to="1998-12-31", section_id=sec.id)
+    assert r["window"]["days"] == 1826 and r["window"]["granularity"] == "month"
+    assert len(r["series"]) == 60 and r["current"]["qty"] == 21.0          # 02-20 and 03-11 are in it now
+    assert r["previous"]["coverage"] == "none"                             # 1989-1993: never measured
+    weekly = svc.analytics(STORE, date_from="1994-01-01", date_to="1998-12-31", section_id=sec.id,
+                           granularity="week")
+    assert weekly["series"][0]["from"] == "1994-01-01" and len(weekly["series"]) == 262
+    with pytest.raises(BadRequestError, match="at most 400 days"):
+        svc.analytics(STORE, date_from="1997-01-01", date_to="1998-02-05", section_id=sec.id, granularity="day")
+    assert len(svc.analytics(STORE, date_from="1997-01-02", date_to="1998-02-05", section_id=sec.id,
+                             granularity="day")["series"]) == 400
+
+
+@pytest.fixture()
+def owned_store():
+    """A store of its own, its sections owned the store's way (CA-<n>):
+
+        Grp-A   group "CA Grp <n>"   -> department "CA Grp <n>"   (sort 2)
+        Grp-B   group "CA Grp <n>"   -> department "CA Grp <n>"
+        Maint   named like department "CA Maint <n>"              (sort 1)
+        Loose   owned by no department -> its own name
+        Shut    switched off, owned by "CA Shut <n>"              (sort 0)
+
+    and a part with no section. Every issue is typed "Store", who only hands
+    parts out."""
+    n = _n()
+    store = Store(code=f"CA{n}", name=f"CA Store {n}")
+    db.session.add(store)
+    db.session.flush()
+    grp, maint, shut = f"CA Grp {n}", f"CA Maint {n}", f"CA Shut {n}"
+    depts = [Department(name=grp, sort_order=2), Department(name=maint, sort_order=1),
+             Department(name=shut, sort_order=0)]
+    secs = {
+        "a": Section(store_id=store.id, name=f"CA Grp-A {n}", group_name=grp),
+        "b": Section(store_id=store.id, name=f"CA Grp-B {n}", group_name=grp),
+        "maint": Section(store_id=store.id, name=maint),
+        "loose": Section(store_id=store.id, name=f"CA Loose {n}"),
+        "shut": Section(store_id=store.id, name=shut, is_active=False),
+    }
+    db.session.add_all([*depts, *secs.values()])
+    db.session.commit()
+    parts = {key: _part(secs.get(key), key.upper(), store=store.code)
+             for key in ("a", "b", "maint", "loose", "shut", "none")}
+    _row(parts["a"], 100, date(1996, 7, 1), txn="OPENING")
+    for qty, key in ((1, "a"), (2, "b"), (4, "maint"), (8, "loose"), (16, "shut"), (32, "none")):
+        _row(parts[key], qty, date(1996, 8, 5), dept="Store")
+    yield type("Owned", (), {"code": store.code, "grp": grp, "maint": maint, "shut": shut,
+                             "loose": secs["loose"].name, "parts": parts})
+    db.session.rollback()
+    Department.query.filter(Department.id.in_([d.id for d in depts])).delete(synchronize_session=False)
+    Store.query.filter_by(id=store.id).update({"is_active": False})
+    db.session.commit()
+
+
+def test_department_breakdown_and_filter_by_consumer(owned_store):
+    o = owned_store
+
+    def run(**kw):
+        return svc.analytics(o.code, date_from="1996-08-01", date_to="1996-08-10", **kw)
+
+    r = run()
+    assert {(d["name"], d["key"], d["qty"]) for d in r["by_department"]} == {
+        (o.grp, o.grp, 3.0), (o.maint, o.maint, 4.0), (o.loose, o.loose, 8.0),
+        (o.shut, o.shut, 16.0), ("No section", "No section", 32.0)}
+    assert not any(d["name"] == "Store" for d in r["by_department"])
+    # Each bar's key filters to exactly that bar.
+    for d in r["by_department"]:
+        assert run(department=d["key"])["current"]["qty"] == d["qty"], d["name"]
+    assert run(department=f" {o.grp.lower()} ")["current"]["parts"] == 2       # both group sections
+    assert run(department="Store")["current"]["qty"] == 0.0                     # the taker consumes nothing
+
+
+def test_options_list_the_consuming_departments(owned_store):
+    o = owned_store
+    # The owners of active sections in master order, then sections no
+    # department owns, then "No section" (an active part sits in none). Never
+    # the owner of only a switched-off section, nor Store / Purchase.
+    assert svc.options(o.code)["departments"] == [o.maint, o.grp, o.loose, "No section"]

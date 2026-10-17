@@ -1,12 +1,11 @@
-import React, { useId, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import React, { useId, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  ArrowDown, ArrowUp, BarChart3, Boxes, Building2, Cog, FileDown, Info, IndianRupee, Layers,
-  ListOrdered, Minus, Package, Search, Tags, X, Zap,
+  ArrowDown, ArrowUp, BarChart3, Boxes, Building2, ChevronRight, Cog, FileDown, Info, IndianRupee, Layers,
+  ListOrdered, Minus, Package, Tags, Zap,
 } from "lucide-react";
 import CardHead from "../../components/CardHead.jsx";
 import ErrorState from "../../components/ErrorState.jsx";
@@ -15,26 +14,32 @@ import KpiCard from "../../components/KpiCard.jsx";
 import NotCaptured from "../../components/NotCaptured.jsx";
 import Sparkline from "../../components/Sparkline.jsx";
 import Table from "../../components/Table.jsx";
+import ReportScreen from "../../components/spare/ReportScreen.jsx";
 import { useStores } from "../../context/StoreContext.jsx";
 import { usePartDrawer } from "../../context/PartDrawerContext.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
-import { NO_ROWS, useStockList } from "../../lib/stockQueries.js";
+import { NO_ROWS } from "../../lib/stockQueries.js";
 import { compactMoney, money, num } from "../../lib/format.js";
 import { downloadXlsx } from "../../utils/excel.js";
 import { consumptionAnalyticsService } from "../../services/consumptionAnalyticsService.js";
 
-const PRESETS = [
-  { key: "month", label: "This month" },
-  { key: "30d", label: "Last 30 days" },
-  { key: "90d", label: "Last 90 days" },
-  { key: "custom", label: "Custom" },
-];
-const GRANULARITIES = [
-  { key: "", label: "Auto" },
-  { key: "day", label: "Day" },
-  { key: "week", label: "Week" },
-  { key: "month", label: "Month" },
-];
+// The Consumption Report: what each department really used — counted for the
+// department that owns the part's section, returns netted against their issue.
+// Its own screen since 17 Oct 2026, when the store split the combined
+// Issuance & Consumption screen in two ("issuance and consumption ki report
+// alag alag chahiye") and asked for it simple ("ye thoda complicated ho gya,
+// thoda simple ho jisme dropdown me date wise, month wise, year wise etc.").
+// The layout, filters, table and downloads are the two reports' shared
+// ReportScreen; what only this report has is below the table: the comparison
+// charts, top 10, breakdowns and usage spikes, closed until asked for.
+
+// Whether the charts are open, remembered on this browser: closed by default,
+// so the screen opens on the table the store comes for.
+const CHARTS_KEY = "dx_consumption_charts";
+function savedCharts() {
+  try { return localStorage.getItem(CHARTS_KEY) === "1"; } catch { return false; }
+}
+
 const GRAN_NOUN = { day: "day", week: "week", month: "month" };
 
 // Current vs previous: two hues checked for colour-blind separation in both
@@ -45,19 +50,6 @@ const SERIES = {
   dark: { current: "#6366f1", previous: "#0d9488" },
 };
 
-// A local-calendar YYYY-MM-DD — toISOString() would hand back yesterday for
-// the first 5.5 hours of every plant day.
-const isoDay = (d) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-function presetRange(key) {
-  const today = new Date();
-  if (key === "month") return [isoDay(new Date(today.getFullYear(), today.getMonth(), 1)), isoDay(today)];
-  const from = new Date(today);
-  from.setDate(from.getDate() - ((key === "90d" ? 90 : 30) - 1));
-  return [isoDay(from), isoDay(today)];
-}
-
 // Plant days are dates, not instants: parsed as local midnight so they never
 // drift a day in either direction.
 const day = (s, year = true) => (s
@@ -67,325 +59,90 @@ const day = (s, year = true) => (s
   : "—");
 const span = (a, b) => (a === b ? day(a) : `${day(a, false)} – ${day(b)}`);
 
-const select = "input-field py-1.5 text-[13px] w-auto min-w-[9rem] max-w-[14rem]";
-
 export default function ConsumptionAnalytics() {
-  const { activeCode, activeStore } = useStores();
+  return (
+    <ReportScreen report="consumption">
+      {(filters) => <Charts {...filters} />}
+    </ReportScreen>
+  );
+}
+
+// "Show charts ▸": the window against the one before it, the top 10 parts,
+// the breakdowns and the spikes — one click away, fetched only while open.
+// Their grouping is the server's Auto.
+function Charts({ from, to, section, dept, type, part, onFilter }) {
+  const { activeCode } = useStores();
   const { openPart } = usePartDrawer();
   const { dark } = useTheme() || {};
   const colors = dark ? SERIES.dark : SERIES.light;
+  const chartsId = useId();
+  const [open, setOpen] = useState(savedCharts);
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    try { localStorage.setItem(CHARTS_KEY, next ? "1" : "0"); } catch { /* storage unavailable — not remembered */ }
+  };
 
-  // Every filter lives in the URL, so a view can be sent to someone and the
-  // back button undoes a filter.
-  const [params, setParams] = useSearchParams();
-  const range = PRESETS.some((p) => p.key === params.get("range")) ? params.get("range") : "30d";
-  const [from, to] = range === "custom"
-    ? [params.get("from") || "", params.get("to") || ""]
-    : presetRange(range);
-  const gran = GRANULARITIES.some((g) => g.key === params.get("gran")) ? params.get("gran") : "";
-  const section = params.get("section") || "";
-  const dept = params.get("dept") || "";
-  const type = params.get("type") || "";
-  const part = params.get("part") || "";
-  const partNo = params.get("pno") || "";
-  const badRange = Boolean(from && to && from > to);
-
-  const update = (changes) => setParams((prev) => {
-    const next = new URLSearchParams(prev);
-    Object.entries(changes).forEach(([k, v]) => { if (v) next.set(k, v); else next.delete(k); });
-    return next;
-  }, { replace: true });
-  const choosePreset = (key) => update(key === "custom"
-    // Custom starts from the window already on screen, not from blank boxes.
-    ? { range: "custom", from, to }
-    : { range: key, from: "", to: "" });
-  const filtersActive = Boolean(section || dept || type || part);
-
+  // Silent: the charts show their own error and Retry, so a failure is not
+  // also toasted (api.js).
   const q = useQuery({
-    queryKey: ["stock", "consumption", activeCode, from, to, gran, section, dept, type, part],
+    queryKey: ["stock", "consumption", activeCode, from, to, section, dept, type, part],
     queryFn: () => consumptionAnalyticsService.get({
       store_code: activeCode,
       from: from || undefined,
       to: to || undefined,
-      granularity: gran || undefined,
       section_id: section || undefined,
       department: dept || undefined,
       type: type || undefined,
       part_id: part || undefined,
-    }).then((r) => r.data.data),
-    enabled: Boolean(activeCode) && !badRange,
+    }, { silent: true }).then((r) => r.data.data),
+    enabled: Boolean(activeCode) && open,
     placeholderData: keepPreviousData,
-  });
-  const opts = useQuery({
-    queryKey: ["stock", "consumption-options", activeCode],
-    queryFn: () => consumptionAnalyticsService.options(activeCode).then((r) => r.data.data),
-    enabled: Boolean(activeCode),
-    staleTime: 5 * 60_000,
   });
   const d = q.data;
 
-  if (!activeCode) {
-    return (
-      <div className="card text-sm text-slate-500 dark:text-slate-400">
-        No store is selected — choose the Spare Parts Store from the sidebar.
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Consumption Analytics</h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            What {activeStore?.name || "this store"} issued in a window, against the same-length window just before it
-          </p>
-        </div>
-        {q.isFetching && d && <span className="text-[11px] text-slate-400">Updating…</span>}
-      </div>
-
-      <FilterBar
-        range={range} from={from} to={to} gran={gran} badRange={badRange}
-        section={section} dept={dept} type={type} part={part}
-        partLabel={partNo || d?.filters?.part_no || (part ? `Part #${part}` : "")}
-        sectionLabel={d?.filters?.section_name}
-        options={opts.data} optionsError={opts.isError} onRetryOptions={() => opts.refetch()}
-        code={activeCode}
-        onPreset={choosePreset}
-        onDates={(f, t) => update({ range: "custom", from: f, to: t })}
-        onChange={update}
-        active={filtersActive}
-        onClear={() => update({ section: "", dept: "", type: "", part: "", pno: "" })}
-      />
-
-      {badRange ? (
-        <div className="card text-sm text-slate-500 dark:text-slate-400">
-          The From date is after the To date — pick a window that runs forwards.
-        </div>
-      ) : q.isError && !d ? (
-        <div className="card">
-          <ErrorState
-            title="Could not load consumption"
-            message={q.error?.response?.data?.message || "The consumption figures did not load."}
-            onRetry={() => q.refetch()}
-          />
-        </div>
-      ) : !d ? (
-        <LoadingState />
-      ) : (
-        <Body d={d} colors={colors} openPart={openPart} onFilter={update} />
-      )}
-    </div>
-  );
-}
-
-// ------------------------------------------------------------------ filters
-
-function FilterBar({
-  range, from, to, gran, badRange, section, dept, type, part, partLabel, sectionLabel,
-  options, optionsError, onRetryOptions, code, onPreset, onDates, onChange, active, onClear,
-}) {
-  const sections = options?.sections || NO_ROWS;
-  const types = options?.types || NO_ROWS;
-  const departments = options?.departments || NO_ROWS;
-  return (
-    <div className="card space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {PRESETS.map((p) => (
-          <button
-            key={p.key}
-            type="button"
-            onClick={() => onPreset(p.key)}
-            aria-pressed={range === p.key}
-            className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${range === p.key
-              ? "bg-toyotared text-white border-toyotared"
-              : "border-slate-200 dark:border-navy-700 text-slate-600 dark:text-slate-300 hover:border-toyotared"}`}
-          >
-            {p.label}
-          </button>
-        ))}
-        <span className="flex items-center gap-1.5 ml-1">
-          <input type="date" aria-label="From" value={from} max={to || undefined}
-            onChange={(e) => onDates(e.target.value, to)}
-            className={`input-field py-1.5 text-[13px] w-auto ${badRange ? "border-toyotared" : ""}`} />
-          <span className="text-xs text-slate-400">to</span>
-          <input type="date" aria-label="To" value={to} min={from || undefined}
-            onChange={(e) => onDates(from, e.target.value)}
-            className={`input-field py-1.5 text-[13px] w-auto ${badRange ? "border-toyotared" : ""}`} />
-        </span>
-        <span className="inline-flex rounded-lg border border-slate-200 dark:border-navy-700 overflow-hidden ml-auto"
-          role="group" aria-label="Group by">
-          {GRANULARITIES.map((g) => (
-            <button
-              key={g.key || "auto"}
-              type="button"
-              onClick={() => onChange({ gran: g.key })}
-              aria-pressed={gran === g.key}
-              className={`text-xs px-2.5 py-1.5 transition-colors ${gran === g.key
-                ? "bg-navy-900 text-white dark:bg-white dark:text-navy-900"
-                : "text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800"}`}
-            >
-              {g.label}
-            </button>
-          ))}
-        </span>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <select aria-label="Section" className={select} value={section}
-          onChange={(e) => onChange({ section: e.target.value })}>
-          <option value="">All sections</option>
-          {/* The data is filtered to this section even while the list is loading,
-              failed, or no longer offers it — so the box must say so, not "All". */}
-          {section && !sections.some((s) => String(s.id) === section) && (
-            <option value={section}>{sectionLabel || `Section #${section}`}</option>
-          )}
-          {sections.map((s) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
-        </select>
-        <select aria-label="Department" className={select} value={dept}
-          onChange={(e) => onChange({ dept: e.target.value })}>
-          <option value="">All departments</option>
-          {/* A department picked from a breakdown bar may not be in the master. */}
-          {dept && !departments.includes(dept) && <option value={dept}>{dept}</option>}
-          {departments.map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-        <select aria-label="Part type" className={select} value={type}
-          onChange={(e) => onChange({ type: e.target.value })}>
-          <option value="">All part types</option>
-          {type && !types.some((t) => t.name === type) && <option value={type}>{type}</option>}
-          {types.map((t) => <option key={t.name} value={t.name}>{t.name} ({t.parts})</option>)}
-        </select>
-        <PartPicker code={code} part={part} label={partLabel}
-          onPick={(r) => onChange({ part: r ? String(r.part_id) : "", pno: r ? r.part_no : "" })} />
-        {optionsError && (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-            The section, department and type lists did not load.
-            <button type="button" onClick={onRetryOptions} className="font-medium text-toyotared hover:underline">
-              Retry
-            </button>
+    <section className="space-y-6">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={chartsId}
+        className="group flex w-full items-center gap-3 rounded-xl border border-slate-200 dark:border-navy-800
+          bg-white/70 dark:bg-navy-900/60 px-4 py-3 text-left transition-colors hover:border-toyotared
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/40"
+      >
+        <BarChart3 size={17} className="shrink-0 text-slate-400 group-hover:text-toyotared" aria-hidden="true" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-slate-800 dark:text-white">
+            {open ? "Hide charts" : "Show charts"}
+            {open && q.isFetching && d && <span className="ml-2 text-[11px] font-normal text-slate-400">Updating…</span>}
           </span>
-        )}
-        {active && (
-          <button type="button" onClick={onClear}
-            className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-toyotared">
-            <X size={13} aria-hidden="true" /> Clear filters
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Part-number type-ahead over the shared stock list (already cached by the
-// other stock screens); the list is only fetched once the box is used. A
-// combobox: focus stays in the box, the arrow keys move through the matches
-// and Enter picks the highlighted one.
-function PartPicker({ code, part, label, onPick }) {
-  const [text, setText] = useState("");
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
-  const listId = useId();
-  const inputRef = useRef(null);
-  const listQ = useStockList(code, null, { enabled: open });
-  const matches = useMemo(() => {
-    const t = text.trim().toLowerCase();
-    if (!t || !listQ.data) return NO_ROWS;
-    const out = [];
-    for (const r of listQ.data) {
-      if ((r.part_no || "").toLowerCase().includes(t) || (r.old_part_no || "").toLowerCase().includes(t)) {
-        out.push(r);
-        if (out.length >= 8) break;
-      }
-    }
-    return out;
-  }, [text, listQ.data]);
-
-  if (part) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-navy-700 px-2.5 py-1.5 text-[13px]">
-        <Package size={13} className="text-slate-400" aria-hidden="true" />
-        <span className="font-medium text-slate-700 dark:text-slate-200">{label}</span>
-        <button type="button" onClick={() => onPick(null)} aria-label="Remove part filter"
-          className="text-slate-400 hover:text-toyotared">
-          <X size={13} />
-        </button>
-      </span>
-    );
-  }
-  const showList = open && Boolean(text.trim());
-  const pickable = showList && !listQ.isError && !listQ.isPending && matches.length > 0;
-  const cur = Math.min(active, Math.max(matches.length - 1, 0));
-  const optionId = (i) => `${listId}-opt-${i}`;
-  const pick = (r) => { onPick(r); setText(""); setOpen(false); };
-
-  return (
-    <div
-      className="relative"
-      // Closes only when focus leaves the whole picker, so Tab can reach Retry.
-      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}
-    >
-      <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" aria-hidden="true" />
-      <input
-        ref={inputRef}
-        value={text}
-        onChange={(e) => { setText(e.target.value); setOpen(true); setActive(0); }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-            e.preventDefault();
-            setOpen(true);
-            if (pickable) setActive((cur + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
-          } else if (e.key === "Enter" && pickable) {
-            e.preventDefault();
-            pick(matches[cur]);
-          } else if (e.key === "Escape") {
-            setOpen(false);
-          }
-        }}
-        placeholder="Part no…"
-        aria-label="Filter by part number"
-        role="combobox"
-        aria-autocomplete="list"
-        aria-expanded={showList}
-        aria-controls={listId}
-        aria-activedescendant={pickable ? optionId(cur) : undefined}
-        className="input-field py-1.5 pl-7 text-[13px] w-44"
-      />
-      {showList && (
-        <ul id={listId} role="listbox" aria-label="Matching part numbers"
-          className="absolute z-20 mt-1 w-72 max-h-72 overflow-auto rounded-lg border border-slate-200 dark:border-navy-700
-          bg-white dark:bg-navy-900 shadow-lg py-1 text-[13px]">
-          {listQ.isError ? (
-            <li role="presentation" className="px-3 py-2 text-slate-500 dark:text-slate-400">
-              Could not load the part list.{" "}
-              {/* Back to the box: this button is gone once the list loads. */}
-              <button type="button" onClick={() => { listQ.refetch(); inputRef.current?.focus(); }}
-                className="font-medium text-toyotared hover:underline">
-                Retry
-              </button>
-            </li>
-          ) : listQ.isPending ? (
-            <li role="presentation" className="px-3 py-2 text-slate-400">Loading parts…</li>
-          ) : matches.length === 0 ? (
-            <li role="presentation" className="px-3 py-2 text-slate-400">No part number matches</li>
-          ) : matches.map((r, i) => (
-            <li
-              key={r.part_id}
-              id={optionId(i)}
-              role="option"
-              aria-selected={i === cur}
-              // Keeps focus in the box, so its blur does not close the list first.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(r)}
-              onMouseEnter={() => setActive(i)}
-              className={`px-3 py-1.5 cursor-pointer ${i === cur ? "bg-slate-50 dark:bg-navy-800" : ""}`}
-            >
-              <span className="font-medium text-slate-800 dark:text-white">{r.part_no}</span>{" "}
-              <span className="text-slate-400">{r.part_name}</span>
-            </li>
-          ))}
-        </ul>
+          <span className="block text-[11px] text-slate-400">
+            Against the period before · top 10 parts · by department, section, type and machine · usage spikes
+          </span>
+        </span>
+        <ChevronRight size={18} aria-hidden="true"
+          className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div id={chartsId} className="space-y-6">
+          {q.isError && !d ? (
+            <div className="card">
+              <ErrorState
+                title="Could not load the charts"
+                message={q.error?.response?.data?.message || "The consumption figures did not load."}
+                onRetry={() => q.refetch()}
+              />
+            </div>
+          ) : !d ? (
+            <LoadingState />
+          ) : (
+            <Body d={d} colors={colors} openPart={openPart} onFilter={onFilter} />
+          )}
+        </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -447,8 +204,10 @@ function Body({ d, colors, openPart, onFilter }) {
           {" "}against <b className="text-slate-800 dark:text-white">{span(pw.from, pw.to)}</b>.
           {win.clamped_to_today && " The window was cut at today — later days have not happened yet."}
           {win.ends_today && " Today is still in progress: its issues so far are counted, so the last day is not complete."}
-          {" "}Gross issued quantity from the app&apos;s ledger — returns are not netted off, and quantities
-          add across units of measure. Value is each part&apos;s <b>current</b> rate, not the rate at issue.
+          {" "}Gross issued quantity from the app&apos;s ledger, cancelled issues aside — returns are not netted
+          off here (the table above nets them), and quantities add across units of measure. Each issue counts
+          for the department that owns the part&apos;s section, not the one written on the issue. Value is
+          each part&apos;s <b>current</b> rate, not the rate at issue.
           {" "}{d.ledger_since
             ? <>The app&apos;s ledger starts <b className="text-slate-800 dark:text-white">{day(d.ledger_since)}</b>; days before it are not measured.</>
             : <>The app&apos;s ledger has no rows yet.</>}
@@ -515,7 +274,9 @@ function Body({ d, colors, openPart, onFilter }) {
       </div>
 
       <div className="grid xl:grid-cols-5 gap-6">
-        <div className="card xl:col-span-3">
+        {/* min-w-0: a grid cell may shrink below its table, which then scrolls
+            inside its own box instead of running off a phone's screen. */}
+        <div className="card xl:col-span-3 min-w-0">
           <CardHead icon={ListOrdered} tone="navy" title="Top 10 parts by issued quantity"
             hint={d.issued_parts > 10 ? `${d.issued_parts} parts issued in this window · click a row to open the part`
               : "Click a row to open the part"} />
@@ -532,9 +293,11 @@ function Body({ d, colors, openPart, onFilter }) {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
+        {/* The consuming department: the one owning the part's section — the
+            store only hands parts out ("consumption maintenance and tool room
+            karega store nhi" — the store, 14 Oct 2026). */}
         <Breakdown icon={Building2} title="By department" rows={d.by_department} color={colors.current}
-          hint="Click a bar to filter to that department" empty={emptyMsg}
-          looseNote="no department on the movement"
+          hint="The department that owns the part's section · click a bar to filter" empty={emptyMsg}
           onPick={(key) => onFilter({ dept: key })} />
         <Breakdown icon={Layers} title="By section" rows={d.by_section} color={colors.current}
           hint="Click a bar to filter to that section" empty={emptyMsg}
@@ -544,9 +307,11 @@ function Body({ d, colors, openPart, onFilter }) {
           hint="Part sub-category · click a bar to filter" empty={emptyMsg}
           onPick={(key) => onFilter({ type: key })} />
         {/* Stage 1 (the store issue) carries no machine; the fitter records it on
-            confirming at Stage 2 — so most blanks are pending, not missing. */}
+            confirming at Stage 2 — so most blanks are pending, not missing. Named
+            as the table's Line / Machine view names them (one rule, the server's
+            place_of). */}
         <Breakdown icon={Cog} title="By machine" rows={d.by_machine} color={colors.current}
-          hint="Recorded when the fitter confirms the issue on Scan Part · Awaiting fitter's confirmation = not confirmed yet · Not recorded = closed with no machine given"
+          hint="Recorded when the fitter confirms installation · Not recorded yet = not installed yet · Installed, place not recorded = installed with no place given · Die / Line = fitted on a die, or a line with no machine"
           empty={emptyMsg} />
       </div>
     </>
@@ -689,7 +454,7 @@ const TOP_COLUMNS = [
 
 function SpikesPanel({ spikes, colors, openPart }) {
   return (
-    <div className="card xl:col-span-2">
+    <div className="card xl:col-span-2 min-w-0">
       <CardHead icon={Zap} tone="violet" title="Usage spikes"
         hint={spikes.available
           ? `Week of ${span(spikes.last_week.from, spikes.last_week.to)} against the ${spikes.baseline_weeks} full weeks before`
@@ -741,7 +506,7 @@ function Breakdown({ icon, title, hint, rows, color, onPick, empty, looseNote })
   const shown = barRows.slice(0, 8);
   const rest = barRows.slice(8);
   return (
-    <div className="card">
+    <div className="card min-w-0">
       <CardHead icon={icon} tone="navy" title={title} hint={onPick && !pickable ? undefined : hint} />
       <HorizontalBars
         data={shown.map((r) => ({ name: r.name, value: r.qty, key: r.key }))}

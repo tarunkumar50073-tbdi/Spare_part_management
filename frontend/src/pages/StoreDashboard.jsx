@@ -810,6 +810,8 @@ function SupplierPerformanceCard({ rows, loading }) {
             data={ARRIVAL_ORDER.map((s) => ({ name: s, value: statusCounts[s] || 0 }))}
             colors={ARRIVAL_COLORS}
             size={116}
+            centerValue={ARRIVAL_ORDER.reduce((sum, s) => sum + (statusCounts[s] || 0), 0)}
+            centerLabel="vehicles"
             emptyMessage="No arrivals recorded against a window yet"
           />
           {topLate.length > 0 && (

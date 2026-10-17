@@ -32,7 +32,7 @@ from app.models.spare_flow import RETURN_OPEN, RGP_OPEN, SpareReturn, SpareRgp
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Section, Store
 from app.services.erp_grn_posting_service import ErpGrnPostingService
-from app.services.spare_stock_service import SpareStockService
+from app.services.spare_stock_service import SpareStockService, awaiting_confirmation_clause
 
 # Worst first — the order the health bar and the attention list read in.
 STATUS_ORDER = ("Out of Stock", "Below Minimum", "Reorder", "Above Maximum", "Healthy", "Not Counted")
@@ -100,15 +100,21 @@ class SpareDashboardService:
 
     # ------------------------------------------------------------------ public
 
-    def overview(self, store_code, section_id=None):
-        rows = self.stock.list_stock(store_code, section_id)
+    def overview(self, store_code, section_id=None, section_ids=None):
+        """A store's dashboard, or one section's, or a section GROUP's. When
+        section_ids (a set/list) is given it scopes everything to that group
+        (Tool Room = Press Tool Room + General Tool Room) and takes precedence
+        over section_id; neither = the whole store. section_ids threads through
+        every panel so the group's figures are real, not the store's."""
+        rows = self.stock.list_stock(store_code, section_id, section_ids=section_ids)
         names = self._section_names(store_code)
         agg = self._aggregate(rows)
-        receiving = self._receiving_pending(store_code, section_id)
+        receiving = self._receiving_pending(store_code, section_id, section_ids)
 
         return {
             "store_code": store_code,
             "section_id": section_id,
+            "section_ids": sorted(section_ids) if section_ids else None,
             "generated_at": utcnow().replace(tzinfo=timezone.utc).isoformat(),
             "kpis": {
                 "total_parts": len(rows),
@@ -117,7 +123,7 @@ class SpareDashboardService:
                 "total_qty": round(agg["qty"], 2),
                 "stock_value": _money(agg["value"]),
                 "valued_parts": agg["valued"],
-                "today": self._today(store_code, section_id),
+                "today": self._today(store_code, section_id, section_ids),
             },
             "health": [
                 {
@@ -128,7 +134,7 @@ class SpareDashboardService:
                 }
                 for s in STATUS_ORDER
             ],
-            "attention": self._attention(store_code, section_id, agg, names, receiving),
+            "attention": self._attention(store_code, section_id, agg, names, receiving, section_ids),
             "value": {
                 "total": _money(agg["value"]),
                 "by_section": sorted(
@@ -144,14 +150,14 @@ class SpareDashboardService:
             },
             "critical_parts": self._critical(rows, names),
             "excess_parts": self._excess(rows, names),
-            "consumption": self._consumption(store_code, section_id),
-            "recent_activity": self._recent(store_code, section_id),
+            "consumption": self._consumption(store_code, section_id, section_ids),
+            "recent_activity": self._recent(store_code, section_id, section_ids),
             "erp": self._erp(store_code),
             "data_quality": agg["quality"],
             # Held by the store, not issuable — each from its own documents.
             "receiving_pending": receiving,
-            "returns_pending": self._returns_pending(store_code, section_id),
-            "rgp": self._rgp(store_code, section_id),
+            "returns_pending": self._returns_pending(store_code, section_id, section_ids),
+            "rgp": self._rgp(store_code, section_id, section_ids),
         }
 
     # --------------------------------------------------------------- building
@@ -164,6 +170,17 @@ class SpareDashboardService:
             .join(Store, Store.id == Section.store_id)
             .filter(Store.code == store_code)
         }
+
+    @staticmethod
+    def _scope_clause(section_id, section_ids):
+        """A SQLAlchemy WHERE clause scoping Part.section_id to a group (several
+        sections), one section, or None (whole store). Group wins over a single
+        section — the same precedence list_stock uses."""
+        if section_ids:
+            return Part.section_id.in_(list(section_ids))
+        if section_id is not None:
+            return Part.section_id == section_id
+        return None
 
     @staticmethod
     def _aggregate(rows):
@@ -246,9 +263,12 @@ class SpareDashboardService:
             },
         }
 
-    def _attention(self, store_code, section_id, agg, names, receiving):
+    def _attention(self, store_code, section_id, agg, names, receiving, section_ids=None):
         """Severity-ordered problems. An item is listed even at zero — "no part
         is out of stock" is a reading worth seeing, not an absence to hide."""
+        # The store-level lines (GRN/quality, ERP-pending) belong only to the
+        # true whole-store view — not a single section, and not a group either.
+        store_level = section_id is None and not section_ids
         def where(status):
             counts = agg["where"][status]
             return [
@@ -283,7 +303,7 @@ class SpareDashboardService:
         items[0]["value"] = _money(agg["restock_value"])
         items[0]["value_label"] = "to restock all short parts to max"
 
-        confirm = self._pending_confirmations(store_code, section_id)
+        confirm = self._pending_confirmations(store_code, section_id, section_ids)
         items.append({
             "key": "confirm_pending", "label": "Issues awaiting confirmation",
             "severity": "warning" if confirm else "ok",
@@ -291,7 +311,7 @@ class SpareDashboardService:
             "count": confirm, "value": None, "value_label": None, "sections": [],
             "action": {"label": "Confirm on Scan Part", "to": "/scan-part"},
         })
-        if section_id is None:
+        if store_level:
             # Spec 1: a spare has no separate SRV step. What this line used to
             # count (SRV records) is now the ERP GRN lines whose quality ERP
             # has not cleared — receiving is read from ERP. The key stays
@@ -307,7 +327,7 @@ class SpareDashboardService:
             })
         items.append(stock_item("never_counted", "Never counted", "Not Counted", "info",
                                 "No physical count yet — its status is unknown"))
-        erp_pending = self.stock.pending_erp_count(store_code) if section_id is None else None
+        erp_pending = self.stock.pending_erp_count(store_code) if store_level else None
         if erp_pending is not None:
             write = self.stock.erp_write_status()
             items.append({
@@ -349,50 +369,56 @@ class SpareDashboardService:
         out.sort(key=lambda b: -(b["excess_value"] or 0))
         return out[:_TOP]
 
-    def _today(self, store_code, section_id):
-        t = self.stock.today_movements(store_code, section_id)
+    def _today(self, store_code, section_id, section_ids=None):
+        t = self.stock.today_movements(store_code, section_id, section_ids=section_ids)
         return {k: t.get(k) for k in ("since", "received_qty", "received_lines",
                                       "issued_qty", "issued_lines")}
 
-    def _consumption(self, store_code, section_id):
+    def _consumption(self, store_code, section_id, section_ids=None):
         today = datetime.now().date()
         month_start = today.replace(day=1).isoformat()
         return {
-            "comparison": self.stock.consumption_comparison(store_code, section_id),
+            "comparison": self.stock.consumption_comparison(store_code, section_id, section_ids=section_ids),
             "this_month_by_department": sorted(
                 self.stock.consumption_by_department(
-                    store_code, section_id, date_from=month_start, date_to=today.isoformat()),
+                    store_code, section_id, date_from=month_start, date_to=today.isoformat(),
+                    section_ids=section_ids),
                 key=lambda d: -d["value"])[:5],
             "month_start": month_start,
             # All-time splits behind the dashboard's three consumption donuts.
-            "by_department": self.stock.consumption_by_department(store_code, section_id),
-            "by_machine": self.stock.consumption_by_machine(store_code, section_id),
-            "by_type": self.stock.consumption_by_type(store_code, section_id),
+            "by_department": self.stock.consumption_by_department(store_code, section_id, section_ids=section_ids),
+            "by_machine": self.stock.consumption_by_machine(store_code, section_id, section_ids=section_ids),
+            "by_type": self.stock.consumption_by_type(store_code, section_id, section_ids=section_ids),
         }
 
-    def _recent(self, store_code, section_id):
-        # A section reads its own movements out of a wider window of the store's.
-        rows = self.stock.recent_activity(store_code, 15 if section_id is None else 60)
-        if section_id is not None:
+    def _recent(self, store_code, section_id, section_ids=None):
+        # A section (or group) reads its own movements out of a wider window.
+        scoped = section_id is not None or bool(section_ids)
+        rows = self.stock.recent_activity(store_code, 15 if not scoped else 60)
+        if section_ids:
+            rows = [r for r in rows if r.get("section_id") in section_ids]
+        elif section_id is not None:
             rows = [r for r in rows if r.get("section_id") == section_id]
         return rows[:10]
 
     @staticmethod
-    def _pending_confirmations(store_code, section_id):
+    def _pending_confirmations(store_code, section_id, section_ids=None):
         q = (db.session.query(func.count(SpareStockLedger.id))
              .join(Part, Part.id == SpareStockLedger.part_id)
              .filter(Part.store_code == store_code,
-                     SpareStockLedger.txn_type == "ISSUE",
-                     # Same set the Scan Part queue and the alerts count, so the
-                     # dashboard, the bell and the queue never disagree.
-                     SpareStockLedger.status.in_(("PENDING_USER_CONFIRMATION", "ISSUED_BY_STORE"))))
-        if section_id is not None:
-            q = q.filter(Part.section_id == section_id)
+                     # The Waiting list's own rule (partly returned, never
+                     # confirmed issues included — 16 Oct 2026), so the
+                     # dashboard, the management board, the bell and the list
+                     # never disagree.
+                     awaiting_confirmation_clause()))
+        scope = SpareDashboardService._scope_clause(section_id, section_ids)
+        if scope is not None:
+            q = q.filter(scope)
         return q.scalar() or 0
 
     # ------------------------------------------------ held, not issuable
 
-    def _receiving_pending(self, store_code, section_id):
+    def _receiving_pending(self, store_code, section_id, section_ids=None):
         """Receiving is read from ERP (spec 1 / 9, user decision 2026-09-26):
         the store's ERP GRN lines, counted per (part, GRN no.) in the states
         ErpGrnPostingService gives them — quality_pending = GRN created in ERP,
@@ -404,9 +430,10 @@ class SpareDashboardService:
         awaiting_grn is None, not an invented zero. `erp` is the mirror's
         freshness, which every one of these figures depends on."""
         lines = self.erp_grn.lines(store_code)
-        if section_id is not None:
+        scope = self._scope_clause(section_id, section_ids)
+        if scope is not None:
             in_section = {pid for (pid,) in db.session.query(Part.id).filter(
-                Part.store_code == store_code, Part.section_id == section_id)}
+                Part.store_code == store_code, scope)}
             lines = [ln for ln in lines if ln["part_id"] in in_section]
         by = {state: [ln for ln in lines if ln["state"] == state]
               for state in ("QUALITY_PENDING", "CHECK", "WILL_POST")}
@@ -430,7 +457,7 @@ class SpareDashboardService:
         }
 
     @staticmethod
-    def _returns_pending(store_code, section_id):
+    def _returns_pending(store_code, section_id, section_ids=None):
         """Parts departments sent back that are not available again (spec 13 /
         14), counted in returns holding a quantity in each bucket (one return can
         sit in two): inspection = not inspected yet, hold = inspected
@@ -444,8 +471,9 @@ class SpareDashboardService:
         base = (db.session.query(R)
                 .join(Part, Part.id == R.part_id)
                 .filter(Part.store_code == store_code, R.status.in_(RETURN_OPEN)))
-        if section_id is not None:
-            base = base.filter(Part.section_id == section_id)
+        scope = SpareDashboardService._scope_clause(section_id, section_ids)
+        if scope is not None:
+            base = base.filter(scope)
         n_pend, q_pend, n_hold, q_hold, n_dmg, q_dmg = base.with_entities(
             *bucket(R.qty_pending), *bucket(R.qty_hold), *bucket(R.qty_damaged)).one()
         oldest = base.filter(R.qty_pending > 0).with_entities(func.min(R.created_at)).scalar()
@@ -458,7 +486,7 @@ class SpareDashboardService:
         }
 
     @staticmethod
-    def _rgp(store_code, section_id):
+    def _rgp(store_code, section_id, section_ids=None):
         """Supplier rework under RGP (spec 15-19), counted in RGPs: with_supplier
         = some quantity still at the supplier; grn_pending = the supplier sent it
         back and the RGP GRN is not recorded yet; overdue = still at the supplier
@@ -479,8 +507,9 @@ class SpareDashboardService:
                 func.min(case((back > 0, G.supplier_returned_at))))
              .join(Part, Part.id == G.part_id)
              .filter(Part.store_code == store_code, G.status.in_(RGP_OPEN)))
-        if section_id is not None:
-            q = q.filter(Part.section_id == section_id)
+        scope = SpareDashboardService._scope_clause(section_id, section_ids)
+        if scope is not None:
+            q = q.filter(scope)
         n_out, q_out, n_back, q_back, n_late, first_due, first_back = q.one()
         first_due = _as_date(first_due)
         return {

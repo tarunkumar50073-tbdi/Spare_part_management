@@ -113,13 +113,16 @@ export const LEGACY_REASON = {
 };
 export const reasonLabel = (r) => (r ? LEGACY_REASON[r] || r : "—");
 
-// Scan Part's two ways of working (the switch at the top of the page). What a
+// Scan Part's ways of working (the switch at the top of the page). What a
 // scan opens once the part is identified: the Issue form (issuance first, the
 // default) or the part's internal QR label print, for material just received.
-// URL ?mode=label|issue picks one; the last one is remembered per terminal.
+// Put-away Check is a flow of its own — scan the part, then the bin it goes in —
+// and asks for the right (`mod`) its own page always asked for.
+// URL ?mode=issue|label|putaway picks one; the last one is remembered per terminal.
 export const SCAN_MODE = {
   ISSUE: { label: "Issue", icon: "ArrowUpFromLine", param: "issue" },
-  LABEL: { label: "Receive & Label", icon: "Tags", param: "label" },
+  LABEL: { label: "Receive & Lot Tag", icon: "Tags", param: "label" },
+  PUTAWAY: { label: "Put-away Check", icon: "PackageCheck", param: "putaway", mod: "store_stock" },
 };
 
 // A part's barcodes (BarcodeService.list_part_barcodes source): its own QR —

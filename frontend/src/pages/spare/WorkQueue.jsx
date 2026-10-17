@@ -281,7 +281,7 @@ function columnsFor(tab, { canAct, canViewReceiving, now }) {
       actionCol((r) => (
         <div className="flex flex-wrap gap-1.5">
           <ActionLink row={r} action="INSPECT" target={r.id} canAct={canAct} />
-          {/* Only held / damaged material may go to a supplier — there is no direct RGP. */}
+          {/* A return's held / damaged quantity can go to a supplier for rework from here. */}
           {qty(r.qty_hold) + qty(r.qty_damaged) > 0 && (
             <ActionLink row={r} action="RGP_OUT" target={r.id} canAct={canAct} primary={false} />
           )}
@@ -301,6 +301,7 @@ function columnsFor(tab, { canAct, canViewReceiving, now }) {
             <div className="font-mono text-[12px] font-semibold text-slate-800 dark:text-slate-100">{r.rgp_no || "—"}</div>
             {r.erp_challan_no && <div className="text-[11px] text-slate-400">ERP challan {r.erp_challan_no}</div>}
             {r.return_no && <div className="text-[11px] text-slate-400">from {r.return_no}</div>}
+            {r.rework_bin && <div className="text-[11px] text-amber-700 dark:text-amber-300">back to the rework bin {r.rework_bin}</div>}
           </div>
         ),
       },
@@ -359,7 +360,22 @@ function columnsFor(tab, { canAct, canViewReceiving, now }) {
       ),
     },
     partCol,
-    { key: "qty", label: "Qty", align: "right", sortable: true, render: (r) => num(r.qty) },
+    // What is still out with the user, not the issued qty: an issue partly
+    // returned before anyone confirmed it waits here too (the Waiting list
+    // rule, 16 Oct 2026) — "2 out of 3 · 1 returned", as Confirm Installation
+    // and Scan Part show it. A row from an older server has no outstanding_qty.
+    {
+      key: "qty", label: "Qty out", align: "right", sortable: true,
+      sortValue: (r) => Number(r.outstanding_qty ?? r.qty ?? 0),
+      exportValue: (r) => Number(r.outstanding_qty ?? r.qty ?? 0),
+      render: (r) => (Number(r.returned_qty) > 0 ? (
+        <div className="whitespace-nowrap">
+          <span className="tabular">{num(r.outstanding_qty)}</span>
+          <span className="text-slate-500 dark:text-slate-400"> out of {num(r.qty)}</span>
+          <div className="text-[11px] text-slate-400">{num(r.returned_qty)} returned</div>
+        </div>
+      ) : num(r.qty)),
+    },
     {
       key: "department", label: "Department / issued to", sortable: true,
       searchValue: (r) => `${r.department || ""} ${r.issued_to || ""}`,
@@ -563,7 +579,7 @@ export default function WorkQueue() {
           {active?.label}: tap a row to open the part. This page only lists — each action is recorded on Scan Part.
           Receiving, the GRN and the Maintenance / Tool Room quality clearance are done in ERP: the app reads them, and
           the qty quality accepts in ERP is added to store stock once, by itself — nothing to record here, and the app
-          does not write to ERP. Returned parts are not store stock until inspected Good; material with a supplier is
+          does not write to ERP. Returned parts go straight back into store stock; material with a supplier is
           not stock until its RGP GRN.
         </p>
       )}

@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle, Phone, RotateCcw, UserCheck, UserPlus, UserX, X } from "lucide-react";
 import { useCan } from "./Can.jsx";
@@ -9,7 +9,10 @@ import { employeeService, normaliseMobile } from "../services/employeeService.js
 // a person on the Employee master fills in by themselves (name, code,
 // department). A number not on the master opens a short "add this person"
 // entry right here, so the issue never waits on a separate screen. An
-// inactive person is shown but never handed to the parent.
+// inactive person is shown but never handed to the parent. While the number is
+// still being typed, the saved numbers that start with the digits so far are
+// listed under the box ("9169…") — tap one, or pick it with the arrow keys and
+// Enter, and the person fills in.
 //
 // Props:
 //   value        { employee, mobile, typed? } — what onChange last gave the parent
@@ -20,11 +23,15 @@ import { employeeService, normaliseMobile } from "../services/employeeService.js
 //   defaultDepartment   the quick-add's department to start with
 //   required     shows the red asterisk (the parent decides what it blocks)
 //   error        the parent's message while no one is picked (e.g. after Review)
+//   suggest      list saved numbers while typing (default on — the store asked for
+//                it on the kiosk too, 14 Oct 2026)
 //   disabled, label
 // The typed text is this component's own once mounted — key it to start over.
 const INPUT = "input-field text-base"; // 16px: a tablet does not zoom into the box
 const ERR = "mt-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400";
 const LOOKUP_DELAY_MS = 300;           // look up once the typing pauses
+const SUGGEST_DELAY_MS = 200;          // the saved-number list follows the typing a little behind
+const SUGGEST_MAX = 8;
 const IDLE = { status: "idle", result: null };
 const EMPTY_DRAFT = { name: "", employee_code: "", department: "", designation: "", company: "" };
 const FIELD_NAMES = {
@@ -38,6 +45,15 @@ const FIELD_NAMES = {
  *  "91 " / "91-" (the country code typed without the "+"); with "0" for
  *  eleven. "919876543210" run together stays ambiguous at ten digits. */
 const digitsNeeded = (t) => (t.startsWith("+") || /^91\D/.test(t) ? 12 : t.startsWith("0") ? 11 : 10);
+
+/** The digits typed so far as the start of a 10-digit number: a "+91" / "91-"
+ *  country code or a leading 0 is not part of what is matched. */
+function prefixOf(text) {
+  const t = String(text || "").trim();
+  const d = t.replace(/\D/g, "");
+  if (t.startsWith("+") || /^91\D/.test(t)) return d.replace(/^91/, "").slice(0, 10);
+  return (t.startsWith("0") ? d.replace(/^0/, "") : d).slice(0, 10);
+}
 
 /** The number to look up, or null while it is still being typed / not a mobile. */
 function lookupNumber(text) {
@@ -79,7 +95,7 @@ function PersonCard({ emp, onClear, disabled }) {
 }
 
 export default function EmployeeLookup({
-  value, onChange, defaultDepartment, disabled = false, required = true, error,
+  value, onChange, defaultDepartment, disabled = false, required = true, error, suggest = true,
   label = "Mobile number of the person taking the part",
 }) {
   const id = useId();
@@ -115,6 +131,23 @@ export default function EmployeeLookup({
   const onChangeRef = useRef(onChange);
   useEffect(() => { onChangeRef.current = onChange; });
   const send = (employee, mobile) => onChangeRef.current?.({ employee, mobile, typed: typedRef.current });
+
+  // The saved numbers that start with what is typed so far: active people only,
+  // asked for once the typing pauses, matched on the start of the number.
+  const [prefix, setPrefix] = useState("");
+  const [listOpen, setListOpen] = useState(false);
+  const [hi, setHi] = useState(-1);                 // the suggestion the arrow keys are on
+  const suggestTimer = useRef(null);
+  const saved = useQuery({
+    queryKey: ["employees", "suggest", prefix],
+    queryFn: () => employeeService.list({ q: prefix, active: 1, limit: 50 }, { silent: true }).then((r) => r.data.data || []),
+    enabled: suggest && prefix.length > 0,
+    staleTime: 60_000,
+  });
+  const matches = useMemo(
+    () => (saved.data || []).filter((p) => String(p.mobile || "").startsWith(prefix)).slice(0, SUGGEST_MAX),
+    [saved.data, prefix]);
+  const showList = listOpen && prefix.length > 0 && !saved.isPending;
 
   // Same cache as the forms' department select.
   const depts = useQuery({
@@ -182,13 +215,47 @@ export default function EmployeeLookup({
     } else {
       setState(IDLE);
     }
+    // A whole number is looked up as before; a part of one lists the saved numbers it starts.
+    clearTimeout(suggestTimer.current);
+    const start = suggest && !mobile ? prefixOf(text) : "";
+    setHi(-1);
+    setListOpen(Boolean(start));
+    if (start) suggestTimer.current = setTimeout(() => setPrefix(start), SUGGEST_DELAY_MS);
+    else setPrefix("");
     send(null, mobile);
+  };
+
+  // A saved number picked from the list: that person, without a second look-up.
+  const pickSaved = (person) => {
+    clearTimeout(timer.current);
+    timer.current = null;
+    clearTimeout(suggestTimer.current);
+    seq.current += 1;
+    typedRef.current = person.mobile;
+    setTyped(person.mobile);
+    setListOpen(false);
+    setPrefix("");
+    apply({ mobile: person.mobile, found: true, active: true, employee: person }, person.mobile);
   };
 
   // Enter looks the number up at once instead of waiting for the pause (an
   // answer already on its way is not asked for twice, it moves the caret on
   // when it lands), and on a number not on the master steps to Name.
   const onNumberKey = (e) => {
+    if (showList && matches.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        setHi((h) => (h + step + matches.length) % matches.length);
+        return;
+      }
+      if (e.key === "Enter" && hi >= 0) {
+        e.preventDefault();
+        pickSaved(matches[hi]);
+        return;
+      }
+    }
+    if (e.key === "Escape") { setListOpen(false); return; }
     if (e.key !== "Enter") return;
     e.preventDefault();
     askedRef.current = true;
@@ -199,7 +266,7 @@ export default function EmployeeLookup({
   useEffect(() => {
     // Back from a confirm step with a number but no one picked: look it up again.
     if (!emp && lookupNumber(typedRef.current)) lookUpNow();
-    return () => { clearTimeout(timer.current); seq.current += 1; };
+    return () => { clearTimeout(timer.current); clearTimeout(suggestTimer.current); seq.current += 1; };
     // Mount / unmount only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -217,6 +284,9 @@ export default function EmployeeLookup({
     typedRef.current = "";
     askedRef.current = false;
     setTyped("");
+    clearTimeout(suggestTimer.current);
+    setPrefix("");
+    setListOpen(false);
     setState(IDLE);
     setDraft(EMPTY_DRAFT);
     setErr(null);
@@ -305,11 +375,39 @@ export default function EmployeeLookup({
             className={`${INPUT} !pl-9 tabular ${invalid || showError ? "border-rose-400 dark:border-rose-500/60" : ""}`}
             placeholder="10-digit mobile no." value={typed}
             onChange={(e) => onType(e.target.value)} onKeyDown={onNumberKey}
+            onFocus={() => setListOpen(Boolean(prefix))} onBlur={() => setListOpen(false)}
+            role="combobox" aria-autocomplete="list" aria-expanded={showList && matches.length > 0}
+            aria-controls={`${id}-saved`}
             aria-invalid={invalid || showError || undefined} aria-required={required || undefined}
           />
           {loading && (
             <LoaderCircle size={16} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400" aria-hidden="true" />
           )}
+          {showList && (matches.length > 0 ? (
+            <ul id={`${id}-saved`} role="listbox" aria-label="Saved numbers"
+              className="absolute inset-x-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-navy-700 dark:bg-navy-900">
+              {matches.map((p, i) => (
+                <li key={p.id} role="option" aria-selected={i === hi}>
+                  {/* mousedown, not click: the box keeps the focus, so its blur does not close the list first */}
+                  <button type="button" tabIndex={-1} onMouseDown={(e) => { e.preventDefault(); pickSaved(p); }}
+                    onMouseEnter={() => setHi(i)}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm ${i === hi
+                      ? "bg-slate-100 dark:bg-navy-800" : "hover:bg-slate-50 dark:hover:bg-navy-800/60"}`}>
+                    <span className="shrink-0 font-semibold tabular text-slate-800 dark:text-white">{p.mobile}</span>
+                    <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">{p.name}</span>
+                    <span className="shrink-0 text-[11px] text-slate-400">
+                      {[p.employee_code && `Code ${p.employee_code}`, p.department].filter(Boolean).join(" · ")}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p id={`${id}-saved`}
+              className="absolute inset-x-0 top-full z-30 mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 shadow-lg dark:border-navy-700 dark:bg-navy-900 dark:text-slate-400">
+              No saved number starts with {prefix} — type the full number to add the person.
+            </p>
+          ))}
         </div>
         {loading && <span className="sr-only" role="status">Looking the number up…</span>}
         {invalid && <p className={ERR} role="alert">Not a valid 10-digit mobile number.</p>}

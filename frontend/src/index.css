@@ -102,6 +102,33 @@
       linear-gradient(160deg, #0a1220 0%, #0c1830 55%, #0a1424 100%);
     background-attachment: fixed;
   }
+  /* Native date / time fields. In dark mode the browser still drew its calendar
+     and clock glyph (and the pop-up calendar itself) for a light page: a dark
+     icon on our navy field, all but invisible. `color-scheme` has the browser
+     draw those controls for a dark surface. In both themes the glyph is a clear
+     click target that brightens under the pointer. */
+  .dark input[type="date"],
+  .dark input[type="time"],
+  .dark input[type="datetime-local"],
+  .dark input[type="month"],
+  .dark input[type="week"] {
+    color-scheme: dark;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  input[type="month"]::-webkit-calendar-picker-indicator,
+  input[type="week"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.8;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator:hover,
+  input[type="time"]::-webkit-calendar-picker-indicator:hover,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+  input[type="month"]::-webkit-calendar-picker-indicator:hover,
+  input[type="week"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
   /* Tabular figures so a counter ticking up doesn't jitter its own width,
      and columns of numbers line up on the decimal. */
   .tabular {

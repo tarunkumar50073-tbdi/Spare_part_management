@@ -11,8 +11,9 @@ import { IssueCard } from "./DocCards.jsx";
 
 // RETURN (spec 13): a department sends a part back. It is recorded against the
 // ORIGINAL issue — never as a new, unrelated receipt — so the return carries
-// that issue's department / person / line / machine / die. It goes to Return
-// Inspection (spec 14): nothing is added to stock until the store inspects it.
+// that issue's department / person / line / machine / die. The store's rule
+// (14 Oct 2026): no inspection — the quantity goes straight back into store
+// stock the moment the return is confirmed.
 // Installed parts may come back too (removed from the machine).
 // Who handed it back is optional: found by mobile number on the Employee
 // master (as on the Issue), or just typed.
@@ -29,6 +30,7 @@ export default function ReturnForm({ scan, target, onDone, onCancel }) {
   const pick = useDocChoice(issues, target);
   const issue = pick.doc;
   const outstanding = qtyOf(issue?.outstanding_qty);
+  const available = qtyOf(scan.buckets?.available);
 
   const [qty, setQty] = useState(() => stepMin(outstanding));
   const [reason, setReason] = useState("");
@@ -70,7 +72,7 @@ export default function ReturnForm({ scan, target, onDone, onCancel }) {
     const it = issue;
     flow.open({
       title: "Return to store", icon: ArrowDownToLine, part, qty: payload.qty, uom: part.uom,
-      moves: [{ from: "ISSUED", to: "RETURN_INSPECTION" }],
+      moves: [{ from: "ISSUED", to: "STOCK_AVAILABLE" }],
       fields: [
         { label: "Original issue", value: `${fmtQty(it.issued_qty, part.uom)} on ${fmtStamp(it.issued_at)}` },
         { label: "Original department", value: it.department },
@@ -82,15 +84,16 @@ export default function ReturnForm({ scan, target, onDone, onCancel }) {
           value: byEmp ? `${byEmp.name}${byEmp.employee_code ? ` (${byEmp.employee_code})` : ""}` : payload.returned_by,
         },
         { label: "Note", value: payload.note },
+        { label: "Available after return", value: fmtQty(Math.round((available + payload.qty) * 100) / 100, part.uom) },
       ],
-      note: "Goes to Return Inspection — NOT added to stock until the store inspects it.",
+      note: "Goes back into store stock as soon as you confirm — no inspection.",
       confirmLabel: "Confirm Return",
       submit: () => flow.run(
         () => spareFlowService.returnToStore(it.id, payload),
         (res) => {
           const d = res?.data?.data || {};
           const no = d.return_no || d.return?.return_no;
-          return `${no || "Return"} recorded — ${fmtQty(payload.qty, part.uom)} waiting for store inspection, not added to stock`;
+          return `${no || "Return"} recorded — ${fmtQty(payload.qty, part.uom)} back in store stock`;
         },
       ),
     });
@@ -147,8 +150,8 @@ export default function ReturnForm({ scan, target, onDone, onCancel }) {
                 className={inputCls(show("note"))} placeholder={reason === "Other" ? "Describe the reason" : "Optional"} />
             </Field>
           </div>
-          <Note tone="warn">
-            Goes to Return Inspection — not added to stock until the store inspects it.
+          <Note>
+            Goes straight back into store stock when you confirm — no inspection.
           </Note>
         </>
       )}

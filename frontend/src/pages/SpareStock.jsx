@@ -3,7 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Check, CircleCheck, ClipboardList, Hourglass, IndianRupee, LayoutGrid, Package, ShoppingCart, Undo2, Wrench, X,
+  Check, CircleCheck, ClipboardList, Download, Hourglass, IndianRupee, LayoutGrid, Package, ShoppingCart,
+  TriangleAlert, Undo2, Wrench, X,
 } from "lucide-react";
 import CardHead from "../components/CardHead.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
@@ -37,8 +38,13 @@ const STATUS_TONE = {
   "Not Counted": "bg-slate-100 text-slate-500 dark:bg-navy-800 dark:text-slate-400",
 };
 
+// A chip filters to its own status. "Critical" is the exception: it is not a
+// status a part carries but the dashboard's ONE figure for zero stock + below
+// minimum, so its chip (and ?status=Critical, where the dashboard's "Open list"
+// lands) matches both — the single-status chips stay for telling them apart.
 const FILTERS = [
   { key: "", label: "All" },
+  { key: "Critical", label: "Critical", statuses: ["Out of Stock", "Below Minimum"] },
   { key: "Not Counted", label: "Never Counted" },
   { key: "Out of Stock", label: "Zero Stock" },
   { key: "Below Minimum", label: "Below Min" },
@@ -46,6 +52,7 @@ const FILTERS = [
   { key: "Above Maximum", label: "Above Max" },
   { key: "Healthy", label: "Healthy" },
 ];
+const statusesOf = (key) => FILTERS.find((f) => f.key === key)?.statuses || [key];
 
 // Reorder list — its own table (the parts at/below minimum, with the qty to
 // order). Rendered through the shared Table so it gets search / sort / export
@@ -65,6 +72,71 @@ const REORDER_COLUMNS = [
   { key: "status", label: "Status",
     render: (r) => <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${STATUS_TONE[r.status] || STATUS_TONE["Not Counted"]}`}>{r.status}</span> },
 ];
+
+// The rows of the last upload that were NOT applied because the uploaded file
+// is an old copy of Download Template (store, 16 Oct 2026, "Chhote data fix"):
+// the part's stock moved after that template was made and the file's figure
+// differs from today's — it may be the old stock rather than a count, so it was
+// not put back. The import report lists them too; this card stays on the page
+// (until dismissed) with what the file said against today's stock.
+function StaleTemplateRows({ stale, onDownload, onDismiss }) {
+  const n = stale.rows.length;
+  return (
+    <div role="alert" className="card border-amber-300 bg-amber-50/70 dark:border-amber-500/40 dark:bg-amber-500/[0.08]">
+      <div className="flex flex-wrap items-start gap-3">
+        <TriangleAlert size={22} strokeWidth={1.75} className="shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-800 dark:text-white">
+            {num(n)} row{n === 1 ? "" : "s"} not applied — stock moved since this template was made
+            {stale.madeAt ? ` (${stale.madeAt})` : ""}
+          </p>
+          <p className="mt-0.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+            These parts had an issue, receipt, return or count after the template was downloaded, and the
+            file&apos;s figure is not today&apos;s stock — it may be the old figure, not a count, so it was not put back.
+            The rest of the file was applied. Download a fresh template (or count these parts one at a time in the
+            table below) and upload again.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" onClick={onDownload} className="btn-secondary inline-flex items-center gap-1.5 !py-1.5 text-xs">
+            <Download size={13} aria-hidden="true" /> Download fresh template
+          </button>
+          <button type="button" onClick={onDismiss} aria-label="Dismiss"
+            className="rounded-md p-1.5 text-slate-400 hover:bg-amber-100 hover:text-slate-600 dark:hover:bg-amber-500/20">
+            <X size={15} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+      <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-amber-200 bg-white dark:border-amber-500/30 dark:bg-navy-900">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-amber-50 text-slate-600 dark:bg-navy-800 dark:text-slate-300">
+            <tr>
+              <th className="px-3 py-2 text-left font-semibold">Part</th>
+              <th className="px-3 py-2 text-right font-semibold">In the file</th>
+              <th className="px-3 py-2 text-right font-semibold">Stock now</th>
+              <th className="px-3 py-2 text-left font-semibold">Last movement</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+            {stale.rows.map((r, i) => (
+              <tr key={`${r.part_id}-${i}`}>
+                <td className="px-3 py-2">
+                  <span className="font-medium text-slate-800 dark:text-slate-100">{r.part_no}</span>
+                  {r.part_name && <span className="text-slate-400"> {r.part_name}</span>}
+                </td>
+                <td className="px-3 py-2 text-right tabular text-slate-500 line-through decoration-amber-500/70">{num(r.file_qty)}</td>
+                <td className="px-3 py-2 text-right tabular font-semibold text-slate-800 dark:text-slate-100">
+                  {r.current_qty == null ? "Not counted" : num(r.current_qty)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-slate-500 dark:text-slate-400">{r.last_moved_at || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 // Store Stock — the screen that turns a shelf count into the figure every
 // gauge, donut and health reading on the dashboard is built from. Until a
@@ -102,6 +174,8 @@ export default function SpareStock() {
   // The selected parts whose labels are being printed (the bulk print dialog).
   const [binParts, setBinParts] = useState(null);
   const [report, setReport] = useState(null);
+  // Rows of the last upload skipped as an old template's figures: { rows, madeAt } or null.
+  const [stale, setStale] = useState(null);
   // {partId} of the row being typed into, and the value typed so far.
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState("");
@@ -148,11 +222,21 @@ export default function SpareStock() {
   // other open screen that reads the same cache.
   const load = useCallback(() => invalidateStock(qc), [qc]);
 
+  const downloadTemplate = () => downloadFile(
+    "/spare-stock/template", "spare_opening_stock_template.xlsx", { store_code: activeCode });
+
   const handleUpload = async (file) => {
     try {
       const res = await spareStockService.import(file, activeCode);
-      setReport(res.data.data);
+      const result = res.data.data;
+      setReport(result);
+      const staleRows = Array.isArray(result?.stale_rows) ? result.stale_rows : [];
+      setStale(staleRows.length ? { code: activeCode, rows: staleRows, madeAt: result.template_made_at } : null);
       toast.success(res.data.message || "Opening stock uploaded");
+      if (staleRows.length) {
+        toast.error(`${staleRows.length} row${staleRows.length === 1 ? "" : "s"} not applied — `
+          + "stock moved since this template was made. Download a fresh template.", { duration: 8000 });
+      }
       load();
     } catch (err) {
       toast.error(err?.response?.data?.message || "Upload failed");
@@ -245,7 +329,7 @@ export default function SpareStock() {
     && (!rack || r.rack === rack)
     && matchesGap(r, gap)), [enriched, section, type, rack, gap]);
   const visible = useMemo(
-    () => (filter ? scoped.filter((r) => r.status === filter) : scoped),
+    () => (filter ? scoped.filter((r) => statusesOf(filter).includes(r.status)) : scoped),
     [scoped, filter],
   );
   const counts = useMemo(() => {
@@ -258,22 +342,45 @@ export default function SpareStock() {
   // ---- bulk actions on the selected parts ----
   const selectedRows = useMemo(
     () => enriched.filter((r) => selected.has(r.part_id)), [enriched, selected]);
-  const exportSelected = () => {
-    const headers = ["Part No", "Description", "Type", "Section", "Location", "In Stock", "Min",
-      "Reorder", "Max", "UoM", "Rate", "Stock Value", "Status", "Last issue", "Last supplier (gate)", "Last counted"];
-    const body = selectedRows.map((r) => [
-      r.part_no, r.part_name || "", r.type_name, r.section_name || "", r.location || "",
-      r.qty_on_hand ?? "", r.min_stock_level ?? "", r.reorder_level ?? "", r.max_stock_level ?? "",
-      r.uom || "", r.unit_price ?? "", r.stock_value ?? "", r.status,
-      fmtDay(r.last_issue_at) || "", r.supplier || "", fmtDay(r.last_counted_at) || "",
-    ]);
-    downloadXlsx(`spare_selected_${new Date().toISOString().slice(0, 10)}`, headers, body, "Selected");
+  // One workbook shape for every client-side part export (selected rows, or the
+  // current filtered view) — same columns as the server's full-store export.
+  const EXPORT_HEADERS = ["Part No", "Description", "Specification", "Type", "Section", "Location", "In Stock", "Min",
+    "Reorder", "Max", "UoM", "Rate", "Stock Value", "Status", "Last issue", "Last supplier (gate)", "Last counted"];
+  const toExportRow = (r) => [
+    r.part_no, r.part_name || "", r.specification || "", r.type_name, r.section_name || "", r.location || "",
+    r.qty_on_hand ?? "", r.min_stock_level ?? "", r.reorder_level ?? "", r.max_stock_level ?? "",
+    r.uom || "", r.unit_price ?? "", r.stock_value ?? "", r.status,
+    fmtDay(r.last_issue_at) || "", r.supplier || "", fmtDay(r.last_counted_at) || "",
+  ];
+  const exportSelected = () => downloadXlsx(
+    `spare_selected_${new Date().toISOString().slice(0, 10)}`,
+    EXPORT_HEADERS, selectedRows.map(toExportRow), "Selected");
+  // The header "Export": with a filter active (e.g. opened from a dashboard line
+  // such as "Critical parts" or "At reorder level"), export ONLY the rows on screen —
+  // so the file matches the list you are looking at, not the whole store. With no
+  // filter it stays the full-store workbook built by the server.
+  const exportVisible = () => {
+    if (!filtersActive) {
+      downloadFile("/spare-stock/export", "spare_stock.xlsx", { store_code: activeCode });
+      return;
+    }
+    const slug = (filter || type || gap || "filtered").replace(/[^A-Za-z0-9]+/g, "_");
+    downloadXlsx(`spare_stock_${slug}_${new Date().toISOString().slice(0, 10)}`,
+      EXPORT_HEADERS, visible.map(toExportRow), (filter || "Filtered").slice(0, 28));
   };
   // Labels are printed first and recorded only after the operator confirms
   // they came out (source STORE_STOCK) — the dialog owns that flow, including
   // which parts already carry a label and need a reprint reason.
   const toPrintPart = (r) => ({
     part_id: r.part_id, part_no: r.part_no, part_name: r.part_name, location: r.location,
+    // A part can have TWO locations — fresh (location) and rework (rework_location);
+    // both are tagged (the part shows in both bins, each row marked FRESH / REWORK).
+    rework_location: r.rework_location,
+    specification: r.specification,
+    // Section travels with the part so a bin tag is per section AND location —
+    // the same rack number exists in more than one section (R3 in Press and in
+    // Maintenance), and must not be merged onto one tag.
+    section_id: r.section_id, section_name: r.section_name,
     min_stock_level: r.min_stock_level, max_stock_level: r.max_stock_level,
   });
   const selectedForPrint = () => selectedRows.map(toPrintPart);
@@ -293,6 +400,7 @@ export default function SpareStock() {
   const columns = [
     { key: "part_no", label: "Part No", sortable: true },
     { key: "part_name", label: "Description", sortable: true },
+    { key: "specification", label: "Specification", sortable: true, render: (r) => r.specification || dash },
     { key: "type_name", label: "Type", sortable: true },
     { key: "section_name", label: "Section", sortable: true, render: (r) => r.section_name || dash },
     { key: "rack", label: "Rack", sortable: true, render: (r) => r.rack || dash },
@@ -407,13 +515,15 @@ export default function SpareStock() {
             addLabel="Stock"
             canEdit={canEditStock}
             onUpload={handleUpload}
-            onDownloadTemplate={() => downloadFile(
-              "/spare-stock/template", "spare_opening_stock_template.xlsx", { store_code: activeCode })}
-            onExport={() => downloadFile(
-              "/spare-stock/export", "spare_stock.xlsx", { store_code: activeCode })}
+            onDownloadTemplate={downloadTemplate}
+            onExport={exportVisible}
           />
         </div>
       </div>
+
+      {stale && stale.code === activeCode && (
+        <StaleTemplateRows stale={stale} onDownload={downloadTemplate} onDismiss={() => setStale(null)} />
+      )}
 
       {erpPending > 0 && (
         <div className="card bg-amber-50/60 dark:bg-amber-500/[0.08] border-amber-200 dark:border-amber-500/30 flex flex-wrap items-center justify-between gap-3 py-3">
@@ -435,12 +545,15 @@ export default function SpareStock() {
         <div className="flex flex-wrap items-start gap-3">
           <ClipboardList size={24} strokeWidth={1.75} className="shrink-0 text-blue-600 dark:text-blue-400" aria-hidden="true" />
           <div className="min-w-0 flex-1 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            <p className="font-semibold text-slate-800 dark:text-white mb-1">How to load opening stock</p>
+            <p className="font-semibold text-slate-800 dark:text-white mb-1">How to load physical inventory</p>
             <p>
               <b>Download Template</b> — it comes pre-filled with every part number in this store.
-              Fill only the <b>Qty On Hand</b> column and upload it back. A blank cell is skipped,
-              not read as zero, so a part you have not counted stays uncounted.
+              Fill the <b>Qty On Hand</b> column with your <b>physical count</b> and upload it back.
+              A blank cell is skipped, not read as zero, so a part you have not counted stays uncounted.
+              Use a fresh template each time: if a part&apos;s stock moved after the template was downloaded and
+              your figure is not today&apos;s stock, that row is not applied (it could be the old figure).
               You can also click any figure in the table below to count one part at a time.
+              (ERP’s live stock will come through the ERP API later — this page stays for the physical count.)
             </p>
           </div>
         </div>
@@ -473,7 +586,7 @@ export default function SpareStock() {
             >
               {f.label}
               <span className="ml-1.5 opacity-70">
-                {f.key ? (counts[f.key] || 0) : rows.length}
+                {f.key ? statusesOf(f.key).reduce((sum, s) => sum + (counts[s] || 0), 0) : rows.length}
               </span>
             </button>
           ))}

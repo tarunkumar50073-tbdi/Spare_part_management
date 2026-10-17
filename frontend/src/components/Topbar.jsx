@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  Bell, FileDown, Home, Info, LogOut, Maximize2, Minimize2, Search, Settings as SettingsIcon, Siren, TriangleAlert,
+  ArrowLeft, Bell, FileDown, Home, Info, LogOut, Moon, Sun, Maximize2, Minimize2, Search, Settings as SettingsIcon, Siren, TriangleAlert,
 } from "lucide-react";
 import Badge from "./Badge.jsx";
 import { liveStockService } from "../services/liveStockService.js";
@@ -13,6 +13,7 @@ import { partService } from "../services/partService.js";
 import { storeDashboardService } from "../services/storeDashboardService.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useTheme } from "../context/ThemeContext.jsx";
 import { can } from "../utils/permissions.js";
 import { parseServerTime } from "../lib/format.js";
 
@@ -20,6 +21,8 @@ import { parseServerTime } from "../lib/format.js";
 // the live data and Plant 2 is a disabled placeholder. When the second site's
 // data and per-plant permissions land, a user will see only the plant(s) they
 // may access and admins / plant-heads will toggle between both here.
+// Below 1280 px it shows just "P1" (Plant 2 is only a placeholder), so the page
+// title keeps room to show in full on a small laptop / tablet window.
 function PlantToggle() {
   return (
     <div className="hidden md:inline-flex items-center rounded-lg border border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 p-0.5">
@@ -28,13 +31,14 @@ function PlantToggle() {
         className="rounded-md bg-toyotared px-2.5 py-1 text-xs font-semibold text-white shadow-sm"
         title="Plant 1 — current"
       >
-        Plant&nbsp;1
+        <span className="xl:hidden">P1</span>
+        <span className="hidden xl:inline">Plant&nbsp;1</span>
       </button>
       <button
         type="button"
         disabled
         title="Plant 2 — coming soon (its data isn't connected yet)"
-        className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-400 cursor-not-allowed"
+        className="hidden xl:inline-flex rounded-md px-2.5 py-1 text-xs font-semibold text-slate-400 cursor-not-allowed"
       >
         Plant&nbsp;2
       </button>
@@ -58,9 +62,15 @@ function ErpStatusPill() {
   if (isPending) return null;
 
   const live = Boolean(syncedAt);
+  const at = live ? parseServerTime(syncedAt) : null;
   const label = live
-    ? `Last ERP data: ${parseServerTime(syncedAt)?.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) ?? "—"}`
+    ? `Last ERP data: ${at?.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) ?? "—"}`
     : "No ERP data yet";
+  // Below 1536 px the pill says only "ERP 10 Aug", so the page title in the
+  // centre has room to show in full (the store, 17 Oct 2026: "katna nhi chahiye").
+  const short = live
+    ? `ERP ${at?.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) ?? "—"}`
+    : "No ERP data";
 
   return (
     <span
@@ -68,10 +78,11 @@ function ErpStatusPill() {
         ${live
           ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
           : "bg-slate-100 text-slate-500 dark:bg-navy-800 dark:text-slate-400"}`}
-      title={live ? undefined : "ERP has not pushed a gate entry or stock figure yet"}
+      title={live ? label : "ERP has not pushed a gate entry or stock figure yet"}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-500" : "bg-slate-400"}`} />
-      {label}
+      <span className="2xl:hidden">{short}</span>
+      <span className="hidden 2xl:inline">{label}</span>
     </span>
   );
 }
@@ -122,6 +133,7 @@ const asSpareResult = (row) => ({
   partNo: row.part_no,
   name: row.part_name,
   secondary: row.location,
+  spec: row.specification,
   status: null,
   sob: false,
   right: Number(row.unit_price || 0) > 0
@@ -134,8 +146,43 @@ const asSpareResult = (row) => ({
 // This is the app's only search box — the dashboard used to carry a second one
 // of its own. Account controls (user, sign out, theme) sit at the foot of the
 // sidebar instead, since they belong to the session rather than to the page.
+// The smallest the page title may shrink to before it is cut ("…").
+const TITLE_MIN_PX = 13;
+
 export default function Topbar({ title, showSearch = true }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  // A long page name is never cut on a laptop (the store, 17 Oct 2026: "katna
+  // nhi chahiye" — "Issuance & Consumption" read "Issuance & Consum…" at 1536
+  // px): the title steps its font down until the whole name fits its space,
+  // and is cut only below TITLE_MIN_PX on a very narrow window.
+  const titleRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = titleRef.current;
+    if (!el) return undefined;
+    const fit = () => {
+      el.style.fontSize = "";                       // back to the class size first
+      let size = parseFloat(getComputedStyle(el).fontSize) || 24;
+      while (el.scrollWidth > el.clientWidth && size > TITLE_MIN_PX) {
+        size -= 1;
+        el.style.fontSize = `${size}px`;
+      }
+    };
+    fit();
+    // The title's box follows the window and the side rail, not its own font
+    // size, so refitting on a resize never loops.
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [title]);
+  // Back belongs on a page you drilled INTO — not on a landing dashboard (which
+  // already has Home + the sidebar), and not on a fresh load where "back" would
+  // leave the app. Full-screen drill sheets carry their own back arrow above
+  // this bar, so this only governs the plain routed pages.
+  const LANDING_PATHS = ["/", "/dashboard", "/store/MAINTENANCE"];
+  let hasHistory = false;
+  try { hasHistory = (window.history.state?.idx ?? 0) > 0; } catch { hasHistory = false; }
+  const showBack = hasHistory && !LANDING_PATHS.includes(location.pathname);
   // The box searches the store you are standing in. It used to always search
   // Child Parts live stock, so from the Spare Parts Store it answered every
   // query with "No part found" — the 481 spares were never being looked at.
@@ -145,6 +192,7 @@ export default function Topbar({ title, showSearch = true }) {
   // rather than searching every store at once.
   const { activeCode, activeStore } = useStores();
   const { user, logout } = useAuth();
+  const { dark, toggleDark } = useTheme();
   const childParts = !activeCode || activeCode === "CHILD_PART";
   // Tracked rather than assumed: the user can leave fullscreen with Esc or F11
   // without touching the button, and a button showing the wrong state is worse
@@ -263,6 +311,21 @@ export default function Topbar({ title, showSearch = true }) {
         {/* Left group — a Home button and the global search. Fixed to its
             content (shrink-0) so the flexible centre title never overlaps it. */}
         <div className="shrink-0 flex items-center gap-2">
+          {/* Back — one step in history, but only on a drilled-in sub-page: not on
+              a landing dashboard or a fresh load (nothing to go back to). Drill
+              sheets are full-screen modals with their own back arrow above this. */}
+          {showBack && (
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            title="Back"
+            aria-label="Go back"
+            className="shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
+              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+          >
+            <ArrowLeft size={16} />
+          </button>
+          )}
           <Link
             to="/"
             title="Home"
@@ -273,7 +336,7 @@ export default function Topbar({ title, showSearch = true }) {
             <Home size={16} />
           </Link>
           {showSearch && (
-            <div ref={searchRef} className="relative hidden lg:block w-48 xl:w-64">
+            <div ref={searchRef} className="relative hidden lg:block w-40 xl:w-52 2xl:w-64">
               <form onSubmit={handleSearch}>
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" aria-hidden="true" />
@@ -328,6 +391,9 @@ export default function Topbar({ title, showSearch = true }) {
                               {r.right}
                             </span>
                           </div>
+                          {r.spec && (
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">Spec: {r.spec}</div>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -339,9 +405,11 @@ export default function Topbar({ title, showSearch = true }) {
         </div>
 
         {/* The page title — the flexible centre column: it grows to fill the
-            space between the two fixed groups and truncates rather than
+            space between the two fixed groups; its font shrinks to fit (see
+            titleRef above) and it truncates only as a last resort, never
             overlapping them. */}
         <h1
+          ref={titleRef}
           // Keeps its flex space on a phone (so the icons stay right-aligned)
           // but isn't drawn there: squeezed to ~16px it read as a stray red mark,
           // and every page carries its own heading anyway.
@@ -354,6 +422,9 @@ export default function Topbar({ title, showSearch = true }) {
             color: "transparent",
             filter: "drop-shadow(0 2px 8px rgba(235,10,30,0.25))",
           }}
+          // Should a window be too narrow even at the smallest size, the
+          // whole name still reads on hover.
+          title={title}
         >
           {title}
         </h1>
@@ -453,9 +524,20 @@ export default function Topbar({ title, showSearch = true }) {
               text-white shadow-[0_6px_16px_rgba(235,10,30,0.35)] hover:brightness-110 transition shrink-0"
             title="Reports"
           >
-            <FileDown size={14} /> <span className="hidden lg:inline">Report</span>
+            <FileDown size={14} /> <span className="hidden 2xl:inline">Report</span>
           </Link>
           )}
+
+          {/* Day / night — the theme switch, beside the other session controls. */}
+          <button
+            onClick={toggleDark}
+            title={dark ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
+              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+          >
+            {dark ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
 
           {/* Settings — admins only (the page is admin-gated anyway). */}
           {user?.is_admin && (
@@ -470,7 +552,7 @@ export default function Topbar({ title, showSearch = true }) {
             </Link>
           )}
 
-          {/* Sign out — the session control, also at the foot of the sidebar. */}
+          {/* Sign out — the session control. */}
           <button
             onClick={logout}
             title={user ? `Sign out ${user.username}` : "Sign out"}

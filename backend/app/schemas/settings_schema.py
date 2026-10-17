@@ -57,3 +57,21 @@ class LabelPrinterSchema(Schema):
     connection = fields.String(validate=validate.OneOf(list(PRINTER_CONNECTIONS)))
     host = fields.String(allow_none=True, validate=_ip_or_hostname)
     port = fields.Integer(validate=validate.Range(min=1, max=65535))
+
+
+class SmtpConfigSchema(Schema):
+    """The outgoing-mail server (Settings). Non-secret fields only — the password
+    is never sent/stored here; when auth is required it stays in .env. All fields
+    optional on save, merged over the saved value."""
+    host = fields.String(validate=validate.Length(max=255))
+    port = fields.Integer(validate=validate.Range(min=1, max=65535))
+    from_email = fields.Email(allow_none=True)
+    from_display = fields.String(allow_none=True, validate=validate.Length(max=120))
+    use_tls = fields.Boolean()
+    use_ssl = fields.Boolean()
+    requires_auth = fields.Boolean()
+    username = fields.String(allow_none=True, validate=validate.Length(max=255))
+
+
+class SmtpTestSchema(Schema):
+    to = fields.Email(required=True)

@@ -49,6 +49,10 @@ export default function Table({
   pageSize = 0,
   exportName = "",
   maxHeight = "",
+  // Fill the parent's height instead of a fixed maxHeight — the body scrolls
+  // within the available space (one scrollbar), for a table that owns a flex
+  // region (e.g. a drill panel). The parent must be a bounded flex column.
+  fill = false,
   toolbar = null,
   // Opt-in: adds a "Columns" menu to show/hide columns (for the big lists).
   columnToggle = false,
@@ -242,7 +246,8 @@ export default function Table({
         </td>
       )}
       {shownColumns.map((col, i) => (
-        <td key={col.key} className={`px-3 py-3 ${cellWrap} ${col.align === "right" ? "text-right tabular" : ""} ${stickyTd(i)}`}>
+        <td key={col.key} style={col.width ? { width: col.width } : undefined}
+          className={`px-3 py-3 ${cellWrap} ${col.align === "right" ? "text-right tabular" : ""} ${stickyTd(i)}`}>
           {col.render ? col.render(row) : row[col.key]}
         </td>
       ))}
@@ -250,7 +255,7 @@ export default function Table({
   );
 
   return (
-    <div className="space-y-3">
+    <div className={fill ? "flex h-full min-h-0 flex-col gap-3" : "space-y-3"}>
       {menu && <div className="fixed inset-0 z-20" onClick={() => setMenu(null)} />}
       {showToolbar && (
         <div className="flex flex-wrap items-center gap-2">
@@ -320,8 +325,10 @@ export default function Table({
       <div
         ref={scrollRef}
         onScroll={virtualize ? (e) => setScrollTop(e.currentTarget.scrollTop) : undefined}
-        className={`rounded-xl border border-slate-200 dark:border-navy-800 ${noScroll ? "" : "overflow-x-auto"}`}
-        style={(maxHeight || virtualize) ? { maxHeight: maxHeight || "70vh", overflowY: "auto" } : undefined}
+        className={`rounded-xl border border-slate-200 dark:border-navy-800 ${noScroll ? "" : "overflow-x-auto"} ${fill ? "min-h-0 flex-1" : ""}`}
+        style={fill
+          ? { overflowY: "auto" }
+          : (maxHeight || virtualize) ? { maxHeight: maxHeight || "70vh", overflowY: "auto" } : undefined}
       >
         <table className={`w-full text-sm ${noScroll ? "table-fixed" : "min-w-full"}`}>
           {/* Pinned so column names stay readable once a long list is scrolled
@@ -342,6 +349,7 @@ export default function Table({
                   <th
                     key={col.key}
                     onClick={() => toggleSort(col.key)}
+                    style={col.width ? { width: col.width } : undefined}
                     aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
                     className={`text-[11px] font-semibold uppercase tracking-wide px-3 py-2.5 border-b border-slate-200 dark:border-navy-700 ${cellWrap} ${stickyTh(i)}
                       ${col.align === "right" ? "text-right" : "text-left"}

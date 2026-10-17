@@ -1,0 +1,137 @@
+{
+  "about": "Ready-made rights for a new login, picked at the top of the User Management form (store's request of 17 Oct 2026: \"template bana de\" — one pick of a type and all its rights fall into place). The store approved the six types and their screens on 17 Oct 2026. Each right was checked against the screens the person uses and the endpoints those screens call; `why` says which. This one file is read by the User Management screen (lib/roleTemplates.js) and by the backend test (backend/tests/test_role_templates.py), which signs in as each template and calls those endpoints. Keys are backend/app/models/user.py PERMISSION_MODULES; edit always carries view (edit implies view).",
+  "templates": [
+    {
+      "key": "store_staff",
+      "label": "Store Staff",
+      "short": "Store Staff",
+      "description": "Issue, return and receive on Scan Part, stock count, put-away, Part Requisition, reports.",
+      "role": "STORE_USER",
+      "stores": ["MAINTENANCE"],
+      "permissions": {
+        "spare_store": { "view": true, "edit": false },
+        "scan_part": { "view": true, "edit": true },
+        "store_stock": { "view": true, "edit": true },
+        "part_ledger": { "view": true, "edit": false },
+        "employees": { "view": true, "edit": false },
+        "equipment": { "view": true, "edit": false },
+        "reports": { "view": true, "edit": false }
+      },
+      "why": {
+        "spare_store": "Spare Parts Store dashboard + sections, Receiving & GRN, Issuance Report, Consumption Report, Action Tracker (GET /dashboard/spare/overview + /management, /receiving-monitor, /consumption-analytics)",
+        "scan_part": "Scan Part (issue / return / move / lot tag), Part Requisition, Work Queue (POST /spare-stock/parts/:id/issue, /issues/:id/return, /gate-labels/print, GET + issue /part-requests)",
+        "store_stock": "Store Stock count + upload, Put-away Check, Critical · Reorder · Excess (PUT /spare-stock/parts/:id, POST /spare-stock/put-away/record, GET /inventory-control)",
+        "part_ledger": "Part Ledger screen (/spare-part-history)",
+        "employees": "Employee Master, read only (GET /employees)",
+        "equipment": "Line / Machine / Die master, read only (GET /equipment)",
+        "reports": "Reports (GET /reports/catalog, /reports/:key/:format)"
+      }
+    },
+    {
+      "key": "store_supervisor",
+      "label": "Store Supervisor",
+      "short": "Store Supervisor",
+      "description": "Everything Store Staff does, plus Part Master, Department Emails, Scan Audit, Audit Trail, ERP vs Physical.",
+      "role": "STORE_USER",
+      "stores": ["MAINTENANCE"],
+      "permissions": {
+        "spare_store": { "view": true, "edit": false },
+        "scan_part": { "view": true, "edit": true },
+        "store_stock": { "view": true, "edit": true },
+        "part_ledger": { "view": true, "edit": false },
+        "reports": { "view": true, "edit": false },
+        "part_master": { "view": true, "edit": true },
+        "supplier_barcodes": { "view": true, "edit": true },
+        "departments": { "view": true, "edit": true },
+        "scan_audit": { "view": true, "edit": false },
+        "audit_trail": { "view": true, "edit": false },
+        "erp_gap": { "view": true, "edit": false },
+        "employees": { "view": true, "edit": true },
+        "equipment": { "view": true, "edit": true }
+      },
+      "why": {
+        "spare_store": "as Store Staff",
+        "scan_part": "as Store Staff",
+        "store_stock": "as Store Staff (also the ERP push on ERP Control Center and the ERP stock upload on ERP vs Physical)",
+        "part_ledger": "as Store Staff",
+        "reports": "as Store Staff",
+        "part_master": "Part Master + Data Quality (POST / PUT /parts, GET /data-quality)",
+        "supplier_barcodes": "Scan Part's Barcodes panel and its unknown-code prompt: map a supplier's barcode to a part, e.g. one Scan Audit shows as unknown (POST /barcode/mapping)",
+        "departments": "Department Emails (POST / PUT /departments, GET /departments/reorder-mail/status)",
+        "scan_audit": "Scan Audit screen, open to this right since 17 Oct 2026 (was administrators only) (GET /barcode/scan-audit)",
+        "audit_trail": "Audit Trail (GET /audit-logs)",
+        "erp_gap": "ERP vs Physical + ERP Control Center (GET /erp-control/status)",
+        "employees": "Employee Master edit + Excel import (PUT /employees/:id, POST /employees/import)",
+        "equipment": "Line / Machine / Die master edit + import (PUT /equipment/:id, POST /equipment/import)"
+      }
+    },
+    {
+      "key": "line_user",
+      "label": "Line User (Maintenance / Tool Room)",
+      "short": "Line User",
+      "description": "Only Confirm Installation: fill the line / machine / die of a part issued to the floor.",
+      "role": "STORE_USER",
+      "stores": ["MAINTENANCE"],
+      "permissions": {
+        "install_confirm": { "view": true, "edit": true }
+      },
+      "why": {
+        "install_confirm": "Confirm Installation (POST /spare-stock/issues/:id/confirm; its Line / Machine / Die pick-lists, GET /equipment, accept this right too). Its lists GET /spare-stock/pending-confirmations, /installations and /spare-flow/parts/:id/scan-result need only the store."
+      }
+    },
+    {
+      "key": "kiosk",
+      "label": "Kiosk device (outside the store)",
+      "short": "Kiosk",
+      "description": "Only the part request at the kiosk outside the store: find the part, pick the person, send.",
+      "role": "STORE_USER",
+      "stores": ["MAINTENANCE"],
+      "permissions": {
+        "kiosk": { "view": true, "edit": true }
+      },
+      "why": {
+        "kiosk": "Part Request kiosk (POST /part-requests); the person look-up on it (GET /employees/lookup, GET /employees) accepts this right too, so the kiosk is not given Employee Master or its Excel. With only this right, GET /employees answers just the active people whose mobile starts with the digits typed (at most 20), never the whole list. The part search (GET /spare-stock) needs only the store."
+      }
+    },
+    {
+      "key": "manager",
+      "label": "Manager",
+      "short": "Manager",
+      "description": "Sees everything of the Spare Parts Store, changes nothing.",
+      "role": "STORE_USER",
+      "stores": ["MAINTENANCE"],
+      "permissions": {
+        "spare_store": { "view": true, "edit": false },
+        "store_stock": { "view": true, "edit": false },
+        "part_ledger": { "view": true, "edit": false },
+        "erp_gap": { "view": true, "edit": false },
+        "reports": { "view": true, "edit": false },
+        "audit_trail": { "view": true, "edit": false },
+        "live_dashboard": { "view": true, "edit": false }
+      },
+      "why": {
+        "spare_store": "Spare Parts Store dashboard + sections, Receiving & GRN, Issuance Report, Consumption Report, Action Tracker (read)",
+        "store_stock": "Store Stock list + Critical · Reorder · Excess (GET /inventory-control); view only, so no count, upload, put-away or ERP push",
+        "part_ledger": "Part Ledger screen",
+        "erp_gap": "ERP vs Physical + ERP Control Center (GET /erp-control/status)",
+        "reports": "Reports + their Excel / PDF downloads",
+        "audit_trail": "Audit Trail (GET /audit-logs)",
+        "live_dashboard": "Live Board link in the sidebar (/live-dashboard)"
+      }
+    },
+    {
+      "key": "live_board",
+      "label": "Live Board (HMI / TV)",
+      "short": "Live Board",
+      "description": "Only the Live Board on the HMI / TV screen.",
+      "role": "STORE_USER",
+      "stores": ["MAINTENANCE"],
+      "permissions": {
+        "live_dashboard": { "view": true, "edit": false }
+      },
+      "why": {
+        "live_dashboard": "Live Board (GET /dashboard/spare/overview + /management accept it); its other figures (GET /spare-stock/today, /flow, /activity, /spare-flow/queues) need only the store. Without spare_store the board hides its Main Dashboard exit."
+      }
+    }
+  ]
+}

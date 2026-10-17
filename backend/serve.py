@@ -13,6 +13,12 @@ import os
 
 from app import create_app
 
+# Waitress has no reloader, so this process is the one that serves requests
+# whatever FLASK_ENV says. The mail engine's worker reads this to start here
+# even when .env still carries FLASK_ENV=development (debug on), where its
+# reloader guard would otherwise take this process for the reloader parent.
+os.environ["DX_NO_RELOADER"] = "1"
+
 app = create_app(os.getenv("FLASK_ENV", "production"))
 
 if __name__ == "__main__":

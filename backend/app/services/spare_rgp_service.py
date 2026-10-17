@@ -15,6 +15,11 @@ GRN, once per GRN, through SpareStockService._write. The GRN itself is made in
 ERP by the store supervisor — the app records its number (ERP stays read-only),
 so the ledger row is marked RGP_GRN and is never pushed to ERP a second time.
 
+Where it goes back (store rule, 14 Oct 2026): a part such as CNTR3200 keeps
+new material in its FRESH location and material back from rework in its REWORK
+location. Stock stays one figure; the RGP document and the RGP GRN name the
+rework bin (rework_bin) so the store puts reworked material there.
+
 A vendor code is never typed or invented: it must be an ERP vendor this part
 has actually come from (a gate entry or GRN whose item code is the part no), or
 it stays blank and the RGP carries the supplier name only.
@@ -40,6 +45,7 @@ from app.models.spare_flow import (
 from app.models.supplier import Supplier
 from app.services.spare_journal_service import SpareJournalService
 from app.services.spare_stock_service import SpareStockService
+from app.utils.bin_location import part_bins
 from app.utils.db_tx import atomic
 from app.utils.exceptions import BadRequestError, NotFoundError
 
@@ -94,6 +100,18 @@ def _as_date(value, what):
 
 def _join(*parts):
     return " — ".join(p for p in parts if p) or None
+
+
+def rework_bin(part):
+    """The bin reworked material goes back to: the part's REWORK location when
+    it keeps one apart from its fresh location (utils/bin_location.part_bins,
+    the rule the bin sheets and the bin-scan checks use). None when it has no
+    separate rework bin — the material then goes to the part's own location,
+    like any other stock."""
+    if part is None:
+        return None
+    return next((loc for kind, loc in part_bins(part.location, part.rework_location)
+                 if kind == "rework"), None)
 
 
 class SpareRgpService:
@@ -247,7 +265,9 @@ class SpareRgpService:
         """RGP GRN (spec 18/19): the supervisor made the RGP GRN in ERP and
         records its number here. Only now does the reworked quantity become
         available — one RECEIPT ledger row (status RGP_GRN, reference = RGP no)
-        in the same transaction as the RGP update and its journal row."""
+        in the same transaction as the RGP update and its journal row. For a
+        part with a rework bin, the ledger row's remark names that bin: where
+        this reworked material was put."""
         qty = _qty(qty, "GRN quantity")
         grn_no = _clean(grn_no)
         if not grn_no:
@@ -283,9 +303,11 @@ class SpareRgpService:
             # read here cannot change before the write below.
             db.session.refresh(row)
             new_qty = round(float(row.qty_on_hand or 0) + qty, 2)
+            to_bin = rework_bin(rgp.part)
             _, _, ledger = self.stock._write(
                 rgp.part_id, new_qty, "RECEIPT", reference=rgp.rgp_no,
-                remarks=f"RGP GRN {grn_no}", user=user,
+                remarks=f"RGP GRN {grn_no}" + (f" · to the rework bin {to_bin}" if to_bin else ""),
+                user=user,
                 extra={"status": "RGP_GRN", "supplier_id": rgp.supplier_id},
                 return_ledger=True,
             )
@@ -366,7 +388,9 @@ class SpareRgpService:
     @staticmethod
     def to_dict(r, today=None):
         """One RGP as every screen reads it. `overdue` = still (partly) with the
-        supplier past the expected return date, against today's plant date."""
+        supplier past the expected return date, against today's plant date.
+        `rework_bin` = where the RGP GRN puts the reworked material (None: the
+        part's own location)."""
         today = today or date.today()
         with_supplier = r.qty_with_supplier
         part = r.part
@@ -377,6 +401,7 @@ class SpareRgpService:
             "part_no": part.part_no if part else None,
             "part_name": part.part_name if part else None,
             "uom": part.uom if part else None,
+            "rework_bin": rework_bin(part),
             "store_code": r.store_code,
             "source_return_id": r.source_return_id,
             "return_no": ret.return_no if ret else None,

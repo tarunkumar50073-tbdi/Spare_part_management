@@ -305,6 +305,7 @@ export default function PartMaster() {
   const columns = [
     { key: "part_no", label: "Part No" },
     { key: "part_name", label: "Part Name" },
+    { key: "specification", label: "Specification", render: (r) => r.specification || "—" },
     { key: "uom", label: "UOM" },
     { key: "barcode", label: "Barcode", render: (r) => r.barcode || <span className="text-slate-300 dark:text-slate-600">—</span> },
     { key: "category", label: "Category", render: (r) => r.category || "—" },

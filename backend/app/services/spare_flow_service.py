@@ -28,6 +28,7 @@ from app.repositories.spare_stock_repository import (
     SpareStockLedgerRepository, SpareStockRepository,
 )
 from app.repositories.srv_repository import SRVRepository
+from app.services.spare_return_service import TAKEN_BACK_REMARK
 from app.utils.exceptions import NotFoundError
 
 # SRV statuses grouped onto the spare store's stages. The SRV model's own flow
@@ -369,7 +370,13 @@ class SpareFlowService:
                 "line": line,
                 "remarks": (getattr(m, "return_reason", None) or m.remarks) if m.txn_type == "RETURN" else m.remarks,
                 "by": m.created_by,
-                "status": getattr(m, "status", None),
+                # A return taken straight back (the store's rule, 14 Oct 2026)
+                # keeps INSPECTED_GOOD on its row — the returned-qty sums rely
+                # on it — but nobody inspected it, and its remark is replaced by
+                # the reason above, so the status is dropped here: Trace reads
+                # it as "Returned", not "Return inspected — good".
+                "status": (None if m.txn_type == "RETURN" and m.remarks == TAKEN_BACK_REMARK
+                           else getattr(m, "status", None)),
             })
         entries.sort(key=lambda e: (e["ts"] or ""), reverse=True)
         return entries

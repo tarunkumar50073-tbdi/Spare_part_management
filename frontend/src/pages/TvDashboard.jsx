@@ -1,22 +1,25 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, ComposedChart, BarChart, Bar, Line, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
+  XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ReferenceArea,
 } from "recharts";
 import {
-  Database, AlertTriangle, Boxes, ClipboardList, PackageX, TrendingDown,
-  FileBarChart, PackagePlus, Sun, Moon, ArrowLeft, RefreshCw, RotateCw, CircleCheck,
-  Maximize, Minimize,
+  Database, AlertTriangle, Boxes, ClipboardList,
+  FileBarChart, PackagePlus, Sun, Moon, ArrowLeft, RefreshCw, RotateCw,
+  Maximize, Minimize, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight,
+  Hourglass, ListChecks, ScanBarcode,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { spareStockService } from "../services/spareStockService.js";
 import { spareFlowService } from "../services/spareFlowService.js";
+import { managementService } from "../services/managementService.js";
 import { storeService } from "../services/storeService.js";
 import { NO_ROWS } from "../lib/stockQueries.js";
 import { fmtStamp, parseServerTime } from "../lib/format.js";
 import { erpLineMeta } from "../lib/scanStatus.js";
 import { erpFreshness } from "../services/erpGrnService.js";
 import useRealtime from "../hooks/useRealtime.js";
+import { useCan } from "../components/Can.jsx";
 
 // A full-screen wallboard for a 64" PORTRAIT LED — no menu, no scroll, a tall
 // single-store (Spare) board. Real figures come from the spare-stock API; the
@@ -28,6 +31,17 @@ import useRealtime from "../hooks/useRealtime.js";
 const REFRESH_MS = 120000;
 
 const STORE = "MAINTENANCE";
+
+// The day/night choice is sticky across navigation and reloads: a manual toggle
+// is remembered in localStorage so leaving the board and returning keeps night
+// as night. Absent / unreadable = follow the plant clock.
+const SHIFT_KEY = "dx-tv-shift";
+function readShift() {
+  try {
+    const v = localStorage.getItem(SHIFT_KEY);
+    return v === "day" ? true : v === "night" ? false : null;
+  } catch { return null; }
+}
 
 // Live on top of the poll: re-run `fn` when the server pushes a stock change
 // (SSE → `dx:realtime`, see hooks/useRealtime), debounced so a burst of
@@ -52,6 +66,16 @@ const C = {
 };
 const PIE = [C.blue, C.green, C.amber, C.purple, C.cyan, "#ec4899", C.red];
 
+// Canonical stock-status colours — identical to the desktop dashboard's
+// STATUS_COLOR (components/spare/OverviewPanels.jsx), so a given status reads
+// the SAME colour on the wall as on the desktop: Out of Stock rose, Below
+// Minimum amber, Reorder orange, Above Maximum blue, Healthy green, Not Counted
+// slate. (The board's own `C` palette stays for non-status / categorical use.)
+const STATUS = {
+  out: "#e11d48", below: "#f59e0b", reorder: "#f97316",
+  above: "#3b82f6", healthy: "#10b981", none: "#94a3b8",
+};
+
 // Premium look: a soft two-stop gradient per accent, for 3D icon tiles, gradient
 // buttons, donut segments and gauges. Falls back to the solid colour if unknown.
 const GRAD = {
@@ -66,6 +90,10 @@ const GRAD = {
   "#ea580c": ["#fb923c", "#ea580c"],
   "#f97316": ["#fdba74", "#f97316"],
   "#64748b": ["#94a3b8", "#64748b"],
+  // Canonical status hues (STATUS) so their gauges / tiles keep the 3D gradient.
+  "#f59e0b": ["#fbbf24", "#f59e0b"],
+  "#3b82f6": ["#60a5fa", "#3b82f6"],
+  "#10b981": ["#34d399", "#10b981"],
 };
 const gradCss = (c, deg = 140) => {
   const g = GRAD[c];
@@ -169,6 +197,36 @@ function PartValTip({ active, payload, fmt, label }) {
     </div>
   );
 }
+// The tooltip of every bar / line chart on the board. Recharts' own is a white
+// box with black text and a grey hover band — a glaring patch on the night
+// theme, and it hid the bars beside it. This is the dark glass the drill donut
+// uses (readable by day and by night), sized off the screen height, one line
+// per series with its colour; a series the hovered point has no figure for is
+// left out, and `fmt` formats the values (rupees on the in-vs-out chart).
+function BoardTip({ active, payload, label, fmt = fmtInt }) {
+  if (!active || !payload) return null;
+  const rows = payload.filter((it) => it && it.value != null);
+  if (!rows.length) return null;
+  const text = "max(11px, 1.25vh)";
+  // A lone unnamed series (dataKey "value") needs no caption beside its figure.
+  const named = rows.length > 1 || (rows[0].name && rows[0].name !== "value");
+  const dot = (it) => {
+    const c = it.color || it.fill || it.stroke;
+    return typeof c === "string" && !c.startsWith("url(") ? c : "#60a5fa";
+  };
+  return (
+    <div style={{ background: "rgba(10,20,40,0.96)", border: "1px solid rgba(125,195,255,0.4)", borderRadius: 8, padding: "0.6vh 1vh", boxShadow: "0 10px 30px rgba(0,0,0,0.5)", pointerEvents: "none" }}>
+      {label != null && label !== "" && <div style={{ color: "#fff", fontWeight: 700, fontSize: text, marginBottom: "0.2vh" }}>{label}</div>}
+      {rows.map((it) => (
+        <div key={String(it.dataKey ?? it.name)} style={{ display: "flex", alignItems: "center", gap: "0.6vh", fontSize: text, lineHeight: 1.5, color: "#b4c5e0", whiteSpace: "nowrap" }}>
+          <span style={{ width: "0.9vh", height: "0.9vh", minWidth: 7, minHeight: 7, borderRadius: "50%", background: dot(it) }} />
+          {named && <span>{it.name}</span>}
+          <span style={{ marginLeft: "auto", paddingLeft: named ? "1.4vh" : 0, color: "#fff", fontWeight: 700 }}>{fmt(it.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 const monthLabel = (period) => {
   // "2026-09" -> "Sep"
   const [y, m] = (period || "").split("-");
@@ -188,6 +246,13 @@ const fmtDay = (iso) => (iso ? dayLabel(parseServerTime(iso), iso) : "");
 // ERP's gate-entry time is the plant's own wall clock (the window reports judge
 // it that way), so it is read as local — never shifted as if it were UTC.
 const fmtPlantDay = (iso) => (iso ? dayLabel(new Date(iso), iso) : "");
+// A bare calendar date ("2026-10-31") as "31 Oct". Read field by field — handed
+// to Date() as a string it is taken as UTC midnight and can land on the day
+// before in a zone behind UTC.
+const fmtIsoDay = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+  return m ? dayLabel(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])), iso) : "";
+};
 // A server stamp's calendar day ("YYYY-MM-DD") on the plant's clock — slicing
 // the UTC string would put a 00:00–05:30 movement on the day before.
 const dayISOOf = (iso) => {
@@ -283,18 +348,25 @@ function ErpChips({ erp, state }) {
   );
 }
 
-function PanelHead({ icon: Icon, color, title, action, onAction }) {
+// Sized in vh like everything else on the board. It used to be a fixed 36px icon
+// with a 12px gap — fine on the tall wall, but ~6.6% of a laptop screen per card,
+// which alone pushed the landscape board past one screen. The title truncates
+// instead of pushing the action off the card. `tight` = the card is half-width on
+// the portrait wall, so the action keeps only its arrow there; `note` is plain
+// right-hand text (not a button).
+function PanelHead({ icon: Icon, color, title, action, onAction, note, tight = false }) {
   return (
-    <div className="flex items-center justify-between mb-3">
-      <div className="flex items-center gap-2.5">
-        <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${color}22`, boxShadow: `inset 0 0 0 1px ${color}22` }}>
+    <div className="flex items-center justify-between gap-[1vh] mb-[0.4vh] landscape:mb-[0.6vh]">
+      <div className="flex items-center gap-[0.8vh] min-w-0">
+        <span className="w-[2.4vh] h-[2.4vh] landscape:w-[3vh] landscape:h-[3vh] rounded-[0.8vh] flex items-center justify-center shrink-0 [&>svg]:w-[1.45vh] [&>svg]:h-[1.45vh] landscape:[&>svg]:w-[1.7vh] landscape:[&>svg]:h-[1.7vh]" style={{ background: `${color}22`, boxShadow: `inset 0 0 0 1px ${color}22` }}>
           <Icon size={20} style={{ color }} />
         </span>
-        <h3 className="dx-radiant text-[1.6vh] font-bold text-[var(--dx-t1)]">{title}</h3>
+        <h3 className="dx-radiant text-[1.45vh] landscape:text-[1.6vh] font-bold text-[var(--dx-t1)] truncate">{title}</h3>
       </div>
+      {note && <span className="shrink-0 text-[1.05vh] landscape:text-[1.1vh] text-[var(--dx-t4)] whitespace-nowrap">{note}</span>}
       {action && (
-        <button onClick={onAction} className="text-[1.35vh] font-semibold flex items-center gap-1" style={{ color }}>
-          {action} <span>→</span>
+        <button onClick={onAction} className="shrink-0 text-[1.2vh] landscape:text-[1.35vh] font-semibold flex items-center gap-[0.4vh] whitespace-nowrap" style={{ color }}>
+          <span className={tight ? "hidden landscape:inline" : ""}>{action}</span><span>→</span>
         </button>
       )}
     </div>
@@ -305,32 +377,121 @@ function PanelHead({ icon: Icon, color, title, action, onAction }) {
 // fetch state of its source: loading shows a pulsing bar, a failed call keeps
 // the "—" the caller passes and says so — never a zero. Tapping opens the
 // tile's list in the board's own drill.
-function Kpi({ icon: Icon, title, value, extra, sub, color, state = "ok", onClick }) {
+// A slim band that titles a row of cards in the LANDSCAPE layout, the way the QMP
+// live board titles its sections. Hidden on the portrait wall, where height is
+// the scarce axis. `tone` is a CSS colour (a --pill-* var keeps it readable in
+// both the day and night themes).
+function SectionBar({ title, hint, tone = "var(--pill-blue)", className = "" }) {
+  return (
+    <div className={`hidden landscape:flex landscape:col-span-4 items-center gap-[1.2vh] rounded-lg px-[1.2vh] py-[0.2vh] ${className}`}
+      style={{ background: `color-mix(in srgb, ${tone} 9%, transparent)`, border: `1px solid color-mix(in srgb, ${tone} 26%, transparent)` }}>
+      <span className="text-[1.15vh] font-extrabold uppercase tracking-[0.22em] whitespace-nowrap" style={{ color: tone }}>{title}</span>
+      {hint && <span className="text-[1.05vh] text-[var(--dx-t4)] truncate">{hint}</span>}
+    </div>
+  );
+}
+
+// KPI tile styled like the desktop dashboard's KpiCard (featured layout): the
+// plain glass card — NO glowing coloured border — with a soft-tinted chip in the
+// top-right corner, the label above, and a tone-coloured figure. The colour
+// lives in the chip and the number, not a border halo.
+// On the PORTRAIT wall the six tiles sit three across in two rows, so the tile
+// goes compact there: no corner chip, the `short` title, a slightly smaller
+// figure and the one-line `subShort`. Landscape (six across) keeps the full tile.
+function Kpi({ icon: Icon, title, short, value, extra, sub, subShort, color, state = "ok", onClick }) {
   const open = (e) => {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); }
   };
   return (
-    <Card className="px-[0.9vh] py-[0.6vh] flex flex-col cursor-pointer transition hover:brightness-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-      role="button" tabIndex={0} aria-label={`${title}: ${value}. Open the list`} onClick={onClick} onKeyDown={open}
-      style={{ borderColor: `${color}55`, boxShadow: `var(--dx-glass-shadow), 0 0 26px ${color}30, inset 0 0 22px ${color}12` }}>
-      <div className="flex items-center gap-[0.7vh]">
-        <span className="w-[2.6vh] h-[2.6vh] rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: gradCss(color), boxShadow: `0 4px 10px ${color}66, inset 0 2px 3px rgba(255,255,255,0.45), inset 0 -3px 5px rgba(0,0,0,0.18)` }}>
-          <Icon size={14} className="text-white" />
+    <Card className="min-w-0 px-[0.9vh] py-[0.5vh] landscape:px-[1.1vh] landscape:py-[0.9vh] cursor-pointer transition hover:brightness-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/50"
+      role="button" tabIndex={0} aria-label={`${title}: ${value}. Open the list`} onClick={onClick} onKeyDown={open}>
+      <div className="relative">
+        <span className="absolute top-0 right-0 hidden landscape:grid place-items-center rounded-xl shrink-0"
+          style={{ width: "3.4vh", height: "3.4vh", background: `${color}22`, color }}>
+          <Icon size={16} />
         </span>
-        <span className="text-[1.35vh] font-bold text-[var(--dx-t2)] flex-1 truncate">{title}</span>
-      </div>
-      {state === "loading" ? (
-        <span className="block mt-[0.4vh] h-[2.5vh] w-[9vh] rounded-md animate-pulse" style={{ background: "var(--dx-track)" }} />
-      ) : (
-        <div className="mt-[0.2vh] flex items-baseline gap-[0.8vh] min-w-0">
-          <span className="dx-radiant text-[2.7vh] font-extrabold leading-none text-[var(--dx-t1)] tabular-nums shrink-0">{value}</span>
-          {extra && <span className="text-[1.5vh] font-bold truncate" style={{ color }}>{extra}</span>}
+        <div className="landscape:pr-[4vh] text-[1.1vh] landscape:text-[1.3vh] font-semibold uppercase tracking-wide text-[var(--dx-t3)] truncate">
+          <span className="landscape:hidden">{short || title}</span><span className="hidden landscape:inline">{title}</span>
         </div>
-      )}
-      <div className="text-[1.1vh] text-[var(--dx-t4)] mt-[0.2vh] truncate">{state === "error" ? "Couldn't load — see the alert bar" : sub}</div>
+        {state === "loading" ? (
+          <span className="block mt-[0.5vh] h-[2.6vh] w-[9vh] max-w-full rounded-md animate-pulse" style={{ background: "var(--dx-track)" }} />
+        ) : (
+          <div className="mt-[0.2vh] landscape:mt-[0.3vh] flex items-baseline gap-[0.6vh] landscape:gap-[0.8vh] min-w-0">
+            <span className="text-[2.3vh] landscape:text-[2.7vh] font-extrabold leading-none tabular-nums shrink-0" style={{ color }}>{value}</span>
+            {extra && <span className="text-[1.15vh] landscape:text-[1.5vh] font-bold truncate" style={{ color }}>{extra}</span>}
+          </div>
+        )}
+        <div className="mt-[0.2vh] landscape:mt-[0.3vh] text-[1vh] landscape:text-[1.1vh] leading-tight text-[var(--dx-t4)] line-clamp-1 landscape:line-clamp-2">
+          {state === "error" ? "Couldn't load — see the alert bar" : (
+            <><span className="landscape:hidden">{subShort || sub}</span><span className="hidden landscape:inline">{sub}</span></>
+          )}
+        </div>
+      </div>
     </Card>
   );
+}
+
+// A figure inside a panel (a gauge, a band, a department, a small tile) that
+// opens the list behind it in the board's drill — a pointer, a soft highlight
+// on hover, and Enter / Space like the KPI tiles. `hover` is the highlight: a
+// tint by default, a ring on a tile that is already tinted.
+function Tap({ onOpen, label, className = "", hover = "hover:bg-[var(--dx-track)]", style, children }) {
+  const key = (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen?.(); }
+  };
+  return (
+    <div role="button" tabIndex={0} aria-label={label} title={label} onClick={onOpen} onKeyDown={key} style={style}
+      className={`cursor-pointer transition focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/50 ${hover} ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+// An in / out bar with a figure keeps a 3 px sliver, so a month whose ₹ is tiny
+// next to the axis is still a bar that can be tapped; ₹0 or no figure draws none.
+const tapSliver = (v) => (v > 0 ? 3 : 0);
+
+// A month under the in-vs-out bars, drawn as a focusable button: Enter / Space
+// (or a tap) opens that month's movements, both sides. Like a Tap tile it is
+// tinted on hover and ringed when reached by the keyboard (an SVG <g> draws no
+// focus ring of its own).
+function MonthTick({ x, y, payload, fill, fontSize, onOpen }) {
+  const [hover, setHover] = useState(false);
+  const [ring, setRing] = useState(false);
+  const open = (e) => { e.stopPropagation(); onOpen?.(payload?.value); };
+  const keyFocus = (el) => { try { return el.matches(":focus-visible"); } catch { return true; } };
+  const w = Math.max(3, String(payload?.value ?? "").length) * fontSize * 0.62 + 8;
+  return (
+    <g transform={`translate(${x},${y})`} role="button" tabIndex={0} style={{ cursor: "pointer", outline: "none" }}
+      aria-label={`${payload?.value}: open that month's movements`} onClick={open}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); } }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      onFocus={(e) => setRing(keyFocus(e.currentTarget))} onBlur={() => setRing(false)}>
+      {(hover || ring) && (
+        <rect x={-w / 2} y={-2} width={w} height={fontSize * 1.35} rx={4}
+          style={{ fill: "var(--dx-track)", stroke: ring ? "rgba(235,10,30,0.5)" : "none", strokeWidth: 2 }} />
+      )}
+      <text dy="0.71em" textAnchor="middle" fill={fill} fontSize={fontSize}>{payload?.value}</text>
+    </g>
+  );
+}
+
+// ERP vs physical in figures, over any set of comparison rows — the panel's
+// whole list, or the slice a tile opens (so a drill's chips tie out to it).
+function erpSummary(list) {
+  const reconciled = list.filter((r) => r.gap_qty != null);
+  const matched = reconciled.filter((r) => r.status === "MATCH").length;
+  const by = (s) => list.filter((r) => r.status === s).length;
+  return {
+    total: list.length, matched, reconciled: reconciled.length,
+    short: by("SHORT"), excess: by("EXCESS"), no_physical: by("NO_PHYSICAL"), not_synced: by("NOT_SYNCED"),
+    accuracy_pct: reconciled.length ? Math.round((matched / reconciled.length) * 10000) / 100 : null,
+    // Both unit totals over the SAME parts — those with an ERP figure AND a
+    // count — or the two sums would set ERP's few hundred parts against every
+    // part the store has counted.
+    erp_units: reconciled.reduce((s, r) => s + (r.erp_qty || 0), 0),
+    physical_units: reconciled.reduce((s, r) => s + (r.physical_qty || 0), 0),
+  };
 }
 
 function Gauge({ pct, color, label, sub, w = "13vh" }) {
@@ -338,8 +499,8 @@ function Gauge({ pct, color, label, sub, w = "13vh" }) {
   const gid = `gg-${color.replace("#", "")}`;
   const g = GRAD[color] || [color, color];
   return (
-    <div className="flex flex-col items-center">
-      <svg viewBox="0 0 120 68" style={{ width: w }}>
+    <div className="flex flex-row landscape:flex-col items-center gap-[0.7vh] landscape:gap-0 min-w-0">
+      <svg viewBox="0 0 120 68" className="shrink-0" style={{ width: w }}>
         <defs>
           <linearGradient id={gid} x1="0" y1="0" x2="1" y2="0">
             <stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} />
@@ -349,11 +510,11 @@ function Gauge({ pct, color, label, sub, w = "13vh" }) {
         <path d="M12 60 A48 48 0 0 1 108 60" fill="none" stroke={`url(#${gid})`} strokeWidth="13" strokeLinecap="round" pathLength="100" strokeDasharray={`${p} 100`} style={{ filter: `drop-shadow(0 2px 4px ${color}66)` }} />
         <text x="60" y="54" textAnchor="middle" fontSize="26" fontWeight="800" style={{ fill: "var(--dx-t1)" }}>{Math.round(p)}%</text>
       </svg>
-      <div className="text-center -mt-[0.6vh]">
-        <div className="text-[1.4vh] font-bold flex items-center justify-center gap-1.5" style={{ color }}>
-          <span className="w-[1vh] h-[1vh] rounded-full inline-block" style={{ background: color }} />{label}
+      <div className="min-w-0 text-left landscape:text-center landscape:-mt-[0.6vh]">
+        <div className="text-[1.3vh] landscape:text-[1.4vh] font-bold leading-tight flex items-center justify-start landscape:justify-center gap-[0.5vh]" style={{ color }}>
+          <span className="w-[1vh] h-[1vh] rounded-full inline-block shrink-0" style={{ background: color }} />{label}
         </div>
-        <div className="text-[1.2vh] text-[var(--dx-t3)]">{sub}</div>
+        <div className="text-[1.1vh] landscape:text-[1.2vh] leading-tight text-[var(--dx-t3)] whitespace-nowrap">{sub}</div>
       </div>
     </div>
   );
@@ -362,52 +523,132 @@ function Gauge({ pct, color, label, sub, w = "13vh" }) {
 function DeptBar({ name, value, pct, color }) {
   return (
     <div className="flex items-center gap-[1vh]">
-      <span className="w-[13vh] text-[1.35vh] font-medium text-[var(--dx-t2)] truncate">{name}</span>
+      <span className="w-[8vh] landscape:w-[13vh] shrink-0 text-[1.25vh] landscape:text-[1.35vh] font-medium text-[var(--dx-t2)] truncate">{name}</span>
       <div className="flex-1 h-[1.5vh] rounded-full bg-[var(--dx-track)] overflow-hidden">
         <div className="h-full rounded-full" style={{ width: `${pct}%`, background: gradCss(color, 90), boxShadow: `0 1px 4px ${color}55` }} />
       </div>
       <span className="w-[5vh] text-right text-[1.4vh] font-bold text-[var(--dx-t1)]">{fmtInt(value)}</span>
-      <span className="w-[4vh] text-right text-[1.3vh] text-[var(--dx-t4)]">{Math.round(pct)}%</span>
+      <span className="hidden landscape:inline w-[4vh] text-right text-[1.3vh] text-[var(--dx-t4)]">{Math.round(pct)}%</span>
     </div>
+  );
+}
+
+// One band of the excess-aging card: how much of the money above max last came
+// in that long ago. The portrait wall card is half width, so it shows the short
+// label and drops the part count; landscape has room for both.
+const AGE_TONE = { "0-30": STATUS.healthy, "31-90": STATUS.below, "91+": STATUS.reorder, none: STATUS.out };
+const AGE_SHORT = { "0-30": "0–30 d", "31-90": "31–90 d", "91+": "91+ d", none: "No inward" };
+function AgeRow({ b, max, since }) {
+  const color = AGE_TONE[b.key] || C.muted;
+  // A band with money always shows a sliver, so a small amount is not read as none.
+  const pct = max > 0 && b.value > 0 ? Math.max((b.value / max) * 100, 2) : 0;
+  return (
+    <div className="flex items-center gap-[0.8vh] text-[1.15vh] landscape:text-[1.3vh] leading-none">
+      <span className="w-[6.2vh] landscape:w-[16.5vh] shrink-0 truncate text-[var(--dx-t2)]">
+        <span className="landscape:hidden">{AGE_SHORT[b.key] || b.label}</span>
+        <span className="hidden landscape:inline">{b.key === "none" && since ? `No inward since ${since}` : b.label}</span>
+      </span>
+      <div className="flex-1 h-[1.1vh] landscape:h-[1.5vh] rounded-full bg-[var(--dx-track)] overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: gradCss(color, 90), boxShadow: `0 1px 4px ${color}55` }} />
+      </div>
+      <span className="hidden landscape:inline w-[4vh] shrink-0 text-right tabular-nums text-[var(--dx-t4)]">{fmtInt(b.parts)}</span>
+      <span className="w-[7vh] landscape:w-[8.5vh] shrink-0 text-right font-bold tabular-nums text-[var(--dx-t1)]">{fmtMoney(b.value)}</span>
+    </div>
+  );
+}
+
+// The action tracker's columns. On the portrait wall (~55vh wide) there is room
+// for the problem, its count, the money, WHO must act and the status; landscape
+// adds what has to be done and the target date. Header and rows share this one
+// template so the columns line up.
+const TRK_COLS = "grid items-center gap-x-[1vh] grid-cols-[minmax(0,1.5fr)_4.6vh_7.4vh_minmax(0,1.2fr)_5.6vh] landscape:grid-cols-[minmax(0,1.5fr)_7vh_11vh_minmax(0,1.3fr)_minmax(0,1fr)_8vh_8vh]";
+// Shorter names for the half-height wall rows; landscape shows the full label.
+const TRK_SHORT = {
+  srv_pending: "GRN / quality pending", confirm_pending: "Awaiting confirmation", kiosk_open: "Kiosk requests open",
+  returns_pending: "Returns to inspect", erp_pending: "Not yet in ERP",
+};
+const SEV_RANK = { critical: 0, warning: 1, info: 2, ok: 3 };
+function TrackerRow({ it, wallHidden, onOpen }) {
+  const clear = it.status === "CLEAR";
+  const tone = clear ? C.muted
+    : it.severity === "critical" ? STATUS.out : it.severity === "warning" ? STATUS.below
+      : it.severity === "info" ? STATUS.above : C.muted;
+  const [pill, pillColor, rgb] = it.overdue ? ["OVERDUE", "var(--pill-red)", "244,63,94"]
+    : it.status === "OPEN" ? (it.severity === "critical" ? ["OPEN", "var(--pill-red)", "244,63,94"] : ["OPEN", "var(--pill-amber)", "245,158,11"])
+      : clear ? ["CLEAR", "var(--pill-green)", "16,185,129"] : ["—", "var(--pill-slate)", "148,163,184"];
+  const Row = onOpen ? "button" : "div";
+  return (
+    <Row {...(onOpen ? { type: "button", onClick: onOpen } : {})}
+      className={`${TRK_COLS} ${wallHidden ? "hidden landscape:grid" : ""} w-full text-left px-[0.6vh] py-[0.3vh] landscape:py-[0.45vh] border-b border-[var(--dx-divide)] last:border-b-0 text-[1.15vh] landscape:text-[1.35vh] leading-tight ${clear ? "opacity-55" : ""} ${onOpen ? "cursor-pointer hover:bg-[var(--dx-track)] transition-colors" : ""}`}>
+      <span className="min-w-0 flex items-center gap-[0.7vh]">
+        <span className="w-[0.9vh] h-[0.9vh] rounded-full shrink-0" style={{ background: tone }} />
+        <span className="min-w-0 truncate landscape:shrink-0 font-semibold text-[var(--dx-t1)]">
+          <span className="landscape:hidden">{TRK_SHORT[it.key] || it.label}</span><span className="hidden landscape:inline">{it.label}</span>
+        </span>
+        {it.detail && <span className="hidden landscape:inline min-w-0 truncate text-[1.15vh] text-[var(--dx-t4)]" title={it.detail}>{it.detail}</span>}
+      </span>
+      <span className="text-right font-extrabold tabular-nums" style={{ color: tone }}>{fmtInt(it.count)}</span>
+      <span className="text-right font-semibold tabular-nums whitespace-nowrap text-[var(--dx-t1)]">
+        {it.value != null ? fmtMoney(it.value) : <span className="text-[var(--dx-t4)]">—</span>}
+      </span>
+      <span className="hidden landscape:block min-w-0 truncate text-[var(--dx-t2)]">{it.action}</span>
+      <span className="min-w-0 truncate font-semibold text-[var(--dx-t2)]">{it.owner || "—"}</span>
+      <span className="hidden landscape:block whitespace-nowrap tabular-nums" style={{ color: it.overdue ? "var(--pill-red)" : "var(--dx-t3)" }}>
+        {it.target_date ? fmtIsoDay(it.target_date) : "—"}
+      </span>
+      <span className="flex justify-end">
+        <span className="rounded px-[0.7vh] py-[0.15vh] text-[1vh] landscape:text-[1.1vh] font-bold whitespace-nowrap" style={{ background: `rgba(${rgb},0.16)`, color: pillColor }}>{pill}</span>
+      </span>
+    </Row>
   );
 }
 
 // The live clock ticks once a second. It lives in its own component so that tick
 // re-renders ONLY the clock, never the whole board (and its heavy charts).
-function HeaderClock({ isDay, onToggle }) {
+// Kept narrow on purpose (~20vh): on a 9:16 portrait wall the header has only
+// ~50vh of width, and the old wide card (date, weekday/year column, clock, toggle
+// stacked beside each other) left the title no room. The time leads; the small
+// line under it carries the weekday and when the board figures last refreshed.
+function HeaderClock({ isDay, onToggle, updated }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
-  const clock = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const hms = { hour: "2-digit", minute: "2-digit", second: "2-digit" };
+  const clock = now.toLocaleTimeString("en-GB", hms);
   const dayNum = now.toLocaleDateString("en-GB", { day: "2-digit" });
   const monthShort = now.toLocaleDateString("en-GB", { month: "short" }).toUpperCase();
   const weekday = now.toLocaleDateString("en-GB", { weekday: "short" });
-  const yearNum = now.getFullYear();
+  const stamp = updated ? updated.toLocaleTimeString("en-GB", hms) : null;
   return (
-    <div className="shrink-0 flex items-center gap-[1.2vh] rounded-2xl px-[1.3vh] py-[0.7vh]"
-      style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)" }}>
-      <div className="flex items-center gap-[0.9vh]">
-        <div className="w-[4.2vh] h-[4.2vh] rounded-xl bg-white flex flex-col items-center justify-center leading-none shrink-0 shadow-md">
-          <span className="text-[0.9vh] font-extrabold text-rose-500 uppercase tracking-widest">{monthShort}</span>
-          <span className="text-[2vh] font-extrabold text-[#0f172a]">{dayNum}</span>
-        </div>
-        <div className="text-left leading-tight">
-          <div className="text-[1.4vh] font-bold text-white">{weekday}</div>
-          <div className="text-[1.05vh] text-white/50">{yearNum}</div>
+    <div className="shrink-0 flex items-center gap-[0.8vh] rounded-2xl px-[1vh] py-[0.35vh] landscape:py-[0.45vh] landscape:order-4"
+      style={isDay
+        ? { background: "#f8fafc", border: "1px solid #e2e8f0" }
+        : { background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)" }}>
+      <div className={`w-[3.2vh] h-[3.2vh] landscape:w-[3.5vh] landscape:h-[3.5vh] rounded-xl bg-white flex flex-col items-center justify-center leading-none shrink-0 shadow-md ${isDay ? "border border-slate-200" : ""}`}>
+        <span className="text-[0.85vh] font-extrabold text-rose-500 uppercase tracking-widest">{monthShort}</span>
+        <span className="text-[1.75vh] font-extrabold text-[#0f172a]">{dayNum}</span>
+      </div>
+      <div className="leading-none">
+        <div className={`text-[2.25vh] font-extrabold tabular-nums leading-none ${isDay ? "text-slate-900" : ""}`}>{clock}</div>
+        <div className={`mt-[0.4vh] flex items-center gap-[0.5vh] text-[1.05vh] font-semibold leading-none whitespace-nowrap ${isDay ? "text-slate-500" : "text-white/60"}`}>
+          <span>{weekday}</span>
+          {stamp && (
+            <span className="inline-flex items-center gap-[0.35vh] tabular-nums" title="When the board figures last refreshed">
+              <span aria-hidden="true">·</span>
+              <RefreshCw style={{ width: "1vh", height: "1vh" }} aria-hidden="true" />
+              <span className="sr-only">Updated</span>{stamp}
+            </span>
+          )}
         </div>
       </div>
-      <div className="w-px h-[3.8vh] bg-white/15" />
-      <div className="text-center leading-tight">
-        <div className="text-[2.6vh] font-extrabold tabular-nums leading-none">{clock}</div>
-        <button onClick={onToggle}
-          title={isDay ? "Day shift — click to switch to night" : "Night shift — click to switch to day"}
-          className="mt-[0.4vh] inline-flex items-center justify-center rounded-full w-[3vh] h-[3vh] text-white shadow-md transition hover:brightness-110 active:scale-90"
-          style={{ background: isDay ? "#10b981" : "#6366f1" }}>
-          {isDay ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
-      </div>
+      <button onClick={onToggle}
+        title={isDay ? "Day shift — click to switch to night" : "Night shift — click to switch to day"}
+        className="shrink-0 inline-flex items-center justify-center rounded-full w-[2.8vh] h-[2.8vh] text-white shadow-md transition hover:brightness-110 active:scale-90"
+        style={{ background: isDay ? "#10b981" : "#6366f1" }}>
+        {isDay ? <Sun size={16} /> : <Moon size={16} />}
+      </button>
     </div>
   );
 }
@@ -416,6 +657,11 @@ function HeaderClock({ isDay, onToggle }) {
 
 export default function TvDashboard() {
   const navigate = useNavigate();
+  // The exit pill opens the store's dashboard, which a Live Board login (store's
+  // role templates, 17 Oct 2026: the board and nothing else) may not open — it
+  // would land on "Access restricted" inside the full app. Such a login gets no
+  // exit, like the kiosk: the board is all that device shows.
+  const canOpenStore = useCan("spare_store");
   // The wallboard lives outside MainLayout, so it opens its own SSE connection —
   // stock moves then refresh the TV immediately instead of on the 2-min poll.
   useRealtime();
@@ -428,7 +674,17 @@ export default function TvDashboard() {
   const menuAnchor = useRef(null);
   const [isFs, setIsFs] = useState(false);
   const [stack, setStack] = useState([]); // Explore-Data drill frames (in-board)
-  const [shiftOverride, setShiftOverride] = useState(null); // null = follow the clock; true = day, false = night
+  const [lastUpdated, setLastUpdated] = useState(null); // when the board figures last refreshed (header "Updated" stamp)
+  // Sticky day/night: seeded from localStorage so a choice survives leaving the
+  // board (e.g. to the Spare Store) and coming back, and reloads — it stays until
+  // toggled again. null = follow the plant clock.
+  const [shiftOverride, setShiftOverride] = useState(readShift);
+  useEffect(() => {
+    try {
+      if (shiftOverride == null) localStorage.removeItem(SHIFT_KEY);
+      else localStorage.setItem(SHIFT_KEY, shiftOverride ? "day" : "night");
+    } catch { /* storage may be unavailable (private mode) — fall back to in-memory */ }
+  }, [shiftOverride]);
   // Bumped by a Retry tap: both loaders re-run now instead of waiting out the poll.
   const [retry, setRetry] = useState(0);
   const reload = () => setRetry((n) => n + 1);
@@ -482,7 +738,8 @@ export default function TvDashboard() {
   // overview call (the same figures the desktop dashboard shows); "All
   // Sections" reads the store overview the loader below already holds, so the
   // whole-store view never asks twice. The parts list feeds the charts and
-  // drills; the month series feeds the consumption chart.
+  // drills; the management block feeds the tracker, aging, in-vs-out and scan
+  // panels.
   useEffect(() => {
     if (sectionId == null) return undefined;
     let alive = true;
@@ -490,16 +747,19 @@ export default function TvDashboard() {
     // previous section's figures; a refresh of the same section keeps them.
     const key = `${sectionId}|${ovDenied}`;
     setData((d) => (d.secFor === key ? d
-      : { ...d, secFor: key, secOv: undefined, list: undefined, monthly: undefined }));
+      : { ...d, secFor: key, secOv: undefined, list: undefined, mgmt: undefined }));
     const load = async () => {
       const sec = sectionId === ALL_SECTIONS ? undefined : sectionId;
       // This view needs its own overview: a section always, and "All Sections"
       // too when the store overview was refused (it is then rebuilt here).
       const ownOv = ovDenied || sec !== undefined;
-      const [secOv, list, monthly, today, deptMonth] = await Promise.all([
+      const [secOv, list, mgmt, today, deptMonth] = await Promise.all([
         ownOv && !ovDenied ? fetchData(spareStockService.overview(STORE, sec)) : undefined,
         fetchData(spareStockService.list({ store_code: STORE, section_id: sec })),
-        fetchData(spareStockService.consumptionByPeriod(STORE, "month", sec)),
+        // The management block (action tracker, excess aging, in vs out, scan
+        // discipline) — silent, so a wall left on an older backend shows its
+        // panels as "couldn't load" without a toast every refresh.
+        fetchData(managementService.get(STORE, sec, undefined, { silent: true })),
         ovDenied ? fetchData(spareStockService.today(STORE, sec)) : undefined,
         ovDenied ? fetchData(spareStockService.consumption(STORE, "department", sec, undefined, monthStartISO(), todayISO())) : undefined,
       ]);
@@ -508,7 +768,8 @@ export default function TvDashboard() {
       const built = !ownOv ? undefined
         : ovDenied ? (rows ? overviewFromList(rows, asObj(today), asList(deptMonth)) : null)
           : asObj(secOv);
-      setData((d) => ({ ...d, secFor: key, secOv: built, list: rows, monthly: asList(monthly) }));
+      setData((d) => ({ ...d, secFor: key, secOv: built, list: rows, mgmt: asObj(mgmt) }));
+      setLastUpdated(new Date());
     };
     load();
     const id = setInterval(load, REFRESH_MS);
@@ -602,8 +863,15 @@ export default function TvDashboard() {
   const statusVal = (n) => (noneCounted ? "—" : fmtInt(n));
   const excessValue = ov?.value?.excess ?? null;
   const today = kpis?.today || null;
-  // This shift's issues — "—" (null) when the figure failed, a real 0 otherwise.
+  // This shift's issues and stock-ins — "—" (null) when the figure failed, a
+  // real 0 otherwise. The shift starts 08:30 on the plant clock (`since` is
+  // already plant-local, so it is read as written).
   const issuedQty = today ? today.issued_qty ?? 0 : null;
+  const receivedQty = today ? today.received_qty ?? 0 : null;
+  const receivedLines = today?.received_lines ?? 0;
+  const sinceT = today?.since ? new Date(today.since) : null;
+  const sinceWord = sinceT && !isNaN(sinceT.getTime())
+    ? `since ${sinceT.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : "this shift";
   // Month-to-date department split; a failed fallback call is an error, not
   // "no issue this month".
   const deptState = ovState !== "ok" ? ovState : ov.consumption ? "ok" : "error";
@@ -624,7 +892,6 @@ export default function TvDashboard() {
   const srvState = P.storeOv === undefined ? "loading" : srvCount == null && !srvUntracked ? "error" : "ok";
   const confirmCount = (P.pending || NO_ROWS).length;
   const erp = P.storeOv?.erp ?? ov?.erp ?? null;
-  const erpInfoState = erp ? "ok" : (P.storeOv === undefined && ov === undefined ? "loading" : "error");
   const pendingErp = erp?.write?.pending ?? 0;
   // Money tied up above the maximum — (on-hand − max) × rate for each excess part.
   const excessOf = (r) => Math.max(0, (r.qty_on_hand || 0) - (r.max_stock_level || 0)) * (r.unit_price || 0);
@@ -659,32 +926,9 @@ export default function TvDashboard() {
   const shortBy = (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0));
   const byStatus = (...st) => rows.filter((r) => st.includes(r.status));
   const openCritical = () => openParts({ title: "Critical Parts", rows: byStatus("Out of Stock", "Below Minimum"), valueLabel: "Short by", valueOf: shortBy });
-  const openZero = () => openParts({ title: "Zero Stock", rows: byStatus("Out of Stock"), valueLabel: "Short by", valueOf: shortBy });
-  const openBelowMin = () => openParts({ title: "Below Minimum", rows: byStatus("Below Minimum"), valueLabel: "Short by", valueOf: shortBy });
   const openReorder = () => openParts({ title: "Reorder", rows: byStatus("Reorder"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand });
   const openExcess = () => openParts({ title: "Excess Parts", rows: byStatus("Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney });
-  // Top excess parts by the money tied up above their maximum — the main-screen
-  // "Excess Stock Value" chart.
-  // Excess value grouped by SECTION — which of the store's sections hold the most
-  // money above max. A slice drills to that section's excess parts, by value.
   const sectionName = useMemo(() => Object.fromEntries((sections || []).map((s) => [s.id, s.name])), [sections]);
-  const excessSections = useMemo(() => {
-    const by = {};
-    rows.forEach((r) => {
-      if (r.status !== "Above Maximum") return;
-      const v = excessOf(r);
-      if (v > 0 && r.section_id != null) by[r.section_id] = (by[r.section_id] || 0) + v;
-    });
-    return Object.entries(by)
-      .map(([sid, value]) => ({ sid: Number(sid), name: sectionName[sid] || "—", value: Math.round(value) }))
-      .sort((a, b) => b.value - a.value)
-      .map((it, i) => ({ ...it, color: PIE[i % PIE.length] }));
-  }, [rows, sectionName]);
-  const openExcessSection = (sid) => {
-    if (sid == null) return;
-    const secRows = rows.filter((r) => r.status === "Above Maximum" && excessOf(r) > 0 && r.section_id === sid);
-    openParts({ title: `Excess — ${sectionName[sid] || "Section"}`, rows: secRows, valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney });
-  };
 
   // Stock value by section, straight off the overview — the same split the
   // desktop dashboard's value panel shows. A slice drills to that section's
@@ -731,10 +975,60 @@ export default function TvDashboard() {
       : { title: `${cat} parts`, rows: catRows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand || 0 });
   };
 
-  const monthlyState = stateOf(P.monthly);
-  const monthlyData = useMemo(
-    () => (P.monthly || []).slice(-6).map((m) => ({ name: monthLabel(m.period), qty: Math.round(m.qty || 0) })),
-    [P.monthly],
+  // The management block: one call, four panels. Undefined while loading, null
+  // when it failed (an older backend without the endpoint, or a refused call).
+  const mgState = stateOf(P.mgmt);
+  const aging = asObj(P.mgmt?.excess_aging);
+  const movement = asObj(P.mgmt?.movement);
+  const scan = asObj(P.mgmt?.scan);
+  const tracker = asObj(P.mgmt?.tracker);
+  const agingMax = useMemo(() => Math.max(0, ...(aging?.buckets || []).map((b) => b.value || 0)), [aging]);
+  const agingIdlePct = aging?.total?.value ? Math.round(((aging.idle?.value || 0) / aging.total.value) * 100) : null;
+  // Rupees received (ERP GRN) and issued (app) per month. A month the source
+  // does not cover stays null — no bar — rather than a zero that reads as "nothing moved".
+  const moveData = useMemo(
+    // `i` = the month's place in movement.months, for the bars' drill.
+    () => (movement?.months || []).map((m, i) => ({ name: m.label || monthLabel(m.period), in: m.in_value ?? null, out: m.out_value ?? null, i })),
+    [movement],
+  );
+  const moveHasData = moveData.some((m) => m.in || m.out);
+  // Scan Part only: how the part was identified. A share needs volume behind it,
+  // so under 20 scans the tile shows the count ("3/8") instead of a percentage.
+  const sc = scan?.scans || null;
+  const scanTotal = sc?.total || 0;
+  const scanPct = sc?.scan_first_pct;
+  const scanIssues = scan?.issues || null;
+  const putAway = scan?.put_away || null;
+  const scanTiles = [
+    { label: "Scan-first rate",
+      value: !scanTotal ? "—" : scanTotal >= 20 && scanPct != null ? `${Math.round(scanPct)}%` : `${fmtInt(sc.scanned)}/${fmtInt(scanTotal)}`,
+      color: !scanTotal ? C.muted : scanPct >= 80 ? STATUS.healthy : scanPct >= 50 ? STATUS.below : STATUS.out,
+      sub: scanTotal ? `${fmtInt(sc.scanned)} of ${fmtInt(scanTotal)} scans by scanner` : "No scan in 30 days" },
+    { label: "Code not found",
+      value: scan?.not_found_scope === "section" ? "—" : fmtInt(sc?.not_found ?? 0),
+      color: hot(scan?.not_found_scope === "section" ? 0 : sc?.not_found, STATUS.below),
+      sub: scan?.not_found_scope === "section" ? "Counted for the whole store" : "Tag missing or wrong" },
+    { label: "Issues by scan",
+      value: scanIssues?.total ? `${fmtInt(scanIssues.by_scan)}/${fmtInt(scanIssues.total)}` : "—",
+      color: scanIssues?.total ? (scanIssues.by_scan >= scanIssues.total * 0.8 ? STATUS.healthy : STATUS.below) : C.muted,
+      sub: scanIssues?.total ? `${fmtInt(scanIssues.by_search)} by search / typed` : "No issue recorded yet" },
+    { label: "Put-away by scan",
+      value: putAway?.ever || putAway?.count ? fmtInt(putAway.count) : "—",
+      color: putAway?.count ? STATUS.healthy : C.muted,
+      sub: putAway?.ever || putAway?.count ? `${fmtInt(putAway.with_lot_tag)} with a lot tag` : "Not started yet" },
+  ];
+  const scanSplit = [
+    { label: "Scanned", n: sc?.scanned_ok || 0, color: C.purple },
+    { label: "Typed", n: sc?.typed_ok || 0, color: STATUS.below },
+    { label: "Not found", n: sc?.not_found || 0, color: STATUS.out },
+  ];
+  // Worst first, as the server tags them (a clear line is "ok", so it sinks);
+  // the wall shows the first six, landscape eight.
+  const trackerRows = useMemo(
+    () => (tracker?.items || []).map((it, i) => ({ it, i }))
+      .sort((a, b) => (SEV_RANK[a.it.severity] ?? 2) - (SEV_RANK[b.it.severity] ?? 2) || a.i - b.i)
+      .map((x) => x.it).slice(0, 8),
+    [tracker],
   );
 
   const deptData = useMemo(() => {
@@ -747,27 +1041,11 @@ export default function TvDashboard() {
     return top.map((d, i) => ({ name: d.name, value: Math.round(d.value || 0), pct: ((d.value || 0) / totAll) * 100, color: PIE[i % PIE.length] }));
   }, [ov]);
 
-  // Worst first, dearest restock first within it — the overview's own order.
-  const topShort = (ov?.critical_parts || []).slice(0, 5);
 
   // ERP current stock (store-wide) + its match against the store's physical count.
   const erpState = stateOf(P.erpGap);
   const erpRows = P.erpGap || NO_ROWS;
-  const erpSum = useMemo(() => {
-    const reconciled = erpRows.filter((r) => r.gap_qty != null);
-    const matched = reconciled.filter((r) => r.status === "MATCH").length;
-    const by = (s) => erpRows.filter((r) => r.status === s).length;
-    return {
-      total: erpRows.length, matched, reconciled: reconciled.length,
-      short: by("SHORT"), excess: by("EXCESS"), no_physical: by("NO_PHYSICAL"), not_synced: by("NOT_SYNCED"),
-      accuracy_pct: reconciled.length ? Math.round((matched / reconciled.length) * 10000) / 100 : null,
-      // Both unit totals over the SAME parts — those with an ERP figure AND a
-      // count — or the two sums would set ERP's few hundred parts against every
-      // part the store has counted.
-      erp_units: reconciled.reduce((s, r) => s + (r.erp_qty || 0), 0),
-      physical_units: reconciled.reduce((s, r) => s + (r.physical_qty || 0), 0),
-    };
-  }, [erpRows]);
+  const erpSum = useMemo(() => erpSummary(erpRows), [erpRows]);
   const erpGapCount = erpSum.short + erpSum.excess;
   // The ERP figures are a dated snapshot; its date and age travel with them.
   const snap = erp?.stock_snapshot || null;
@@ -799,7 +1077,9 @@ export default function TvDashboard() {
   // opts.fetch lets a caller supply an exact list (e.g. only the pending-ERP
   // movements, or only this shift's issues) so the drill ties out to its KPI;
   // without it, the generic recent-activity feed is shown. A failed fetch opens
-  // the drill saying so, not as "No movements".
+  // the drill saying so, not as "No movements". opts.noteOf(list) rewrites the
+  // note from the rows that came back, so a figure the header does not count
+  // (a qty, a store-wide total) is stated off the list itself.
   const openTxns = (title, opts = {}) => openAsync(
     { kind: "txnList", title, rows: [], note: opts.note, deptData: opts.deptData },
     async () => {
@@ -807,18 +1087,23 @@ export default function TvDashboard() {
       const a = await fetcher().catch(() => null);
       let list = Array.isArray(a) ? a : [];
       if (opts.filter) list = list.filter(opts.filter);
-      return { rows: list, error: !Array.isArray(a) };
+      const ok = Array.isArray(a);
+      return { rows: list, error: !ok, ...(ok && opts.noteOf ? { note: opts.noteOf(list) } : {}) };
     },
   );
-  // The drill shows the very rows the ticker counted.
+  // The drill shows the very rows the ticker counted. Qty is what is still out
+  // with the user (outstanding_qty): an issue partly returned before anyone
+  // confirmed it waits too (Waiting list rule, 16 Oct 2026), and only the rest
+  // is left to confirm.
   const openConfirmations = () => openStack({
     kind: "txnList", title: "Awaiting user confirmation",
     rows: (P.pending || NO_ROWS).map((x) => ({
-      id: x.id, at: x.issued_at, part_id: x.part_id, part_no: x.part_no, part_name: x.part_name,
-      txn_type: "ISSUE", qty_delta: -(x.qty || 0), balance_after: null,
+      id: x.id, at: x.issued_at, part_id: x.part_id, part_no: x.part_no,
+      part_name: Number(x.returned_qty) > 0 ? `${x.part_name || ""} · ${fmtInt(x.returned_qty)} of ${fmtInt(x.qty)} returned` : x.part_name,
+      txn_type: "ISSUE", qty_delta: -(x.outstanding_qty ?? x.qty ?? 0), balance_after: null,
       department: x.department, machine: x.machine,
     })),
-    note: `${fmtInt(confirmCount)} issue(s) the store has handed out but nobody has confirmed fitted yet — Stage 2 of the two-stage issue. The person who installs the part re-scans it (Scan Part → Confirm) to record the line/machine and mark it installed. Tap a row for that part's history.`,
+    note: `${fmtInt(confirmCount)} issue(s) the store has handed out but nobody has confirmed fitted yet — Stage 2 of the two-stage issue. The person who installs the part re-scans it (Scan Part → Confirm) to record the line/machine and mark it installed. Qty is what is still out with the user. Tap a row for that part's history.`,
   });
   const openErpGap = () => openStack({
     kind: "erpGap", title: "Current Stock — ERP vs Physical", rows: erpRows, summary: erpSum, error: erpState === "error",
@@ -844,12 +1129,159 @@ export default function TvDashboard() {
       () => fetchData(spareStockService.pendingList(STORE, "all"))
         .then((list) => ({ rows: asList(list) || [], error: !Array.isArray(list) })),
     ));
-  // This shift's issues, in the same section scope as the figure beside the
-  // department split (and the ticker), so the list ties out.
+  // This shift's issues and stock-ins, in the same section scope as their
+  // tiles (and the ticker), so each list ties out to its figure.
   const openTodayIssues = () => openTxns("Today's Issue", {
     fetch: () => spareStockService.todayIssues(STORE, secView ? sectionId : undefined).then((r) => r.data.data || []),
     deptData,
   });
+  const openTodayReceipts = () => openTxns("Today Added to Stock", {
+    fetch: () => spareStockService.todayReceipts(STORE, secView ? sectionId : undefined).then((r) => r.data.data || []),
+  });
+  const openMovements = () => openTxns("Recent Movements");
+
+  // ---- every panel figure opens the list behind it ("ye chart clickable nhi
+  // h" — the store, 17 Oct 2026). Each list is read by its figure's own rule,
+  // so its count is the figure that was tapped.
+  // A figure with no list behind it says so in the drill, rather than a tap
+  // that does nothing (which reads as a broken board).
+  const openNoList = (title, note) => openStack({ kind: "txnList", title, rows: [], note });
+  // Stock health: the parts in that status, off the same rows the gauges count.
+  const openHealthy = () => openParts({ title: "Healthy Parts", rows: byStatus("Healthy"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand });
+  // Excess aging: the excess parts of a band, by the server's own band of each
+  // part (excess_aging.part_buckets) — exactly the parts the band counts.
+  const agingBands = asObj(aging?.part_buckets);
+  const agingSince = aging?.horizon ? fmtIsoDay(aging.horizon) : null;
+  const ageTitle = (b) => `Excess Aging — ${b.key === "none" && agingSince ? `No inward since ${agingSince}` : b.label}`;
+  const openAgeBands = (keys, title) => {
+    if (!agingBands) {
+      return openNoList(title, "The parts behind this band come with the updated server — the list opens after the app's server has restarted.");
+    }
+    const want = new Set(keys);
+    return openParts({ title, rows: rows.filter((r) => want.has(agingBands[r.part_id])), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney });
+  };
+  // The management block's lists (in / out of a month, a department's issues,
+  // the scan tiles), in this view's section scope unless `storeWide`. null =
+  // the call failed, so the drill says so instead of "no movements".
+  const mgmtRows = (kind, key, storeWide = false) => managementService
+    .list(STORE, kind, key, secView && !storeWide ? sectionId : undefined, { silent: true })
+    .then((r) => asList(r.data?.data?.rows));
+  const mapped = (fn) => (list) => (list ? list.map(fn) : null);
+  // Material in vs out: one month's movements behind its bars — In = the ERP
+  // GRN lines, Out = the app's issues — so the lines and ₹ are the bar's. A
+  // side the chart has no figure for that month (outside the ERP register, or
+  // before the app's ledger started) has no bar, and is left out.
+  const openMonth = (i, side = "both") => {
+    const m = movement?.months?.[i];
+    if (!m) return undefined;
+    const month = `${m.label || monthLabel(m.period)} ${String(m.period || "").slice(0, 4)}`.trim();
+    const title = side === "in" ? `In · ${month} (ERP GRN)` : side === "out" ? `Out · ${month} (issued)` : `In vs Out · ${month}`;
+    const sides = (side === "both" ? ["in", "out"] : [side]).filter((s) => (s === "in" ? m.in_value : m.out_value) != null);
+    if (!sides.length) {
+      return openNoList(title, `${month} has no In or Out figure on the chart — the ERP GRN register does not hold the whole month and no issue was recorded in the app then — so there is no list behind it.`);
+    }
+    const says = sides.map((s) => (s === "in"
+      ? `In: ${fmtInt(m.in_lines)} ERP GRN line(s) · ${fmtMoney(m.in_value)} (receipt qty × current rate)`
+      : `Out: ${fmtInt(m.out_lines)} issue line(s) · ${fmtMoney(m.out_value)} (issued qty × current rate)`));
+    return openTxns(title, {
+      fetch: () => Promise.all(sides.map((s) => mgmtRows(s, m.period)))
+        .then((lists) => (lists.every(Array.isArray)
+          ? lists.flat().map((r) => (r.txn_type === "GRN" && r.grn_no ? { ...r, txn_type: `GRN ${r.grn_no}` } : r))
+          : null)),
+      note: `${says.join(" · ")}. Tap a row for that part's history.`,
+    });
+  };
+  // A bar opens its own side (the month's band under it is not reached).
+  const onMoveBar = (side) => (d, _i, e) => {
+    e?.stopPropagation?.();
+    const i = d?.payload?.i ?? d?.i;
+    if (i != null) openMonth(i, side);
+  };
+  const openMonthNamed = (name) => {
+    const i = moveData.findIndex((m) => m.name === name);
+    if (i >= 0) openMonth(moveData[i].i, "both");
+  };
+  // Dept. issue this month: that department's issues, by the panel's rule. The
+  // panel's figure is the issued QTY, while the drill header counts issue
+  // lines, so the note states the qty the lines add up to.
+  const deptRule = "the department that owns the part's section, as the panel counts it; cancelled issues are left out. Tap a row for that part's history.";
+  const openDept = (d) => openTxns(`${d.name} · issued this month`, {
+    fetch: () => mgmtRows("dept", d.name),
+    note: `${fmtInt(d.value)} issued (qty) this month for ${d.name} — ${deptRule}`,
+    noteOf: (list) => {
+      const qty = Math.round(list.reduce((s, r) => s + (Number(r.qty ?? Math.abs(r.qty_delta || 0)) || 0), 0) * 100) / 100;
+      return `${fmtInt(qty)} issued (qty) this month for ${d.name} in ${fmtInt(list.length)} issue line(s) — the qty is the panel's figure; ${deptRule}`;
+    },
+  });
+  // Scan discipline (last 30 days): the scans, issues and put-aways behind
+  // each tile and each part of the scanned / typed / not-found bar.
+  const scanRow = (r) => ({ ...r, part_name: [r.part_name || "No part with this code", r.user && `by ${r.user}`].filter(Boolean).join(" · ") });
+  // `note` may be a function of the rows (null while loading) when the tile's
+  // own figure is not the list's — the store-wide not-found list.
+  const openScans = (key, title, note, storeWide = false) => {
+    const tail = " Scan Part page, last 30 days. Tap a row for that part's history.";
+    const say = typeof note === "function" ? note : () => note;
+    return openTxns(title, {
+      fetch: () => mgmtRows("scans", key, storeWide).then(mapped(scanRow)),
+      note: `${say(null)}${tail}`,
+      noteOf: (list) => `${say(list)}${tail}`,
+    });
+  };
+  const notFoundStore = scan?.not_found_scope === "section";
+  const openScanIssues = () => openTxns("Issues by scan · 30 d", {
+    fetch: () => mgmtRows("issues", "all").then(mapped((r) => ({ ...r, txn_type: r.how || r.txn_type }))),
+    note: `${fmtInt(scanIssues?.by_scan)} of ${fmtInt(scanIssues?.total)} issues reached the part by a scan (QR, supplier barcode or kiosk request), ${fmtInt(scanIssues?.by_search)} by search / typing${scanIssues?.unrecorded ? `, ${fmtInt(scanIssues.unrecorded)} not recorded` : ""}. Cancelled issues are left out. Tap a row for that part's history.`,
+  });
+  const openPutAways = () => openTxns("Put-aways by scan · 30 d", {
+    fetch: () => mgmtRows("put_away", "all").then(mapped((r) => ({
+      ...r, part_name: [r.part_name, r.location && `bin ${r.location}`, r.put_by && `by ${r.put_by}`, r.gate_entry_no && `lot ${r.gate_entry_no}`].filter(Boolean).join(" · "),
+    }))),
+    note: `${fmtInt(putAway?.count)} put-away(s) confirmed by scanning the bin, ${fmtInt(putAway?.with_lot_tag)} of them from a lot tag. Qty is the lot qty. Tap a row for that part's history.`,
+  });
+  const scanOpen = {
+    "Scan-first rate": () => openScans("all", "Scan Part scans · 30 d",
+      `${fmtInt(sc?.scanned)} of ${fmtInt(scanTotal)} scans were read by a scanner or camera; the rest were typed.`),
+    // In a section view the tile reads "—" and the list is the whole store's,
+    // so its number comes off that list, not the section's (always 0) figure.
+    "Code not found": () => openScans("not_found", "Code not found · 30 d",
+      notFoundStore
+        ? (list) => `${list ? `${fmtInt(list.length)} scan(s)` : "Scans"} of a code that matched no part, store-wide — tag missing or wrong. A code that is no part has no section, so this is the whole store's list.`
+        : `${fmtInt(sc?.not_found)} scan(s) of a code that matched no part — tag missing or wrong.`, notFoundStore),
+    "Issues by scan": openScanIssues,
+    "Put-away by scan": openPutAways,
+    Scanned: () => openScans("scanned_ok", "Scanned · 30 d", `${fmtInt(sc?.scanned_ok)} scan(s) by scanner or camera that found the part.`),
+    Typed: () => openScans("typed_ok", "Typed · 30 d", `${fmtInt(sc?.typed_ok)} code(s) typed in that found the part.`),
+    "Not found": () => openScans("not_found", "Not found · 30 d", `${fmtInt(sc?.not_found)} scan(s) of a code that matched no part.`),
+  };
+  // ERP vs physical tiles: the comparison list, cut to what each tile counts
+  // (its chips summarise the rows shown).
+  // Accuracy is a figure of the whole comparison: a slice holding only some of
+  // the parts in both (With Gap — none of which match) would chip a 0% the
+  // board does not have, so such a slice shows no accuracy chip.
+  const openErpSlice = (title, list, note) => {
+    const summary = erpSummary(list);
+    if (summary.reconciled !== erpSum.reconciled) summary.accuracy_pct = null;
+    return openStack({
+      kind: "erpGap", title, rows: list, summary, error: erpState === "error",
+      note: `${note}${snapWord ? ` ERP is the ${snapWord} — not a live feed.` : ""}`,
+    });
+  };
+  const erpInBoth = () => erpRows.filter((r) => r.gap_qty != null);
+  const erpOpen = {
+    "ERP Stock": () => openErpSlice("ERP vs Physical — ERP stock", erpInBoth(),
+      `${fmtInt(erpSum.reconciled)} parts have both an ERP figure and a count: ERP ${fmtInt(Math.round(erpSum.erp_units))} units against ${fmtInt(Math.round(erpSum.physical_units))} counted.`),
+    "Physical Stock": () => openErpSlice("ERP vs Physical — physical stock", erpInBoth(),
+      `${fmtInt(erpSum.reconciled)} parts have both an ERP figure and a count: ${fmtInt(Math.round(erpSum.physical_units))} units counted against ERP ${fmtInt(Math.round(erpSum.erp_units))}.`),
+    "Match Accuracy": () => openErpSlice("ERP vs Physical — match accuracy", erpInBoth(),
+      `${fmtInt(erpSum.matched)} of ${fmtInt(erpSum.reconciled)} parts in both match${erpSum.accuracy_pct != null ? ` (${erpSum.accuracy_pct}%)` : ""}.`),
+    "With Gap": () => openErpSlice("ERP vs Physical — with gap", erpRows.filter((r) => r.status === "SHORT" || r.status === "EXCESS"),
+      `${fmtInt(erpGapCount)} parts differ from ERP: ${fmtInt(erpSum.short)} short, ${fmtInt(erpSum.excess)} excess.`),
+  };
+  // A tracker line opens the same drill as its tile / alert, where the board has one.
+  const trackerOpen = {
+    critical: openCritical, reorder: openReorder, excess: openExcess,
+    srv_pending: openSrv, erp_gap: openErpGap, confirm_pending: openConfirmations,
+  };
 
   // Live Alerts — derived from the board's own real spare figures (there is no
   // spare notification feed yet), so the ticker always shows what needs eyes.
@@ -865,7 +1297,7 @@ export default function TvDashboard() {
     ov?.fallback && !ov.kpis.today && "this shift's issues",
     ov?.fallback && !ov.consumption && "this month's issues",
     P.list === null && "parts list",
-    P.monthly === null && "monthly issues",
+    P.mgmt === null && "management panels",
     P.erpGap === null && "ERP comparison",
     P.pending === null && "confirmation queue",
     !receiving && P.flow === null && "SRV register",
@@ -874,10 +1306,12 @@ export default function TvDashboard() {
   const liveAlerts = [];
   if (failedFeeds.length) liveAlerts.push({ color: "#94a3b8", onClick: reload,
     text: `Could not load: ${failedFeeds.join(", ")} — tap to retry` });
-  if (zero) liveAlerts.push({ color: C.red, text: `${plural(zero, "part")} OUT OF STOCK`, onClick: openZero });
-  if (belowMin) liveAlerts.push({ color: C.red, text: `${plural(belowMin, "part")} below minimum`, onClick: openBelowMin });
-  if (reorderN) liveAlerts.push({ color: C.reorder, text: `${plural(reorderN, "part")} at reorder level`, onClick: openReorder });
-  if (excess) liveAlerts.push({ color: C.amber, text: `${plural(excess, "part")} above maximum · ${fmtMoney(excessValue ?? excessValueRows)} tied up`, onClick: openExcess });
+  // One critical alert, not one for zero stock and another for below minimum:
+  // "critical" already means both, so the split only repeated the same parts.
+  if (critical) liveAlerts.push({ color: STATUS.out, onClick: openCritical,
+    text: `${plural(critical, "part")} CRITICAL · ${fmtInt(zero)} zero stock · ${fmtInt(belowMin)} below minimum` });
+  if (reorderN) liveAlerts.push({ color: STATUS.reorder, text: `${plural(reorderN, "part")} at reorder level`, onClick: openReorder });
+  if (excess) liveAlerts.push({ color: STATUS.above, text: `${plural(excess, "part")} above maximum · ${fmtMoney(excessValue ?? excessValueRows)} tied up`, onClick: openExcess });
   if (confirmCount) liveAlerts.push({ color: C.purple, text: `${plural(confirmCount, "issue")} awaiting user confirmation`, onClick: openConfirmations });
   if (erpGapCount) liveAlerts.push({ color: C.cyan, text: `${plural(erpGapCount, "part")} differ from the ERP ${snapDay ? `${snapDay} ` : ""}snapshot`, onClick: openErpGap });
   if (pendingErp) liveAlerts.push({ color: C.purple, text: `${plural(pendingErp, "movement")} queued for ERP (write-back ${erp?.write?.active ? "on" : "off"})`,
@@ -888,6 +1322,12 @@ export default function TvDashboard() {
   const issuedLines = today?.issued_lines ?? 0;
   if (issuedLines) liveAlerts.push({ color: C.blue, text: `${fmtInt(issuedQty)} issued this shift · ${plural(issuedLines, "line")}`,
     onClick: openTodayIssues });
+  const overdueActions = tracker?.summary?.overdue || 0;
+  if (overdueActions) liveAlerts.push({ color: STATUS.out, text: `${plural(overdueActions, "action")} past the target date — see the action tracker` });
+  // The wall has no room for the movements table, so its newest line runs here.
+  const lastMove = recent && recent[0];
+  if (lastMove) liveAlerts.push({ color: C.green, onClick: openMovements,
+    text: `Latest movement: ${whenOf(lastMove.at || lastMove.created_at)} · ${lastMove.txn_type} · ${lastMove.part_no} × ${fmtInt(Math.abs(lastMove.qty_delta ?? lastMove.qty ?? 0))}` });
   const cycle = (dir) => {
     setSectionId((cur) => {
       const i = Math.max(0, sectionOpts.findIndex((o) => o === cur));
@@ -899,90 +1339,129 @@ export default function TvDashboard() {
   const isDay = shiftOverride == null ? autoDay : shiftOverride;
   // Whole-board theme, flipped by the day/night button. Every surface/text below
   // reads these CSS variables, so one switch re-themes the entire dashboard.
+  // Base theme mirrors the desktop dashboard EXACTLY (index.css body + .card), so
+  // the wall and the main board read as the same product day and night: a soft
+  // light ground with a faint Toyota-red (top-right) + navy (bottom-left) glow
+  // and white-glass cards by day; a navy ground with a red + blue glow and navy-
+  // glass cards by night. Radii are scaled up for the 64" board; colours/opacities
+  // are the desktop's own. Status/pill hues come from the shared STATUS palette.
   const themeVars = isDay
     ? {
-        "--dx-bg": "#eef2f7", "--dx-card": "#ffffff", "--dx-border": "rgba(226,232,240,0.85)", "--dx-t1": "#0f172a", "--dx-t2": "#334155", "--dx-t3": "#64748b", "--dx-t4": "#94a3b8", "--dx-track": "#eef3fb", "--dx-divide": "#eef2f7", "--dx-gauge": "#e5e7eb",
-        "--dx-glass": "linear-gradient(160deg,rgba(255,255,255,0.9),rgba(237,244,255,0.78))",
-        "--dx-t1-grad": "linear-gradient(160deg,#0f172a 0%,#33507e 100%)",
-        "--pill-red": "#e11d48", "--pill-green": "#047857", "--pill-amber": "#b45309", "--pill-blue": "#1d4ed8", "--pill-slate": "#475569",
-        "--dx-glass-brd": "rgba(255,255,255,0.85)",
-        "--dx-glass-shadow": "0 10px 30px rgba(29,63,120,0.13), inset 0 1px 0 rgba(255,255,255,0.9)",
-        "--dx-board": "radial-gradient(1200px 620px at 12% -6%, rgba(96,165,250,0.30), transparent 60%), radial-gradient(950px 520px at 96% -2%, rgba(45,212,191,0.20), transparent 55%), radial-gradient(1050px 720px at 50% 112%, rgba(129,140,248,0.20), transparent 60%), linear-gradient(160deg,#e9f0ff 0%,#eef4fb 42%,#f3f0fb 100%)",
+        "--dx-bg": "#eef2f8", "--dx-card": "#ffffff", "--dx-border": "rgba(226,232,240,0.7)", "--dx-t1": "#0f172a", "--dx-t2": "#334155", "--dx-t3": "#64748b", "--dx-t4": "#94a3b8", "--dx-track": "#eef3fb", "--dx-divide": "#eef2f7", "--dx-gauge": "#e5e7eb",
+        "--dx-glass": "linear-gradient(162deg,rgba(255,255,255,0.95),rgba(246,249,253,0.86))",
+        "--dx-t1-grad": "linear-gradient(160deg,#0f172a 0%,#334e73 100%)",
+        "--pill-red": "#e11d48", "--pill-green": "#047857", "--pill-amber": "#b45309", "--pill-orange": "#c2410c", "--pill-blue": "#1d4ed8", "--pill-slate": "#475569",
+        "--dx-glass-brd": "rgba(226,232,240,0.7)",
+        "--dx-glass-shadow": "0 1px 2px rgba(15,31,56,0.04), 0 10px 24px rgba(15,31,56,0.06), inset 0 1px 0 rgba(255,255,255,0.6)",
+        "--dx-board": "radial-gradient(1200px 560px at 100% -8%, rgba(235,10,30,0.05), transparent 62%), radial-gradient(1120px 680px at -6% 112%, rgba(15,31,56,0.05), transparent 60%), linear-gradient(160deg,#f6f8fc 0%,#eef2f8 55%,#f3f1f6 100%)",
       }
     : {
-        "--dx-bg": "#070d1a", "--dx-card": "#0e1a30", "--dx-border": "rgba(94,165,235,0.22)", "--dx-t1": "#b4c5e0", "--dx-t2": "#8a9dbe", "--dx-t3": "#6f82a0", "--dx-t4": "#586a8c", "--dx-track": "rgba(30,48,84,0.6)", "--dx-divide": "rgba(94,165,235,0.12)", "--dx-gauge": "#243350",
-        "--dx-glass": "linear-gradient(160deg,rgba(24,40,74,0.9),rgba(11,20,40,0.82))",
-        "--dx-t1-grad": "linear-gradient(160deg,#cfe0f6 0%,#7ea3d2 100%)",
-        "--pill-red": "#fb7185", "--pill-green": "#34d399", "--pill-amber": "#fbbf24", "--pill-blue": "#60a5fa", "--pill-slate": "#94a3b8",
-        "--dx-glass-brd": "rgba(94,165,235,0.28)",
-        "--dx-glass-shadow": "0 14px 38px rgba(0,0,0,0.55), 0 0 22px rgba(37,99,235,0.10), inset 0 1px 0 rgba(255,255,255,0.08)",
-        "--dx-board": "radial-gradient(1100px 560px at 50% -8%, rgba(56,189,248,0.28), transparent 62%), radial-gradient(900px 520px at 96% 0%, rgba(13,148,136,0.20), transparent 55%), radial-gradient(1000px 700px at 8% 108%, rgba(124,58,237,0.22), transparent 60%), radial-gradient(1200px 800px at 50% 50%, rgba(9,20,40,0.4), rgba(4,9,20,0.75) 80%), linear-gradient(160deg,#050a16 0%,#081324 46%,#060c1a 100%)",
+        "--dx-bg": "#0a1220", "--dx-card": "#101d34", "--dx-border": "rgba(22,49,79,0.8)", "--dx-t1": "#e4ecfb", "--dx-t2": "#a9bad7", "--dx-t3": "#6f82a0", "--dx-t4": "#586a8c", "--dx-track": "rgba(30,48,84,0.6)", "--dx-divide": "rgba(94,165,235,0.12)", "--dx-gauge": "#243350",
+        "--dx-glass": "linear-gradient(162deg,rgba(23,40,68,0.9),rgba(14,24,44,0.86))",
+        "--dx-t1-grad": "linear-gradient(160deg,#e6eefb 0%,#9fb6d8 100%)",
+        "--pill-red": "#fb7185", "--pill-green": "#34d399", "--pill-amber": "#fbbf24", "--pill-orange": "#fb923c", "--pill-blue": "#60a5fa", "--pill-slate": "#94a3b8",
+        "--dx-glass-brd": "rgba(22,49,79,0.9)",
+        "--dx-glass-shadow": "0 1px 2px rgba(0,0,0,0.25), 0 14px 30px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.05)",
+        "--dx-board": "radial-gradient(1320px 620px at 100% -8%, rgba(235,10,30,0.10), transparent 62%), radial-gradient(1180px 740px at -6% 112%, rgba(37,99,235,0.12), transparent 60%), linear-gradient(160deg,#0a1220 0%,#0c1830 55%,#0a1424 100%)",
       };
   // recharts axis/grid become SVG attributes and can't read CSS vars, so keep JS
   // twins of the theme for chart ticks and gridlines (readable in both modes).
   const axisColor = isDay ? "#64748b" : "#94a3b8";
   const gridColor = isDay ? "#e2e8f0" : "rgba(148,163,184,0.18)";
+  // Chart ticks are SVG attributes in px, so they are scaled off the screen
+  // height here — a fixed 13px was unreadable on the 1920px-tall wall.
+  const tickPx = Math.max(11, Math.round((typeof window !== "undefined" ? window.innerHeight : 800) * 0.0125));
 
   return (
-    <div className="min-h-screen w-full flex flex-col gap-[0.5vh] p-[0.7vh] text-[var(--dx-t2)] transition-colors duration-300" style={{ ...themeVars, background: "var(--dx-board)" }}>
+    <div className="min-h-screen w-full flex flex-col gap-[0.5vh] p-[0.7vh] text-[var(--dx-t2)] transition-colors duration-300 [--dx-donut:8.4vh] landscape:[--dx-donut:12vh] [--dx-gauge-w:min(6vh,11vw)] landscape:[--dx-gauge-w:min(8.6vh,4.9vw)]" style={{ ...themeVars, background: "var(--dx-board)" }}>
 
       {/* ---------- header ---------- */}
-      <div className="shrink-0 rounded-2xl px-[2vh] py-[0.8vh] text-white overflow-hidden relative"
-        style={{
-          background: "radial-gradient(720px 300px at 82% -50%, rgba(56,189,248,0.42), transparent 62%), radial-gradient(520px 240px at 10% 150%, rgba(37,99,235,0.32), transparent 60%), linear-gradient(120deg,#0a2340 0%,#123a6b 48%,#0a2038 100%)",
+      <div className={`shrink-0 rounded-2xl px-[1.4vh] py-[0.4vh] landscape:py-[0.7vh] overflow-hidden relative ${isDay ? "text-slate-900" : "text-white"}`}
+        style={isDay ? {
+          background: "linear-gradient(120deg,#ffffff 0%,#f5f8fd 50%,#ffffff 100%)",
+          boxShadow: "0 10px 30px rgba(15,31,56,0.08), inset 0 1px 0 #ffffff",
+          borderBottom: "2px solid rgba(235,10,30,0.85)",
+        } : {
+          background: "radial-gradient(760px 320px at 82% -50%, rgba(235,10,30,0.30), transparent 62%), radial-gradient(560px 260px at 10% 150%, rgba(29,67,104,0.45), transparent 60%), linear-gradient(120deg,#0f1f38 0%,#1d4368 48%,#0f1f38 100%)",
           boxShadow: "0 14px 40px rgba(10,32,70,0.40), inset 0 1px 0 rgba(255,255,255,0.08)",
         }}>
-      <div className="flex items-center gap-[1.6vh]">
-        {/* The logo doubles as "back to the app" — tap it to leave the wallboard. */}
-        <button type="button" onClick={() => navigate("/store/MAINTENANCE")}
-          title="Back to the app" aria-label="Back to the app"
-          className="shrink-0 rounded-lg cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60">
-          <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-[4.6vh] w-auto bg-white/95 rounded-lg p-[0.5vh] block" draggable={false} />
-        </button>
-        <div className="hidden xl:block leading-tight shrink-0">
-          <div className="text-[1.6vh] font-bold">Toyota Boshoku</div>
-          <div className="text-[1.2vh] text-white/60">Device India Pvt. Ltd.</div>
+      {/* Two rows, because a 9:16 portrait wall leaves only ~50vh of width: in one
+          row the logo, title, section switch, clock and exit could not all fit, so
+          the title collapsed to "T…" and the section pill wrapped over its
+          neighbours. Row 1 = brand · title · exit; row 2 = section switch · clock
+          · fullscreen. In LANDSCAPE (a laptop / wide monitor) width is plentiful
+          and height is not, so both rows dissolve (`contents`) into one slim
+          row, ordered: brand · section switch · title · clock · fullscreen · exit. */}
+      <div className="flex flex-col gap-[0.35vh] landscape:flex-row landscape:items-center landscape:gap-[1.2vh]">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-[1vh] landscape:contents">
+        {/* Just the brand mark — not a navigation control. Leaving the board is a
+            deliberate tap on the "Main Dashboard" button on the right. */}
+        <div className="flex items-center gap-[1vh] min-w-0 landscape:order-1 landscape:shrink-0">
+          <span className="shrink-0 rounded-lg">
+            <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-[3.6vh] landscape:h-[4.2vh] w-auto bg-white/95 rounded-lg p-[0.4vh] block" draggable={false} />
+          </span>
+          <div className="hidden xl:block leading-tight shrink-0">
+            <div className="text-[1.6vh] font-bold">Toyota Boshoku</div>
+            <div className={`text-[1.2vh] ${isDay ? "text-slate-500" : "text-white/60"}`}>Device India Pvt. Ltd.</div>
+          </div>
         </div>
 
-        <div className="flex-1 text-center min-w-0">
-          <div className="text-[1.7vh] font-extrabold leading-none tracking-normal whitespace-nowrap"
-            style={{ backgroundImage: "linear-gradient(180deg,#ffffff 0%,#bcd6ff 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent", filter: "drop-shadow(0 2px 12px rgba(120,180,255,0.55))" }}>
-            Spare Parts Store
+        <div className="text-center min-w-0 landscape:order-3 landscape:flex-1">
+          <div className="text-[1.7vh] font-extrabold leading-none tracking-normal truncate"
+            style={{ backgroundImage: isDay ? "linear-gradient(92deg,#ff7a18 0%,#eb0a1e 48%,#c81d77 100%)" : "linear-gradient(180deg,#ffffff 0%,#bcd6ff 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent", color: "transparent", filter: isDay ? "drop-shadow(0 2px 8px rgba(235,10,30,0.22))" : "drop-shadow(0 2px 12px rgba(120,180,255,0.55))" }}>
+            TBDI Digital SMP
           </div>
           <div className="mt-[0.3vh] flex items-center justify-center gap-[1vh]">
-            <span className="h-px w-[3.2vh]" style={{ background: "linear-gradient(90deg,transparent,rgba(56,189,248,0.75))" }} />
-            <span className="flex items-center gap-[0.7vh] text-[1.25vh] font-bold tracking-[0.42em] text-cyan-100/90">
+            <span className="h-px w-[3.2vh]" style={{ background: isDay ? "linear-gradient(90deg,transparent,#cbd5e1)" : "linear-gradient(90deg,transparent,rgba(255,255,255,0.55))" }} />
+            <span className={`flex items-center gap-[0.7vh] text-[1.25vh] font-bold tracking-[0.42em] ${isDay ? "text-slate-500" : "text-white/85"}`}>
               {/* Green only while every feed loaded; a failed call turns it amber
                   (the ticker says which) rather than pulse "live" over stale data. */}
               <span className={`w-[0.9vh] h-[0.9vh] rounded-full ${failedFeeds.length ? "bg-amber-400" : "bg-emerald-400 animate-pulse"}`}
                 style={{ boxShadow: failedFeeds.length ? "0 0 8px #fbbf24" : "0 0 8px #34d399" }}
                 title={failedFeeds.length ? "Some figures failed to load — see the alert bar" : "Refreshes on every stock movement"} />
-              LIVE DASHBOARD
+              LIVE BOARD
             </span>
-            <span className="h-px w-[3.2vh]" style={{ background: "linear-gradient(90deg,rgba(56,189,248,0.75),transparent)" }} />
+            <span className="h-px w-[3.2vh]" style={{ background: isDay ? "linear-gradient(90deg,#cbd5e1,transparent)" : "linear-gradient(90deg,rgba(255,255,255,0.55),transparent)" }} />
           </div>
+        </div>
+
+        {/* Deliberate exit — top-right, QMP-style pill (the logo no longer navigates). */}
+        <div className="flex justify-end min-w-0 landscape:order-6 landscape:shrink-0">
+          {canOpenStore && <button type="button" onClick={() => navigate("/store/MAINTENANCE")}
+            title="Go to the main dashboard" aria-label="Go to the main dashboard"
+            className={`shrink-0 inline-flex items-center gap-[0.5vh] rounded-full pl-[0.9vh] pr-[1.3vh] py-[0.6vh] text-[1.3vh] font-semibold whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 ${isDay ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-400" : "border border-white/25 bg-white/10 text-white/85 hover:bg-white/20 hover:text-white focus-visible:ring-white/60"}`}>
+            <ArrowLeft size={15} aria-hidden="true" /> Main Dashboard
+          </button>}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-[1vh] landscape:contents">
+        {/* The section switch takes whatever the clock leaves and truncates a long
+            name rather than wrapping (it used to break onto two lines). */}
+        <div className="flex-1 min-w-0 flex landscape:order-2 landscape:flex-none">
           {sections.length > 0 && (
-            <div className="mt-[0.6vh] flex justify-center">
-              <div ref={menuAnchor} className="inline-flex items-center gap-[1vh] rounded-full px-[1.6vh] py-[0.4vh]"
-                style={{ background: "linear-gradient(120deg,rgba(56,189,248,0.22),rgba(37,99,235,0.16))", border: "1px solid rgba(125,195,255,0.5)", boxShadow: "0 0 22px rgba(56,189,248,0.32), inset 0 1px 0 rgba(255,255,255,0.18)" }}>
-                <button onClick={() => cycle(-1)} title="Previous section" className="text-cyan-200/70 hover:text-white text-[2vh] leading-none">‹</button>
-                {/* Tap the name for the full section list; ‹ › still step through. */}
-                <button onClick={toggleSectionMenu} title="Pick a section"
-                  className="flex items-center gap-[0.6vh] animate-rise">
-                  <span key={String(sectionId)} className="text-[1.8vh] font-extrabold text-white tracking-[0.15em] uppercase">{activeName}</span>
-                  <span className={`text-cyan-200/80 text-[1.2vh] leading-none transition-transform ${menuOpen ? "rotate-180" : ""}`}>▾</span>
-                </button>
-                <button onClick={() => cycle(1)} title="Next section" className="text-cyan-200/70 hover:text-white text-[2vh] leading-none">›</button>
-              </div>
+            <div ref={menuAnchor} className="inline-flex items-center gap-[1vh] rounded-full px-[1.4vh] py-[0.4vh] min-w-0 max-w-full"
+              style={isDay
+                ? { background: "#ffffff", border: "1px solid #cbd5e1", boxShadow: "0 1px 2px rgba(15,31,56,0.06)" }
+                : { background: "linear-gradient(120deg,rgba(255,255,255,0.14),rgba(255,255,255,0.05))", border: "1px solid rgba(255,255,255,0.28)", boxShadow: "0 0 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.18)" }}>
+              <button onClick={() => cycle(-1)} title="Previous section" className={`shrink-0 ${isDay ? "text-slate-400 hover:text-slate-800" : "text-white/60 hover:text-white"} text-[2vh] leading-none`}>‹</button>
+              {/* Tap the name for the full section list; ‹ › still step through. */}
+              <button onClick={toggleSectionMenu} title="Pick a section"
+                className="flex items-center gap-[0.6vh] animate-rise min-w-0">
+                <span key={String(sectionId)} className={`truncate text-[1.5vh] font-extrabold tracking-[0.08em] uppercase ${isDay ? "text-slate-900" : "text-white"}`}>{activeName}</span>
+                <span className={`shrink-0 ${isDay ? "text-slate-400" : "text-white/70"} text-[1.2vh] leading-none transition-transform ${menuOpen ? "rotate-180" : ""}`}>▾</span>
+              </button>
+              <button onClick={() => cycle(1)} title="Next section" className={`shrink-0 ${isDay ? "text-slate-400 hover:text-slate-800" : "text-white/60 hover:text-white"} text-[2vh] leading-none`}>›</button>
             </div>
           )}
+        </div>
 
           {/* Section list — a fixed layer so the header's overflow can't clip it. */}
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-[60]" onClick={() => setMenuOpen(false)} />
               <div className="fixed z-[61] -translate-x-1/2 min-w-[26vh] max-h-[70vh] overflow-auto py-[0.6vh] rounded-[1.4vh]"
-                style={{ top: menuPos.top, left: menuPos.left, background: "linear-gradient(135deg,rgba(12,24,48,0.98),rgba(8,16,34,0.98))", border: "1px solid rgba(125,195,255,0.45)", boxShadow: "0 14px 44px rgba(0,0,0,0.55), 0 0 22px rgba(56,189,248,0.28)", backdropFilter: "blur(14px)" }}>
+                style={{ top: menuPos.top, left: menuPos.left, background: "linear-gradient(135deg,rgba(15,31,56,0.98),rgba(10,20,40,0.98))", border: "1px solid rgba(94,165,235,0.25)", boxShadow: "0 14px 44px rgba(0,0,0,0.55), 0 0 22px rgba(15,31,56,0.5)", backdropFilter: "blur(14px)" }}>
                 {sectionOpts.map((id) => {
                   const on = id === sectionId;
                   return (
@@ -1000,26 +1479,18 @@ export default function TvDashboard() {
               </div>
             </>
           )}
-        </div>
 
-        {/* modern date · clock · shift toggle */}
-        <HeaderClock isDay={isDay} onToggle={() => setShiftOverride(!isDay)} />
+        {/* date · clock · last refresh · shift toggle */}
+        <HeaderClock isDay={isDay} updated={lastUpdated} onToggle={() => setShiftOverride(!isDay)} />
 
-        <div className="shrink-0">
-          <button onClick={toggleFs} title={isFs ? "Exit fullscreen" : "Fullscreen"} className="text-white/60 hover:text-white">{isFs ? <Minimize size={16} /> : <Maximize size={16} />}</button>
-        </div>
+        <button onClick={toggleFs} title={isFs ? "Exit fullscreen" : "Fullscreen"} className={`shrink-0 landscape:order-5 ${isDay ? "text-slate-400 hover:text-slate-700" : "text-white/60 hover:text-white"}`}>{isFs ? <Minimize size={16} /> : <Maximize size={16} />}</button>
       </div>
-      {/* ERP status on its own row, so it never squeezes the title on a
-          portrait board: how old ERP's stock figures are, and whether the
-          app's movements are being written back. */}
-      <div className="mt-[0.5vh] flex flex-wrap items-center justify-center gap-[0.8vh]">
-        <ErpChips erp={erp} state={erpInfoState} />
       </div>
       </div>
 
       {/* ---------- live alert ticker (below the heading) ---------- */}
       {liveAlerts.length > 0 && (
-        <div className="shrink-0 flex items-center gap-[1.2vh] overflow-hidden rounded-xl px-[1.2vh] py-[0.6vh] text-white"
+        <div className="shrink-0 flex items-center gap-[1.2vh] overflow-hidden rounded-xl px-[1.2vh] py-[0.35vh] landscape:py-[0.5vh] text-white"
           style={{ background: "linear-gradient(90deg,#0a2a4f,#0d3a6b)" }}>
           <span className="shrink-0 flex items-center gap-[0.6vh] rounded-md px-[1.1vh] py-[0.3vh] text-[1.3vh] font-extrabold tracking-wide" style={{ background: "linear-gradient(120deg,#ef4444,#dc2626)", boxShadow: "0 0 16px rgba(239,68,68,0.55)" }}>
             <span className="h-[1vh] w-[1vh] rounded-full bg-white animate-pulse" /> LIVE ALERTS
@@ -1051,27 +1522,29 @@ export default function TvDashboard() {
       )}
 
       {/* ---------- KPI cards ---------- */}
-      {/* Six across in one row: on a wide board each 3-col card was far wider
-          than its stat, so the number sat in a corner with a big empty gap. */}
-      <div className="grid grid-cols-3 landscape:grid-cols-6 gap-[0.8vh]">
+      {/* Six tiles: three across in two rows on the portrait wall, one row of
+          six in landscape (see Kpi). Zero stock and below minimum are NOT
+          separate tiles: "Critical" is exactly those two added together, so
+          showing all three repeated the same parts; the critical tile carries
+          the split in its sub-line. The last two are the desktop dashboard's
+          "Today Added to Stock" / "Today Issued", off the same figures. */}
+      <div className="grid grid-cols-3 gap-[0.5vh] landscape:grid-cols-6 landscape:gap-[0.8vh]">
         {/* The headline figures, all off the overview — the same numbers the
             desktop dashboard shows. Each tile opens its list in the board's
             drill. Total parts sits in the part-type donut; Pending ERP in the
             header's write-back chip; this shift's issues beside the
             department split (and in the ticker when there are any). */}
-        <Kpi icon={AlertTriangle} title="Critical Parts" state={ovState} value={statusVal(critical)} color={hot(critical, C.red)}
-          sub={noneCounted ? "No part counted yet" : "Zero stock + below minimum"} onClick={openCritical} />
-        <Kpi icon={PackageX} title="Zero Stock" state={ovState} value={statusVal(zero)} color={hot(zero, C.rose)}
-          sub={noneCounted ? "No part counted yet" : "Counted and found empty"} onClick={openZero} />
-        <Kpi icon={TrendingDown} title="Below Minimum" state={ovState} value={statusVal(belowMin)} color={hot(belowMin, C.orange)}
-          sub={noneCounted ? "No part counted yet" : "Under the planned minimum"} onClick={openBelowMin} />
-        <Kpi icon={Boxes} title="Excess Parts" state={ovState} value={statusVal(excess)} color={hot(excess, C.amber)}
+        <Kpi icon={AlertTriangle} title="Critical Parts" short="Critical" state={ovState} value={statusVal(critical)} color={hot(critical, C.red)}
+          sub={noneCounted ? "No part counted yet" : `${fmtInt(zero)} zero stock · ${fmtInt(belowMin)} below minimum`}
+          subShort={noneCounted ? "No part counted yet" : `${fmtInt(zero)} zero · ${fmtInt(belowMin)} below min`} onClick={openCritical} />
+        <Kpi icon={Boxes} title="Excess Parts" short="Excess" state={ovState} value={statusVal(excess)} color={hot(excess, STATUS.above)}
           extra={excess && excessValue ? fmtMoney(excessValue) : null}
-          sub={noneCounted ? "No part counted yet" : "Above max · ₹ tied up (qty × rate)"} onClick={openExcess} />
+          sub={noneCounted ? "No part counted yet" : "Above max · ₹ tied up (qty × rate)"}
+          subShort={noneCounted ? "No part counted yet" : "Above max · ₹ tied up"} onClick={openExcess} />
         {/* Receiving is store-level: a section view still shows the store's
             figure, and says so rather than pass it off as the section's. The
             source is named — ERP's GRN lines, read with the mirror's freshness. */}
-        <Kpi icon={ClipboardList} title="GRN / Quality Pending (ERP)" state={srvState}
+        <Kpi icon={ClipboardList} title="GRN / Quality Pending (ERP)" short="GRN / Quality" state={srvState}
           value={srvUntracked ? "—" : fmtInt(srvCount)} color={srvUntracked ? C.muted : hot(srvCount, C.purple)}
           sub={receiving
             ? [
@@ -1084,137 +1557,84 @@ export default function TvDashboard() {
                 : null,
             ].filter(Boolean).join(" · ")
             : srvUntracked ? "No SRV recorded in the app yet" : secView ? "Whole store · app SRV register" : "Awaiting SRV · app SRV register"}
+          subShort={srvUntracked ? "No SRV recorded yet" : secView ? "Whole store · ERP" : "Awaiting ERP quality"}
           onClick={openSrv} />
-        <Kpi icon={Database} title="Stock Value" state={ovState} color={C.green} onClick={openStockValue}
+        <Kpi icon={Database} title="Stock Value" short="Stock Value" state={ovState} color={C.green} onClick={openStockValue}
           value={kpis?.valued_parts === 0 ? "—" : fmtMoney(kpis?.stock_value)}
           sub={kpis?.valued_parts === 0 ? "No counted part has a rate yet" : "Physical qty × std rate"} />
+        {/* This shift's stock-ins and issues — a real "0" reads as a reading,
+            "—" when the figure failed — each opening its own list. */}
+        <Kpi icon={ArrowDownToLine} title="Added Today" short="Added Today" state={ovState} color={hot(receivedQty, C.green)} onClick={openTodayReceipts}
+          value={fmtInt(receivedQty)}
+          sub={`${receivedLines ? plural(receivedLines, "stock-in line") : "No stock-in yet"} · ${sinceWord}`}
+          subShort={`${fmtInt(receivedLines)} line${receivedLines === 1 ? "" : "s"} · ${sinceWord}`} />
+        <Kpi icon={ArrowUpFromLine} title="Issued Today" short="Issued Today" state={ovState} color={hot(issuedQty, C.rose)} onClick={openTodayIssues}
+          value={fmtInt(issuedQty)}
+          sub={`${issuedLines ? plural(issuedLines, "issue line") : "No issue yet"} · ${sinceWord}`}
+          subShort={`${fmtInt(issuedLines)} line${issuedLines === 1 ? "" : "s"} · ${sinceWord}`} />
       </div>
 
-      {/* ---------- charts ---------- */}
-      <div className="grid grid-cols-1 landscape:grid-cols-2 gap-[0.8vh]">
-        <Card className="p-[0.7vh]">
-          <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
-          {rowsState !== "ok" ? <PanelState state={rowsState} onRetry={reload} h="12.5vh" /> : (
-          <div className="flex items-center gap-[1vh]">
-            <div className="w-[12.5vh] h-[12.5vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <defs>
-                    {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => {
-                      const g = GRAD[c.color] || [c.color, c.color];
-                      return (
-                        <linearGradient key={i} id={`pieg-${i}`} x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} />
-                        </linearGradient>
-                      );
-                    })}
-                  </defs>
-                  <Pie data={cats.length ? cats : [{ name: "—", value: 1, color: "#e2e8f0" }]} dataKey="value" nameKey="name"
-                    innerRadius="55%" outerRadius="92%" paddingAngle={1} stroke="none" isAnimationActive={false}
-                    onClick={(s) => cats.length && openCat(s && (s.name ?? (s.payload && s.payload.name)))}>
-                    {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} cursor={cats.length ? "pointer" : "default"} />)}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <DonutHub value={fmtInt(rows.length)} label="Total Parts" size="1.5vh" />
-            </div>
-            <div className="flex-1 min-w-0 flex flex-wrap justify-center content-center gap-x-[2.5vh] gap-y-[0.5vh]">
-              {(cats.length ? cats : []).map((c) => (
-                <button key={c.name} onClick={() => openCat(c.name)}
-                  className="flex items-center gap-[1vh] text-[1.35vh] rounded-md px-[0.5vh] py-[0.15vh] hover:bg-[var(--dx-track)] transition-colors">
-                  <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
-                  <span className="text-left text-[var(--dx-t2)] truncate max-w-[20vh]">{c.name}</span>
-                  <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap shrink-0">{fmtInt(c.value)}</span>
-                </button>
-              ))}
-              {!cats.length && <div className="basis-full text-center text-[1.5vh] text-[var(--dx-t4)]">No parts in this section</div>}
-            </div>
-          </div>
-          )}
-        </Card>
+      {/* ---------- the panels ----------
+          ONE grid in both orientations; each card carries its own place.
+          PORTRAIT (the 9:16 wall, ~55vh wide): two columns.
+            stock health (full width)
+            value by section | excess aging
+            material in vs out | by department
+            management action tracker (full width)
+            scan discipline | ERP vs physical
+          LANDSCAPE (laptop / wide monitor): four columns in three titled rows:
+            Stock overview      health · value by section · part mix · excess aging
+            Movement & control  in vs out · by department · scan discipline · ERP vs physical
+            Management action   action tracker (3 columns wide) · recent movements
+          The last landscape row takes whatever height is left, so the board
+          fills exactly one screen instead of scrolling.
+          Not on the wall, to keep it to one screen: the part-mix donut and the
+          recent-movements table (its newest line runs in the ticker, and the
+          in-vs-out card opens the full list). */}
+      <div className="grid grid-cols-2 gap-[0.6vh] landscape:grid-cols-4 landscape:flex-1 landscape:grid-rows-[auto_auto_auto_auto_auto_1fr]">
+      <SectionBar className="landscape:order-1" title="Stock Overview" hint="Stock health · value by section · part mix · excess aging" tone="var(--pill-blue)" />
+      <SectionBar className="landscape:order-6" title="Movement & Control" hint="Material in vs out · department-wise issue · scan discipline · ERP vs physical" tone="var(--pill-green)" />
+      <SectionBar className="landscape:order-11" title="Management Action" hint="What is wrong · how much money · who must act · latest movements" tone="var(--pill-red)" />
 
-        <Card className="p-[0.7vh]">
-          <PanelHead icon={FileBarChart} color={C.green} title="Monthly Consumption / Issue" />
-          <div className="flex items-center gap-[2vh] text-[1.2vh] text-[var(--dx-t2)] px-[0.6vh] pb-[0.3vh]">
-            <span className="flex items-center gap-[0.5vh]"><span className="w-[1.3vh] h-[1.3vh] rounded-sm shrink-0" style={{ background: "linear-gradient(#60a5fa,#2563eb)" }} />Issued Qty</span>
-            <span className="flex items-center gap-[0.5vh]"><span className="w-[1.8vh] h-[0.4vh] rounded-full shrink-0" style={{ background: C.green }} />Trend</span>
-            {/* Only what this app's issue ledger holds — months before go-live
-                are absent, not zero. */}
-            <span className="ml-auto text-[1.1vh] text-[var(--dx-t4)] truncate">App issue ledger · months with issues</span>
-          </div>
-          <div className="h-[12vh]">
-            {monthlyState !== "ok" ? <PanelState state={monthlyState} onRetry={reload} h="100%" /> : monthlyData.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={monthlyData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0" stopColor="#60a5fa" /><stop offset="1" stopColor="#2563eb" />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
-                  <XAxis dataKey="name" tick={{ fontSize: 13, fill: axisColor }} axisLine={{ stroke: gridColor }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 13, fill: axisColor }} axisLine={false} tickLine={false} width={40} />
-                  <Tooltip />
-                  <Bar dataKey="qty" name="Issued Qty" fill="url(#barGrad)" radius={[5, 5, 0, 0]} barSize={26} isAnimationActive={false} />
-                  <Line type="monotone" dataKey="qty" name="Trend" stroke={C.green} strokeWidth={2.5} dot={{ r: 3, fill: C.green }} isAnimationActive={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-center text-[1.6vh] text-[var(--dx-t4)]">No issue recorded in the app's ledger yet</div>
-            )}
-          </div>
-        </Card>
-      </div>
-
-      {/* ---------- health + dept ---------- */}
-      <div className="grid grid-cols-1 landscape:grid-cols-2 gap-[0.8vh]">
-        <Card className="p-[0.7vh]">
-          <PanelHead icon={HeartMini} color={C.green} title="Stock Health" />
+      {/* ---------- stock health ---------- */}
+        <Card className="min-w-0 p-[0.7vh] order-1 col-span-2 landscape:col-span-1 landscape:order-2">
+          <PanelHead icon={HeartMini} color={C.green} title="Stock Health"
+            note={ovState === "ok" && counted ? `Share of ${fmtInt(counted)} counted parts` : undefined} />
           {/* Shares of the COUNTED parts, all four bands, so they add to 100% —
               a part nobody has counted has no status to judge, and says so. */}
-          {ovState !== "ok" ? <PanelState state={ovState} onRetry={reload} h="11vh" />
-            : !counted ? <PanelState empty="No part counted yet — stock health needs a physical count" h="11vh" />
+          {ovState !== "ok" ? <PanelState state={ovState} onRetry={reload} h="7vh" />
+            : !counted ? <PanelState empty="No part counted yet — stock health needs a physical count" h="7vh" />
               : (
                 <>
-                  <div className="flex items-center justify-around pt-[0.6vh]">
-                    <Gauge w="11.5vh" pct={(healthy / counted) * 100} color={C.green} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
-                    <Gauge w="11.5vh" pct={(reorderN / counted) * 100} color={C.reorder} label="Reorder" sub={`${fmtInt(reorderN)} Parts`} />
-                    <Gauge w="11.5vh" pct={(critical / counted) * 100} color={C.red} label="Critical" sub={`${fmtInt(critical)} Parts`} />
-                    <Gauge w="11.5vh" pct={(excess / counted) * 100} color={C.amber} label="Excess" sub={`${fmtInt(excess)} Parts`} />
-                  </div>
-                  <div className="mt-[0.4vh] text-center text-[1.15vh] text-[var(--dx-t4)]">
-                    Share of {fmtInt(counted)} counted parts
-                    {kpis?.uncounted_parts ? ` · ${fmtInt(kpis.uncounted_parts)} never counted (not judged)` : ""}
+                  <div className="flex items-center justify-around pt-[0.3vh]">
+                    {/* --dx-gauge-w: capped by width in both orientations, so four
+                        gauges fit the full-width wall card and the one-quarter-
+                        width landscape card alike. */}
+                    {/* Each gauge opens the parts in its status (the same rows it counts). */}
+                    <Tap className="min-w-0 rounded-xl px-[0.3vh]" onOpen={openHealthy} label={`Healthy: ${fmtInt(healthy)} parts. Open the list`}>
+                      <Gauge w="var(--dx-gauge-w)" pct={(healthy / counted) * 100} color={STATUS.healthy} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
+                    </Tap>
+                    <Tap className="min-w-0 rounded-xl px-[0.3vh]" onOpen={openReorder} label={`Reorder: ${fmtInt(reorderN)} parts. Open the list`}>
+                      <Gauge w="var(--dx-gauge-w)" pct={(reorderN / counted) * 100} color={STATUS.reorder} label="Reorder" sub={`${fmtInt(reorderN)} Parts`} />
+                    </Tap>
+                    <Tap className="min-w-0 rounded-xl px-[0.3vh]" onOpen={openCritical} label={`Critical: ${fmtInt(critical)} parts. Open the list`}>
+                      <Gauge w="var(--dx-gauge-w)" pct={(critical / counted) * 100} color={C.red} label="Critical" sub={`${fmtInt(critical)} Parts`} />
+                    </Tap>
+                    <Tap className="min-w-0 rounded-xl px-[0.3vh]" onOpen={openExcess} label={`Excess: ${fmtInt(excess)} parts. Open the list`}>
+                      <Gauge w="var(--dx-gauge-w)" pct={(excess / counted) * 100} color={STATUS.above} label="Excess" sub={`${fmtInt(excess)} Parts`} />
+                    </Tap>
                   </div>
                 </>
               )}
         </Card>
 
-        <Card className="p-[0.7vh]">
-          {/* This shift's issues keep a steady place here — a real "0" reads
-              as a reading, "—" when the figure failed — and open the list. */}
-          <PanelHead icon={FileBarChart} color={C.purple} title="Department-wise Issue (This Month)"
-            action={ovState === "loading" ? undefined
-              : `This shift: ${fmtInt(issuedQty)} issued${issuedLines ? ` · ${plural(issuedLines, "line")}` : ""}`}
-            onAction={openTodayIssues} />
-          {deptState !== "ok" ? <PanelState state={deptState} onRetry={reload} h="11vh" /> : (
-            <div className="space-y-[1.1vh] pt-[0.6vh]">
-              {deptData.length ? deptData.map((d) => <DeptBar key={d.name} {...d} />)
-                : <div className="text-[1.5vh] text-[var(--dx-t4)] py-[3vh] text-center">No issue recorded this month</div>}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* ---------- value + excess, side by side ---------- */}
-      <div className="grid grid-cols-1 landscape:grid-cols-2 gap-[0.8vh]">
       {/* ---------- stock value by section ---------- */}
-      <Card className="p-[0.7vh]">
-        <PanelHead icon={Database} color={C.green} title="Stock Value by Section"
+      <Card className="min-w-0 p-[0.7vh] order-2 landscape:order-3">
+        <PanelHead tight icon={Database} color={C.green} title="Stock Value by Section"
           action="View Details" onAction={openStockValue} />
-        {ovState !== "ok" ? <PanelState state={ovState} onRetry={reload} h="12.5vh" /> : valueBySection.length ? (
+        {ovState !== "ok" ? <PanelState state={ovState} onRetry={reload} h="var(--dx-donut)" /> : valueBySection.length ? (
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[12.5vh] h-[12.5vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
+            <div className="w-[var(--dx-donut)] h-[var(--dx-donut)] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(20,120,80,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
@@ -1234,169 +1654,273 @@ export default function TvDashboard() {
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
-              <DonutHub value={fmtMoney(totalStockValue)} label="Total value" size="1.2vh" />
+              <DonutHub value={fmtMoney(totalStockValue)} label="Total value" size="calc(var(--dx-donut) * 0.096)" />
             </div>
-            <div className="flex-1 min-w-0 flex flex-wrap justify-center content-center gap-x-[2.5vh] gap-y-[0.5vh]">
-              {valueBySection.map((c) => (
-                <button key={c.sid ?? "none"} onClick={() => openValueSection(c.sid)}
-                  className="flex items-center gap-[1vh] text-[1.35vh] rounded-md px-[0.5vh] py-[0.2vh] hover:bg-[var(--dx-track)] transition-colors">
-                  <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
-                  <span className="text-left text-[var(--dx-t2)] truncate max-w-[20vh]">{c.name}</span>
-                  <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap shrink-0">{fmtMoney(c.value)}</span>
-                </button>
-              ))}
-              <div className="basis-full text-center text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh]">Tap a section for its parts</div>
-            </div>
+            <DonutLegend note="Tap a section for its parts"
+              items={valueBySection.map((c) => ({ key: c.sid ?? "none", name: c.name, color: c.color, value: fmtMoney(c.value), onClick: () => openValueSection(c.sid) }))} />
           </div>
         ) : (
-          <div className="h-[13vh] flex items-center justify-center text-center text-[1.6vh] text-[var(--dx-t4)]">No valued stock yet — needs a count and a rate</div>
+          <div className="h-[var(--dx-donut)] flex items-center justify-center text-center text-[1.4vh] text-[var(--dx-t4)]">No valued stock yet — needs a count and a rate</div>
         )}
       </Card>
 
-      {/* ---------- excess stock value ---------- */}
-      <Card className="p-[0.7vh]">
-        <PanelHead icon={Boxes} color={C.amber} title="Excess Stock Value"
-          action="View Details" onAction={openExcess} />
-        {rowsState !== "ok" ? <PanelState state={rowsState} onRetry={reload} h="12.5vh" /> : excessSections.length ? (
+      {/* ---------- stock by part type (landscape only — see the note above) ---------- */}
+        <Card className="min-w-0 p-[0.7vh] hidden landscape:block landscape:order-4">
+          <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
+          {rowsState !== "ok" ? <PanelState state={rowsState} onRetry={reload} h="var(--dx-donut)" /> : (
           <div className="flex items-center gap-[1vh]">
-            <div className="w-[12.5vh] h-[12.5vh] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(120,80,20,0.22))" }}>
+            <div className="w-[var(--dx-donut)] h-[var(--dx-donut)] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <defs>
-                    {excessSections.map((c, i) => {
+                    {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => {
                       const g = GRAD[c.color] || [c.color, c.color];
                       return (
-                        <linearGradient key={i} id={`exg-${i}`} x1="0" y1="0" x2="1" y2="1">
+                        <linearGradient key={i} id={`pieg-${i}`} x1="0" y1="0" x2="1" y2="1">
                           <stop offset="0" stopColor={g[0]} /><stop offset="1" stopColor={g[1]} />
                         </linearGradient>
                       );
                     })}
                   </defs>
-                  <Pie data={excessSections} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="92%"
-                    paddingAngle={1} stroke="none" isAnimationActive={false}
-                    onClick={(s) => openExcessSection(s && (s.sid ?? (s.payload && s.payload.sid)))}>
-                    {excessSections.map((c, i) => <Cell key={i} fill={`url(#exg-${i})`} cursor="pointer" />)}
+                  <Pie data={cats.length ? cats : [{ name: "—", value: 1, color: "#e2e8f0" }]} dataKey="value" nameKey="name"
+                    innerRadius="55%" outerRadius="92%" paddingAngle={1} stroke="none" isAnimationActive={false}
+                    onClick={(s) => cats.length && openCat(s && (s.name ?? (s.payload && s.payload.name)))}>
+                    {(cats.length ? cats : [{ color: "#e2e8f0" }]).map((c, i) => <Cell key={i} fill={`url(#pieg-${i})`} cursor={cats.length ? "pointer" : "default"} />)}
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
-              <DonutHub value={fmtMoney(excessValue ?? excessValueRows)} label="Excess Value" size="1.2vh" />
+              <DonutHub value={fmtInt(rows.length)} label="Total Parts" size="calc(var(--dx-donut) * 0.12)" />
             </div>
-            <div className="flex-1 min-w-0 flex flex-wrap justify-center content-center gap-x-[2.5vh] gap-y-[0.5vh]">
-              {excessSections.map((c) => (
-                <button key={c.sid} onClick={() => openExcessSection(c.sid)}
-                  className="flex items-center gap-[1vh] text-[1.35vh] rounded-md px-[0.5vh] py-[0.2vh] hover:bg-[var(--dx-track)] transition-colors">
-                  <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
-                  <span className="text-left text-[var(--dx-t2)] truncate max-w-[20vh]">{c.name}</span>
-                  <span className="dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap shrink-0">{fmtMoney(c.value)}</span>
-                </button>
+            <DonutLegend empty="No parts in this section"
+              items={cats.map((c) => ({ key: c.name, name: c.name, color: c.color, value: fmtInt(c.value), onClick: () => openCat(c.name) }))} />
+          </div>
+          )}
+        </Card>
+
+      {/* ---------- excess aging · tied-up value ---------- */}
+      {/* How long the money above max has sat idle, by the part's last ERP inward
+          (GRN / gate entry). The ERP mirror only reaches back to its horizon, so
+          the last band is "no inward since then" — a floor, not an exact age. */}
+      <Card className="min-w-0 p-[0.7vh] order-3 landscape:order-5">
+        <PanelHead tight icon={Hourglass} color={STATUS.above} title="Excess Aging · Tied-up ₹"
+          action="View Details" onAction={openExcess} />
+        {mgState !== "ok" || !aging ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.6vh" />
+          : !aging.total?.parts ? (
+            <PanelState h="8.6vh" empty={noneCounted || rowsNoneCounted ? "No part counted yet — excess needs a physical count" : "No excess stock — nothing above its maximum"} />
+          ) : (
+            <>
+              {/* The idle money and each band open their excess parts. */}
+              <Tap className="flex items-center gap-[0.8vh] min-w-0 rounded-lg px-[0.3vh] -mx-[0.3vh]"
+                onOpen={() => openAgeBands(["91+", "none"], "Excess Aging — idle 91+ days or no inward")}
+                label={`Idle 91+ days or no inward: ${fmtInt(aging.idle?.parts)} parts, ${fmtMoney(aging.idle?.value)}. Open the list`}>
+                <span className="shrink-0 text-[2.1vh] landscape:text-[2.6vh] font-extrabold leading-none tabular-nums" style={{ color: "var(--pill-red)" }}>{fmtMoney(aging.idle?.value)}</span>
+                <span className="min-w-0 text-[1.05vh] landscape:text-[1.2vh] leading-tight text-[var(--dx-t3)] line-clamp-2">
+                  idle 91+ days or no inward{agingIdlePct != null ? ` · ${agingIdlePct}% of ${fmtMoney(aging.total.value)} above max` : ""}
+                </span>
+              </Tap>
+              <div className="mt-[0.4vh] landscape:mt-[0.7vh] space-y-[0.3vh] landscape:space-y-[0.5vh]">
+                {(aging.buckets || []).map((b) => (
+                  <Tap key={b.key} className="rounded-md px-[0.3vh] -mx-[0.3vh]" onOpen={() => openAgeBands([b.key], ageTitle(b))}
+                    label={`${ageTitle(b)}: ${fmtInt(b.parts)} parts, ${fmtMoney(b.value)}. Open the list`}>
+                    <AgeRow b={b} max={agingMax} since={aging.horizon ? fmtIsoDay(aging.horizon) : null} />
+                  </Tap>
+                ))}
+              </div>
+              <div className="hidden landscape:block mt-[0.6vh] text-[1.1vh] leading-tight text-[var(--dx-t4)] truncate">
+                Age = days since the last ERP inward (GRN / gate){aging.horizon ? ` · ERP history from ${fmtIsoDay(aging.horizon)}` : ""}
+              </div>
+            </>
+          )}
+      </Card>
+
+      {/* ---------- material movement: in vs out ---------- */}
+      {/* Rupees per month. In = what ERP's GRN register received; Out = what the
+          app's issue ledger issued — both at the part's current rate. A month a
+          source does not cover has no bar (it is unknown, not zero). */}
+      <Card className="min-w-0 p-[0.7vh] order-4 landscape:order-7">
+        <PanelHead tight icon={ArrowLeftRight} color={C.green} title="Material In vs Out · ₹"
+          action="Movements" onAction={openMovements} />
+        {mgState !== "ok" || !movement ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.8vh" />
+          : !moveHasData ? <PanelState h="8.8vh" empty="No inward or issue on record yet" />
+            : (
+              <>
+                <div className="flex items-center gap-[1.2vh] text-[1.05vh] landscape:text-[1.2vh] leading-tight text-[var(--dx-t2)] px-[0.4vh] pb-[0.2vh] whitespace-nowrap overflow-hidden">
+                  <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.healthy }} />In<span className="hidden landscape:inline"> · ERP GRN</span></span>
+                  <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.out }} />Out<span className="hidden landscape:inline"> · app issues</span></span>
+                  <span className="ml-auto text-[var(--dx-t4)]">₹ lakh / month</span>
+                </div>
+                <div className="h-[5.9vh] landscape:h-[10.5vh]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    {/* A bar opens that month's In (ERP GRN lines) or Out (issues);
+                        the month itself — its band or its label — opens both. */}
+                    <BarChart data={moveData} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} barGap={2}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+                      {/* An invisible band per month, under the bars: a tap anywhere
+                          in the month's column opens it, with or without a hover first
+                          (the chart's own click knows the month only after a hover). */}
+                      {moveData.map((m) => (
+                        <ReferenceArea key={m.i} x1={m.name} x2={m.name} fill={axisColor} fillOpacity={0} stroke="none"
+                          cursor="pointer" onClick={() => openMonth(m.i, "both")} />
+                      ))}
+                      <XAxis dataKey="name" interval={0} axisLine={{ stroke: gridColor }} tickLine={false} height={Math.round(tickPx * 1.7)}
+                        tick={(p) => <MonthTick {...p} fill={axisColor} fontSize={tickPx} onOpen={openMonthNamed} />} />
+                      <YAxis tick={{ fontSize: tickPx, fill: axisColor }} axisLine={false} tickLine={false} width={Math.round(tickPx * 2.2)}
+                        tickFormatter={(v) => Math.round(v / 1e5)} />
+                      <Tooltip content={<BoardTip fmt={fmtMoney} />} cursor={{ fill: "var(--dx-track)" }} />
+                      <Bar dataKey="in" name="In (ERP GRN)" fill={STATUS.healthy} radius={[4, 4, 0, 0]} maxBarSize={tickPx * 2} isAnimationActive={false}
+                        cursor="pointer" onClick={onMoveBar("in")} activeBar={{ fillOpacity: 0.8, stroke: axisColor, strokeWidth: 1 }} minPointSize={tapSliver} />
+                      <Bar dataKey="out" name="Out (issued)" fill={STATUS.out} radius={[4, 4, 0, 0]} maxBarSize={tickPx * 2} isAnimationActive={false}
+                        cursor="pointer" onClick={onMoveBar("out")} activeBar={{ fillOpacity: 0.8, stroke: axisColor, strokeWidth: 1 }} minPointSize={tapSliver} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="mt-[0.2vh] text-[1.05vh] landscape:text-[1.15vh] leading-tight truncate" style={{ color: movement.issues_recorded ? "var(--dx-t3)" : "var(--pill-amber)" }}>
+                  {movement.issues_recorded ? (
+                    <>
+                      This month:{" "}
+                      {movement.this_month?.in_value != null
+                        ? <Tap className="inline rounded-sm px-[0.2vh]" onOpen={() => openMonth(moveData.length - 1, "in")} label="This month's In (ERP GRN lines). Open the list">in {fmtMoney(movement.this_month.in_value)}</Tap>
+                        : <>in {fmtMoney(movement.this_month?.in_value)}</>}
+                      {" · "}
+                      {movement.this_month?.out_value != null
+                        ? <Tap className="inline rounded-sm px-[0.2vh]" onOpen={() => openMonth(moveData.length - 1, "out")} label="This month's Out (issues). Open the list">out {fmtMoney(movement.this_month.out_value)}</Tap>
+                        : <>out {fmtMoney(movement.this_month?.out_value)}</>}
+                    </>
+                  ) : "No issue recorded in the app yet"}
+                </div>
+              </>
+            )}
+      </Card>
+
+      {/* ---------- department-wise issue ---------- */}
+        <Card className="min-w-0 p-[0.7vh] order-5 landscape:order-8">
+          {/* This shift's issues now have their own tile (Issued Today). */}
+          <PanelHead icon={FileBarChart} color={C.purple} title="Dept. Issue · This Month" />
+          {deptState !== "ok" ? <PanelState state={deptState} onRetry={reload} h="8vh" /> : (
+            <div className="space-y-[0.5vh] landscape:space-y-[0.9vh] pt-[0.3vh]">
+              {/* Top four — the share beside each is still of the WHOLE month. */}
+              {/* Each department opens its issues this month. */}
+              {deptData.length ? deptData.slice(0, 4).map((d) => (
+                <Tap key={d.name} className="rounded-md px-[0.3vh] -mx-[0.3vh]" onOpen={() => openDept(d)}
+                  label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
+                  <DeptBar {...d} />
+                </Tap>
+              ))
+                : <div className="text-[1.4vh] text-[var(--dx-t4)] py-[2.2vh] text-center">No issue recorded this month</div>}
+            </div>
+          )}
+        </Card>
+
+      {/* ---------- barcode & scan discipline ---------- */}
+      {/* Is the store scanning or typing? Counted off the Scan Part page's own
+          audit rows for the last 30 days; a stream nobody has used yet says so
+          ("—") instead of scoring a zero. */}
+      <Card className="min-w-0 p-[0.7vh] order-7 landscape:order-9 flex flex-col">
+        <PanelHead icon={ScanBarcode} color={C.purple} title="Scan Discipline · 30 d" />
+        {mgState !== "ok" || !scan ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.3vh" /> : (
+          <>
+            <div className="grid grid-cols-2 gap-[0.5vh] landscape:flex-1">
+              {/* Each tile opens the scans / issues / put-aways behind it. */}
+              {scanTiles.map((t) => (
+                <Tap key={t.label} onOpen={scanOpen[t.label]} label={`${t.label}: ${t.value}. Open the list`} hover="hover:ring-1 hover:ring-slate-400/60"
+                  className="min-w-0 rounded-xl px-[0.9vh] py-[0.3vh] landscape:px-[1.3vh] flex flex-col justify-center" style={{ background: "var(--dx-track)" }}>
+                  <div className="text-[1.05vh] landscape:text-[1.25vh] leading-tight text-[var(--dx-t3)] truncate">{t.label}</div>
+                  <div className="mt-[0.2vh] landscape:mt-[0.25vh] text-[1.8vh] landscape:text-[2.3vh] font-extrabold leading-none tabular-nums" style={{ color: t.color }}>{t.value}</div>
+                  <div className="hidden landscape:block mt-[0.25vh] text-[1.1vh] leading-tight text-[var(--dx-t4)] truncate">{t.sub}</div>
+                </Tap>
               ))}
-              <div className="basis-full text-center text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh]">Tap a section for its excess parts</div>
             </div>
-          </div>
-        ) : (
-          <div className="h-[13vh] flex items-center justify-center text-center text-[1.6vh] text-[var(--dx-t4)]">
-            {noneCounted || rowsNoneCounted ? "No part counted yet — excess needs a physical count" : "No excess stock — nothing above its maximum"}
-          </div>
+            {/* How the code got in — scanned, typed / searched, or not found;
+                each part of the bar and of its legend opens those scans. */}
+            {scanTotal > 0 && (
+              <div className="hidden landscape:flex mt-[0.6vh] items-center gap-[1.2vh] text-[1.1vh] leading-none text-[var(--dx-t3)] whitespace-nowrap">
+                <div className="flex-1 flex h-[1.2vh] rounded-full overflow-hidden" style={{ background: "var(--dx-track)" }}>
+                  {scanSplit.map((x) => (x.n > 0 ? <div key={x.label} title={`${x.label}: ${x.n}`} onClick={scanOpen[x.label]} className="cursor-pointer hover:brightness-110" style={{ width: `${(x.n / scanTotal) * 100}%`, background: x.color }} /> : null))}
+                </div>
+                {scanSplit.map((x) => (
+                  <Tap key={x.label} onOpen={scanOpen[x.label]} label={`${x.label}: ${fmtInt(x.n)}. Open the list`} className="flex items-center gap-[0.4vh] rounded px-[0.3vh] py-[0.2vh] -my-[0.2vh]">
+                    <span className="w-[0.9vh] h-[0.9vh] rounded-full shrink-0" style={{ background: x.color }} />{x.label} {fmtInt(x.n)}
+                  </Tap>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </Card>
-      </div>
 
       {/* ---------- ERP current stock ---------- */}
-      <Card className="p-[0.7vh]">
-        <PanelHead icon={Database} color={C.cyan} title={`Current Stock — ERP vs Physical${secView ? " (whole store)" : ""}`}
+      <Card className="min-w-0 p-[0.7vh] order-8 landscape:order-10 flex flex-col">
+        <PanelHead tight icon={Database} color={C.cyan} title={`ERP vs Physical${secView ? " (store)" : ""}`}
           action="View Details" onAction={openErpGap} />
         {erpState !== "ok" ? <PanelState state={erpState} onRetry={reload} h="9vh" /> : (
           <>
             {/* Units are summed over the parts in BOTH — an ERP figure and a
                 count — so the two totals describe the same parts. */}
-            <div className="grid grid-cols-2 landscape:grid-cols-4 gap-[0.8vh]">
+            {/* Two by two: the card is half the wall's width and one column
+                of four in landscape. */}
+            <div className="grid grid-cols-2 gap-[0.5vh] landscape:flex-1">
               {[
                 { label: "ERP Stock", value: erpSum.reconciled ? fmtInt(Math.round(erpSum.erp_units)) : "—", sub: `units · ${snapDay ? `${snapDay} snapshot` : "no snapshot"}`, color: C.cyan },
                 { label: "Physical Stock", value: erpSum.reconciled ? fmtInt(Math.round(erpSum.physical_units)) : "—", sub: "units · store count, same parts", color: C.blue },
                 { label: "Match Accuracy", value: erpSum.accuracy_pct != null ? `${erpSum.accuracy_pct}%` : "—", sub: `of ${fmtInt(erpSum.reconciled)} parts in both`, color: C.green },
                 { label: "With Gap", value: erpSum.reconciled ? fmtInt(erpGapCount) : "—", sub: "short / excess vs snapshot", color: C.amber },
               ].map((s) => (
-                <div key={s.label} className="rounded-xl p-[1.3vh]" style={{ background: "var(--dx-track)" }}>
-                  <div className="text-[1.3vh] text-[var(--dx-t3)]">{s.label}</div>
-                  <div className="mt-[0.4vh] text-[2.7vh] font-extrabold leading-none" style={{ color: s.color }}>{s.value}</div>
-                  <div className="mt-[0.3vh] text-[1.15vh] text-[var(--dx-t4)] truncate">{s.sub}</div>
-                </div>
+                // Each tile opens the comparison list, cut to what it counts.
+                <Tap key={s.label} onOpen={erpOpen[s.label]} label={`${s.label}: ${s.value}. Open the list`} hover="hover:ring-1 hover:ring-slate-400/60"
+                  className="min-w-0 rounded-xl px-[0.9vh] py-[0.3vh] landscape:px-[1.3vh] flex flex-col justify-center" style={{ background: "var(--dx-track)" }}>
+                  <div className="text-[1.05vh] landscape:text-[1.25vh] leading-tight text-[var(--dx-t3)] truncate">{s.label}</div>
+                  <div className="mt-[0.2vh] landscape:mt-[0.25vh] text-[1.8vh] landscape:text-[2.3vh] font-extrabold leading-none tabular-nums" style={{ color: s.color }}>{s.value}</div>
+                  {/* the sub-line would only be cut off in the narrow wall tile */}
+                  <div className="hidden landscape:block mt-[0.25vh] text-[1.1vh] leading-tight text-[var(--dx-t4)] truncate">{s.sub}</div>
+                </Tap>
               ))}
             </div>
-            <div className="mt-[1vh] text-[1.25vh] text-[var(--dx-t4)]">
+            <div className="hidden landscape:block mt-[0.5vh] text-[1.1vh] leading-tight text-[var(--dx-t4)] truncate">
               {snapWord
-                ? <>ERP figures are the <span className={snapDays ? "font-semibold text-amber-600" : ""}>{snapWord}</span> — not a live feed</>
+                ? <>ERP = the <span className={snapDays ? "font-semibold text-amber-600" : ""}>{snapWord}</span>, not a live feed</>
                 : "No ERP stock snapshot received yet"}
-              {` · ${fmtInt(erpSum.no_physical)} ERP parts not counted · ${fmtInt(erpSum.not_synced)} counted parts not in the snapshot`}
             </div>
           </>
         )}
       </Card>
 
-      {/* ---------- top critical parts + recent transactions (side by side in landscape) ---------- */}
-      <div className="grid grid-cols-1 landscape:grid-cols-2 gap-[0.8vh]">
-      <Card className="p-[0.7vh]">
-        <PanelHead icon={AlertTriangle} color={C.red} title="Top Critical Parts (Zero / Below Min)"
-          action={critical ? "View All" : undefined} onAction={openCritical} />
-        <div>
-        {ovState !== "ok" ? <PanelState state={ovState} onRetry={reload} h="14vh" /> : (
-        <table className="w-full text-[1.45vh]">
-          <thead>
-            <tr className="text-left text-[1.25vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
-              <th className="py-[0.8vh] pr-[1vh]">#</th><th className="pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
-              <th className="pr-[1vh] text-center">Stock</th><th className="pr-[1vh] text-center">Min</th>
-              <th className="pr-[1vh] text-center">Short By</th><th className="pr-[1vh]">Location</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--dx-divide)]">
-            {topShort.length ? topShort.map((r, i) => (
-              <tr key={r.part_id} onClick={() => openHistory(r)} className="cursor-pointer hover:bg-[var(--dx-track)] transition-colors">
-                <td className="py-[0.9vh] pr-[1vh] text-[var(--dx-t4)]">{i + 1}</td>
-                <td className="pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
-                <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[26vh]">{r.part_name}</td>
-                <td className="pr-[1vh] text-center font-bold text-rose-600">{fmtInt(r.qty_on_hand)}</td>
-                <td className="pr-[1vh] text-center text-[var(--dx-t3)]">{fmtInt(r.min_stock_level)}</td>
-                <td className="pr-[1vh] text-center">
-                  <span className="inline-block rounded-full font-bold px-[1.2vh] py-[0.3vh]" style={{ background: "rgba(244,63,94,0.16)", color: "var(--pill-red)" }}>
-                    {fmtInt(Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0)))}
-                  </span>
-                </td>
-                <td className="pr-[1vh] text-[var(--dx-t3)]">{r.location || "—"}</td>
-              </tr>
-            )) : (
-              <tr>
-                <td colSpan={7} className="py-[3vh] text-center text-[1.5vh] font-semibold">
-                  {noneCounted ? <span className="text-[var(--dx-t4)]">No part counted yet — nothing to judge against Min</span> : (
-                    <span className="inline-flex items-center gap-[0.6vh] text-emerald-600">
-                      <CircleCheck size={18} aria-hidden="true" /> No counted part at zero or below minimum
-                    </span>
-                  )}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      {/* ---------- management action tracker ---------- */}
+      {/* Which problem, how big, how much money, and WHO must act — the same
+          lines, owners and target dates as the app's Action Tracker page. A
+          line opens its list where the board has one. */}
+      <Card className="min-w-0 p-[0.7vh] order-6 col-span-2 landscape:col-span-3 landscape:order-12">
+        <PanelHead icon={ListChecks} color={C.red} title="Management Action Tracker"
+          note={tracker ? `${fmtInt(tracker.summary?.open)} open${tracker.summary?.overdue ? ` · ${fmtInt(tracker.summary.overdue)} overdue` : ""} · worst first` : undefined} />
+        {mgState !== "ok" || !tracker ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="12vh" /> : (
+          <div className="min-w-0">
+            <div className={`${TRK_COLS} px-[0.6vh] pb-[0.3vh] text-[1vh] landscape:text-[1.15vh] font-bold uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]`}>
+              <span>Problem</span><span className="text-right">Count</span><span className="text-right">₹ at stake</span>
+              <span className="hidden landscape:block">Action needed</span><span>Action by</span>
+              <span className="hidden landscape:block">Target</span><span className="text-right">Status</span>
+            </div>
+            {trackerRows.map((it, i) => <TrackerRow key={it.key} it={it} wallHidden={i >= 6} onOpen={trackerOpen[it.key]} />)}
+            {!trackerRows.length && <div className="py-[2.5vh] text-center text-[1.4vh] text-[var(--dx-t4)]">Nothing to track yet</div>}
+          </div>
         )}
-        </div>
       </Card>
 
-      {/* ---------- recent transactions (Live Alerts now runs in the top ticker) ---------- */}
-      <Card className="p-[0.7vh]">
+      {/* ---------- recent transactions (landscape only — on the wall the newest line runs in the ticker) ---------- */}
+      <Card className="min-w-0 p-[0.7vh] hidden landscape:block landscape:order-[13]">
         <PanelHead icon={PackagePlus} color={C.green} title={`Recent Transactions${secView ? " (whole store)" : ""}`} />
         <div>
-        {recentState !== "ok" ? <PanelState state={recentState} onRetry={reload} h="14vh" /> : (
+        {recentState !== "ok" ? <PanelState state={recentState} onRetry={reload} h="10vh" /> : (
         <table className="w-full text-[1.4vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
-              <th className="py-[0.7vh] pr-[1vh]">When</th><th className="pr-[1vh]">Type</th><th className="pr-[1vh]">Part No.</th>
+              <th className="py-[0.4vh] pr-[1vh]">When</th><th className="pr-[1vh]">Type</th><th className="pr-[1vh]">Part No.</th>
               <th className="pr-[1vh] text-center">Qty</th><th className="pr-[1vh]">Dept.</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--dx-divide)]">
-            {recent.slice(0, 6).map((r, i) => {
+            {recent.slice(0, 7).map((r, i) => {
               return (
                 <tr key={i}>
-                  <td className="py-[0.8vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums whitespace-nowrap">{whenOf(r.at || r.created_at)}</td>
+                  <td className="py-[0.4vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums whitespace-nowrap">{whenOf(r.at || r.created_at)}</td>
                   <td className="pr-[1vh]">
                     {/* The drills' colours: an OPENING count is slate, not a green receipt. */}
                     <span className="rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold" style={typeStyle(r.txn_type)}>{r.txn_type}</span>
@@ -1413,14 +1937,13 @@ export default function TvDashboard() {
         )}
         </div>
       </Card>
-      </div>
-
+      </div>{/* /the panels */}
 
       {/* ---------- Explore-Data drill (opens WITHIN the board) ---------- */}
       {stack.length > 0 && (
         <div className="fixed inset-0 z-50 text-[var(--dx-t2)] flex flex-col p-[1.6vh] gap-[1.4vh] overflow-auto" style={{ ...themeVars, background: "var(--dx-board)" }}>
           <div className="rounded-2xl px-[2vh] py-[1.3vh] flex items-center gap-[1.5vh] text-white shrink-0 overflow-hidden"
-            style={{ background: "radial-gradient(640px 260px at 88% -50%, rgba(56,189,248,0.38), transparent 62%), linear-gradient(120deg,#0a2340 0%,#123a6b 50%,#0a2038 100%)", boxShadow: "0 12px 34px rgba(10,32,70,0.38), inset 0 1px 0 rgba(255,255,255,0.08)" }}>
+            style={{ background: "radial-gradient(680px 280px at 88% -50%, rgba(235,10,30,0.28), transparent 62%), linear-gradient(120deg,#0f1f38 0%,#1d4368 50%,#0f1f38 100%)", boxShadow: "0 12px 34px rgba(10,32,70,0.38), inset 0 1px 0 rgba(255,255,255,0.08)" }}>
             <button onClick={() => setStack((s) => s.slice(0, -1))} title="Back"
               className="w-[4.4vh] h-[4.4vh] rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center"><ArrowLeft size={22} /></button>
             <div className="flex-1 flex items-center gap-[1vh] text-[2.1vh] font-bold min-w-0 flex-wrap">
@@ -1460,14 +1983,18 @@ function typeStyle(t) {
   return { background: "rgba(148,163,184,0.18)", color: "var(--pill-slate)" };
 }
 function StatusPill({ status }) {
-  const red = status === "Below Minimum" || status === "Out of Stock";
-  const reorder = status === "Reorder";
-  const amber = status === "Above Maximum";
-  const c = red ? { background: "rgba(244,63,94,0.16)", color: "var(--pill-red)" }
-    : reorder ? { background: "rgba(249,115,22,0.18)", color: "#fb923c" }
-      : amber ? { background: "rgba(245,158,11,0.18)", color: "var(--pill-amber)" }
-        : { background: "rgba(16,185,129,0.18)", color: "var(--pill-green)" };
-  return <span className="rounded-full px-[1vh] py-[0.2vh] text-[1.2vh] font-bold whitespace-nowrap" style={c}>{status || "—"}</span>;
+  // Same status, same colour as the desktop dashboard, via the --pill-* vars so
+  // each stays readable in both the day and night board themes: Out of Stock
+  // rose, Below Minimum amber, Reorder orange, Above Maximum blue, Healthy green,
+  // anything else (incl. Not Counted) slate.
+  const [pill, rgb] = status === "Out of Stock" ? ["red", "244,63,94"]
+    : status === "Below Minimum" ? ["amber", "245,158,11"]
+      : status === "Reorder" ? ["orange", "249,115,22"]
+        : status === "Above Maximum" ? ["blue", "59,130,246"]
+          : status === "Healthy" ? ["green", "16,185,129"]
+            : ["slate", "148,163,184"];
+  return <span className="rounded-full px-[1vh] py-[0.2vh] text-[1.2vh] font-bold whitespace-nowrap"
+    style={{ background: `rgba(${rgb},0.16)`, color: `var(--pill-${pill})` }}>{status || "—"}</span>;
 }
 function Stat({ label, value }) {
   return (
@@ -1479,6 +2006,38 @@ function Stat({ label, value }) {
 }
 // The centre of a donut — a bold gradient number with a soft glow and a small
 // uppercase caption. One style for every donut on the board.
+// The legend beside a donut. A real grid rather than a centred flex-wrap: the
+// swatches line up in columns and the figures line up on the right, so the
+// entries read in order (row by row) instead of every row being centred on its
+// own. Two columns once there are more than three entries; `note` spans the
+// full width underneath. items: [{ key, name, color, value, onClick }].
+function DonutLegend({ items, note, empty }) {
+  // A short legend (three sections or fewer) has long names and long money
+  // figures. On the narrow portrait card those cannot share a line without the
+  // name being cut to "Mainte…", so there each entry is two lines: name, then
+  // figure. Longer legends (part types, landscape only) keep one line per
+  // entry in a single column — two columns cut the longer type names short in
+  // the quarter-width card.
+  const stack = items.length <= 3;
+  return (
+    <div className="flex-1 min-w-0 flex items-center justify-center">
+      <div className={`grid w-full grid-cols-1 max-w-[30vh] gap-y-[0.15vh] ${stack ? "landscape:gap-y-[0.5vh]" : ""}`}>
+        {items.map((it) => (
+          <button key={it.key} type="button" onClick={it.onClick}
+            className={`flex ${stack ? "flex-wrap landscape:flex-nowrap landscape:text-[1.35vh] landscape:leading-normal landscape:py-[0.15vh]" : "landscape:text-[1.25vh] landscape:leading-tight"} items-center gap-x-[0.8vh] min-w-0 text-[1.15vh] leading-[1.12] rounded-md px-[0.5vh] py-[0.1vh] hover:bg-[var(--dx-track)] transition-colors`}>
+            <span className="w-[1.2vh] h-[1.2vh] landscape:w-[1.4vh] landscape:h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(it.color), boxShadow: `0 1px 4px ${it.color}66` }} />
+            <span className={`flex-1 min-w-0 text-left text-[var(--dx-t2)] truncate ${stack ? "basis-[calc(100%-2.2vh)] landscape:basis-0" : ""}`}>{it.name}</span>
+            <span className="ml-auto dx-radiant font-bold text-[var(--dx-t1)] whitespace-nowrap shrink-0 tabular-nums">{it.value}</span>
+          </button>
+        ))}
+        {!items.length && empty && <div className="col-span-full text-center text-[1.5vh] text-[var(--dx-t4)]">{empty}</div>}
+        {/* the hint is a nicety there is no room for on the wall card */}
+        {note && <div className="hidden landscape:block col-span-full text-center text-[1.2vh] leading-tight text-[var(--dx-t4)] pt-[0.2vh]">{note}</div>}
+      </div>
+    </div>
+  );
+}
+
 function DonutHub({ value, label, size = "2.5vh" }) {
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-[0.6vh] text-center">
@@ -1679,7 +2238,9 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
 
 function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
   const part = frame.part || {};
-  const hist = frame.history || [];
+  // Stock movements only: an installation entry in the part's history moves no
+  // stock, so it is neither a "movement" here nor a point on the balance line.
+  const hist = (frame.history || []).filter((h) => h.row_kind !== "installation");
   const chart = hist.slice().reverse().map((h) => ({ d: fmtDay(h.at || h.created_at), bal: Number(h.balance_after ?? 0) }));
   const emptyText = frame.error ? "Couldn't load this part's history — close and tap the part again" : "No movement recorded yet";
   // Still fetching: nothing below may read as "no movement" or "since …" yet.
@@ -1727,7 +2288,7 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
                 <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
                 <XAxis dataKey="d" tick={{ fontSize: 12, fill: axis }} />
                 <YAxis tick={{ fontSize: 12, fill: axis }} width={42} />
-                <Tooltip />
+                <Tooltip content={<BoardTip />} cursor={{ fill: "var(--dx-track)" }} />
                 {part.max_stock_level != null && (
                   <ReferenceLine y={part.max_stock_level} stroke="#d97706" strokeDasharray="6 4" ifOverflow="extendDomain"
                     label={{ value: `Max ${part.max_stock_level}`, position: "right", fill: "#d97706", fontSize: 11, fontWeight: 700 }} />
@@ -1792,7 +2353,7 @@ function TxnListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
                 <XAxis dataKey="name" tick={{ fontSize: 12, fill: axis }} />
                 <YAxis tick={{ fontSize: 12, fill: axis }} width={40} />
-                <Tooltip />
+                <Tooltip content={<BoardTip />} cursor={{ fill: "var(--dx-track)" }} />
                 <Bar dataKey="value" fill="url(#dg-vpurple)" radius={[5, 5, 0, 0]} barSize={26} />
               </BarChart>
             </ResponsiveContainer>
@@ -1868,7 +2429,7 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={grid} />
                 <XAxis type="number" tick={{ fontSize: 12, fill: axis }} />
                 <YAxis type="category" dataKey="name" width={92} tick={{ fontSize: 12, fill: axis }} />
-                <Tooltip />
+                <Tooltip content={<BoardTip />} cursor={{ fill: "var(--dx-track)" }} />
                 <Bar dataKey="value" fill="url(#dg-hcyan)" radius={[0, 6, 6, 0]} barSize={16} />
               </BarChart>
             </ResponsiveContainer>
@@ -2005,7 +2566,9 @@ function SrvListView({ frame }) {
 
 // tiny inline icons used in a couple of panel heads (kept local to avoid more imports)
 function PieChartMini(props) {
-  return <svg viewBox="0 0 24 24" width={props.size || 20} height={props.size || 20} fill="none" stroke={props.style?.color || "currentColor"} strokeWidth="2"><path d="M12 2v10l7 3A10 10 0 1 0 12 2z" /><path d="M12 2a10 10 0 0 1 9 6" /></svg>;
+  // The standard pie-chart glyph: a circle with one wedge lifted out. (The old
+  // hand-drawn paths rendered as a broken "C".)
+  return <svg viewBox="0 0 24 24" width={props.size || 20} height={props.size || 20} fill="none" stroke={props.style?.color || "currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21.21 15.89A10 10 0 1 1 8 2.83" /><path d="M22 12A10 10 0 0 0 12 2v10z" /></svg>;
 }
 function HeartMini(props) {
   return <svg viewBox="0 0 24 24" width={props.size || 20} height={props.size || 20} fill="none" stroke={props.style?.color || "currentColor"} strokeWidth="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>;

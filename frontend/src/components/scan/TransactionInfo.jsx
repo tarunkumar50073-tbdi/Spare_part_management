@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpFromLine, ChevronDown, ChevronRight, ClipboardCheck, Clock, FileCheck2, TriangleAlert, Truck } from "lucide-react";
-import { IssueAge, IssueStatusPill, issueAge, useMinuteClock } from "../spare/IssueLifecycle.jsx";
+import { IssueAge, IssueStatusPill, isAwaitingConfirmation, issueAge, useMinuteClock } from "../spare/IssueLifecycle.jsx";
 import { useCan } from "../Can.jsx";
 import ErpAsOf from "./ErpAsOf.jsx";
 import { fmtDate, num } from "../../lib/format.js";
@@ -21,16 +21,14 @@ const SHOW = 3;
 // checked); POSTED ones are the latest receipts already in store stock.
 const ERP_OPEN = new Set(["QUALITY_PENDING", "WILL_POST", "CHECK"]);
 
-// The issues still waiting for the fitter's Stage-2 confirmation (the statuses
-// the pending_confirmations queue holds). Only these can be overdue: the open
-// issues also carry INSTALLED / PARTIALLY_USED / PARTIALLY_RETURNED ones — out
-// on the line, possibly for weeks, and rightly so.
-const AWAITING_CONFIRMATION = new Set(["ISSUED_BY_STORE", "PENDING_USER_CONFIRMATION"]);
-
 // How long an issue has been out. Amber after two days only while it still
-// waits for confirmation; a fitted part just says when it went out.
+// waits for the fitter's Stage-2 confirmation — the Waiting list's own rule
+// (isAwaitingConfirmation: never confirmed, still out; an issue partly returned
+// before anyone confirmed it waits too). The open issues also carry fitted ones
+// (INSTALLED / PARTIALLY_USED, or confirmed and then partly returned) — out on
+// the line, possibly for weeks, and rightly so: those just say when they went out.
 function IssuedWhen({ issue, now }) {
-  if (AWAITING_CONFIRMATION.has(issue.status)) return <IssueAge at={issue.issued_at} now={now} />;
+  if (isAwaitingConfirmation(issue)) return <IssueAge at={issue.issued_at} now={now} />;
   const age = issueAge(issue.issued_at, now);
   if (!age) return <span className="text-[11px] text-slate-400">Issue time not recorded</span>;
   return (
@@ -275,6 +273,9 @@ export default function TransactionInfo({ scan, canAct, onAction, collapsed = fa
                     {r.expected_return_date ? ` · expected back ${fmtDate(r.expected_return_date)}` : " · no expected return date"}
                     {r.erp_challan_no && ` · ERP challan ${r.erp_challan_no}`}
                   </p>
+                  {r.rework_bin && (
+                    <p className="text-[11px] text-amber-700 dark:text-amber-300">Back to the rework bin {r.rework_bin}</p>
+                  )}
                   {r.overdue && (
                     <p className="mt-0.5 inline-flex items-center gap-1 rounded-md bg-rose-100 px-1.5 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
                       <TriangleAlert size={12} aria-hidden="true" />Overdue — past the expected return date

@@ -107,31 +107,32 @@ def test_alert_set_on_seeded_state(seeded):
     a = _by_id(res)
 
     assert [x["id"] for x in res["alerts"]] == [
-        "zero_stock", f"zero_stock:{p['A'].id}", f"zero_stock:{p['A2'].id}", "below_min",
+        "critical", f"zero_stock:{p['A'].id}", f"zero_stock:{p['A2'].id}",
         "confirm_pending", f"confirm_pending:{pending.id}", "excess", "erp_snapshot_none",
         "erp_write_queue", "missing_rate",
     ]
     # Headlines only: the two zero-stock parts and the one issue listed under
-    # their headlines are detail, not extra alerts.
-    assert res["summary"] == {"critical": 2, "warning": 3, "info": 2, "total": 7}
+    # their headlines are detail, not extra alerts. Zero stock and below
+    # minimum are one critical headline, not two.
+    assert res["summary"] == {"critical": 1, "warning": 3, "info": 2, "total": 6}
     assert res["generated_at"].endswith("+00:00")
     assert {o["type"] for o in res["omitted"]} == {"count_due"}
 
-    z = a["zero_stock"]
-    assert (z["severity"], z["count"], z["part_id"], z["at"]) == ("critical", 2, None, None)
-    assert z["action"] == {"label": "Open list", "to": "/store-stock-spare?status=Out%20of%20Stock",
+    z = a["critical"]
+    assert (z["severity"], z["count"], z["part_id"], z["at"]) == ("critical", 3, None, None)
+    assert z["title"] == "3 parts critical"
+    assert z["action"] == {"label": "Open list", "to": "/store-stock-spare?status=Critical",
                            "module": "store_stock"}
-    assert sec.name in z["message"]                       # the "where"
+    assert z["message"] == f"2 zero stock · 1 below minimum. Top sections: {sec.name} 3."   # split + "where"
 
     # Per-part: dearest restock first; an unrated part says so instead of a price.
     za = a[f"zero_stock:{p['A'].id}"]
-    assert (za["part_id"], za["part_no"], za["parent"], za["severity"]) == (p["A"].id, p["A"].part_no, "zero_stock", "critical")
+    assert (za["part_id"], za["part_no"], za["parent"], za["severity"]) == (p["A"].id, p["A"].part_no, "critical", "critical")
     assert za["value"] == 1000.0 and "₹1,000" in za["message"] and "Restock to max: 10 NO" in za["message"]
+    assert za["title"] == f"Zero stock: {p['A'].part_no}"
+    assert za["action"]["to"] == "/store-stock-spare?status=Out%20of%20Stock"
     za2 = a[f"zero_stock:{p['A2'].id}"]
     assert za2["value"] is None and "no std rate" in za2["message"]
-
-    assert a["below_min"]["severity"] == "critical" and a["below_min"]["count"] == 1
-    assert a["below_min"]["action"]["to"] == "/store-stock-spare?status=Below%20Minimum"
 
     # Only the unconfirmed issue — the installed one is done.
     c = a["confirm_pending"]
@@ -244,7 +245,63 @@ def test_other_counts_reorder_never_counted_missing_max(store):
     assert a["missing_max"]["severity"] == "info" and a["missing_max"]["count"] == 1
     assert "srv_pending" not in a and "receipts_pending" not in a
     assert a["confirm_pending"]["count"] == 1 and "waiting 5 h" in a[next(k for k in a if k.startswith("confirm_pending:"))]["message"]
-    assert "zero_stock" not in a and "below_min" not in a and "excess" not in a
+    assert "critical" not in a and "excess" not in a
+
+
+def test_critical_is_one_headline_for_zero_stock_and_below_minimum(store):
+    s, sec = store
+    others = [Section(store_id=s.id, name=f"Alerts Other {_next()}") for _ in range(3)]
+    db.session.add_all(others)
+    db.session.commit()
+    # Zero stock sits mostly in the three other sections (4 / 3 / 2); the
+    # fixture's section holds one zero-stock part and every below-minimum part.
+    for other, n in zip(others, (4, 3, 2)):
+        for i in range(n):
+            _part(s, other, f"Z{i}", 0, mn=1, mx=5, rate=10)
+    _part(s, sec, "Z", 0, mn=1, mx=5, rate=10)
+    for i in range(4):
+        _part(s, sec, f"B{i}", 1, mn=5, mx=20, rate=10)
+    _part(s, sec, "R", 6, mn=2, mx=12, ro=6, rate=5)               # Reorder: short, but not critical
+
+    service = SpareAlertsService()
+    res = service.alerts(s.code)
+    att = {x["key"]: x for x in service.dashboard.overview(s.code)["attention"]}
+    zero, below = att["zero_stock"]["count"], att["below_min"]["count"]
+    assert (zero, below) == (10, 4)
+
+    head = _by_id(res)["critical"]
+    assert head["count"] == zero + below
+    assert (head["zero_stock"], head["below_min"]) == (zero, below)
+    assert (head["type"], head["severity"], head["parent"]) == ("critical", "critical", None)
+    assert head["title"] == "14 parts critical"
+    # The "where" is the two statuses together: the fixture's section is the
+    # worst (1 + 4) although it is not among the three worst for zero stock,
+    # so adding the overview's two top-three lists would have said 4.
+    assert sec.id not in {x["section_id"] for x in att["zero_stock"]["sections"]}
+    assert head["message"] == (f"10 zero stock · 4 below minimum. Top sections: {sec.name} 5, "
+                               f"{others[0].name} 4, {others[1].name} 3.")
+
+    # No separate zero-stock or below-minimum headline, in id or in type.
+    heads = [x for x in res["alerts"] if x["parent"] is None]
+    assert not {"zero_stock", "below_min"} & ({x["id"] for x in heads} | {x["type"] for x in heads})
+    assert [x["id"] for x in heads if x["severity"] == "critical"] == ["critical"]
+    assert res["summary"]["critical"] == 1
+    # The parts listed are still zero-stock parts, each under the one headline.
+    per_part = [x for x in res["alerts"] if x["type"] == "zero_stock_part"]
+    assert len(per_part) == TOP_ZERO_STOCK and all(x["parent"] == "critical" for x in per_part)
+
+
+def test_below_minimum_alone_still_raises_the_critical_headline(store):
+    s, sec = store
+    _part(s, sec, "B", 1, mn=5, mx=20, rate=10)
+    res = SpareAlertsService().alerts(s.code)
+    head = _by_id(res)["critical"]
+    assert (head["count"], head["zero_stock"], head["below_min"]) == (1, 0, 1)
+    assert head["title"] == "1 part critical"
+    assert head["message"] == f"0 zero stock · 1 below minimum. Top sections: {sec.name} 1."
+    # Nothing at zero stock, so no per-part line under it.
+    assert [x["id"] for x in res["alerts"] if x["parent"] == "critical"] == []
+    assert res["summary"]["critical"] == 1
 
 
 def _doc_no(prefix):
@@ -341,7 +398,7 @@ def test_per_item_alerts_are_capped(store):
     ids = [x["id"] for x in res["alerts"]]
     per_part = [x for x in res["alerts"] if x["type"] == "zero_stock_part"]
     assert [x["part_id"] for x in per_part] == [z.id for z in reversed(zero)][:TOP_ZERO_STOCK]
-    assert _by_id(res)["zero_stock"]["count"] == TOP_ZERO_STOCK + 2
+    assert _by_id(res)["critical"]["count"] == TOP_ZERO_STOCK + 2
 
     per_issue = [x for x in res["alerts"] if x["type"] == "confirm_pending_issue"]
     assert len(per_issue) == MAX_ISSUE_ALERTS
@@ -352,11 +409,11 @@ def test_per_item_alerts_are_capped(store):
     assert f"The {MAX_ISSUE_ALERTS} longest waiting are listed below" in head["message"]
     assert ids.index("confirm_pending") < ids.index(per_issue[0]["id"])
 
-    # The summary does not move with the caps: one zero-stock alert, one
+    # The summary does not move with the caps: one critical alert, one
     # confirmation alert (plus the store's ERP states).
     assert res["summary"] == {"critical": 1, "warning": 2, "info": 1, "total": 4}
     assert {x["id"] for x in res["alerts"] if not x["parent"]} == {
-        "zero_stock", "confirm_pending", "erp_snapshot_none", "erp_write_queue"}
+        "critical", "confirm_pending", "erp_snapshot_none", "erp_write_queue"}
 
 
 # --------------------------------------------------------------- endpoint
@@ -390,7 +447,7 @@ def test_endpoint_is_store_scoped(client, seeded):
     r = c.get(f"/api/v1/spare-alerts?store_code={s.code}")
     assert r.status_code == 200
     body = r.get_json()["data"]
-    assert len(body["alerts"]) == 10 and body["summary"]["total"] == 7
+    assert len(body["alerts"]) == 9 and body["summary"]["total"] == 6
     assert body["store_code"] == s.code
 
 

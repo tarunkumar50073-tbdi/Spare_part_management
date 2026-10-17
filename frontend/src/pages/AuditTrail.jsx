@@ -79,9 +79,9 @@ export default function AuditTrail() {
           ))}
         </select>
         <span className="text-xs font-medium text-slate-500 dark:text-slate-400">From</span>
-        <input type="date" className="input-field" value={filters.dateFrom} max={filters.dateTo || undefined} onChange={(e) => set({ dateFrom: e.target.value })} />
+        <input type="date" className="input-field !w-[150px]" value={filters.dateFrom} max={filters.dateTo || undefined} onChange={(e) => set({ dateFrom: e.target.value })} />
         <span className="text-xs font-medium text-slate-500 dark:text-slate-400">To</span>
-        <input type="date" className="input-field" value={filters.dateTo} min={filters.dateFrom || undefined} onChange={(e) => set({ dateTo: e.target.value })} />
+        <input type="date" className="input-field !w-[150px]" value={filters.dateTo} min={filters.dateFrom || undefined} onChange={(e) => set({ dateTo: e.target.value })} />
         {dirty && <button className="btn-secondary" onClick={() => setFilters(EMPTY)}>Clear</button>}
       </div>
 

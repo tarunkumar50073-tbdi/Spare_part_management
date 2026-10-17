@@ -124,12 +124,13 @@ class GateLabelService:
     @staticmethod
     def _store_parts(store_code):
         """{PART_NO_UPPER: part fields} for the store's active parts."""
-        rows = (db.session.query(Part.id, Part.part_no, Part.part_name, Part.location, Part.uom)
+        rows = (db.session.query(Part.id, Part.part_no, Part.part_name, Part.location,
+                                 Part.uom, Part.specification)
                 .filter(Part.store_code == store_code, Part.is_active.is_(True)))
         return {
             _key(pno): {"part_id": pid, "part_no": pno, "part_name": name,
-                        "location": _clean(location), "uom": uom}
-            for pid, pno, name, location, uom in rows if _key(pno)
+                        "location": _clean(location), "uom": uom, "specification": _clean(spec)}
+            for pid, pno, name, location, uom, spec in rows if _key(pno)
         }
 
     @staticmethod
@@ -193,7 +194,7 @@ class GateLabelService:
             copies, capped = default_copies(it["qty"])
             items.append({
                 "part_id": it["part_id"], "part_no": it["part_no"], "part_name": it["part_name"],
-                "location": it["location"], "uom": it["uom"],
+                "location": it["location"], "uom": it["uom"], "specification": it.get("specification"),
                 "qty": float(it["qty"]) if it["qty"] is not None else None,
                 "default_copies": copies, "copies_capped": capped,
                 "printed_copies": printed.get((no, it["part_id"]), 0),

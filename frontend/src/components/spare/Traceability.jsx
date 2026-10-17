@@ -44,7 +44,8 @@ const LEDGER_EVENT = {
 // Stock-ins of the QR flow are RECEIPT / RETURN rows told apart by their
 // status (models/spare_stock.py): the accepted qty of a quality clearance, an
 // RGP GRN, a return inspected good. Named for what happened, so none of them
-// reads as a plain "Received" / "Returned".
+// reads as a plain "Received" / "Returned". A return taken straight back into
+// stock (store rule, 14 Oct 2026) arrives with no status and reads "Returned".
 const BY_STATUS = {
   RECEIPT: {
     STOCK_AVAILABLE: { label: "Quality cleared", icon: ShieldCheck, tone: PILL.green },

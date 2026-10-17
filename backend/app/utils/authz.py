@@ -10,8 +10,10 @@ caller onto ``g``:
 These helpers turn that identity into per-route authorization. Two callers
 matter: a person in the browser (a User with a role and a set of stores) and
 the ERP push (a trusted machine with the shared key and no user). The machine
-is trusted end-to-end, so every check below lets it through; the rules bite
-only signed-in people (audit finding AUTHZ-1).
+is trusted for the data it pushes, so the role, rights and store checks below
+let it through and bite only signed-in people (audit finding AUTHZ-1). The
+exception is the two signed_in_* guards: they mark the routes the shared key
+must not drive at all — the mail settings, who the mails go to, and sending one.
 """
 from functools import wraps
 
@@ -69,6 +71,32 @@ def permission_required(module, action="view"):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def signed_in_required(fn):
+    """For routes the shared key must not drive (the mail server settings, a
+    test mail, the recipient and department masters, the reorder mail's "send
+    now"): the caller must be a signed-in person, never the machine key alone.
+    It does not decide what that person may do — stack it under the
+    @admin_required / @permission_required that does."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if current_user() is None:
+            raise ForbiddenError("Sign in to do this — the machine key (X-API-Key) is not accepted for this action")
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def signed_in_admin_required(fn):
+    """For routes that change the mail module: a person signed in as an
+    administrator, never the machine key alone. Stack it under @admin_required."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        user = current_user()
+        if user is None or not user.is_admin:
+            raise ForbiddenError("Sign in as an administrator to change the mail engine")
+        return fn(*args, **kwargs)
+    return wrapper
 
 
 def machine_required(fn):

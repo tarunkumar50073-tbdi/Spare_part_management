@@ -415,10 +415,11 @@ def test_timeline_merges_every_source_newest_first_without_duplicates():
     assert scan_tl["rows"] == rows[:30] and scan_tl["has_more"] is False
 
 
-def test_waiting_notes_hold_only_while_the_document_still_waits():
+def test_waiting_notes_hold_only_while_the_document_still_waits(waiting_return):
     """RETURN_TO_STORE / RGP_RETURN rows say "waiting for …" only while that is
     still true — never under the inspection / RGP GRN rows that settled it.
-    Driven through the real services end to end."""
+    Driven through the real services end to end, from a return recorded
+    before the store's no-inspection rule and still waiting."""
     p = _part(location="A1-03")
     SpareStockService().set_quantity(p.id, 3, txn_type="OPENING")
     scan = ScanResultService()
@@ -431,15 +432,17 @@ def test_waiting_notes_hold_only_while_the_document_still_waits():
         return row(kind, nth)["detail"] or ""
 
     iss = _issue(p, 3)
-    ret = SpareReturnService().return_to_store(iss.id, 3, reason="Fitment Issue", user="store1")
+    ret = waiting_return(iss.id, 3, user="store1")
     assert "Waiting for store inspection" in detail("RETURN_TO_STORE")
-    SpareReturnService().inspect(ret["id"], "GOOD", 1, user="store1")
+    assert row("RETURN_TO_STORE")["title"] == "Returned to store – Fitment Issue"
+    SpareReturnService().inspect(ret.id, "GOOD", 1, user="store1")
     assert "2 of 3 still waiting for store inspection" in detail("RETURN_TO_STORE")
-    SpareReturnService().inspect(ret["id"], "DAMAGED", 2, user="store1")
+    assert row("RETURN_INSPECTION")["title"] == "Return inspected – Good / Reusable"
+    SpareReturnService().inspect(ret.id, "DAMAGED", 2, user="store1")
     assert "waiting" not in detail("RETURN_TO_STORE").lower()
 
     rgps = SpareRgpService()
-    g = rgps.rgp_out(ret["id"], 2, ven_name="ABC Engineering", supplier_source="NAME_ONLY",
+    g = rgps.rgp_out(ret.id, 2, ven_name="ABC Engineering", supplier_source="NAME_ONLY",
                      rework_reason="Re-machining", user="store1")
     rgps.supplier_return(g["id"], 1, user="store1")
     rgps.supplier_return(g["id"], 1, user="store1")
@@ -456,19 +459,57 @@ def test_waiting_notes_hold_only_while_the_document_still_waits():
     assert [r["title"] for r in rows].count("Added to store stock") == 3   # GOOD, 2 RGP GRNs
 
 
-def test_rgp_return_partly_covered_by_its_grn_says_how_much_still_waits():
+def test_rgp_return_partly_covered_by_its_grn_says_how_much_still_waits(waiting_return):
     p = _part()
     SpareStockService().set_quantity(p.id, 3, txn_type="OPENING")
     iss = _issue(p, 3)
-    ret = SpareReturnService().return_to_store(iss.id, 3, reason="Fitment Issue", user="store1")
-    SpareReturnService().inspect(ret["id"], "DAMAGED", 3, user="store1")
+    ret = waiting_return(iss.id, 3, user="store1")
+    SpareReturnService().inspect(ret.id, "DAMAGED", 3, user="store1")
     rgps = SpareRgpService()
-    g = rgps.rgp_out(ret["id"], 3, ven_name="ABC Engineering", supplier_source="NAME_ONLY",
+    g = rgps.rgp_out(ret.id, 3, ven_name="ABC Engineering", supplier_source="NAME_ONLY",
                      rework_reason="Re-machining", user="store1")
     rgps.supplier_return(g["id"], 3, user="store1")
     rgps.rgp_grn(g["id"], 1, "GRN-P1", user="sup")
     row = next(r for r in ScanResultService().timeline(p.id)["rows"] if r["kind"] == "RGP_RETURN")
     assert row["detail"] == "2 of 3 still waiting for the RGP GRN — not in store stock yet"
+
+
+def test_return_taken_straight_back_is_one_event():
+    """The store's rule (14 Oct 2026): a return goes straight back into stock.
+    The timeline shows it as ONE event — "Returned to stock – <reason>", who
+    brought it, how many, the +qty — never a separate "Return inspected" or
+    "Added to store stock" row; a second return of the rest is its own event."""
+    p = _part(location="A1-03")
+    SpareStockService().set_quantity(p.id, 5, txn_type="OPENING")
+    iss = _issue(p, 3, issued_to="Tarun")                          # 2 left
+    returns = SpareReturnService()
+    first = returns.return_to_store(iss.id, 2, reason="Excess / Not Required",
+                                    returned_by="Tarun", user="store1")
+    returns.return_to_store(iss.id, 1, reason="Wrong Part", user="store2")
+
+    rows = ScanResultService().timeline(p.id)["rows"]
+    assert [r["title"] for r in rows] == [
+        "Returned to stock – Wrong Part",
+        "Returned to stock – Excess / Not Required",
+        "Issued to Maintenance",
+        "Opening stock",
+    ]
+    assert not [r for r in rows if r["kind"] in ("RETURN_INSPECTION", "STOCK_AVAILABLE")]
+    assert not any("inspect" in ((r["title"] or "") + (r["detail"] or "")).lower() for r in rows)
+    rest, back = rows[0], rows[1]
+    assert back["kind"] == "RETURN_TO_STORE" and back["return_no"] == first["return_no"]
+    assert (back["qty"], back["qty_delta"], back["user"]) == (2.0, 2.0, "store1")
+    assert back["detail"] == "From Maintenance · By Tarun · 4 available after this"
+    assert (back["prev_status"], back["new_status"]) == ("PENDING_USER_CONFIRMATION", "PARTIALLY_RETURNED")
+    assert (rest["qty_delta"], rest["detail"]) == (1.0, "From Maintenance · 5 available after this")
+    # Every positive stock change adds up to what came back — once each.
+    assert sum(r["qty_delta"] for r in rows
+               if r["qty_delta"] and r["qty_delta"] > 0 and r["kind"] != "OPENING") == 3
+
+    scan = ScanResultService().build(p.id)
+    assert scan["buckets"]["available"] == 5.0 and scan["buckets"]["return_pending"] == 0
+    assert scan["open_returns"] == [] and scan["timeline"]["rows"] == rows
+    assert not _acts(scan)["INSPECT"]["enabled"]
 
 
 def test_timeline_pages_with_has_more():

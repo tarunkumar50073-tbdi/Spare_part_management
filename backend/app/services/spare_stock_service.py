@@ -37,6 +37,16 @@ FIELD_ALIASES = {
 }
 REQUIRED_FIELDS = ["part_no", "qty_on_hand"]
 
+# The ERP side of ERP-vs-Physical is normally the ERP feed; until the ERP API is
+# connected it can be loaded from an Excel (Part No + ERP Qty). These mirror the
+# physical-import aliases for that sheet.
+ERP_FIELD_ALIASES = {
+    "part_no": {"partno", "partnumber", "itemcode", "itemno"},
+    "erp_qty": {"erpqty", "erpstock", "erpquantity", "erponhand", "qty", "quantity", "stock"},
+}
+ERP_REQUIRED_FIELDS = ["part_no", "erp_qty"]
+ERP_TEMPLATE_COLUMNS = ["Part No", "Part Name", "ERP Qty"]
+
 # A short-lived cache for the whole-store stock list. One dashboard refresh fires
 # list + summary + analytics, which each rebuild list_stock over every part; the
 # combined "all sections" view makes that ~4,800 rows built three times. Caching
@@ -85,7 +95,211 @@ def _stock_build_lock(key):
 # Consumption. Recorded on every ISSUE.
 DEPARTMENTS = ("Press Shop", "Maintenance", "Tool Room")
 
+
+def _sec_tuple(section_id=None, section_ids=None):
+    """Extra WHERE clause(s) to scope a ledger query to a section group
+    (section_ids), a single section, or the whole store (neither). A group wins
+    over a single section — the same precedence list_stock uses. Splat into
+    .filter(): `.filter(..., *_sec_tuple(section_id, section_ids))`."""
+    from app.models.part import Part
+    if section_ids:
+        return (Part.section_id.in_(list(section_ids)),)
+    if section_id:
+        return (Part.section_id == section_id,)
+    return ()
+
+
+def _part_in_scope(part, section_id=None, section_ids=None):
+    """In-memory counterpart of _sec_tuple for filtering hydrated rows: True if
+    the part is within the section group, the one section, or (neither) the
+    whole store."""
+    if section_ids:
+        return bool(part) and part.section_id in section_ids
+    if section_id:
+        return bool(part) and part.section_id == section_id
+    return True
+
+
+# The consumption figures here — the dashboard's donuts, trend and Top
+# Consumed, the TV board's departments and its month total, the consumption
+# Excel — follow the Consumption screen's rules (consumption_analytics_service),
+# so they add up to its table's Total for the same days: a cancelled issue was
+# not consumed, and a day / month is a plant-clock one.
+
+def _not_cancelled():
+    """WHERE clause: the issue was not cancelled — a cancelled issue was not consumed."""
+    from sqlalchemy import or_
+    from app.models.spare_stock import SpareStockLedger
+    return or_(SpareStockLedger.status.is_(None), SpareStockLedger.status != "CANCELLED")
+
+
+# An ISSUE waiting for Confirm Installation (Stage 2) — the ONE rule behind the
+# Waiting list, the Work Queue, the alerts bell, the dashboard tile, the
+# management board and its attention pop-up. The store's complaint (16 Oct
+# 2026, "Waiting list wali kami theek karo"): an issue nobody had confirmed yet
+# that was PARTLY returned turned PARTIALLY_RETURNED and dropped off the Waiting
+# list, although the rest was still out with the user and never confirmed. So
+# PARTIALLY_RETURNED waits too — but only while never confirmed (a confirmed
+# issue partly returned is fitted, not waiting) and while something of it is
+# still out. CANCELLED / RETURNED / INSTALLED / PARTIALLY_USED are not listed,
+# so they never wait.
+AWAITING_CONFIRMATION_STATUSES = ("ISSUED_BY_STORE", "PENDING_USER_CONFIRMATION", "PARTIALLY_RETURNED")
+
+
+def awaiting_confirmation_clause():
+    """SQL WHERE for "this ledger row is an issue awaiting confirmation": an
+    ISSUE, never confirmed (confirmed_at IS NULL), status in
+    AWAITING_CONFIRMATION_STATUSES (so not cancelled), with quantity still out
+    — issued - returned > 0, returned counted exactly as _returned_qty_map
+    counts it (every return document against the issue, plus legacy direct
+    RETURN rows that are not a GOOD inspection's own row). Correlated on
+    SpareStockLedger, so use it in a query whose FROM has that table:
+    `.filter(awaiting_confirmation_clause())`."""
+    from sqlalchemy import and_, func, or_, select
+    from sqlalchemy.orm import aliased
+    from app.models.spare_flow import SpareReturn
+    from app.models.spare_stock import SpareStockLedger as L
+    back = aliased(L)
+    returned_docs = (select(func.coalesce(func.sum(SpareReturn.qty), 0))
+                     .where(SpareReturn.issue_id == L.id)
+                     .correlate(L).scalar_subquery())
+    returned_legacy = (select(func.coalesce(func.sum(func.abs(back.qty_delta)), 0))
+                       .where(back.return_of_id == L.id, back.txn_type == "RETURN",
+                              or_(back.status.is_(None), back.status != RETURN_ROW_INSPECTED))
+                       .correlate(L).scalar_subquery())
+    still_out = func.round(func.abs(L.qty_delta) - returned_docs - returned_legacy, 2) > 0
+    return and_(L.txn_type == "ISSUE", L.confirmed_at.is_(None),
+                L.status.in_(AWAITING_CONFIRMATION_STATUSES), still_out)
+
+
+def _plant_clock():
+    """(the plant clock's UTC offset, today on it). created_at is stored in UTC:
+    cut on the UTC date, an issue made 00:00-05:30 counts on the day before."""
+    from app.services.consumption_analytics_service import _local_offset, _utc_naive
+    offset = _local_offset()
+    return offset, (_utc_naive(utcnow()) + offset).date()
+
+
+def _plant_key(fmt, column, offset):
+    """SQL: strftime(fmt) of a stored UTC timestamp read on the plant clock — a
+    plant day / month / year to GROUP BY (SQLite's minutes modifier)."""
+    from sqlalchemy import func
+    return func.strftime(fmt, column, f"{int(offset.total_seconds() // 60):+d} minutes")
+
+
 TEMPLATE_COLUMNS = ["Part No", "Part Name", "Qty On Hand"]
+
+# The stock template's stamp (store, 16 Oct 2026, "Chhote data fix"). Download
+# Template is pre-filled with TODAY's stock, so an OLD copy uploaded again would
+# silently put back figures that issues / receipts have moved since, and mark
+# them counted. Each pre-filled template therefore carries the moment it was
+# made, on a hidden sheet the importer never mistakes for data (no Part No /
+# Qty header on it), and the upload refuses — row by row — a figure for a part
+# that moved after that moment and no longer matches today's stock. A file with
+# no stamp (an older template, the store's own sheet, a CSV) imports as before.
+TEMPLATE_META_SHEET = "_meta"
+TEMPLATE_STAMP_KEY = "template_made_at_utc"
+# A movement written a moment before the template read the stock may commit
+# just after it (its created_at is set at INSERT, before COMMIT): such a figure
+# would be stale, yet older than the stamp. A few seconds' allowance treats it
+# as "moved since" — the conservative side.
+TEMPLATE_STAMP_ALLOWANCE = timedelta(seconds=5)
+
+
+def _plant_text(ts):
+    """A stored UTC moment as the plant reads it — "16 Oct 2026 14:05"."""
+    from app.services.consumption_analytics_service import _local_offset, _utc_naive
+    ts = _utc_naive(ts)
+    return (ts + _local_offset()).strftime("%d %b %Y %H:%M") if ts else None
+
+
+def _template_tag(made_at):
+    """The reference an upload of ONE stamped template writes on its OPENING
+    rows: "Stock template 16 Oct 2026 09:39:12" (when that template was made,
+    plant time to the second — it also reads as the document in the part's
+    history). Loading a physical count is upload, spot a typo, fix it in the
+    same file, upload again: the second upload must not take the first one's
+    own rows for "stock moved since this template was made" (review, 16 Oct
+    2026). Only rows carrying THIS template's tag are passed over — an issue /
+    receipt / return in between still counts, and so does the upload of any
+    other template (a newer one's rows stop an older copy, the cautious side).
+    Two templates made in the same second hold the same figures, so sharing a
+    tag does them no harm."""
+    from app.services.consumption_analytics_service import _local_offset, _utc_naive
+    return f"Stock template {_utc_naive(made_at) + _local_offset():%d %b %Y %H:%M:%S}"
+
+
+def _stamped_template(columns, rows, made_at):
+    """build_export's workbook — the same formatted data sheet, first — plus
+    the hidden TEMPLATE_META_SHEET holding `made_at` (UTC, ISO text so a
+    re-save in Excel keeps it as written)."""
+    import io
+    from openpyxl import Workbook
+    from app.utils.excel_io import _append_safe_row, format_table
+    wb = Workbook()
+    ws = wb.active
+    ws.append([label for label, _ in columns])
+    for row in rows:
+        _append_safe_row(ws, [row.get(key, "") for _, key in columns])
+    format_table(ws)
+    meta = wb.create_sheet(TEMPLATE_META_SHEET)
+    # Nothing on this sheet reads as a Part No / Qty header, so read_rows never
+    # takes it for the data sheet (or calls the workbook ambiguous).
+    meta.append([TEMPLATE_STAMP_KEY, made_at.isoformat()])
+    meta.append(["made_at_plant_time", _plant_text(made_at)])
+    meta.append(["note", "The app reads this sheet to spot an old copy of the template. Do not edit it."])
+    meta.sheet_state = "hidden"
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def _parse_stamp(value):
+    """The stamp cell as a naive UTC datetime, or None when it is missing or
+    unreadable (then the file imports as one with no stamp)."""
+    from app.services.consumption_analytics_service import _utc_naive
+    if isinstance(value, datetime):
+        return _utc_naive(value)
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return _utc_naive(datetime.fromisoformat(text))
+    except ValueError:
+        return None
+
+
+def _template_stamp(data):
+    """When the uploaded stock template was made (naive UTC), read off its
+    hidden TEMPLATE_META_SHEET; None for a file without one. Never raises: a
+    file this cannot open is left to bulk_import, which reports it properly."""
+    import io
+    from app.utils.excel_io import sheets_from_upload
+    rows = None
+    try:
+        if data.startswith(b"PK\x03\x04"):
+            # Read-only: only the small stamp sheet is parsed, not the 4,800 rows.
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+            try:
+                if TEMPLATE_META_SHEET in wb.sheetnames:
+                    rows = list(wb[TEMPLATE_META_SHEET].iter_rows(max_row=10, values_only=True))
+            finally:
+                wb.close()
+        elif data.startswith(b"\xd0\xcf\x11\xe0"):
+            # The template re-saved as an old .xls keeps its hidden sheet.
+            for name, make_rows in sheets_from_upload(io.BytesIO(data)):
+                if name == TEMPLATE_META_SHEET:
+                    rows = [r for _, r in zip(range(10), make_rows())]
+                    break
+    except Exception:  # noqa: BLE001 - an unreadable file is bulk_import's to report
+        return None
+    for row in rows or ():
+        if row and len(row) >= 2 and str(row[0] or "").strip() == TEMPLATE_STAMP_KEY:
+            return _parse_stamp(row[1])
+    return None
+
 
 EXPORT_COLUMNS = [
     ("Part No", "part_no"), ("Part Name", "part_name"), ("Location", "location"),
@@ -316,7 +530,12 @@ class SpareStockService:
         moved to a machine with no die must not keep showing the old die, and
         a wrongly entered line or machine must be removable. Status follows the
         latest update: INSTALLED when everything still out was used, else
-        PARTIALLY_USED. No stock moves — the quantity left available at issue."""
+        PARTIALLY_USED. No stock moves — the quantity left available at issue.
+
+        An issue partly returned before anyone confirmed it (PARTIALLY_RETURNED,
+        still on the Waiting list — store, 16 Oct 2026) is confirmed the same
+        way: the used quantity is capped at what is still out, and the status
+        moves on to INSTALLED / PARTIALLY_USED, which takes it off the list."""
         from app.models.spare_stock import SpareStockLedger
         row = self.ledger_repo.get_by_id(ledger_id)
         if not row or row.txn_type != "ISSUE":
@@ -341,9 +560,12 @@ class SpareStockService:
             if outstanding <= 0:
                 raise BadRequestError("Nothing of this issue is still out — it has all been returned")
             used = outstanding if actual_qty is None else round(float(actual_qty), 2)
-            if used < 0 or used > outstanding:
+            # A part that was not fitted is not installed (the store's rule, 14 Oct
+            # 2026): nothing used is refused — it stays under Waiting, or comes back.
+            if used <= 0 or used > outstanding:
                 raise BadRequestError(
-                    f"Actual usage must be between 0 and {outstanding:g} (still out on this issue)")
+                    f"Used quantity must be more than 0 and at most {outstanding:g} (still out on this issue). "
+                    "A part that was not fitted is not installed — leave it under Waiting, or return it to the store.")
             prev_status = row.status
             new_status = "INSTALLED" if used >= outstanding else "PARTIALLY_USED"
             # Resolved after the re-read, so a field kept is the value committed
@@ -404,34 +626,174 @@ class SpareStockService:
             "old_location": old_location, "new_location": new_location,
         }
 
+    def lot_qty(self, gate_entry_no, part_no):
+        """Lot quantity on a gate-entry line — the gate qty SUMMED for this part on
+        this gate entry (one entry can carry several parts, and a part several
+        rows). `item_code` on GateEntry is the ERP Item Code = Part No., matched
+        case-blind; the gate entry no is trimmed (as the lot tag is built). Used by
+        the Put-away Check screen to show the lot qty. Returns a float, or None
+        when nothing matches (e.g. a plain part QR with no gate entry)."""
+        from sqlalchemy import func
+        from app.models.gate_entry import GateEntry
+        ge = (gate_entry_no or "").strip()
+        pn = (part_no or "").strip()
+        if not ge or not pn:
+            return None
+        total = db.session.query(func.sum(GateEntry.qty)).filter(
+            func.trim(GateEntry.gate_entry_no) == ge,
+            func.upper(GateEntry.item_code) == pn.upper(),
+        ).scalar()
+        return float(total) if total is not None else None
+
+    def record_put_away(self, part, scanned_location, gate_entry_no=None, user=None):
+        """Record a confirmed put-away: the material was physically shelved in one
+        of the part's bins — its fresh location or, when it has one, its rework
+        location. Verifies the scanned location is one of them (the screen only
+        offers Confirm on a match, but guard here too), captures the lot qty from
+        the gate entry when a lot tag was scanned, and stamps who/when. Writes a
+        PutAwayLog row whose assigned_location is the bin that matched; stock is
+        NOT moved (the part already carries its locations). Returns the saved
+        record — location_kind is "fresh" / "rework" for a two-bin part."""
+        from app.models.put_away_log import PutAwayLog
+        from app.utils.bin_location import bins_text, match_bin, part_bins
+        bins = part_bins(part.location, part.rework_location)
+        scanned = (scanned_location or "").strip()
+        if not bins:
+            raise BadRequestError("Part has no assigned location")
+        if not scanned:
+            raise BadRequestError("Scanned location is required")
+        # A bare bin QR matches at bin level, a slot "(n)" only that exact slot
+        # (case and spaces ignored) — the same rule as the screen.
+        matched = match_bin(scanned, bins)
+        two_bins = any(kind == "rework" for kind, _ in bins)
+        if not matched:
+            raise BadRequestError(
+                f"Scanned location is neither of the part's bins — {bins_text(bins)}" if two_bins
+                else "Scanned location does not match the part's assigned location")
+        kind, assigned = matched
+        ge = (gate_entry_no or "").strip() or None
+        qty = self.lot_qty(ge, part.part_no) if ge else None
+        now = utcnow()
+        log = PutAwayLog(
+            part_id=part.id, part_no=part.part_no,
+            assigned_location=assigned, scanned_location=scanned,
+            gate_entry_no=ge, qty=(round(qty, 2) if qty is not None else None),
+            section_id=part.section_id, store_code=part.store_code,
+            put_by=user, confirmed_at=now,
+        )
+        with atomic():
+            db.session.add(log)
+        return {
+            "id": log.id, "part_id": part.id, "part_no": part.part_no, "part_name": part.part_name,
+            "location": assigned, "location_kind": kind if two_bins else None,
+            "scanned_location": scanned,
+            "gate_entry_no": ge, "qty": (float(qty) if qty is not None else None),
+            "uom": part.uom, "put_by": user, "confirmed_at": now.isoformat(),
+        }
+
+    def _waiting_rows(self, rows):
+        """Issue rows of the Waiting list, each with what came back and what is
+        still out (returned_qty / outstanding_qty, the _returned_qty_map rule):
+        an issue partly returned before anyone confirmed it reads "Qty 3 · 1
+        returned · 2 still out", and the fitter confirms only the 2."""
+        returned = self._returned_qty_map([r.id for r in rows])
+        out = []
+        for r in rows:
+            d = self._issue_row_dict(r)
+            back = returned.get(r.id, 0.0)
+            d.update({"issued_qty": d["qty"], "returned_qty": back,
+                      "outstanding_qty": round(d["qty"] - back, 2)})
+            out.append(d)
+        return out
+
     def pending_confirmations(self, store_code, limit=None):
         """ISSUE rows awaiting Stage-2 user confirmation (line/machine/install),
-        newest first — the queue a user works through by re-scanning."""
+        newest first — the queue a user works through on Confirm Installation.
+        Which rows wait is awaiting_confirmation_clause, the rule every count of
+        this queue uses."""
         from app.models.spare_stock import SpareStockLedger
         q = (
             db.session.query(SpareStockLedger)
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(
-                Part.store_code == store_code,
-                SpareStockLedger.txn_type == "ISSUE",
-                SpareStockLedger.status.in_(("PENDING_USER_CONFIRMATION", "ISSUED_BY_STORE")),
-            )
+            .filter(Part.store_code == store_code, awaiting_confirmation_clause())
             .order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc())
         )
         if limit:
             q = q.limit(limit)
-        return [self._issue_row_dict(r) for r in q.all()]
+        return self._waiting_rows(q.all())
 
     def pending_confirmations_for_part(self, part_id):
         from app.models.spare_stock import SpareStockLedger
         rows = (
             SpareStockLedger.query.filter(
                 SpareStockLedger.part_id == part_id,
-                SpareStockLedger.txn_type == "ISSUE",
-                SpareStockLedger.status.in_(("PENDING_USER_CONFIRMATION", "ISSUED_BY_STORE")),
+                awaiting_confirmation_clause(),
             ).order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc()).all()
         )
-        return [self._issue_row_dict(r) for r in rows]
+        return self._waiting_rows(rows)
+
+    def installations(self, store_code, q=None, limit=200):
+        """Issues fitted on the line: every ISSUE of the store's parts that has
+        been through Confirm Installation at least once (confirmed_at set) and
+        is not cancelled, newest confirmation first — what leaves the
+        confirmation queue once confirmed. The ISSUE row carries the CURRENT
+        line / machine / die, usage and status (an update is the repeatable
+        confirm_installation); returned / outstanding follow the one "still
+        out" rule (_returned_qty_map). `q` matches part no / name, issued to,
+        mobile, department, line name / no and machine, case-blind. `limit`
+        defaults to 200, at most 1000."""
+        from sqlalchemy import or_
+        from sqlalchemy.orm import contains_eager
+        from app.models.spare_stock import SpareStockLedger as L
+        query = (
+            db.session.query(L)
+            .join(L.part)
+            .options(contains_eager(L.part))
+            .filter(
+                Part.store_code == store_code,
+                L.txn_type == "ISSUE",
+                L.confirmed_at.isnot(None),
+                or_(L.status.is_(None), L.status != "CANCELLED"),
+            )
+        )
+        q = _clean(q)
+        if q:
+            query = query.filter(or_(*(col.icontains(q, autoescape=True) for col in (
+                Part.part_no, Part.part_name, L.issued_to, L.issued_to_mobile,
+                L.department, L.line_name, L.line_no, L.machine))))
+        limit = max(1, min(int(limit or 200), 1000))
+        rows = query.order_by(L.confirmed_at.desc(), L.id.desc()).limit(limit).all()
+        returned = self._returned_qty_map([r.id for r in rows])
+        out = []
+        for r in rows:
+            issued = abs(float(r.qty_delta))
+            back = returned.get(r.id, 0.0)
+            out.append({
+                "id": r.id,
+                "part_id": r.part_id,
+                "part_no": r.part.part_no,
+                "part_name": r.part.part_name,
+                "issued_at": r.created_at.isoformat() if r.created_at else None,
+                "issued_by": r.created_by,
+                "issued_qty": issued,
+                "returned_qty": back,
+                "outstanding_qty": round(issued - back, 2),
+                "actual_qty": float(r.actual_qty) if r.actual_qty is not None else None,
+                "status": r.status,
+                "department": r.department,
+                "issued_to": r.issued_to,
+                "issued_to_code": r.issued_to_code,
+                "issued_to_mobile": r.issued_to_mobile,
+                "line_name": r.line_name,
+                "line_no": r.line_no,
+                "machine": r.machine,
+                "die_no": r.die_no,
+                "reference": r.reference,
+                "confirmed_by": r.confirmed_by,
+                "confirmed_at": r.confirmed_at.isoformat() if r.confirmed_at else None,
+                "remarks": r.remarks,
+            })
+        return out
 
     def location_history_for_part(self, part_id):
         from app.models.location_history import SpareLocationHistory
@@ -506,13 +868,13 @@ class SpareStockService:
         (spec 13). Works for ANY issue, not just a returnable tool/die, and an
         installed part may come back too (removed from the machine).
 
-        Nothing returned goes straight back on the shelf any more (spec 14): the
-        return is held for the store inspection (SpareReturnService), and only a
-        GOOD inspection adds it to available stock — on-hand is unchanged here.
-        The ISSUE becomes RETURNED when nothing is left out, else
-        PARTIALLY_RETURNED. The result keeps the older keys (the stock row,
-        return_no, returned_qty, issue_id, issue_status) for the screens that
-        read them, plus `return`: the return document waiting for inspection."""
+        The return is taken straight back into store stock (store rule, 14 Oct
+        2026; SpareReturnService.return_to_store): on-hand goes up by the
+        returned qty, with no inspection. The ISSUE becomes RETURNED when
+        nothing is left out, else PARTIALLY_RETURNED. The result keeps the older
+        keys (the stock row after the return, return_no, returned_qty, issue_id,
+        issue_status) for the screens that read them, plus `return`: the return
+        document, closed with all of it good."""
         from app.services.spare_return_service import SpareReturnService
         ret = SpareReturnService().return_to_store(
             ledger_id, qty=qty, reason=reason, note=note, returned_by=returned_by,
@@ -667,6 +1029,7 @@ class SpareStockService:
             # Business category (BOP / Import / …) and component type — carried so
             # the Live Dashboard can group on-hand parts by category and by status.
             "category": part.category, "sub_category": part.sub_category,
+            "specification": part.specification,
             "qty_on_hand": qty,
             "min_stock_level": minimum,
             "reorder_level": reorder,
@@ -734,10 +1097,13 @@ class SpareStockService:
             raise NotFoundError(f"Part {part_id} not found")
         return self._row_dict(part, self.repo.get_by_part(part_id))
 
-    def list_stock(self, store_code, section_id=None):
+    def list_stock(self, store_code, section_id=None, section_ids=None):
         from flask import current_app
         ttl = current_app.config.get("SPARE_STOCK_CACHE_TTL", _STOCK_CACHE_TTL)
-        key = (store_code, section_id)
+        # section_ids (a group of sections) takes precedence over one section_id;
+        # the cache key keeps the two scopes apart.
+        ids_key = tuple(sorted(section_ids)) if section_ids else None
+        key = (store_code, section_id, ids_key)
 
         def _fresh():
             hit = _STOCK_CACHE.get(key)
@@ -749,7 +1115,7 @@ class SpareStockService:
 
         def _build():
             rows = [self._row_dict(part, stock)
-                    for part, stock in self.repo.list_for_store(store_code, section_id)]
+                    for part, stock in self.repo.list_for_store(store_code, section_id, section_ids=section_ids)]
             if ttl and ttl > 0:
                 _STOCK_CACHE[key] = (time.time() + ttl, rows)
             return list(rows)
@@ -857,12 +1223,17 @@ class SpareStockService:
             r["excess_qty"] = round(r["qty_on_hand"] - (r["max_stock_level"] or 0), 2)
         return rows
 
-    def movements_between(self, store_code, since, until=None, section_id=None):
+    def movements_between(self, store_code, since, until=None, section_id=None, section_ids=None):
         """What moved in a window, split by direction. RECEIPT and ISSUE are
         the two the floor is asked about; OPENING and ADJUSTMENT are counted
-        separately so a stock-take is never reported as a day's receipts."""
+        separately so a stock-take is never reported as a day's receipts.
+
+        section_ids (a group of sections) takes precedence over section_id."""
         entries = self.ledger_repo.list_for_store_between(store_code, since, until)
-        if section_id:
+        if section_ids:
+            ids = set(section_ids)
+            entries = [e for e in entries if e.part and e.part.section_id in ids]
+        elif section_id:
             entries = [e for e in entries if e.part and e.part.section_id == section_id]
         out = {
             "received_qty": 0.0, "received_lines": 0,
@@ -902,10 +1273,11 @@ class SpareStockService:
             start_local -= timedelta(days=1)
         return start_local - offset, start_local.isoformat()
 
-    def today_movements(self, store_code, section_id=None):
+    def today_movements(self, store_code, section_id=None, section_ids=None):
         """Movement totals since the shift started (see _today_shift_start)."""
         since_utc, since_local_iso = self._today_shift_start()
-        summary = self.movements_between(store_code, since_utc, section_id=section_id)
+        summary = self.movements_between(store_code, since_utc, section_id=section_id,
+                                         section_ids=section_ids)
         # Reported as the plant clock, which is the shift anyone is thinking of.
         summary["since"] = since_local_iso
         return summary
@@ -1016,33 +1388,36 @@ class SpareStockService:
             "monthly_consumption": self.monthly_consumption(store_code, section_id=section_id),
         }
 
-    def monthly_consumption(self, store_code, months=12, section_id=None):
-        """Issued quantity per month (YYYY-MM), off the ledger. A SQL GROUP BY
+    def monthly_consumption(self, store_code, months=12, section_id=None, section_ids=None):
+        """Issued quantity per plant-clock month (YYYY-MM), off the ledger,
+        cancelled issues aside. A SQL GROUP BY
         — the ~12 monthly totals — rather than hydrating up to 5,000 ORM rows and
         grouping in Python, which is what made `analytics` the heaviest call.
-        Real usage: an empty list means nothing has been issued."""
+        Real usage: an empty list means nothing has been issued. The current
+        month is the TV board's denominator for its department shares, so it is
+        cut exactly as consumption_by_department cuts this month."""
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
-        key = func.strftime("%Y-%m", SpareStockLedger.created_at)
+        key = _plant_key("%Y-%m", SpareStockLedger.created_at, _plant_clock()[0])
         rows = (
             db.session.query(key, func.sum(func.abs(SpareStockLedger.qty_delta)))
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
-                    *((Part.section_id == section_id,) if section_id else ()))
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE", _not_cancelled(),
+                    *_sec_tuple(section_id, section_ids))
             .group_by(key).order_by(key)
             .all()
         )
         return [{"name": k, "value": round(float(v or 0), 2)} for k, v in rows if k][-months:]
 
-    def consumption_comparison(self, store_code, section_id=None):
+    def consumption_comparison(self, store_code, section_id=None, section_ids=None):
         """This calendar month's issued quantity against the previous month and
         the same month a year ago — derived from monthly_consumption mapped by
         YYYY-MM. A month with no issues is 0; the % change is None when its
         baseline is 0 (no honest percentage off nothing)."""
-        from datetime import date, timedelta
-        series = {r["name"]: r["value"] for r in self.monthly_consumption(store_code, months=15, section_id=section_id)}
-        today = date.today()
+        series = {r["name"]: r["value"] for r in self.monthly_consumption(
+            store_code, months=15, section_id=section_id, section_ids=section_ids)}
+        today = _plant_clock()[1]
         cur_key = today.strftime("%Y-%m")
         prev_key = (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
         yoy_key = f"{today.year - 1}-{today.month:02d}"
@@ -1123,7 +1498,7 @@ class SpareStockService:
                     f["last_arrival"] = hit[2].isoformat() if hit[2] else None
         return {str(k): v for k, v in facts.items()}
 
-    def stock_value_by_last_supplier(self, store_code, section_id=None, top=10):
+    def stock_value_by_last_supplier(self, store_code, section_id=None, top=10, section_ids=None):
         """On-hand stock value attributed to each part's MOST RECENT gate-entry
         supplier.
 
@@ -1147,7 +1522,7 @@ class SpareStockService:
 
         agg = {}
         none = {"value": 0.0, "parts": 0, "part_ids": []}
-        for r in self.list_stock(store_code, section_id):
+        for r in self.list_stock(store_code, section_id, section_ids=section_ids):
             val = r.get("stock_value")
             if not val:
                 continue
@@ -1183,55 +1558,82 @@ class SpareStockService:
         }
 
     def _consumption_window(self, days=None, date_from=None, date_to=None):
-        """Filter clauses scoping the ledger to a window on `created_at`. An
-        explicit calendar range (`date_from`/`date_to`, ISO 'YYYY-MM-DD' from the
-        Consumption screen's date picker) wins; otherwise a rolling last-`days`
-        window (the Day/Week/Month/Year presets); otherwise () for all-time.
-        days=None with no range keeps the whole-ledger default, so every existing
-        caller is unaffected."""
-        from sqlalchemy import func
+        """Filter clauses scoping the ledger to whole PLANT-clock days on
+        `created_at`, cut as the Consumption screen cuts them
+        (spare_report_service.window): from 00:00 plant time of the first day
+        to 00:00 of the day after the last, as the UTC instants stored. Cut on
+        the UTC date, an issue made 00:00-05:30 was dropped from a window's
+        first day and counted on the day after its last, so the dashboard /
+        TV / Excel did not equal the screen's Total (review, 15 Oct 2026).
+
+        An explicit calendar range (`date_from`/`date_to`, ISO 'YYYY-MM-DD'
+        from the date picker) wins; otherwise a rolling last-`days` window
+        ending today on the plant clock (the Day/Week/Month/Year presets);
+        otherwise () for all-time."""
         from app.models.spare_stock import SpareStockLedger
-        col = func.date(SpareStockLedger.created_at)
+        from app.services.consumption_analytics_service import _parse_day
+        col = SpareStockLedger.created_at
+        offset, today = _plant_clock()
+
+        def midnight(day):
+            return datetime.combine(day, datetime.min.time()) - offset
+
         if date_from or date_to:
+            first, last = _parse_day(date_from, "from"), _parse_day(date_to, "to")
             clauses = []
-            if date_from:
-                clauses.append(col >= date_from)
-            if date_to:
-                clauses.append(col <= date_to)
+            if first:
+                clauses.append(col >= midnight(first))
+            if last:
+                clauses.append(col < midnight(last + timedelta(days=1)))
             return tuple(clauses)
         if days and days > 0:
-            from datetime import date, timedelta
-            start = date.today() - timedelta(days=days - 1)
-            return (col >= start.isoformat(),)
+            return (col >= midnight(today - timedelta(days=days - 1)),)
         return ()
 
-    def consumption_by_department(self, store_code, section_id=None, days=None, date_from=None, date_to=None):
-        """Total issued quantity per department — the split behind Department-wise
-        Consumption. Only ISSUE rows carry a department, so opening/receipt/
-        adjustment rows never appear here. `days` scopes to a rolling window
-        (None = all-time)."""
+    def consumption_by_department(self, store_code, section_id=None, days=None, date_from=None, date_to=None, section_ids=None):
+        """Total issued quantity per CONSUMING department, largest first — the
+        split behind the dashboard's By Department donut, the TV board's
+        this-month departments and the consumption Excel's By Department sheet.
+
+        Consumption belongs to the department that owns the part's section
+        (Tool Room, Maintenance), never the one typed on the issue — that is
+        who took it out, often the store's own people ("consumption
+        maintenance and tool room karega store nhi", "store to material issue
+        karta h" — the store, 14 Oct 2026). The one rule the Consumption screen
+        uses (consumers() / consumer_of()), so the dashboard and the screen
+        never name different consumers. A cancelled issue was not consumed.
+        `days` scopes to a rolling window, a range to its plant-clock days
+        (_consumption_window); neither = all-time."""
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
+        from app.services.consumption_analytics_service import consumer_of, consumers
+        L = SpareStockLedger
+        # Per section in SQL (a handful of rows), then each section's total to
+        # the department consuming it.
         rows = (
-            db.session.query(
-                SpareStockLedger.department,
-                func.sum(func.abs(SpareStockLedger.qty_delta)),
-            )
-            .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
-                    *((Part.section_id == section_id,) if section_id else ()),
+            db.session.query(Part.section_id, func.sum(func.abs(L.qty_delta)))
+            .join(Part, Part.id == L.part_id)
+            .filter(Part.store_code == store_code, L.txn_type == "ISSUE", _not_cancelled(),
+                    *_sec_tuple(section_id, section_ids),
                     *self._consumption_window(days, date_from, date_to))
-            .group_by(SpareStockLedger.department)
+            .group_by(Part.section_id)
             .all()
         )
-        return [{"name": dept or "Unspecified", "value": round(float(total or 0), 2)}
-                for dept, total in rows if total]
+        owner, _ = consumers(store_code)
+        totals = {}
+        for section, total in rows:
+            name = consumer_of(owner, section)
+            totals[name] = totals.get(name, 0.0) + float(total or 0)
+        out = [{"name": name, "value": round(total, 2)} for name, total in totals.items() if total]
+        out.sort(key=lambda r: (-r["value"], r["name"].lower()))
+        return out
 
-    def consumption_by_machine(self, store_code, section_id=None, days=None, date_from=None, date_to=None):
+    def consumption_by_machine(self, store_code, section_id=None, days=None, date_from=None, date_to=None, section_ids=None):
         """Total issued quantity per machine — the split behind Machine-wise
         Consumption (which machine eats the most spares). Only ISSUE rows carry
-        a machine. `days` scopes to a rolling window (None = all-time)."""
+        a machine; a cancelled issue was not consumed. Windowed as
+        consumption_by_department (None = all-time)."""
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
@@ -1241,8 +1643,8 @@ class SpareStockService:
                 func.sum(func.abs(SpareStockLedger.qty_delta)),
             )
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
-                    *((Part.section_id == section_id,) if section_id else ()),
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE", _not_cancelled(),
+                    *_sec_tuple(section_id, section_ids),
                     *self._consumption_window(days, date_from, date_to))
             .group_by(SpareStockLedger.machine)
             .all()
@@ -1252,18 +1654,19 @@ class SpareStockService:
         out.sort(key=lambda r: r["value"], reverse=True)
         return out
 
-    def consumption_by_type(self, store_code, section_id=None, days=None, date_from=None, date_to=None):
+    def consumption_by_type(self, store_code, section_id=None, days=None, date_from=None, date_to=None, section_ids=None):
         """Total issued quantity per component type (Part.sub_category) — the
         split behind Part-type-wise Consumption. Parts with no type group under
-        'Uncategorised'. `days` scopes to a rolling window (None = all-time)."""
+        'Uncategorised'; a cancelled issue was not consumed. Windowed as
+        consumption_by_department (None = all-time)."""
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
         rows = (
             db.session.query(Part.sub_category, func.sum(func.abs(SpareStockLedger.qty_delta)))
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
-                    *((Part.section_id == section_id,) if section_id else ()),
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE", _not_cancelled(),
+                    *_sec_tuple(section_id, section_ids),
                     *self._consumption_window(days, date_from, date_to))
             .group_by(Part.sub_category)
             .all()
@@ -1274,18 +1677,19 @@ class SpareStockService:
         return out
 
     def consumption_by_period(self, store_code, period="month", section_id=None):
-        """Total issued quantity per month (YYYY-MM) or per year (YYYY) over the
-        whole ledger — the month-wise / year-wise consumption report. SQLite
-        strftime; the app is SQLite (see _patch_schema)."""
+        """Total issued quantity per plant-clock month (YYYY-MM) or year (YYYY)
+        over the whole ledger, cancelled issues aside — the month-wise /
+        year-wise consumption report. SQLite strftime; the app is SQLite (see
+        _patch_schema)."""
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
         fmt = "%Y" if period == "year" else "%Y-%m"
-        key = func.strftime(fmt, SpareStockLedger.created_at)
+        key = _plant_key(fmt, SpareStockLedger.created_at, _plant_clock()[0])
         rows = (
             db.session.query(key, func.sum(func.abs(SpareStockLedger.qty_delta)))
             .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE",
+            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE", _not_cancelled(),
                     *((Part.section_id == section_id,) if section_id else ()))
             .group_by(key).order_by(key)
             .all()
@@ -1301,6 +1705,7 @@ class SpareStockService:
         report."""
         from io import BytesIO
         from openpyxl import Workbook
+        from app.utils.excel_io import _excel_safe, format_table
         wb = Workbook()
         breakdowns = [
             ("By Department", "Department", self.consumption_by_department(store_code, section_id, days, date_from, date_to)),
@@ -1312,22 +1717,27 @@ class SpareStockService:
             ws.title = title
             ws.append([head, "Issued Qty"])
             for r in data:
-                ws.append([r["name"], r["value"]])
+                ws.append([_excel_safe(r["name"]), r["value"]])
+            format_table(ws)
         wsm = wb.create_sheet("Month-wise")
         wsm.append(["Month", "Issued Qty"])
         for r in self.consumption_by_period(store_code, "month", section_id):
             wsm.append([r["period"], r["qty"]])
+        format_table(wsm)
         wsy = wb.create_sheet("Year-wise")
         wsy.append(["Year", "Issued Qty"])
         for r in self.consumption_by_period(store_code, "year", section_id):
             wsy.append([r["period"], r["qty"]])
+        format_table(wsy)
         buf = BytesIO()
         wb.save(buf)
         buf.seek(0)
         return buf
 
     def consumption_trend(self, store_code, days=7, section_id=None, date_from=None, date_to=None):
-        """Issued quantity per day — the consumption trend line. A calendar range
+        """Issued quantity per plant-clock day, cancelled issues aside — the
+        consumption trend line, on the same days as the donuts and Top Consumed
+        beside it (_consumption_window). A calendar range
         (`date_from`/`date_to`, ISO) wins; otherwise the last `days` days. Days
         with no issue come back as 0 so the line has a point for every day rather
         than a gap. The daily span is capped so a very wide range can't return
@@ -1336,28 +1746,26 @@ class SpareStockService:
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
+        offset, today = _plant_clock()
         if date_from or date_to:
-            end = date.fromisoformat(date_to) if date_to else date.today()
+            end = date.fromisoformat(date_to) if date_to else today
             start = date.fromisoformat(date_from) if date_from else end - timedelta(days=6)
             if start > end:
                 start, end = end, start
         else:
-            end = date.today()
+            end = today
             start = end - timedelta(days=days - 1)
         span = min((end - start).days + 1, 366)   # guard against a pathological range
         start = end - timedelta(days=span - 1)
+        day = _plant_key("%Y-%m-%d", SpareStockLedger.created_at, offset)
         rows = (
-            db.session.query(
-                func.date(SpareStockLedger.created_at),
-                func.sum(func.abs(SpareStockLedger.qty_delta)),
-            )
+            db.session.query(day, func.sum(func.abs(SpareStockLedger.qty_delta)))
             .join(Part, Part.id == SpareStockLedger.part_id)
             .filter(Part.store_code == store_code,
-                    SpareStockLedger.txn_type == "ISSUE",
-                    func.date(SpareStockLedger.created_at) >= start.isoformat(),
-                    func.date(SpareStockLedger.created_at) <= end.isoformat(),
+                    SpareStockLedger.txn_type == "ISSUE", _not_cancelled(),
+                    *self._consumption_window(None, start.isoformat(), end.isoformat()),
                     *((Part.section_id == section_id,) if section_id else ()))
-            .group_by(func.date(SpareStockLedger.created_at))
+            .group_by(day)
             .all()
         )
         by_day = {str(d): float(q or 0) for d, q in rows}
@@ -1367,10 +1775,58 @@ class SpareStockService:
             out.append({"d": d.strftime("%d %b"), "qty": round(by_day.get(d.isoformat(), 0.0), 2)})
         return out
 
+    def movement_trend(self, store_code, days=30, section_id=None, date_from=None, date_to=None):
+        """Received vs issued quantity per day — the material-flow trend that
+        overlays stock-in against stock-out. Received = RECEIPT rows, issued =
+        ISSUE rows, classified EXACTLY as today's figures (movements_between):
+        OPENING and ADJUSTMENT are excluded so a stock-take is never reported as
+        a day's receipts. Same windowing and plant-clock days as
+        consumption_trend (a `date_from`/`date_to` range wins over `days`), so
+        an issue sits on the same day in both charts; every day in the span gets
+        a point (0 in / 0 out when nothing moved) so both lines are gap-free."""
+        from datetime import date, timedelta
+        from app.extensions import db
+        from sqlalchemy import func, case
+        from app.models.spare_stock import SpareStockLedger
+        offset, today = _plant_clock()
+        if date_from or date_to:
+            end = date.fromisoformat(date_to) if date_to else today
+            start = date.fromisoformat(date_from) if date_from else end - timedelta(days=days - 1)
+            if start > end:
+                start, end = end, start
+        else:
+            end = today
+            start = end - timedelta(days=days - 1)
+        span = min((end - start).days + 1, 366)   # guard against a pathological range
+        start = end - timedelta(days=span - 1)
+        day = _plant_key("%Y-%m-%d", SpareStockLedger.created_at, offset)
+        rows = (
+            db.session.query(
+                day,
+                func.sum(case((SpareStockLedger.txn_type == "RECEIPT", func.abs(SpareStockLedger.qty_delta)), else_=0)),
+                func.sum(case((SpareStockLedger.txn_type == "ISSUE", func.abs(SpareStockLedger.qty_delta)), else_=0)),
+            )
+            .join(Part, Part.id == SpareStockLedger.part_id)
+            .filter(Part.store_code == store_code,
+                    SpareStockLedger.txn_type.in_(("RECEIPT", "ISSUE")),
+                    *self._consumption_window(None, start.isoformat(), end.isoformat()),
+                    *((Part.section_id == section_id,) if section_id else ()))
+            .group_by(day)
+            .all()
+        )
+        by_day = {str(d): (float(rin or 0), float(rout or 0)) for d, rin, rout in rows}
+        out = []
+        for i in range(span):
+            d = start + timedelta(days=i)
+            rin, rout = by_day.get(d.isoformat(), (0.0, 0.0))
+            out.append({"d": d.strftime("%d %b"), "in": round(rin, 2), "out": round(rout, 2)})
+        return out
+
     def top_consumed(self, store_code, limit=5, days=30, date_from=None, date_to=None):
         """The most-issued parts in the window — the consumed-parts list. A
         calendar range (`date_from`/`date_to`) wins; otherwise the last `days`
-        days. Ranked by total issued quantity."""
+        days (plant-clock days, _consumption_window). Ranked by total issued
+        quantity; a cancelled issue was not consumed."""
         from app.extensions import db
         from sqlalchemy import func
         from app.models.spare_stock import SpareStockLedger
@@ -1379,7 +1835,7 @@ class SpareStockService:
             db.session.query(Part.part_no, Part.part_name, total)
             .join(Part, Part.id == SpareStockLedger.part_id)
             .filter(Part.store_code == store_code,
-                    SpareStockLedger.txn_type == "ISSUE",
+                    SpareStockLedger.txn_type == "ISSUE", _not_cancelled(),
                     *self._consumption_window(days, date_from, date_to))
             .group_by(Part.id)
             .order_by(total.desc())
@@ -1611,7 +2067,7 @@ class SpareStockService:
             q = q.limit(limit)
         return [self._activity_row(e) for e in q.all()]
 
-    def today_issues(self, store_code, section_id=None):
+    def today_issues(self, store_code, section_id=None, section_ids=None):
         """The ISSUE rows since the shift started — the rows behind 'Today's
         Issue'. Uses the SAME shift-start boundary as today_movements, so the
         list ties out to the card (row count == issued_lines, qty == issued_qty).
@@ -1619,7 +2075,7 @@ class SpareStockService:
         since_utc, _ = self._today_shift_start()
         rows = [e for e in self.ledger_repo.list_for_store_between(store_code, since_utc)
                 if e.txn_type == "ISSUE"
-                and (not section_id or (e.part and e.part.section_id == section_id))]
+                and _part_in_scope(e.part, section_id, section_ids)]
         rows.sort(key=lambda e: e.id, reverse=True)
         return [self._activity_row(e) for e in rows]
 
@@ -1630,7 +2086,7 @@ class SpareStockService:
         "STOCK_AVAILABLE": "Quality clearance recorded in the app",
     }
 
-    def today_receipts(self, store_code, section_id=None):
+    def today_receipts(self, store_code, section_id=None, section_ids=None):
         """The RECEIPT rows since the shift started — the rows behind 'Today
         Added to Stock', on the SAME boundary as today_movements so the list ties
         out to the card (row count == received_lines, qty == received_qty). Each
@@ -1640,7 +2096,7 @@ class SpareStockService:
         since_utc, _ = self._today_shift_start()
         rows = [e for e in self.ledger_repo.list_for_store_between(store_code, since_utc)
                 if e.txn_type == "RECEIPT"
-                and (not section_id or (e.part and e.part.section_id == section_id))]
+                and _part_in_scope(e.part, section_id, section_ids)]
         rows.sort(key=lambda e: e.id, reverse=True)
         ids = [e.id for e in rows]
         supplier = dict(
@@ -1655,30 +2111,116 @@ class SpareStockService:
             out.append(d)
         return out
 
+    @staticmethod
+    def _naive_utc(v):
+        """A stamp as naive UTC — how SQLite hands one back — so rows read from
+        the DB, rows still in the session and a caller's since / until compare
+        on one clock. A plain date is midnight of that day."""
+        from datetime import date, timezone
+        if isinstance(v, datetime):
+            return v.astimezone(timezone.utc).replace(tzinfo=None) if v.tzinfo else v
+        if isinstance(v, date):
+            return datetime(v.year, v.month, v.day)
+        return v
+
     def history_for_part(self, part_id, limit=25, txn_type=None, department=None,
                          machine=None, since=None, until=None):
-        """Complete chronological history for a part — now carrying the two-stage
-        issue detail (department / issued-to with the taker's mobile and code /
-        line / machine / status) and the
-        receiving detail (supplier / invoice / check) that the old view dropped,
-        with optional server-side filters."""
+        """Complete chronological history for a part, newest first: the stock
+        ledger rows (row_kind "ledger" — the two-stage issue detail: department
+        / issued-to with the taker's mobile and code / line / machine / status,
+        and the receiving detail: supplier / invoice / check) and one row_kind
+        "installation" row per Confirm Installation / Update Line / Machine
+        entry (the INSTALLATION journal rows). An ISSUE row shows only where the
+        part is NOW; the installation rows keep every place it was recorded at,
+        with who recorded it, when, and how much was used.
+
+        An installation row moves no stock: qty_delta 0, and balance_after is
+        the balance in force at that moment (the latest ledger row at or before
+        it — its own ISSUE row at the earliest). Its id is "inst-<journal id>",
+        never a ledger id. It is shown only when its issue is an ISSUE row of
+        this same part recorded before it, so a journal row left pointing at a
+        deleted issue never lands on whatever later reused that id.
+
+        Filters: txn_type INSTALLATION gives only installation rows, any other
+        txn_type only ledger rows of that type; department / machine / since /
+        until (datetimes or dates, UTC) apply to both kinds alike, and limit to
+        the merged list (0 or below: everything, as SQLite's LIMIT -1 gave
+        before). Two queries: the part's ledger, its INSTALLATION
+        journal rows."""
+        from bisect import bisect_right
+        from sqlalchemy.orm import joinedload
+        from app.models.spare_flow import SpareTransaction
         from app.models.spare_stock import SpareStockLedger
-        q = SpareStockLedger.query.filter(SpareStockLedger.part_id == part_id)
-        if txn_type:
-            q = q.filter(SpareStockLedger.txn_type == txn_type)
-        if department:
-            q = q.filter(SpareStockLedger.department == department)
-        if machine:
-            q = q.filter(SpareStockLedger.machine == machine)
-        if since:
-            q = q.filter(SpareStockLedger.created_at >= since)
-        if until:
-            q = q.filter(SpareStockLedger.created_at <= until)
-        q = q.order_by(SpareStockLedger.created_at.desc(), SpareStockLedger.id.desc())
-        if limit:
-            q = q.limit(limit)
-        return [{
+
+        ledger = (SpareStockLedger.query.options(joinedload(SpareStockLedger.supplier))
+                  .filter(SpareStockLedger.part_id == part_id)
+                  .order_by(SpareStockLedger.created_at.asc(), SpareStockLedger.id.asc()).all())
+        installs = []
+        if not txn_type or txn_type == "INSTALLATION":
+            installs = SpareTransaction.query.filter(
+                SpareTransaction.part_id == part_id,
+                SpareTransaction.txn_type == "INSTALLATION",
+            ).all()
+        since = self._naive_utc(since) if since else None
+        until = self._naive_utc(until) if until else None
+
+        def keep(at, row_department, row_machine):
+            return ((not department or row_department == department)
+                    and (not machine or row_machine == machine)
+                    and (since is None or at >= since)
+                    and (until is None or at <= until))
+
+        # (stamp, rank, id, row): an installation is always after its issue, so
+        # on an exact tie it sorts above the ledger row.
+        times = [self._naive_utc(e.created_at) for e in ledger]
+        issues = {e.id: (e, at) for e, at in zip(ledger, times) if e.txn_type == "ISSUE"}
+        rows = [(at, 0, e.id, self._history_ledger_row(e))
+                for e, at in zip(ledger, times)
+                if (not txn_type or e.txn_type == txn_type) and keep(at, e.department, e.machine)]
+        for t in installs:
+            issue, issued_at = issues.get(t.issue_id, (None, None))
+            at = self._naive_utc(t.created_at)
+            if issue is None or at < issued_at or not keep(at, t.department, t.machine):
+                continue
+            # Never before index 0: the entry is at or after its own ISSUE row.
+            balance = float(ledger[bisect_right(times, at) - 1].balance_after)
+            rows.append((at, 1, t.id, self._history_installation_row(t, issue, balance)))
+        rows.sort(key=lambda r: r[:3], reverse=True)
+        out = [r[3] for r in rows]
+        return out[:limit] if limit and limit > 0 else out
+
+    @staticmethod
+    def _history_installation_row(t, issue, balance):
+        """One INSTALLATION journal row (t) of `issue` as a history row."""
+        return {
+            "id": f"inst-{t.id}",
+            "row_kind": "installation",
+            "at": t.created_at.isoformat() if t.created_at else None,
+            "txn_type": "INSTALLATION",
+            "qty_delta": 0.0,
+            "balance_after": balance,
+            "issue_id": issue.id,
+            "issue_reference": issue.reference,
+            "issued_qty": abs(float(issue.qty_delta)),
+            "actual_qty": float(t.qty) if t.qty is not None else None,
+            "status": t.new_status,
+            "prev_status": t.prev_status,
+            "department": t.department,
+            "issued_to": t.issued_to,
+            "line_name": t.line_name,
+            "line_no": t.line_no,
+            "machine": t.machine,
+            "die_no": t.die_no,
+            "remarks": t.remarks,
+            "created_by": t.created_by,
+        }
+
+    @staticmethod
+    def _history_ledger_row(e):
+        """One stock-ledger row as a history row."""
+        return {
             "id": e.id,
+            "row_kind": "ledger",
             "at": e.created_at.isoformat() if e.created_at else None,
             "qty_delta": float(e.qty_delta),
             "balance_after": float(e.balance_after),
@@ -1705,13 +2247,18 @@ class SpareStockService:
             "created_by": e.created_by,
             "confirmed_by": e.confirmed_by,
             "confirmed_at": e.confirmed_at.isoformat() if e.confirmed_at else None,
-        } for e in q.all()]
+        }
 
     # ---- Excel ----
 
     def build_template(self, store_code=None):
         """Pre-filled with the store's own parts, so opening stock is a matter
-        of typing one column rather than retyping 481 part numbers."""
+        of typing one column rather than retyping 481 part numbers. Stamped
+        with the moment it was made (TEMPLATE_META_SHEET), taken BEFORE the
+        quantities are read, so an upload of an old copy can tell which of its
+        figures have moved since (bulk_import). The header-only template (no
+        store) carries no figures to go stale, so no stamp."""
+        made_at = utcnow()
         parts = self.part_repo.get_active(store_code) if store_code else []
         qty_map = self.repo.map_by_part(store_code) if store_code else {}
         rows = [{
@@ -1720,14 +2267,58 @@ class SpareStockService:
         } for p in parts]
         if not rows:
             return build_template(TEMPLATE_COLUMNS)
-        return build_export([(c, k) for c, k in
-                             zip(TEMPLATE_COLUMNS, ("part_no", "part_name", "qty_on_hand"))], rows)
+        return _stamped_template([(c, k) for c, k in
+                                  zip(TEMPLATE_COLUMNS, ("part_no", "part_name", "qty_on_hand"))],
+                                 rows, made_at)
+
+    @staticmethod
+    def _moved_since(since, store_code=None, own_tag=None):
+        """{part_id: its latest stock movement} for every part with a
+        spare_stock_ledger row written after `since` — read once, before an
+        upload writes its own rows. `own_tag` (_template_tag of the file being
+        uploaded) passes over the OPENING rows an earlier upload of that same
+        template wrote: they are the store's own count, not a movement."""
+        from sqlalchemy import func, or_
+        from app.models.spare_stock import SpareStockLedger as L
+        q = (db.session.query(L.part_id, func.max(L.created_at))
+             .filter(L.created_at > since).group_by(L.part_id))
+        if own_tag:
+            # coalesce: a NULL reference must compare as "not this tag", not
+            # as unknown (which would drop the row from "moved").
+            q = q.filter(or_(L.txn_type != "OPENING", func.coalesce(L.reference, "") != own_tag))
+        if store_code:
+            q = q.join(Part, Part.id == L.part_id).filter(Part.store_code == store_code)
+        return {pid: at for pid, at in q.all()}
 
     def bulk_import(self, file_stream, store_code=None, user=None, sheet_name=None):
         """Upload opening stock. Blank quantity cells are skipped rather than
         read as zero — a half-filled sheet must not wipe the shelves it does
-        not mention."""
+        not mention.
+
+        A re-uploaded OLD template (store, 16 Oct 2026): when the file carries
+        the stamp build_template writes, a row is NOT applied if its part had a
+        stock movement after the template was made AND its figure differs from
+        today's stock — that figure may be the old stock, not a count. It is
+        reported per row ("skipped: stock moved since this template was made
+        … — download a fresh template", in `errors`, so the import report
+        lists it with its row number) and in `stale_rows` with the file and
+        current figures; the rest of the file applies as before. A row equal to
+        today's stock applies (it is right either way). No stamp — an older
+        template, the store's own sheet, a CSV — imports exactly as before.
+
+        A stamped upload writes its OPENING rows with the template's tag
+        (_template_tag) as their reference, so uploading the same template
+        again — the usual fix-a-typo-and-re-upload of a physical count — is
+        not stopped by its own first upload; any other movement still is."""
+        import io
+        data = file_stream.read()
+        made_at = _template_stamp(data) if data else None
+        tag = _template_tag(made_at) if made_at else None
+        moved = (self._moved_since(made_at - TEMPLATE_STAMP_ALLOWANCE, store_code, own_tag=tag)
+                 if made_at else {})
+        made_text = _plant_text(made_at) if made_at else None
         applied = {"updated": 0, "unchanged": 0}
+        stale = []
 
         def row_processor(raw_row):
             part_no = to_text(raw_row.get("part_no"))
@@ -1744,15 +2335,80 @@ class SpareStockService:
                 return  # nothing stated for this row
             if qty < 0:
                 raise ValueError(f"{part_no}: quantity cannot be negative")
+            qty = round(float(qty), 2)
+
+            if part.id in moved:
+                stock = self.repo.get_by_part(part.id)
+                now_qty = (round(float(stock.qty_on_hand), 2)
+                           if stock is not None and stock.qty_on_hand is not None else None)
+                if now_qty != qty:
+                    stale.append({
+                        "part_id": part.id, "part_no": part.part_no, "part_name": part.part_name,
+                        "file_qty": qty, "current_qty": now_qty,
+                        "last_moved_at": _plant_text(moved[part.id]),
+                    })
+                    raise ValueError(
+                        f"Skipped: stock moved since this template was made ({made_text}) — "
+                        f"download a fresh template. {part.part_no}: file {qty:g}, "
+                        f"stock now {'not counted' if now_qty is None else f'{now_qty:g}'}.")
 
             _, delta = self._write(
-                part.id, round(float(qty), 2), "OPENING",
+                part.id, qty, "OPENING", reference=tag,
                 remarks="Opening stock upload", user=user, counted=True,
             )
             applied["updated" if delta else "unchanged"] += 1
 
         with atomic():
-            report = bulk_import(file_stream, FIELD_ALIASES, REQUIRED_FIELDS, row_processor, sheet_name)
+            report = bulk_import(io.BytesIO(data), FIELD_ALIASES, REQUIRED_FIELDS, row_processor, sheet_name)
+        report.update(applied)
+        report.update({"template_made_at": made_text, "stale_count": len(stale), "stale_rows": stale})
+        return report
+
+    def build_erp_template(self, store_code=None):
+        """Pre-filled with the store's parts + their current ERP qty, so loading
+        the ERP stock is typing one column. A stand-in for the ERP feed until the
+        ERP API is connected — the ERP side of ERP-vs-Physical."""
+        parts = self.part_repo.get_active(store_code) if store_code else []
+        erp_map = {e.part_id: float(e.qty_on_hand) for e in self.erp_repo.list_all()}
+        rows = [{
+            "part_no": p.part_no, "part_name": p.part_name,
+            "erp_qty": erp_map.get(p.id, ""),
+        } for p in parts]
+        if not rows:
+            return build_template(ERP_TEMPLATE_COLUMNS)
+        return build_export([(c, k) for c, k in
+                             zip(ERP_TEMPLATE_COLUMNS, ("part_no", "part_name", "erp_qty"))], rows)
+
+    def import_erp_stock(self, file_stream, store_code=None, user=None, sheet_name=None):
+        """Load ERP stock figures from an Excel (Part No + ERP Qty) into the ERP
+        cache (ERPStock) — the ERP side of ERP-vs-Physical, a stand-in until the
+        ERP API is connected. Blank quantity cells are skipped rather than read
+        as zero, so a half-filled sheet never wipes the ERP figures it omits."""
+        applied = {"updated": 0, "unchanged": 0}
+        now = utcnow()
+
+        def row_processor(raw_row):
+            part_no = to_text(raw_row.get("part_no"))
+            if not part_no:
+                raise ValueError("Part No is required")
+            part = self.part_repo.get_by_part_no(part_no)
+            if not part:
+                raise ValueError(f"Unknown Part No: {part_no}")
+            if store_code and part.store_code != store_code:
+                raise ValueError(f"{part_no} does not belong to {store_code}")
+            qty = to_number(raw_row.get("erp_qty"), None)
+            if qty is None:
+                return  # nothing stated for this row
+            if qty < 0:
+                raise ValueError(f"{part_no}: ERP quantity cannot be negative")
+            qty = round(float(qty), 2)
+            existing = self.erp_repo.get_by_part(part.id)
+            changed = existing is None or float(existing.qty_on_hand) != qty
+            self.erp_repo.upsert(part.id, qty, now)
+            applied["updated" if changed else "unchanged"] += 1
+
+        with atomic():
+            report = bulk_import(file_stream, ERP_FIELD_ALIASES, ERP_REQUIRED_FIELDS, row_processor, sheet_name)
         report.update(applied)
         return report
 

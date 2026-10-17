@@ -6,11 +6,14 @@ was an explicit choice) — this endpoint is the only place it leaves the server
 """
 from flask import Blueprint, request
 
-from app.schemas.settings_schema import LabelConfigSchema, LabelPrinterSchema
+from app.schemas.settings_schema import (
+    LabelConfigSchema, LabelPrinterSchema, SmtpConfigSchema, SmtpTestSchema,
+)
 from app.services.admin_service import AdminService
+from app.services.backup_service import BackupService
 from app.services.settings_service import SettingsService
 from app.services.store_service import StoreService
-from app.utils.authz import admin_required, current_user
+from app.utils.authz import admin_required, current_user, signed_in_required
 from app.utils.exceptions import BadRequestError
 from app.utils.response import success_response
 from app.utils.validators import validate_payload
@@ -79,6 +82,20 @@ def system_status():
     return success_response(settings.system_status())
 
 
+# "Back up now" (System status) — one database backup on the spot, besides the
+# automatic daily one (store's request of 16 Oct 2026). A person signed in as an
+# administrator, not the machine key: it writes a file on the server. A failed
+# backup is a 200 with ok false and the reason, like the SMTP test mail.
+@bp.route("/backup-now", methods=["POST"])
+@admin_required
+@signed_in_required
+def backup_now():
+    result = BackupService().run(trigger="MANUAL", user=_username())
+    if result.get("ok"):
+        return success_response(result, f"Backup saved: {result['file']}")
+    return success_response(result, f"Backup not made: {result.get('error') or 'unknown error'}")
+
+
 @bp.route("/label-config", methods=["GET"])
 @admin_required
 def get_label_config():
@@ -105,6 +122,34 @@ def get_label_printer():
 def set_label_printer():
     data = validate_payload(LabelPrinterSchema(), request.get_json(force=True) or {})
     return success_response(settings.set_label_printer(data, _username()), "Label printer saved")
+
+
+# ---- SMTP mail server (non-secret: host / port / From / TLS / auth toggle) ----
+# Saving it and the test mail need a signed-in administrator: the machine key
+# must not be able to repoint the mail server or send a mail to any address.
+@bp.route("/smtp-config", methods=["GET"])
+@admin_required
+def get_smtp_config():
+    return success_response(settings.smtp_config())
+
+
+@bp.route("/smtp-config", methods=["PUT"])
+@admin_required
+@signed_in_required
+def set_smtp_config():
+    data = validate_payload(SmtpConfigSchema(), request.get_json(force=True) or {})
+    return success_response(settings.set_smtp_config(data, _username()), "Mail server settings saved")
+
+
+@bp.route("/smtp-test", methods=["POST"])
+@admin_required
+@signed_in_required
+def smtp_test():
+    data = validate_payload(SmtpTestSchema(), request.get_json(force=True) or {})
+    result = settings.send_test_mail(data["to"], _username())
+    if result.get("ok"):
+        return success_response(result, "Test mail sent")
+    return success_response(result, f"Test mail not sent: {result.get('reason', 'unknown')}")
 
 
 @bp.route("/store-visibility", methods=["GET"])

@@ -26,8 +26,10 @@ import WorkQueueLink from "../components/scan/WorkQueueLink.jsx";
 import HistoryModal from "../components/scan/HistoryModal.jsx";
 import { scanIcon } from "../components/scan/scanIcons.js";
 import PartTimeline from "../components/spare/PartTimeline.jsx";
+import PutAwayCheck from "./spare/PutAwayCheck.jsx";
 import useScanWorkstation from "../hooks/useScanWorkstation.js";
 import { ACTIONS, SCAN_MODE, normGateNo } from "../lib/scanStatus.js";
+import { can } from "../utils/permissions.js";
 
 // Scan Part — the store operator's workstation (spec 4 / 10 / 22 / 26-28 / 30).
 //
@@ -41,7 +43,8 @@ import { ACTIONS, SCAN_MODE, normGateNo } from "../lib/scanStatus.js";
 //   RIGHT  the QR label as printed · the part's barcodes · where the quantity
 //          is · timeline · the next step again · Work Queue counts
 //
-// Two modes, switched at the top (URL ?mode=label, remembered per terminal):
+// Three modes, switched at the top (URL ?mode=label|putaway, remembered per
+// terminal):
 //
 //   Issue (default) — scanning is mainly for issuance: once a part is
 //   identified (gun, camera, search or manual) and it can be issued, the Issue
@@ -62,6 +65,11 @@ import { ACTIONS, SCAN_MODE, normGateNo } from "../lib/scanStatus.js";
 //   the Issue form. Printing a label adds no stock (spec 9) — receiving, the
 //   GRN and quality clearance are done in ERP; the page only shows what ERP
 //   has (read-only, with the data's age).
+//
+//   Put-away Check — for shelving: scan the part (or its lot tag), then the
+//   bin's QR; the screen says Right / Wrong Location and records the put-away
+//   (pages/spare/PutAwayCheck, which owns the scanner while it is on). Shown to
+//   a user who holds the Store Stock right that screen always asked for.
 //
 // A part's barcodes (its QR and the supplier codes mapped to it) are seen and
 // managed in the Barcodes panel here — there is no separate screen for them.
@@ -88,7 +96,10 @@ const MODE_KEY = "dx_scan_part_mode";
 const modeOf = (param) =>
   Object.keys(SCAN_MODE).find((k) => SCAN_MODE[k].param === String(param ?? "").toLowerCase()) || null;
 function savedMode() {
-  try { return localStorage.getItem(MODE_KEY) === "LABEL" ? "LABEL" : "ISSUE"; } catch { return "ISSUE"; }
+  try {
+    const saved = localStorage.getItem(MODE_KEY);
+    return SCAN_MODE[saved] ? saved : "ISSUE";
+  } catch { return "ISSUE"; }
 }
 
 function DoneStrip({ message, onDismiss }) {
@@ -188,8 +199,13 @@ export default function ScanPart() {
   const canMap = useCan("supplier_barcodes", "edit");
 
   const { ident, failure, resolving, resolve, openById, clear, clearFailure, scanQuery } = useScanWorkstation(storeCode);
-  // ISSUE | LABEL (SCAN_MODE). A link's ?mode= wins over this terminal's last one.
-  const [mode, setMode] = useState(() => modeOf(searchParams.get("mode")) || savedMode());
+  // The modes this user may switch to: one that names a right needs it.
+  const modes = useMemo(() => Object.keys(SCAN_MODE).filter((k) => can(user, SCAN_MODE[k].mod)), [user]);
+  // ISSUE | LABEL | PUTAWAY (SCAN_MODE). A link's ?mode= wins over this terminal's last one.
+  const [mode, setMode] = useState(() => {
+    const wanted = modeOf(searchParams.get("mode")) || savedMode();
+    return modes.includes(wanted) ? wanted : "ISSUE";
+  });
   const labelMode = mode === "LABEL";
   const [tab, setTab] = useState("SCAN");
   const [action, setAction] = useState(null);       // { key, target } — the open action form
@@ -295,11 +311,11 @@ export default function ScanPart() {
   // open form only as a new scan would (okToLeave): the Issue form the page
   // opened by itself goes quietly, anything typed is asked about.
   const changeMode = useCallback(async (next) => {
-    if (next === mode || !SCAN_MODE[next]) return;
+    if (next === mode || !modes.includes(next)) return;
     if (!(await okToLeave(`switch to ${SCAN_MODE[next].label}`))) return;
     setMode(next);
     backToGun();
-  }, [mode, okToLeave, backToGun]);
+  }, [mode, modes, okToLeave, backToGun]);
   // Stable for the memoised top strip; reads the latest changeMode.
   const modeRef = useRef(mode);
   const changeModeRef = useRef(changeMode);
@@ -358,12 +374,15 @@ export default function ScanPart() {
     const raw = searchParams.get("part");
     const gate = (searchParams.get("gate") || "").trim();
     if (!raw && !gate && !searchParams.has("mode")) return;
-    const wanted = gate ? "LABEL" : modeOf(searchParams.get("mode"));
     const id = Number(raw);
+    const link = Boolean(raw) && Number.isInteger(id) && id > 0;
+    // A part link that names no mode needs the part workstation, which only
+    // Issue shows. A mode this user may not use is never switched to.
+    const asked = gate ? "LABEL" : modeOf(searchParams.get("mode")) || (link && modeRef.current !== "ISSUE" ? "ISSUE" : null);
+    const wanted = modes.includes(asked) ? asked : null;
     const key = (searchParams.get("action") || "").toUpperCase() || null;
     const target = searchParams.get("target");
     setSearchParams({}, { replace: true });
-    const link = Boolean(raw) && Number.isInteger(id) && id > 0;
     const switching = Boolean(wanted) && wanted !== modeRef.current;
     if (!link && !switching) {
       if (gate) setGateRequest({ no: gate });
@@ -380,7 +399,7 @@ export default function ScanPart() {
       }
       backToGun();
     })();
-  }, [searchParams, setSearchParams, openById, backToGun]);
+  }, [searchParams, setSearchParams, openById, backToGun, modes]);
 
   // ---- act ----
   const openPrint = useCallback((source) => {
@@ -662,10 +681,8 @@ export default function ScanPart() {
   // ---- the part as it stands: its label, barcodes, where it is, its story ----
   const partSide = scan && (
     <>
-      {/* The label no longer matches the rack: a genuine reprint (with
-          its reason) in either mode. */}
-      <PartVisual part={part} label={scan.label}
-        onReprint={canAct("REPRINT_LABEL") ? () => openPrint("REPRINT") : null} />
+      {/* The bin sheet that hangs at the part's location, as printed. */}
+      <PartVisual part={part} storeCode={storeCode} />
       <BarcodesPanel part={part} barcodes={scan.barcodes} defaultOpen={labelMode} onRelease={refocusGun} />
       <LocationList locations={scan.locations} uom={part.uom} erp={scan.erp_receiving?.erp} />
       <TimelinePreview rows={scan.timeline?.rows} hasMore={scan.timeline?.has_more}
@@ -698,8 +715,20 @@ export default function ScanPart() {
 
   const statusBar = (
     <StatusBar storeName={activeStore?.name} operator={user?.full_name || user?.username}
-      mode={mode} onMode={onMode} />
+      mode={mode} modes={modes} onMode={onMode} />
   );
+
+  // Put-away Check: its own two scans (the part, then its bin). The part
+  // workstation is not on screen and the put-away panel owns the scanner. The
+  // Work Queue strip is left out: nothing in it is put-away work.
+  if (mode === "PUTAWAY") {
+    return (
+      <div className="space-y-4">
+        {statusBar}
+        <PutAwayCheck embedded />
+      </div>
+    );
+  }
 
   // Receive & Label: the ERP gate entry lot tags are the only receiving label.
   // (The old "Or one part" single-part QR label was removed at the user's ask —

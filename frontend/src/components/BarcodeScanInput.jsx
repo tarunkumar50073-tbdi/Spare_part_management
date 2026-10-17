@@ -48,6 +48,44 @@ export default function BarcodeScanInput({ onScan, placeholder = "Scan a barcode
     return () => document.removeEventListener("mouseup", onDocClick);
   }, [method, autoFocus, disabled]);
 
+  // Keep onScan current for the document-level fallback below.
+  const onScanRef = useRef(onScan);
+  useEffect(() => { onScanRef.current = onScan; }, [onScan]);
+
+  // Robust fallback: a gun types into whatever is focused, but if the field is
+  // not focused (after navigating in, a stray click, or because the user is
+  // looking at another window) the keystrokes would land nowhere. Capture a
+  // fast, Enter-terminated burst at the document level too — only when NO text
+  // field is focused (so we never steal real typing) and not when the field
+  // itself is the target (its own handler covers that). The >150 ms gap reset
+  // means slow human typing never accumulates into a "scan".
+  useEffect(() => {
+    if (method !== "gun" || disabled) return undefined;
+    let buf = "";
+    let lastT = 0;
+    const onDocKey = (e) => {
+      const ae = document.activeElement;
+      if (ae === inputRef.current) return;                 // the field's own handler covers it
+      const tag = ae && ae.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (ae && ae.isContentEditable)) return;  // don't steal
+      const now = Date.now();
+      if (now - lastT > 150) buf = "";                     // a slow gap = new burst / human typing
+      lastT = now;
+      if (e.key === "Enter") {
+        const code = buf.trim();
+        buf = "";
+        if (!code) return;
+        if (code === lastRef.current.code && now - lastRef.current.t < DUP_MS) return;
+        lastRef.current = { code, t: now };
+        onScanRef.current?.(code);
+        return;
+      }
+      if (e.key.length === 1) buf += e.key;
+    };
+    document.addEventListener("keydown", onDocKey);
+    return () => document.removeEventListener("keydown", onDocKey);
+  }, [method, disabled]);
+
   const onKeyDown = (e) => {
     if (e.key === "Enter") { e.preventDefault(); submit(); return; }
     if (e.key.length === 1) keyTimesRef.current.push(Date.now());
@@ -140,7 +178,6 @@ export default function BarcodeScanInput({ onScan, placeholder = "Scan a barcode
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={onKeyDown}
               autoComplete="off"
-              inputMode="none"
             />
             {cameraCapable && (
               <button type="button" onClick={() => setMethod("camera")} disabled={disabled}

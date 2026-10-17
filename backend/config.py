@@ -93,6 +93,10 @@ class Config:
     MAIL_FROM_DISPLAY = os.getenv("MAIL_FROM_DISPLAY", "TBDI_store")
     WINDOW_TIME_MAIL_ENABLED = _env_bool("WINDOW_TIME_MAIL_ENABLED", "false")
     WINDOW_TIME_MAIL_HOUR = int(os.getenv("WINDOW_TIME_MAIL_HOUR", "7"))
+    # Daily reorder / low-stock mail to each flagged department. Off by default;
+    # "Send now" on the Department Emails screen works regardless of this flag.
+    REORDER_MAIL_ENABLED = _env_bool("REORDER_MAIL_ENABLED", "false")
+    REORDER_MAIL_HOUR = int(os.getenv("REORDER_MAIL_HOUR", "8"))
 
 
 class DevelopmentConfig(Config):

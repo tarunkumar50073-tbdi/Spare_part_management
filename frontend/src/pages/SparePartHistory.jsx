@@ -12,7 +12,10 @@ import { reasonLabel } from "../lib/scanStatus.js";
 
 // Part Ledger rendered as the ERP "Stock Ledger (Valuation)": search/scan a part,
 // then its FULL ledger shows automatically (opening + every receipt + every issue
-// with where it went) — the only optional filter is a date range, like ERP.
+// with where it went and where it was fitted + every return) — the only optional
+// filter is a date range, like ERP. One row per stock movement, as in ERP: an
+// installation moves no stock, so it is said on its issue's row, never a row of
+// its own (the store, 14 Oct 2026: "transaction 1 huyi to teen bar kyu dikha rha h").
 const fmt = (v) => (v == null || v === "" ? "—" : v);
 
 // ERP "Stock Ledger (Valuation)" helpers — the app ledger stores qty + running
@@ -23,29 +26,53 @@ const DOC_TYPE = { OPENING: "OP", RECEIPT: "RC", ISSUE: "IS", RETURN: "RT", ADJU
 // really becomes available — the qty quality accepted on an ERP GRN, read from
 // ERP and added once (status ERP_GRN, reference = GRN no.), the RGP GRN of
 // reworked material, or (before receiving moved to ERP) a quality clearance
-// recorded in the app — and a RETURN row only when the store inspection passes
-// it Good (models/spare_stock.py). The row's status says which; older rows keep
-// the plain word.
+// recorded in the app. A RETURN row is written when a returned part goes back
+// on the shelf: since the store's rule of 14 Oct 2026 (no inspection) the
+// moment the return is recorded — remark TAKEN_BACK, the text
+// SpareReturnService.TAKEN_BACK_REMARK writes — and before it, when the store
+// inspection passed it Good. The row's status / remark say which (models/
+// spare_stock.py); older rows keep the plain word.
 const MOVEMENT = { OPENING: "Opening", RECEIPT: "Receipt", ISSUE: "Issue", RETURN: "Return", ADJUSTMENT: "Adjustment" };
+const TAKEN_BACK = "Taken back into stock on return — no inspection (store rule)";
 const movementOf = (r) => {
   if (r.txn_type === "RECEIPT" && r.status === "ERP_GRN") return "Receipt (ERP GRN)";
   if (r.txn_type === "RECEIPT" && r.status === "STOCK_AVAILABLE") return "Receipt (quality cleared)";
   if (r.txn_type === "RECEIPT" && r.status === "RGP_GRN") return "RGP GRN";
-  if (r.txn_type === "RETURN" && r.status === "INSPECTED_GOOD") return "Return (inspected good)";
+  if (r.txn_type === "RETURN" && r.status === "INSPECTED_GOOD" && r.remarks !== TAKEN_BACK) return "Return (inspected good)";
   return MOVEMENT[r.txn_type] || r.txn_type;
 };
-// "Maintenance / R. Kumar · Line L-03 · Machine Press-07 · Die D-12" — where the
-// part went (spec 12), plus why it came back on a return. Only what was recorded.
+// "Line L-03 · Machine Press-07 · Die D-12" — only what was recorded.
+const placeOf = (r) => {
+  const line = [r.line_name, r.line_no].filter(Boolean).join(" ");
+  return [line && `Line ${line}`, r.machine && `Machine ${r.machine}`, r.die_no && `Die ${r.die_no}`]
+    .filter(Boolean).join(" · ");
+};
+// On an issue's row, how far its installation got: the line / machine / die
+// above are the issue's current ones, and this says whether it was fitted.
+const installStateOf = (r) => {
+  if (r.txn_type !== "ISSUE") return "";
+  if (!r.confirmed_at) return "installation not confirmed yet";
+  const used = Number(r.actual_qty);
+  return r.actual_qty != null && used > 0 ? `installed ${used}` : "not used";
+};
+// "Maintenance / R. Kumar · Line L-03 · Machine Press-07 · Die D-12 · installed 1"
+// — where the part went (spec 12) and whether it was fitted; on a return, the
+// issue it came back against and why. Only what was recorded.
 const destOf = (r) => {
   const who = [r.department, r.issued_to].filter(Boolean).join(" / ");
-  const line = [r.line_name, r.line_no].filter(Boolean).join(" ");
-  const where = [line && `Line ${line}`, r.machine && `Machine ${r.machine}`, r.die_no && `Die ${r.die_no}`]
-    .filter(Boolean).join(" · ");
-  const why = r.txn_type === "RETURN" && r.return_reason ? `Reason: ${reasonLabel(r.return_reason)}` : "";
-  return [who, where, why].filter(Boolean).join(" · ");
+  const isReturn = r.txn_type === "RETURN";
+  const against = isReturn && r.return_no && r.reference ? `against ${r.reference}` : "";
+  const why = isReturn && r.return_reason ? `Reason: ${reasonLabel(r.return_reason)}` : "";
+  return [who, placeOf(r), installStateOf(r), against, why].filter(Boolean).join(" · ");
 };
+
+// An installation entry of the history (row_kind "installation"): not a stock
+// movement, so not a ledger row — its issue's row says where the part went.
+const isInstall = (r) => r.row_kind === "installation";
 const q3 = (n) => (Number(n) || 0).toFixed(3);   // quantities: 265.000
 const m2 = (n) => (Number(n) || 0).toFixed(2);   // rates / values: 11.19
+// A figure a row may not carry (the opening-balance row has no rate split).
+const orDash = (v, f) => (v == null ? "—" : f(v));
 // Ledger stamps (`at`) are UTC from the server — parseServerTime reads them as
 // such, so a movement shows on its plant (IST) day; the date-only opening-balance
 // row (the From date) passes through unchanged.
@@ -127,7 +154,7 @@ export default function SparePartHistory() {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     return allParts
-      .filter((p) => `${p.part_no || ""} ${p.part_name || ""} ${p.old_part_no || ""}`.toLowerCase().includes(q))
+      .filter((p) => `${p.part_no || ""} ${p.part_name || ""} ${p.old_part_no || ""} ${p.new_part_no || ""} ${p.specification || ""}`.toLowerCase().includes(q))
       .slice(0, 50);
   }, [query, allParts]);
 
@@ -163,7 +190,11 @@ export default function SparePartHistory() {
   // ERP-style valuation ledger: one row per movement, opening/recv/issue/closing
   // qty derived from qty_delta + the stored running balance, rate/value from the
   // part's current standard rate. Chronological (oldest first) so it reads like a
-  // ledger — opening flows down to the latest closing.
+  // ledger — opening flows down to the latest closing. Installations are not
+  // rows: each issue's row says where it was fitted.
+  // Group: for a movement made for a department (issue, return)
+  // the department the part went to — the store's rule; a receipt or opening,
+  // which no department took, keeps the part's own group.
   const ledger = useMemo(() => {
     const rate = Number(part?.unit_price) || 0;
     const base = {
@@ -177,17 +208,21 @@ export default function SparePartHistory() {
       issueRate: rate,
       closingRate: rate,
     };
-    const list = [...shown]
+    const list = shown
+      .filter((r) => !isInstall(r))
       .sort((a, b) => stampMs(a.at) - stampMs(b.at))
       .map((r) => {
-        const delta = Number(r.qty_delta) || 0;
         const closing = Number(r.balance_after) || 0;
+        const delta = Number(r.qty_delta) || 0;
         const isIn = delta >= 0;
         return {
           ...base,
           id: r.id,
+          group: r.department || base.group,
           tranDt: r.at || null,
-          docNo: r.reference || r.invoice_no || r.return_no || "—",
+          // A return is its own transaction: its own return no., the issue it
+          // came back against is said beside it.
+          docNo: (r.txn_type === "RETURN" && r.return_no) || r.reference || r.invoice_no || r.return_no || "—",
           docType: DOC_TYPE[r.txn_type] || r.txn_type,
           movement: movementOf(r),
           tranType: isIn ? "R" : "I",
@@ -201,9 +236,10 @@ export default function SparePartHistory() {
       });
     // ERP shows the opening balance carried into the From date as the first row,
     // so "opening kitni thi" is always visible even when a date range hides the
-    // original opening/receipts. Balance as of From = the last balance before it.
+    // original opening/receipts. Balance as of From = the last movement's balance
+    // before it.
     if (filters.from) {
-      const before = rows.filter((r) => r.at && localDay(r.at) < filters.from);
+      const before = rows.filter((r) => !isInstall(r) && r.at && localDay(r.at) < filters.from);
       if (before.length) {
         const ob = Number([...before].sort((a, b) => stampMs(b.at) - stampMs(a.at))[0].balance_after) || 0;
         list.unshift({
@@ -238,7 +274,7 @@ export default function SparePartHistory() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">Part Ledger</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Search by part no / ref / name, then pick a part to see its full ledger — what came in, what went out, and where it went.</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Search by part no / ref / name, then pick a part to see its full ledger — what came in, what went out, where it went and where it was installed.</p>
       </div>
 
       <div className="rounded-xl2 border border-slate-200 bg-white p-4 dark:border-navy-800 dark:bg-navy-900">
@@ -256,7 +292,7 @@ export default function SparePartHistory() {
               <button key={p.part_id} type="button" onClick={() => pick(p)}
                 className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-navy-800 ${part?.part_id === p.part_id ? "bg-slate-50 dark:bg-navy-800" : ""}`}>
                 <span className="font-mono shrink-0">{p.part_no}</span>
-                <span className="flex-1 truncate text-slate-500 dark:text-slate-400">{p.part_name}</span>
+                <span className="flex-1 truncate text-slate-500 dark:text-slate-400">{p.part_name}{p.specification ? ` · ${p.specification}` : ""}</span>
                 {p.old_part_no && <span className="shrink-0 text-xs text-slate-400">{p.old_part_no}</span>}
               </button>
             ))}
@@ -291,12 +327,12 @@ export default function SparePartHistory() {
               <input type="date" value={dateDraft.from}
                 onChange={(e) => setDateDraft((d) => ({ ...d, from: e.target.value }))}
                 onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
-                className="input-field text-sm" />
+                className="input-field text-sm !w-[150px]" />
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">To</span>
               <input type="date" value={dateDraft.to}
                 onChange={(e) => setDateDraft((d) => ({ ...d, to: e.target.value }))}
                 onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
-                className="input-field text-sm" />
+                className="input-field text-sm !w-[150px]" />
               <button className="btn-primary text-sm" onClick={runSearch}><Search size={14} aria-hidden="true" /> Search</button>
               <button className="btn-secondary text-sm" onClick={resetDates}>Reset</button>
               <button className="btn-secondary text-sm" onClick={clearAll}>Clear</button>
@@ -344,14 +380,14 @@ export default function SparePartHistory() {
                       <td className="pr-3">{l.tranType}</td>
                       <td className="pr-3 text-slate-600 dark:text-slate-300">{l.dest}</td>
                       <td className="pr-3 text-right tabular-nums">{q3(l.openingQty)}</td>
-                      <td className="pr-3 text-right tabular-nums">{m2(l.openingRate)}</td>
+                      <td className="pr-3 text-right tabular-nums">{orDash(l.openingRate, m2)}</td>
                       <td className="pr-3 text-right tabular-nums">{q3(l.recvQty)}</td>
                       <td className="pr-3 text-right tabular-nums">{l.recvQty ? m2(l.recvRate) : "—"}</td>
                       <td className="pr-3 text-right tabular-nums">{q3(l.issueQty)}</td>
                       <td className="pr-3 text-right tabular-nums">{l.issueQty ? m2(l.issueRate) : "—"}</td>
                       <td className="pr-3 text-right tabular-nums">{q3(l.closingStock)}</td>
-                      <td className="pr-3 text-right tabular-nums">{m2(l.closingRate)}</td>
-                      <td className="pr-3 text-right font-semibold tabular-nums">{m2(l.closingValue)}</td>
+                      <td className="pr-3 text-right tabular-nums">{orDash(l.closingRate, m2)}</td>
+                      <td className="pr-3 text-right tabular-nums font-semibold">{orDash(l.closingValue, m2)}</td>
                     </tr>
                   ))}
                   {ledger.length === 0 && (
@@ -375,6 +411,7 @@ export default function SparePartHistory() {
             </div>
             <p className="mt-2 text-xs text-slate-400">
               Rate &amp; value use the part's current standard rate (₹{part.unit_price != null ? m2(part.unit_price) : "—"}/unit) for every row; real per-transaction ERP rates will apply once ERP feeds this ledger.
+              {" "}One row per stock movement, as in ERP: where an issued part was installed is shown on its issue row.
             </p>
           </div>
 

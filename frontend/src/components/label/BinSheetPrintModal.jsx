@@ -37,8 +37,9 @@ export default function BinSheetPrintModal({ parts, config: configProp, onClose 
 
   const binW = Number(config?.bin_width_mm) || 130;
   const binH = Number(config?.bin_height_mm) || 90;
-  const noLocation = bins.find((b) => b.base === "(no location)");
-  const noLocationCount = noLocation ? noLocation.rows.length : 0;
+  const noLocationCount = bins
+    .filter((b) => b.base === "(no location)")
+    .reduce((s, b) => s + b.rows.length, 0);
 
   const sheetPxW = binW * PX_PER_MM;
   const sheetPxH = binH * PX_PER_MM;
@@ -104,9 +105,10 @@ export default function BinSheetPrintModal({ parts, config: configProp, onClose 
           <ul className="max-h-48 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 dark:divide-navy-800 dark:border-navy-800"
             aria-label="Bins to print">
             {bins.map((b) => (
-              <li key={b.base} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                <span className={`min-w-0 truncate font-mono ${b.base === "(no location)" ? "text-amber-700 dark:text-amber-300" : "text-slate-700 dark:text-slate-200"}`}>
-                  {b.base}
+              <li key={`${b.section_id ?? ""}|${b.base}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                <span className={`min-w-0 truncate ${b.base === "(no location)" ? "text-amber-700 dark:text-amber-300" : "text-slate-700 dark:text-slate-200"}`}>
+                  <span className="font-mono">{b.base}</span>
+                  {b.section_name ? <span className="ml-2 text-xs text-slate-400">· {b.section_name}</span> : null}
                 </span>
                 <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
                   {b.rows.length} {b.rows.length === 1 ? "part" : "parts"}

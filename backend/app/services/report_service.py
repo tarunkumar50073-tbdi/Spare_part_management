@@ -1,20 +1,67 @@
-"""Reports module — SRV, Verification, Pending RQC, Put Away, Rack Stock,
-Live Stock and Supplier reports, each exportable as Excel (reusing
-excel_io.build_export) or PDF (reusing utils/pdf_io.build_pdf_table) from
-the same (columns, rows) pair."""
+"""Reports module — the Reports page's downloads, per store.
+
+The Child Parts Store keeps its thirteen reports (SRV, Verification, Pending
+RQC, Put Away, Rack Stock, Live Stock, Supplier and the quarterly inventory
+ones), built here exactly as before. Every other store is a spare store: its
+reports come from SpareReportService. Either way one (columns, rows) pair is
+exported as Excel (excel_io.build_export), CSV (build_csv) or PDF
+(utils/pdf_io.build_pdf_table), named "<Report> <DD.MM.YYYY>[ to <DD.MM.YYYY>]".
+A spare store's reorder and excess lists download as Excel in the colours of
+the reorder / excess mail sheets (their Report's paint and legend)."""
+import io
+
 from sqlalchemy import func
 from app.extensions import db
 from app.models.srv import SRV
 from app.models.rack_bin import RackBin
+from app.models.store import DEFAULT_STORE_CODE, Store
 from app.repositories.srv_repository import SRVRepository
 from app.repositories.rack_bin_repository import RackBinRepository
 from app.repositories.supplier_repository import SupplierRepository
 from app.services.store_stock_service import StoreStockService
 from app.services.quarterly_inventory_service import QuarterlyInventoryService
 from app.services.live_stock_service import LiveStockService
+from app.services.reorder_mail_service import _file_safe, xlsx_table
+from app.services.spare_report_service import SpareReportService, plant_today
 from app.utils.excel_io import build_export, build_csv
 from app.utils.pdf_io import build_pdf_table
-from app.utils.exceptions import BadRequestError
+from app.utils.exceptions import BadRequestError, NotFoundError
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# format in the URL -> (file extension, mimetype)
+FORMATS = {"excel": ("xlsx", XLSX_MIME), "csv": ("csv", "text/csv"), "pdf": ("pdf", "application/pdf")}
+
+# One line per Child Parts report for the Reports page.
+DESCRIPTIONS = {
+    "srv": "Every SRV with its quantities, QC routing and status.",
+    "verification": "SRVs verified by ERP: invoiced, received and short quantity.",
+    "pending_rqc": "SRVs waiting for RQC inspection.",
+    "put_away": "Put-away status and rack of every SRV.",
+    "rack_stock": "Rack and bin allocation of every part.",
+    "live_stock": "Live on-hand quantity of every child part.",
+    "supplier": "Suppliers with the number of SRVs each.",
+    "inventory_summary": "Quarterly inventory totals, accuracy and gap value per period.",
+    "inventory_variance": "Parts whose physical count differed from ERP, per quarter.",
+    "inventory_accuracy": "Inventory accuracy per quarter.",
+    "fy_comparison": "Inventory accuracy and gap value, fiscal year against fiscal year.",
+    "quarter_comparison": "Inventory accuracy and gap value, quarter against quarter.",
+    "top_oldest_excess": "The 10 parts that have been in excess the longest.",
+}
+
+
+def _render(fmt, title, columns, rows, paint=None, legend=None):
+    """`paint` and `legend` colour an Excel table the way the mails colour
+    their sheets (reorder_mail_service.xlsx_table) — the reorder and excess
+    lists, whose rows are keyed by column heading. CSV has no colours, and the
+    PDF table draws none (pdf_io takes no cell colours), so both are as before."""
+    if fmt == "excel":
+        if paint is None and legend is None:
+            return build_export(columns, rows)
+        return io.BytesIO(xlsx_table([label for label, _ in columns], rows, paint, legend))
+    if fmt == "csv":
+        return build_csv(columns, rows)
+    # The PDF writes str() of every cell: an empty cell must not read "None".
+    return build_pdf_table(title, columns, [{k: ("" if v is None else v) for k, v in r.items()} for r in rows])
 
 
 class ReportService:
@@ -25,6 +72,7 @@ class ReportService:
         self.store_stock_service = StoreStockService()
         self.qty_inv_service = QuarterlyInventoryService()
         self.live_stock_service = LiveStockService()
+        self.spare = SpareReportService()
 
     def _srv_rows(self):
         return [{
@@ -220,3 +268,52 @@ class ReportService:
     def export_csv(self, report_type):
         title, row_fn, columns = self._resolve(report_type)
         return build_csv(columns, row_fn(self))
+
+    # ---- per store (the Reports page) ----
+
+    @staticmethod
+    def _is_child_store(store_code):
+        """True for the Child Parts Store; False for any other (spare) store.
+        No store code is the Child Parts Store, as before stores existed."""
+        if store_code in (None, DEFAULT_STORE_CODE):
+            return True
+        if Store.query.filter_by(code=store_code).first() is None:
+            raise NotFoundError(f"Store '{store_code}' not found")
+        return False
+
+    def catalog(self, store_code):
+        """The reports a store offers, in page order."""
+        if self._is_child_store(store_code):
+            reports = [(key, title, DESCRIPTIONS[key], False) for key, (title, _, _) in self.REPORTS.items()]
+        else:
+            reports = [(r.key, r.label, r.description, r.needs_dates) for r in self.spare.REPORTS]
+        return [{"key": key, "label": label, "description": description, "needs_dates": dated,
+                 "formats": list(FORMATS)} for key, label, description, dated in reports]
+
+    def export(self, report_type, fmt, store_code=None, date_from=None, date_to=None):
+        """(file, download name, mimetype) of one report of a store. A report
+        the store does not offer, or an unknown format, is a 404."""
+        if fmt not in FORMATS:
+            raise NotFoundError(f"Unknown format '{fmt}'. Valid: {', '.join(FORMATS)}")
+        ext, mime = FORMATS[fmt]
+        if self._is_child_store(store_code):
+            if report_type not in self.REPORTS:
+                raise NotFoundError(f"There is no report '{report_type}' in this store")
+            name = f"{self.REPORTS[report_type][0]} {plant_today():%d.%m.%Y}"
+            if fmt == "excel":
+                buf = self.export_excel(report_type)
+            elif fmt == "csv":
+                buf = self.export_csv(report_type)
+            else:
+                _, buf = self.export_pdf(report_type)
+        else:
+            report, win, rows = self.spare.build(store_code, report_type, date_from, date_to)
+            if win is None:
+                name = f"{report.label} {plant_today():%d.%m.%Y}"
+            elif win.first == win.last:
+                name = f"{report.label} {win.first:%d.%m.%Y}"
+            else:
+                name = f"{report.label} {win.first:%d.%m.%Y} to {win.last:%d.%m.%Y}"
+            buf = _render(fmt, name, [(c, c) for c in report.columns], rows,
+                          paint=report.paint, legend=report.legend)
+        return buf, f"{_file_safe(name)}.{ext}", mime

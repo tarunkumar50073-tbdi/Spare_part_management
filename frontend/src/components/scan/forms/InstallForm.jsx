@@ -2,11 +2,11 @@ import React, { useId, useMemo, useState } from "react";
 import { Wrench } from "lucide-react";
 import QtyStepper from "../../QtyStepper.jsx";
 import EquipmentSelect from "../../EquipmentSelect.jsx";
-import { ISSUE_STATUS } from "../../spare/IssueLifecycle.jsx";
+import { ISSUE_STATUS, issueStatusMeta } from "../../spare/IssueLifecycle.jsx";
 import { spareFlowService } from "../../../services/spareFlowService.js";
 import { fmtStamp, num } from "../../../lib/format.js";
 import { DocPicker, EmptyNote, Facts, Field, FormError, FormShell, GoneNote, Note } from "./FormKit.jsx";
-import { clean, fmtQty, placeText, qtyError, qtyOf, useActionFlow, useDocChoice } from "./flow.js";
+import { clean, fmtQty, placeText, qtyError, qtyOf, stepMin, useActionFlow, useDocChoice } from "./flow.js";
 import { IssueCard } from "./DocCards.jsx";
 
 // UPDATE_INSTALLATION (spec 11 / 12): after the store issue, record where the
@@ -14,6 +14,10 @@ import { IssueCard } from "./DocCards.jsx";
 // each update sets the issue's CURRENT values and journals an INSTALLATION row
 // with the before / after, so an earlier line or machine is never lost. The QR
 // itself is never rewritten; the database holds where the part is now.
+
+// The line user's own right: POST /spare-stock/issues/:id/confirm accepts it as
+// well as Scan Part edit, so the form saves with it too (Confirm Installation).
+const INSTALL_RIGHT = { mod: "install_confirm", label: "Confirm Installation" };
 
 const trimmed = (v) => String(v ?? "").trim();
 // Field hint for a place already recorded: emptying the box clears it (a part
@@ -35,7 +39,8 @@ export default function InstallForm({ scan, target, onDone, onCancel }) {
     line_name: i?.line_name || "", line_no: i?.line_no || "", machine: i?.machine || "", die_no: i?.die_no || "",
     // Default: everything still out was used (contract); a previous figure is
     // kept when it is still possible.
-    actual: i?.actual_qty != null && qtyOf(i.actual_qty) <= qtyOf(i.outstanding_qty)
+    // An old confirmation with 0 used starts from what is out: 0 is refused now.
+    actual: i?.actual_qty != null && qtyOf(i.actual_qty) > 0 && qtyOf(i.actual_qty) <= qtyOf(i.outstanding_qty)
       ? qtyOf(i.actual_qty) : qtyOf(i?.outstanding_qty),
   });
   const [form, setForm] = useState(() => startFrom(issue));
@@ -66,8 +71,10 @@ export default function InstallForm({ scan, target, onDone, onCancel }) {
     && issue.actual_qty != null && Math.abs(actual - qtyOf(issue.actual_qty)) < 0.005;
   const errors = {
     issue: !issue ? "Pick the issue that was installed" : null,
+    // Nothing used is not an installation (the store's rule): the part stays
+    // under Waiting, or comes back to the store as a return.
     actual: issue ? qtyError(form.actual, {
-      max: outstanding, allowZero: true, maxText: `Only ${fmtQty(outstanding, part.uom)} of this issue is out`,
+      max: outstanding, maxText: `Only ${fmtQty(outstanding, part.uom)} of this issue is out`,
     }) : null,
     place: issue && actual > 0 && !hasPlace ? "Enter at least the line, machine or die it went on" : null,
     unchanged: unchanged ? "Nothing changed — these are already the recorded values" : null,
@@ -89,12 +96,13 @@ export default function InstallForm({ scan, target, onDone, onCancel }) {
       actual_qty: actual, remarks: clean(remarks),
     };
     const it = issue;
-    const noneUsed = actual === 0;
+    // Never confirmed before: this is the installation itself, not an update of it.
+    const firstTime = !it.confirmed_at;
     flow.open({
-      title: "Update Line / Machine", icon: Wrench, part, qty: actual, uom: part.uom,
+      title: firstTime ? "Confirm installation" : "Update Line / Machine", icon: Wrench, part, qty: actual, uom: part.uom,
       moves: [{
-        from: ISSUE_STATUS[it.status] || { label: it.status || "Status not recorded", badge: "badge-neutral" },
-        to: noneUsed ? { label: "Confirmed — none used", badge: "badge-neutral" } : ISSUE_STATUS[newStatus],
+        from: issueStatusMeta(it) || { label: it.status || "Status not recorded", badge: "badge-neutral" },
+        to: ISSUE_STATUS[newStatus],
       }],
       changes: [
         { label: "Line name", from: it.line_name, to: payload.line_name },
@@ -112,19 +120,20 @@ export default function InstallForm({ scan, target, onDone, onCancel }) {
         { label: "Still out", value: fmtQty(outstanding, part.uom) },
         { label: "Remarks", value: payload.remarks },
       ],
-      note: "No stock moves here — it left the store at the issue. The previous line / machine stays in the part's history.",
-      confirmLabel: "Confirm Update",
+      note: firstTime
+        ? "No stock moves here — it left the store at the issue."
+        : "No stock moves here — it left the store at the issue. The previous line / machine stays in the part's history.",
+      confirmLabel: firstTime ? "Confirm installation" : "Confirm Update",
       submit: () => flow.run(
         () => spareFlowService.updateInstallation(it.id, payload),
-        noneUsed
-          ? "Recorded — none of this issue used"
-          : `Installation recorded — ${placeText(payload) || "location updated"}`,
+        `Installation recorded — ${placeText(payload) || "location updated"}`,
       ),
     });
   };
 
   return (
     <FormShell flow={flow} onCancel={onCancel} onReview={review} reviewLabel="Review update"
+      editRight={INSTALL_RIGHT}
       verify={
         <Facts items={[
           { label: "Part No.", value: part.part_no, strong: true },
@@ -159,7 +168,7 @@ export default function InstallForm({ scan, target, onDone, onCancel }) {
             </Field>
             <Field label="Actual usage" required htmlFor={`${uid}-act`} error={show("actual")}
               hint={`0 – ${num(outstanding)}${part.uom ? ` ${part.uom}` : ""} (still out on this issue)`}>
-              <QtyStepper id={`${uid}-act`} value={form.actual} onChange={set("actual")} min={0} max={outstanding}
+              <QtyStepper id={`${uid}-act`} value={form.actual} onChange={set("actual")} min={stepMin(outstanding)} max={outstanding}
                 size="lg" label="Actual usage" />
             </Field>
             <Field label="Remarks" htmlFor={`${uid}-rem`}>
@@ -170,8 +179,9 @@ export default function InstallForm({ scan, target, onDone, onCancel }) {
           <FormError>{show("place")}</FormError>
           <FormError>{show("unchanged")}</FormError>
           <Note>
-            Status after saving: {actual === 0 ? "confirmed — none used" : ISSUE_STATUS[newStatus].label.toLowerCase()}.
-            Installed parts can still be returned later if they are removed from the machine.
+            Status after saving: {ISSUE_STATUS[newStatus].label.toLowerCase()}.
+            Installed parts can still be returned later if they are removed from the machine. Not fitted at all?
+            Don&apos;t confirm it — leave it under Waiting, or return it to the store.
           </Note>
         </>
       )}

@@ -4,7 +4,7 @@ Nothing here is stored, acknowledged or invented. Every alert is a reading of
 rows that exist right now (the stock list, the issue-confirmation queue, the
 ERP GRN lines, the return / RGP documents, the ERP snapshot), so an alert goes away the
 moment the thing it reports is fixed. A type with nothing to report is left out
-rather than listed at zero: "0 parts out of stock" in a bell is noise. The
+rather than listed at zero: "0 parts critical" in a bell is noise. The
 exceptions are the two ERP states, which are conditions of the feed rather than
 counts of parts.
 
@@ -20,6 +20,7 @@ how many of them are listed.
 Deliberately NOT alerted: "count due". The app keeps no count frequency per
 part, so any due date would be made up.
 """
+from collections import Counter
 from datetime import datetime, timezone
 from urllib.parse import quote, urlencode
 
@@ -32,20 +33,22 @@ from app.models.part import Part
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Store
 from app.services.spare_dashboard_service import STALE_AFTER_HOURS, SpareDashboardService
-from app.services.spare_stock_service import SpareStockService
+from app.services.spare_stock_service import SpareStockService, awaiting_confirmation_clause
 from app.utils.exceptions import BadRequestError, NotFoundError
 
 SEVERITIES = ("critical", "warning", "info")
 _RANK = {s: i for i, s in enumerate(SEVERITIES)}
 
-# Per-part zero-stock alerts under the headline count: the dearest to restock.
+# What "critical" stands for: counted and empty, or under the planned minimum.
+CRITICAL_STATUSES = ("Out of Stock", "Below Minimum")
+# Per-part zero-stock alerts under the critical headline: the dearest to restock.
 TOP_ZERO_STOCK = 5
 # Per-issue confirmation alerts: the longest-waiting ones. Past this the
 # headline alert carries the count and Scan Part holds the full queue.
 MAX_ISSUE_ALERTS = 10
-# An ISSUE still waiting for the user's line / machine confirmation — the Scan
-# Part queue's own filter (SpareStockService.pending_confirmations).
-AWAITING_CONFIRMATION = ("PENDING_USER_CONFIRMATION", "ISSUED_BY_STORE")
+# An ISSUE still waiting for the user's line / machine confirmation is the
+# Waiting list's own rule (spare_stock_service.awaiting_confirmation_clause) —
+# kept in one place, so the bell never counts a different set than the list.
 
 OMITTED = [
     {"type": "count_due",
@@ -144,8 +147,8 @@ def _inr(v):
 
 
 def _where(sections):
-    """The attention item's worst (up to three) sections, as a sentence to
-    append: " Top sections: Press Shop 12, Nut-Bolt 3." — or nothing."""
+    """An alert's worst (up to three) sections, as a sentence to append:
+    " Top sections: Press Shop 12, Nut-Bolt 3." — or nothing."""
     if not sections:
         return ""
     return " Top sections: " + ", ".join(f"{s['name']} {s['count']:,}" for s in sections) + "."
@@ -180,8 +183,7 @@ class SpareAlertsService:
         att = {a["key"]: a for a in ov["attention"]}
 
         out = []
-        out += self._zero_stock(att["zero_stock"], ov["critical_parts"])
-        out += self._below_min(att["below_min"])
+        out += self._critical(store_code, att["zero_stock"], att["below_min"], ov["critical_parts"])
         out += self._erp_sync(ov["erp"]["db_sync"], now)
         out += self._confirmations(store_code, now)
         out += self._reorder(att["reorder"])
@@ -198,7 +200,7 @@ class SpareAlertsService:
         # Worst first; within a severity the order built above (a headline
         # before the parts/issues listed under it) is kept — sort is stable.
         out.sort(key=lambda a: _RANK[a["severity"]])
-        # Headlines only: 300 parts at zero stock is one alert, however many of
+        # Headlines only: 300 critical parts is one alert, however many of
         # them are listed under it.
         heads = [a for a in out if a["parent"] is None]
         summary = {s: sum(1 for a in heads if a["severity"] == s) for s in SEVERITIES}
@@ -213,16 +215,28 @@ class SpareAlertsService:
 
     # ------------------------------------------------------------ stock state
 
-    @staticmethod
-    def _zero_stock(item, critical_parts):
-        n = item["count"]
+    def _critical(self, store_code, zero, below, critical_parts):
+        """Zero stock and below minimum as ONE headline. "Critical" already
+        means both, so two critical lines would read as two problems and count
+        twice in the bell's badge; the split is carried in the message instead.
+        A single part keeps its own wording in the lines listed under it."""
+        n_zero, n_below = zero["count"], below["count"]
+        n = n_zero + n_below
         if not n:
             return []
+        # Each attention item names only its own three worst sections, and
+        # adding two top-three lists would under-count a section that made one
+        # list but not the other. So the merged "where" is counted from the
+        # list the overview just built (cached for a few seconds).
+        names = self.dashboard._section_names(store_code)
+        where = Counter(r["section_id"] for r in self.stock.list_stock(store_code)
+                        if r["status"] in CRITICAL_STATUSES)
+        sections = [{"name": names.get(sid, "Unassigned"), "count": c} for sid, c in where.most_common(3)]
         out = [_alert(
-            "zero_stock", "critical", "zero_stock",
-            f"{_count(n, 'part')} at zero stock",
-            "Counted and found empty: nothing to issue until restocked." + _where(item["sections"]),
-            n, action=_stock_list("Out of Stock"),
+            "critical", "critical", "critical",
+            f"{_count(n, 'part')} critical",
+            f"{n_zero:,} zero stock · {n_below:,} below minimum." + _where(sections),
+            n, zero_stock=n_zero, below_min=n_below, action=_stock_list("Critical"),
         )]
         # critical_parts is worst status first, then dearest restock — so its
         # zero-stock head is the top of the list by value.
@@ -246,21 +260,9 @@ class SpareAlertsService:
                 f"zero_stock:{p['part_id']}", "critical", "zero_stock_part",
                 f"Zero stock: {p['part_no']}",
                 f"{p['part_name'] or p['part_no']}" + (f" ({place})" if place else "") + f". {restock}",
-                part=p, parent="zero_stock", value=value, action=_stock_list("Out of Stock"),
+                part=p, parent="critical", value=value, action=_stock_list("Out of Stock"),
             ))
         return out
-
-    @staticmethod
-    def _below_min(item):
-        n = item["count"]
-        if not n:
-            return []
-        return [_alert(
-            "below_min", "critical", "below_min",
-            f"{_count(n, 'part')} below minimum",
-            "Under the planned minimum: order now." + _where(item["sections"]),
-            n, action=_stock_list("Below Minimum"),
-        )]
 
     @staticmethod
     def _reorder(item):
@@ -306,7 +308,7 @@ class SpareAlertsService:
             "never_counted", "info", "never_counted",
             f"{_count(n, 'part')} never counted",
             "No physical count yet, so their stock status is unknown and they "
-            "cannot raise a zero-stock or below-minimum alert.",
+            "cannot raise a critical (zero-stock or below-minimum) alert.",
             n, action=_stock_list("Not Counted"),
         )]
 
@@ -339,19 +341,21 @@ class SpareAlertsService:
         query rather than one lazy load per row."""
         base = (db.session.query(SpareStockLedger)
                 .join(Part, Part.id == SpareStockLedger.part_id)
-                .filter(Part.store_code == store_code,
-                        SpareStockLedger.txn_type == "ISSUE",
-                        SpareStockLedger.status.in_(AWAITING_CONFIRMATION)))
+                .filter(Part.store_code == store_code, awaiting_confirmation_clause()))
         n = base.with_entities(func.count(SpareStockLedger.id)).scalar() or 0
         if not n:
             return 0, []
         rows = (base.options(contains_eager(SpareStockLedger.part))
                 .order_by(SpareStockLedger.created_at.asc(), SpareStockLedger.id.asc())
                 .limit(MAX_ISSUE_ALERTS).all())
+        # A partly returned issue still waits for the rest (16 Oct 2026): the
+        # line says how much came back, so "3 issued" is not read as 3 out.
+        returned = SpareStockService._returned_qty_map([r.id for r in rows])
         return n, [{
             "id": r.id, "part_id": r.part_id,
             "part_no": r.part.part_no, "part_name": r.part.part_name,
-            "qty": abs(float(r.qty_delta)), "uom": r.part.uom, "department": r.department,
+            "qty": abs(float(r.qty_delta)), "returned_qty": returned.get(r.id, 0.0),
+            "uom": r.part.uom, "department": r.department,
             "issued_to": r.issued_to, "issued_by": r.created_by, "issued_at": r.created_at,
         } for r in rows]
 
@@ -377,6 +381,9 @@ class SpareAlertsService:
             text = f"{_qty(r['qty'])} {r['uom'] or ''}".rstrip() + " issued" + (f" to {who}" if who else "")
             if r["issued_by"]:
                 text += f" by {r['issued_by']}"
+            if r["returned_qty"] > 0:
+                still_out = round(r["qty"] - r["returned_qty"], 2)
+                text += f" ({_qty(r['returned_qty'])} returned, {_qty(still_out)} still out)"
             text += f", waiting {_age(hours)}." if hours is not None else "."
             out.append(_alert(
                 f"confirm_pending:{r['id']}", "warning", "confirm_pending_issue",

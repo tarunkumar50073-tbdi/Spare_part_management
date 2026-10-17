@@ -1,6 +1,6 @@
 import React from "react";
 import { StatusBadge } from "../ActionConfirm.jsx";
-import { ISSUE_STATUS } from "../../spare/IssueLifecycle.jsx";
+import { issueStatusMeta } from "../../spare/IssueLifecycle.jsx";
 import { RETURN_STATUS, RGP_STATUS, reasonLabel } from "../../../lib/scanStatus.js";
 import { fmtDate, fmtStamp, fmtWhen, num } from "../../../lib/format.js";
 import { placeText } from "./flow.js";
@@ -28,7 +28,8 @@ function Line({ children }) {
 }
 
 export function IssueCard({ i, uom }) {
-  const meta = ISSUE_STATUS[i.status];
+  // Nothing used reads "Not used yet", never "partly used".
+  const meta = issueStatusMeta(i);
   return (
     <>
       <Head no={`Issue #${i.id}`} qty={i.outstanding_qty} qtyLabel={`${uom ? `${uom} ` : ""}still out`}
@@ -78,6 +79,7 @@ export function RgpCard({ g, qty, qtyLabel }) {
         {g.overdue && <> · <span className="font-semibold text-rose-600 dark:text-rose-400">Overdue</span></>}
       </Line>
       {g.rework_reason && <Line>Rework: {g.rework_reason}</Line>}
+      {g.rework_bin && <Line>Back to the rework bin {g.rework_bin}</Line>}
     </>
   );
 }

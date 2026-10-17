@@ -1,15 +1,10 @@
 import React, { useMemo, useState } from "react";
-import { LogIn, Eye, EyeOff, RefreshCw, Mail, Phone, Wrench, KeyRound } from "lucide-react";
+import { LogIn, Eye, EyeOff, RefreshCw, Mail, Phone, Wrench, Clock, MapPin, ArrowUpRight, KeyRound } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext.jsx";
-
-// Support contacts shown at the foot of the sign-in card. Update these to your
-// store's real support address / number.
-const SUPPORT = {
-  email: "dx.support@toyota-boshoku.com",
-  phone: "+91 00000 00000",
-  team: "TBDI Digital Store · DX Support",
-};
+// Support contacts shown at the foot of the sign-in card (and in the app's
+// Support / Help dialog) — kept in one place.
+import { SUPPORT } from "../lib/appInfo.js";
 
 // A small client-side security check (2 letters + 2 digits) — a light bot /
 // mis-type deterrent that mirrors the QMP portal's login. It is a UI gate, not
@@ -20,7 +15,7 @@ const randOf = (s) => s[Math.floor(Math.random() * s.length)];
 const makeCode = () => `${randOf(LETTERS)}${randOf(LETTERS)}${randOf(DIGITS)}${randOf(DIGITS)}`;
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, logoutReason } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -36,8 +31,8 @@ export default function Login() {
     () => captcha.split("").map((ch, i) => ({
       ch,
       style: {
-        transform: `rotate(${[-9, 7, -6, 10][i] || 0}deg) translateY(${[2, -2, 1, -1][i] || 0}px)`,
-        color: i % 2 ? "#eb0a1e" : "#1f2937",
+        transform: `rotate(${[-4, 3, -3, 4][i] || 0}deg)`,
+        color: i % 2 ? "#eb0a1e" : "#0f1f38",
       },
     })),
     [captcha],
@@ -71,27 +66,33 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-navy-950 via-navy-900 to-navy-950 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
         {/* Branded header */}
-        <div className="flex items-center gap-4 px-6 pt-6 pb-5">
-          <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-12 w-auto shrink-0" draggable={false} />
+        <div className="flex items-center gap-4 px-8 pt-7 pb-6">
+          <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-14 w-auto shrink-0" draggable={false} />
           <div className="min-w-0">
-            <h1 className="text-xl font-extrabold tracking-tight text-slate-900">TBDI Digital Store</h1>
-            <p className="text-[13px] text-slate-500">Toyota Boshoku Device India Pvt. Ltd.</p>
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">TBDI Digital SMP</h1>
           </div>
         </div>
         <div className="border-t border-slate-100" />
 
-        <form onSubmit={handleSubmit} className="px-6 py-6 space-y-4">
+        <form onSubmit={handleSubmit} className="px-8 py-7 space-y-4">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Sign in</h2>
             <p className="text-[13px] text-slate-500">Use the username and password given by your store admin.</p>
           </div>
 
+          {logoutReason === "inactivity" && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+              <Clock size={15} className="mt-0.5 shrink-0 text-amber-500" />
+              <span>You were signed out after 30 minutes of inactivity. Please sign in again.</span>
+            </div>
+          )}
+
           <label className="block">
             <span className="text-sm font-semibold text-slate-700">Username</span>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-[15px] focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-800"
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-[15px] text-slate-900 caret-toyotared focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-800"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
@@ -105,7 +106,7 @@ export default function Login() {
             <div className="relative mt-1">
               <input
                 type={showPw ? "text" : "password"}
-                className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 pr-11 text-[15px] focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-800"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 pr-11 text-[15px] text-slate-900 caret-toyotared focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-800"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
@@ -130,18 +131,16 @@ export default function Login() {
             <div className="mt-1 flex items-stretch gap-2">
               <div
                 aria-hidden="true"
-                className="flex w-28 shrink-0 items-center justify-center rounded-lg border border-slate-300"
-                style={{ backgroundImage: "repeating-linear-gradient(45deg,#f1f5f9 0 6px,#e2e8f0 6px 12px)" }}
+                className="flex w-32 shrink-0 select-none items-center justify-center rounded-lg border border-slate-300 bg-slate-100"
               >
-                <div className="relative px-1">
+                <div className="flex items-center gap-1.5 px-2 py-2">
                   {glyphs.map((g, i) => (
-                    <span key={i} className="inline-block font-mono text-2xl font-extrabold" style={g.style}>{g.ch}</span>
+                    <span key={i} className="inline-block font-mono text-3xl font-black leading-none" style={g.style}>{g.ch}</span>
                   ))}
-                  <span className="pointer-events-none absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-slate-500/50" />
                 </div>
               </div>
               <input
-                className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3.5 py-2.5 text-[15px] uppercase tracking-widest placeholder:tracking-normal placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-800"
+                className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-lg text-slate-900 caret-toyotared uppercase tracking-widest placeholder:text-[15px] placeholder:tracking-normal placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-navy-900/30 focus:border-navy-800"
                 value={captchaInput}
                 onChange={(e) => setCaptchaInput(e.target.value)}
                 placeholder="Enter code"
@@ -180,7 +179,7 @@ export default function Login() {
         </form>
 
         {/* Contact */}
-        <div className="border-t border-slate-100 bg-slate-50/70 px-6 py-4">
+        <div className="border-t border-slate-100 bg-slate-50/70 px-8 py-5">
           <p className="text-[13px] font-bold text-slate-700">Need help? Contact us</p>
           <div className="mt-1.5 space-y-1 text-[13px]">
             <a href={`mailto:${SUPPORT.email}`} className="flex items-center gap-2 text-navy-800 hover:text-toyotared">
@@ -191,6 +190,22 @@ export default function Login() {
             </a>
             <p className="flex items-center gap-2 text-slate-500">
               <Wrench size={14} /> {SUPPORT.team}
+            </p>
+            <p className="flex items-center gap-2 text-slate-500">
+              <Clock size={14} /> {SUPPORT.hours}
+            </p>
+            <p className="flex items-center gap-2 text-slate-500">
+              <MapPin size={14} />
+              <span className="flex items-center gap-1.5">
+                {SUPPORT.plants.map((p, i) => (
+                  <React.Fragment key={p.label}>
+                    {i > 0 && <span className="text-slate-300">·</span>}
+                    <a href={p.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-navy-800 hover:text-toyotared">
+                      {p.label} <ArrowUpRight size={12} />
+                    </a>
+                  </React.Fragment>
+                ))}
+              </span>
             </p>
           </div>
         </div>

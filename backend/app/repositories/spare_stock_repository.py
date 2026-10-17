@@ -33,16 +33,22 @@ class SpareStockRepository(BaseRepository):
             query = query.join(Part, Part.id == self.model.part_id).filter(Part.store_code == store_code)
         return {part_id: float(qty or 0) for part_id, qty in query.all()}
 
-    def list_for_store(self, store_code, section_id=None, only_counted=False):
+    def list_for_store(self, store_code, section_id=None, only_counted=False, section_ids=None):
         """Parts of a store with their stock row attached, left-joined so parts
         that have never been counted still appear — they are the ones someone
-        most needs to see."""
+        most needs to see.
+
+        section_ids (a set/list) scopes to several sections at once — a section
+        group like Tool Room (= Press Tool Room + General Tool Room); it takes
+        precedence over the single section_id. Neither given = the whole store."""
         query = (
             db.session.query(Part, self.model)
             .outerjoin(self.model, self.model.part_id == Part.id)
             .filter(Part.store_code == store_code, Part.is_active.is_(True))
         )
-        if section_id:
+        if section_ids:
+            query = query.filter(Part.section_id.in_(list(section_ids)))
+        elif section_id:
             query = query.filter(Part.section_id == section_id)
         if only_counted:
             query = query.filter(self.model.id.isnot(None))

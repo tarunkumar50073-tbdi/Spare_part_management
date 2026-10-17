@@ -11,7 +11,7 @@ import { can } from "../utils/permissions.js";
 // Quick-jump destinations. `mod`/`admin` gate an entry to who may open it.
 const NAV = [
   { label: "Dashboard", to: "/", keywords: "home overview store status" },
-  { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr issue receive return rgp supplier barcode mapping label print" },
+  { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr issue receive return rgp supplier barcode mapping label print put away putaway bin location check" },
   { label: "Work Queue", to: "/work-queue", mod: "scan_part", keywords: "grn quality inspection return rgp rework supplier pending" },
   { label: "Employee Master", to: "/employees", mod: "employees", keywords: "employee person mobile phone issued to code department" },
   { label: "Line / Machine / Die Master", to: "/equipment", mod: "equipment", keywords: "line machine die equipment press install master dropdown" },
@@ -20,11 +20,14 @@ const NAV = [
   { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },
   { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data" },
   { label: "Critical · Reorder · Excess", to: "/inventory-control", mod: "store_stock", keywords: "short critical zero reorder excess aging order qty" },
-  { label: "Consumption Analytics", to: "/consumption", mod: "spare_store", keywords: "consumption usage issued trend top parts department" },
+  { label: "Issuance Report", to: "/issuance", mod: "spare_store", keywords: "issuance issue list issued issue report who took taken by issued to person department yesterday last month financial year fy full pack excel pdf" },
+  { label: "Consumption Report", to: "/consumption", mod: "spare_store", keywords: "consumption consumed usage net returned trend top parts department machine category yesterday last month financial year fy full pack excel pdf charts" },
   { label: "Receiving & GRN", to: "/receiving", mod: "spare_store", keywords: "grn srv receipt receiving inward aging" },
+  { label: "Short & Rejection", to: "/short-rejection", mod: "spare_store", keywords: "short receipt supply rejection rejected reject supplier lot debit note days pending kam aaya" },
   { label: "ERP Control Center", to: "/erp-control", mod: "erp_gap", keywords: "erp sync status reconciliation error pending" },
   { label: "Data Quality", to: "/data-quality", mod: "part_master", keywords: "missing min max rate location barcode completeness" },
-  { label: "Notifications", to: "/notifications", keywords: "alerts notification critical warning bell" },
+  { label: "Action Tracker", to: "/action-tracker", mod: "spare_store", keywords: "issues owner action by target date overdue open points management summary" },
+  { label: "Notification Center", to: "/notifications", keywords: "alerts notification critical warning bell" },
   { label: "Suppliers", to: "/suppliers", keywords: "vendor supplier master" },
   { label: "Reports", to: "/reports", mod: "reports", keywords: "excel pdf export daily monthly consumption" },
   { label: "Live Dashboard (HMI)", to: "/live-dashboard", mod: "live_dashboard", keywords: "wallboard tv hmi big screen" },
@@ -33,6 +36,15 @@ const NAV = [
   { label: "User Management", to: "/admin", admin: true, keywords: "users roles permissions rbac" },
   { label: "Rights Matrix", to: "/rights-matrix", admin: true, keywords: "rights matrix permissions modules users grid access control" },
   { label: "Settings", to: "/settings", admin: true, keywords: "config barcode label store section" },
+  { label: "Control Center", to: "/email/control-center", admin: true, keywords: "mail engine status queue health smtp worker" },
+  { label: "Workflow Center", to: "/email/workflows", admin: true, keywords: "mail automation schedule pipeline run now" },
+  { label: "Email Configuration", to: "/email/configuration", admin: true, keywords: "smtp mail server host port from test mail" },
+  { label: "Email Templates", to: "/email/templates", admin: true, keywords: "mail subject body signature template wording" },
+  { label: "Send Email Alert", to: "/email/send", admin: true, keywords: "send mail alert now compose message" },
+  { label: "Email Queue", to: "/email/queue", admin: true, keywords: "mail waiting pending retry failed stuck" },
+  { label: "Email Logs", to: "/email/logs", admin: true, keywords: "mail history sent failed log who when" },
+  { label: "Notification Rules", to: "/email/rules", admin: true, keywords: "who gets which mail when schedule recipients rule" },
+  { label: "Reminder & Escalation", to: "/email/reminders", admin: true, keywords: "reminder escalation overdue target date action tracker" },
 ];
 
 const fmtInt = (n) => (n == null ? "—" : Number(n).toLocaleString("en-IN"));
@@ -85,7 +97,7 @@ export default function CommandPalette() {
     const q = query.trim().toLowerCase();
     if (!q || !parts) return [];
     return parts
-      .filter((p) => `${p.part_no || ""} ${p.part_name || ""} ${p.old_part_no || ""} ${p.location || ""}`.toLowerCase().includes(q))
+      .filter((p) => `${p.part_no || ""} ${p.part_name || ""} ${p.old_part_no || ""} ${p.new_part_no || ""} ${p.specification || ""} ${p.location || ""}`.toLowerCase().includes(q))
       .slice(0, 20);
   }, [query, parts]);
 
@@ -130,7 +142,7 @@ export default function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search parts (no / name / ref / location) or jump to a screen…"
+            placeholder="Search parts (no / name / spec / ref / location) or jump to a screen…"
             className="w-full bg-transparent py-3.5 text-sm outline-none placeholder:text-slate-400"
             aria-label="Search"
           />
@@ -172,6 +184,9 @@ export default function CommandPalette() {
                       <span className="truncate text-[11px] text-slate-400">
                         {p.part_name}{p.location ? ` · ${p.location}` : ""}
                       </span>
+                      {p.specification && (
+                        <span className="truncate text-[11px] text-slate-400 dark:text-slate-500">Spec: {p.specification}</span>
+                      )}
                     </span>
                     <span className="shrink-0 text-right text-[11px] tabular text-slate-500 dark:text-slate-400">
                       <span className="font-semibold text-slate-700 dark:text-slate-200">{fmtInt(p.qty_on_hand)}</span> in stock

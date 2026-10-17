@@ -103,10 +103,23 @@ class SpareLocationSchema(Schema):
     qty = fields.Decimal(allow_none=True, places=2, validate=validate.Range(min=0))
 
 
+class PutAwayRecordSchema(Schema):
+    """Confirm a put-away (Put-away Check → Confirm Put Away): the part, the
+    location that was scanned, and optionally the lot tag's gate entry no (used to
+    look up and record the lot quantity). The service re-checks that the scanned
+    location matches the part's assigned location."""
+    class Meta:
+        unknown = EXCLUDE
+
+    part_id = fields.Integer(required=True, validate=validate.Range(min=1))
+    scanned_location = fields.String(required=True, validate=validate.Length(min=1, max=40))
+    gate_entry_no = fields.String(allow_none=True, validate=validate.Length(max=60))
+
+
 class SpareReturnSchema(Schema):
     """A part coming back to the store against its original issue (spec 13) —
-    held for the store inspection, not put back in stock. qty is optional
-    (omitted returns everything still out on the issue); reason is one of
+    taken straight back into store stock (store rule, 14 Oct 2026). qty is
+    optional (omitted returns everything still out on the issue); reason is one of
     RETURN_REASONS (models/spare_stock.py) or the operator's own words for
     "Other", so it is free text up to 60 characters, not an enum; note is any
     extra remark; returned_by is the person who handed it over. reason stays

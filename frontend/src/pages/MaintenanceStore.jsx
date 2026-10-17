@@ -2,19 +2,21 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { NO_ROWS, stockKeys, useStockList, useStockOverview } from "../lib/stockQueries.js";
-import { AttentionBoard, ErpStatusStrip, HealthBar, ValuePanel } from "../components/spare/OverviewPanels.jsx";
+import { NO_ROWS, stockKeys, useSpareManagement, useStockList, useStockOverview } from "../lib/stockQueries.js";
+import { AttentionBoard, CRITICAL_STATUSES, ErpStatusStrip, HealthBar, ValuePanel } from "../components/spare/OverviewPanels.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
 import { usePartDrawer } from "../context/PartDrawerContext.jsx";
 import { compactMoney, fmtDate, fmtStamp, money, num, parseServerTime } from "../lib/format.js";
 import {
-  ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Bolt, CalendarDays, ChartColumn, CircleCheck,
+  ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpFromLine, Bolt, CalendarDays, ChartColumn, CircleCheck,
   ClipboardList, Download, Factory, Gem, IndianRupee, MapPin, Package, Pencil, Repeat2,
-  Settings, TrendingUp, TriangleAlert, Truck, Wrench, X,
+  Settings, ShieldCheck, TrendingUp, TriangleAlert, Truck, Wrench, X,
 } from "lucide-react";
 import Glyph, { sectionIcon } from "../components/Glyph.jsx";
 import Badge from "../components/Badge.jsx";
 import CardHead from "../components/CardHead.jsx";
 import DonutChart from "../components/DonutChart.jsx";
+import DrillTopTen from "../components/spare/DrillTopTen.jsx";
 import HorizontalBars from "../components/HorizontalBars.jsx";
 import KpiCard from "../components/KpiCard.jsx";
 import Modal from "../components/Modal.jsx";
@@ -25,7 +27,7 @@ import RadialGauge from "../components/RadialGauge.jsx";
 import Table from "../components/Table.jsx";
 import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import { storeService } from "../services/storeService.js";
-import { partService } from "../services/partService.js";
+import { can } from "../utils/permissions.js";
 import { spareStockService } from "../services/spareStockService.js";
 import { spareFlowService } from "../services/spareFlowService.js";
 import { erpLineMeta } from "../lib/scanStatus.js";
@@ -33,25 +35,9 @@ import { erpFreshness } from "../services/erpGrnService.js";
 
 const STORE_CODE = "MAINTENANCE";
 
-
-// The whole store in one list, so every figure on this page is counted from
-// the same rows the table shows. The server now caps per_page at 5000, so the
-// ~4.8k-part store comes back in ONE request; the paging loop below stays as a
-// fallback if the list ever grows past a page.
-const PER_PAGE = 5000;
-
-async function fetchAllParts(params) {
-  const first = await partService.list({ ...params, page: 1, per_page: PER_PAGE });
-  const totalPages = first.data.meta.total_pages;
-  if (totalPages <= 1) return first.data.data;
-
-  const rest = await Promise.all(
-    Array.from({ length: totalPages - 1 }, (_, i) =>
-      partService.list({ ...params, page: i + 2, per_page: PER_PAGE })
-    )
-  );
-  return rest.reduce((all, res) => all.concat(res.data.data), first.data.data);
-}
+// Small uppercase label above each KPI group (Overview / Health / Operations) —
+// the grouping that gives the board its management-dashboard hierarchy.
+const KPI_GROUP = "mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500";
 
 // "R3-S1-B2(1)" -> "R3". The sheets encode rack/shelf/bin in one string, and
 // the rack is the part anyone standing on the floor actually navigates by.
@@ -209,10 +195,10 @@ const SECTION_COLUMNS = [
 //    cards that chart individual parts. It loads alongside, so the top of the
 //    page paints from the overview without waiting for 4,800 rows.
 // A server "stock" push invalidates both, so the page stays live.
-function useSpareDashboardData(sectionId, enabled = true) {
+function useSpareDashboardData(sectionId, enabled = true, sectionIds = null) {
   const sid = sectionId ?? null;
-  const ov = useStockOverview(STORE_CODE, sid, { enabled });
-  const list = useStockList(STORE_CODE, sid, { enabled });
+  const ov = useStockOverview(STORE_CODE, sid, { enabled, sectionIds });
+  const list = useStockList(STORE_CODE, sid, { enabled, sectionIds });
   // First-load gate for the KPI tiles: the overview ONLY. Every headline figure
   // the five tiles show comes from the overview payload (~18 KB — including the
   // total-parts count), so they must NOT wait on the ~2 MB stock list, which
@@ -244,6 +230,38 @@ function deriveBelowMin(rows, limit = 50) {
     .sort((a, b) => REORDER_ORDER[a.status] - REORDER_ORDER[b.status] || gap(a) - gap(b))
     .slice(0, limit);
 }
+
+// The board's ONE "Critical parts" line, folded from the server's zero-stock and
+// below-minimum lines ("Critical" already means both, so a summary must not list
+// them twice; the server keeps the two keys for its alerts). The split goes to
+// the small print, and the sections are the two lines' own added up. The money
+// is what the server quotes on the zero-stock line — the restock spend of ALL
+// short parts, reorder-level ones included — so it keeps the server's label and
+// is not misread as a critical-only figure. It stands only until the Action
+// Tracker's own critical-only figure arrives (see RESTOCK_LINES).
+function criticalLine(zero, below) {
+  const split = { zero: Number(zero?.count) || 0, below: Number(below?.count) || 0 };
+  const count = split.zero + split.below;
+  const where = new Map();
+  [...(zero?.sections || []), ...(below?.sections || [])].forEach((s) => {
+    const sum = where.get(s.section_id) || { ...s, count: 0 };
+    sum.count += Number(s.count) || 0;
+    where.set(s.section_id, sum);
+  });
+  return {
+    key: "critical", label: "Critical parts", split,
+    hint: `${num(split.zero)} zero stock · ${num(split.below)} below minimum`,
+    count, severity: count ? "critical" : "ok",
+    sections: [...where.values()].sort((a, b) => b.count - a.count).slice(0, 3),
+    value: zero?.value ?? null, value_label: zero?.value_label ?? null,
+    action: { label: "Open list", to: "/store-stock-spare", status: "Critical" },
+  };
+}
+
+// The board lines whose money is restock spend. The overview quotes that spend
+// once, for all short parts; the Action Tracker splits it per line, and the
+// board shows the tracker's split so both screens read the same rupees.
+const RESTOCK_LINES = ["critical", "reorder"];
 
 const STOCK_STATUS_TONE = {
   "Out of Stock": "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
@@ -352,8 +370,13 @@ const EXCESS_COLUMNS = [
     render: (r) => <span className="font-semibold text-blue-700 dark:text-blue-300">+{num(r.excess_qty)}</span>,
   },
   {
-    key: "stock_value", label: "Value Tied Up", sortable: true, align: "right",
-    render: (r) => (r.unit_price == null ? "—" : money(r.excess_qty * r.unit_price)),
+    // Money tied up in the EXCESS only (excess qty × rate) — NOT the full on-hand
+    // value (`stock_value`). The rows carry it as `excess_value` (see excessRows),
+    // the same figure the drill's Top 10 ranks by. A part with no rate shows "—",
+    // sorts last and exports blank (the Table's own rule for a missing figure)
+    // rather than posing as ₹0.
+    key: "excess_value", label: "Value Tied Up", sortable: true, align: "right",
+    render: (r) => money(r.excess_value),
   },
 ];
 
@@ -447,13 +470,13 @@ const erpLineKey = (r) => `${r.part_id}|${r.grn_no}`;
 // Value asked the question, so value is what this list is ordered and shown
 // by — rate and stock value rather than Min/Max.
 const STOCK_VALUE_COLUMNS = [
-  { key: "part_no", label: "Part No", sortable: true },
-  { key: "part_name", label: "Description", sortable: true },
-  { key: "location", label: "Location", render: (r) => r.location || "—" },
-  { key: "qty_on_hand", label: "In Stock", sortable: true, align: "right", render: (r) => num(r.qty_on_hand) },
-  { key: "unit_price", label: "Rate", sortable: true, align: "right", render: (r) => money(r.unit_price) },
+  { key: "part_no", label: "Part No", sortable: true, width: "112px" },
+  { key: "part_name", label: "Description", sortable: true },   // no width → fills + wraps
+  { key: "location", label: "Location", width: "150px", render: (r) => r.location || "—" },
+  { key: "qty_on_hand", label: "In Stock", sortable: true, align: "right", width: "92px", render: (r) => num(r.qty_on_hand) },
+  { key: "unit_price", label: "Rate", sortable: true, align: "right", width: "100px", render: (r) => money(r.unit_price) },
   {
-    key: "stock_value", label: "Stock Value", sortable: true, align: "right",
+    key: "stock_value", label: "Stock Value", sortable: true, align: "right", width: "122px",
     render: (r) => <span className="font-semibold">{money(r.stock_value)}</span>,
   },
 ];
@@ -497,88 +520,47 @@ const TODAY_OUT_COLUMNS = [
 // Every headline figure opens the list behind it. A KPI you cannot open is a
 // number the floor has to take on trust — and the first question anyone asks
 // about "3 below minimum" is which three.
-const DRILL_STATUS_COLORS = {
-  "Out of Stock": "#e11d48", "Zero Stock": "#e11d48", "Below Minimum": "#fb7185",
-  "Reorder": "#f97316", "Above Maximum": "#f59e0b", "Healthy": "#10b981",
-  "Not Counted": "#94a3b8",
-};
 const REORDER_BAR_COLORS = ["#eb0a1e", "#f97316", "#f59e0b", "#c026d3", "#7c3aed", "#0ea5e9"];
 
-// Hover card for the value bars — part no, description and the exact rupee.
-function ValueTip({ active, payload }) {
-  if (!active || !payload || !payload.length) return null;
-  const p = payload[0].payload;
-  return (
-    <div className="rounded-lg bg-navy-900 text-white px-3 py-2 shadow-xl max-w-[240px] border border-white/10">
-      <p className="font-bold text-sm leading-tight">{p.part_no}</p>
-      {p.part_name && <p className="text-[11px] text-slate-300 leading-snug mt-0.5">{p.part_name}</p>}
-      <p className="text-blue-300 font-bold text-sm mt-1">{money(p.value)}</p>
-    </div>
-  );
-}
+// What a drill's Top 10 ranks by — the money column its list already shows.
+// Only these two lists carry one (the store's call of 17 Oct 2026, see
+// components/spare/DrillTopTen.jsx): Stock Value (₹ on the shelf) and Excess
+// Parts (₹ tied up above the maximum). Excess adds its quantity column for a
+// "₹ Value | Qty" switch, because most excess rows carry no rate yet.
+const STOCK_VALUE_TOP10 = {
+  value: { key: "stock_value", title: "Top 10 · highest stock value", hint: "Most rupees on the shelf" },
+};
+const EXCESS_TOP10 = {
+  value: { key: "excess_value", title: "Top 10 · most money tied up in excess", hint: "Excess qty × rate, above the maximum" },
+  qty: { key: "excess_qty", title: "Top 10 · largest excess qty", hint: "Furthest over the maximum" },
+};
 
-// The "Top 10 by Value" graphic, rebuilt from the Live Dashboard against this
-// page's light/dark theme: a ranked column chart of stock value with a hover
-// card and the combined total beneath it. Tapping a bar opens that part.
-function TopValueChart({ data, onBarClick }) {
-  if (!data.length) {
-    return <p className="text-sm text-slate-400 text-center py-12">No counted stock value yet</p>;
-  }
-  const total = data.reduce((s, d) => s + (Number(d.value) || 0), 0);
-  return (
-    <div className="flex flex-col">
-      <div className="h-72">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 36 }}>
-            <defs>
-              <linearGradient id="hv-blue" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stopColor="#60a5fa" />
-                <stop offset="1" stopColor="#2563eb" />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148,163,184,0.25)" />
-            <XAxis dataKey="part_no" interval={0} angle={-32} textAnchor="end" height={48}
-              tick={{ fontSize: 10, fill: "#94a3b8" }} />
-            <YAxis tickFormatter={compactMoney} width={62} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-            <RechartsTooltip content={<ValueTip />} cursor={{ fill: "rgba(148,163,184,0.12)" }} />
-            <Bar dataKey="value" fill="url(#hv-blue)" radius={[5, 5, 0, 0]} maxBarSize={34}
-              cursor="pointer" isAnimationActive={false}
-              onClick={(entry) => entry && onBarClick && onBarClick(entry)} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="mt-1 flex items-center justify-between border-t border-slate-200 dark:border-navy-800 pt-2.5 px-1">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Top {data.length} total</span>
-        <span className="text-lg font-extrabold text-slate-800 dark:text-white tabular">{money(total)}</span>
-      </div>
-    </div>
-  );
-}
-
-// A full-screen drill in the Live Dashboard's style: a premium header, a status
-// ring at a glance (when the list carries one), and the whole searchable list —
-// a row opens that part. Replaces the old centred dialog.
+// A full-screen drill in the Live Dashboard's style: a premium header and the
+// whole searchable list — a row opens that part. Replaces the old centred
+// dialog. There is no "By status" ring any more (the store, 17 Oct 2026: "hta
+// de bhai, filter se duplicasy badegi" — every status already opens from its
+// own tile); a money list adds its Top 10.
 function DrillDown({ drill, onClose }) {
   if (!drill) return null;
   const rows = drill.rows || [];
-  const hasStatus = rows.some((r) => r.status);
-  const statusData = hasStatus
-    ? Object.entries(rows.reduce((acc, r) => { const s = r.status || "—"; acc[s] = (acc[s] || 0) + 1; return acc; }, {}))
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value)
-    : [];
-  const statusColors = Object.fromEntries(statusData.map((d) => [d.name, DRILL_STATUS_COLORS[d.name] || "#8b5cf6"]));
-  // Top 10 by the money on the shelf — only when the drill asks for it (the
-  // Stock Value tile), computed from the very rows the list shows.
-  const topValueRows = drill.valueChart
-    ? rows.filter((r) => Number(r.stock_value) > 0)
-        .slice()
-        .sort((a, b) => Number(b.stock_value) - Number(a.stock_value))
-        .slice(0, 10)
-        .map((r) => ({ ...r, value: Number(r.stock_value) }))
-    : [];
+  // The Top 10 — only the drills that declare one in `top10` (Excess Parts and
+  // the Stock Value lists), drawn from the very rows the list shows. Short /
+  // reorder / critical lists declare none: their worst-first order answers
+  // "what to order first" there.
+  const top10 = drill.top10 && rows.length > 0 && !drill.loading && !drill.error ? drill.top10 : null;
+  // Excess (with its ₹ / Qty switch) keeps the Top 10 in a side panel beside
+  // the list, as the store first saw it; Stock Value keeps it above the list.
+  const chartInSide = Boolean(top10?.qty);
+  const chartOnTop = Boolean(top10) && !chartInSide;
+  // A drill WITH a Top 10: below xl the chart and the list stack, so the drill
+  // scrolls and the list keeps a real height of its own (squeezed to a sliver
+  // under the chart on a phone otherwise). Only those drills — the short /
+  // reorder / critical lists keep the layout they had before the Top 10 work.
+  const stacked = Boolean(top10);
+  const openRow = (row) => { onClose(); if (drill.onRowClick) drill.onRowClick(row); };
+  const topKey = drill.exportName || drill.title;
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col gap-4 p-4 lg:p-6 overflow-auto bg-slate-50 dark:bg-navy-950 animate-[fadeIn_0.15s_ease-out]">
+    <div className={`fixed inset-0 z-50 flex flex-col gap-4 p-4 lg:p-6 bg-slate-50 dark:bg-navy-950 animate-[fadeIn_0.15s_ease-out] ${stacked ? "overflow-y-auto overflow-x-hidden xl:overflow-hidden" : "overflow-hidden"}`}>
       <div className="shrink-0 rounded-2xl px-5 py-3.5 flex items-center gap-4 text-white shadow-[0_12px_34px_rgba(10,32,70,0.35)]"
         style={{ background: "linear-gradient(120deg,#0a2340 0%,#123a6b 55%,#0a2038 100%)" }}>
         <button onClick={onClose} title="Back"
@@ -600,26 +582,22 @@ function DrillDown({ drill, onClose }) {
           className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center shrink-0"><X size={20} aria-hidden="true" /></button>
       </div>
 
-      {topValueRows.length > 0 && (
+      {chartOnTop && (
         <div className="card shrink-0">
-          <CardHead icon={Gem} tone="blue" title="Top 10 by value"
-            hint="Highest stock value on the shelf — tap a bar to open the part" />
-          <TopValueChart
-            data={topValueRows}
-            onBarClick={(entry) => { onClose(); if (drill.onRowClick) drill.onRowClick(entry); }}
-          />
+          <DrillTopTen key={topKey} rows={rows} spec={top10} wide onPick={openRow} />
         </div>
       )}
 
-      <div className={`flex-1 min-h-0 grid grid-cols-1 gap-4 ${hasStatus ? "xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]" : ""}`}>
-        {hasStatus && (
-          <div className="card h-fit">
-            <CardHead icon={ChartColumn} tone="violet" title="By status" hint="How this list splits up" />
-            <DonutChart data={statusData} colors={statusColors} size={132}
-              centerValue={num(rows.length)} centerLabel="parts" emptyMessage="—" />
+      <div className={`grid grid-cols-1 gap-4 ${stacked ? "shrink-0 xl:shrink xl:flex-1 xl:min-h-0" : "flex-1 min-h-0"} ${chartInSide
+        ? "xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]" : ""}`}>
+        {chartInSide && (
+          // The Top 10 side panel is a column so, on a short xl screen (1366×768),
+          // only its bars scroll — the title, the rate note and the total stay in view.
+          <div className="card h-fit min-w-0 xl:max-h-full xl:flex xl:flex-col xl:overflow-y-auto">
+            <DrillTopTen key={topKey} rows={rows} spec={top10} onPick={openRow} />
           </div>
         )}
-        <div className="card min-w-0">
+        <div className={`card min-w-0 min-h-0 flex flex-col ${stacked ? "h-[85vh] xl:h-auto" : ""}`}>
           {drill.loading ? (
             // A fetched-on-open list (the Today tiles): show a skeleton so the
             // click responds at once instead of the panel sitting empty.
@@ -635,11 +613,15 @@ function DrillDown({ drill, onClose }) {
             <Table
               columns={drill.columns}
               rows={rows}
+              // One scroll only: the table body fills the panel (sticky header) —
+              // no fixed height fighting the modal, and no horizontal scroll
+              // (table-fixed with per-column widths; Description wraps, never clips).
+              fill
+              noScroll
               // Opening a part closes this drill rather than stacking a dialog over it.
               onRowClick={drill.onRowClick && ((row) => { onClose(); drill.onRowClick(row); })}
               searchable={rows.length > 10 ? "Search this list…" : false}
               pageSize={0}
-              maxHeight="68vh"
               // A drill can be the whole store (4.8k rows) — window the long ones
               // so opening it doesn't mount every row at once.
               virtualize={rows.length > 300}
@@ -697,6 +679,89 @@ function TrendArea({ data }) {
   );
 }
 
+// Hover card for the stock in/out bars.
+function MoveTip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  const v = (k) => payload.find((p) => p.dataKey === k)?.value ?? 0;
+  return (
+    <div className="rounded-lg bg-navy-900 text-white px-2.5 py-1.5 shadow-lg text-xs border border-white/10">
+      <p className="font-semibold mb-0.5">{label}</p>
+      <p className="text-emerald-300">Received <b className="tabular">{num(v("in"))}</b></p>
+      <p className="text-rose-300">Issued <b className="tabular">{num(v("out"))}</b></p>
+    </div>
+  );
+}
+
+// Received (stock-in) vs issued (stock-out) per day — the 30-day trend behind
+// today's Added / Issued KPIs, straight from the ledger RECEIPT / ISSUE rows.
+function MovementBars({ data }) {
+  const empty = !(data || []).some((d) => d.in || d.out);
+  return (
+    <div className="h-60">
+      {empty ? (
+        <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
+          <TrendingUp size={22} className="text-slate-300 dark:text-slate-600" aria-hidden="true" />
+          <p className="text-sm text-slate-400">No stock moved in the last 30 days</p>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 8, right: 8, left: -14, bottom: 0 }} barGap={1} barCategoryGap="20%">
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148,163,184,0.2)" />
+            <XAxis dataKey="d" tick={{ fontSize: 10, fill: "#94a3b8" }} interval="preserveStartEnd" minTickGap={16} />
+            <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} width={32} allowDecimals={false} />
+            <RechartsTooltip content={<MoveTip />} cursor={{ fill: "rgba(148,163,184,0.12)" }} />
+            <Bar dataKey="in" name="Received" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={13} isAnimationActive={false} />
+            <Bar dataKey="out" name="Issued" fill="#e11d48" radius={[3, 3, 0, 0]} maxBarSize={13} isAnimationActive={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+// Most-issued parts — a ranked bar (rank · part no · description · qty). Store-
+// wide (the endpoint carries no section scope); issued quantity only. A row opens
+// that part when onBarClick is given (resolved from the stock rows by part no).
+function TopConsumedBars({ data, onBarClick }) {
+  const rows = (data || []).filter((d) => Number(d.qty) > 0);
+  if (!rows.length) return <p className="text-sm text-slate-400 text-center py-10">Nothing issued in this range</p>;
+  const max = Math.max(...rows.map((d) => Number(d.qty) || 0));
+  const clickable = Boolean(onBarClick);
+  return (
+    <ol className="space-y-2.5">
+      {rows.map((d, i) => {
+        const inner = (
+          <>
+            <div className="mb-1 flex items-baseline justify-between gap-2">
+              <span className="min-w-0 truncate text-xs">
+                <span className={`font-semibold text-slate-700 dark:text-slate-200 ${clickable ? "group-hover:text-toyotared" : ""}`}>{d.part_no}</span>
+                {d.part_name && <span className="text-slate-400"> · {d.part_name}</span>}
+              </span>
+              <span className="shrink-0 text-xs font-semibold tabular text-slate-800 dark:text-white">
+                {num(d.qty)} <span className="text-[10px] font-normal text-slate-400">pcs</span>
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-navy-800">
+              <div className="h-full rounded-full transition-[width] duration-700 ease-enterprise motion-reduce:transition-none"
+                style={{ width: `${(Number(d.qty) / max) * 100}%`, background: REORDER_BAR_COLORS[i % REORDER_BAR_COLORS.length] }} />
+            </div>
+          </>
+        );
+        return (
+          <li key={`${d.part_no}-${i}`} className="flex items-center gap-3">
+            <span className="w-5 shrink-0 text-right text-[11px] font-bold tabular text-slate-400">{i + 1}</span>
+            {clickable ? (
+              <button type="button" onClick={() => onBarClick(d)} className="group min-w-0 flex-1 cursor-pointer text-left">{inner}</button>
+            ) : (
+              <div className="min-w-0 flex-1">{inner}</div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 // On-hand value by each part's LAST gate-entry supplier. A spare arrives from
 // several vendors over time (the supplier is read live from the gate entries,
 // never stored on the part), so this credits what is on the shelf to whoever
@@ -704,17 +769,17 @@ function TrendArea({ data }) {
 // off as a per-supplier ledger. Opening stock that never came through the gate
 // is kept out of the ranking (it would swamp every bar) and shown beside it, so
 // the bars and the total still reconcile. A bar opens exactly its parts.
-function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick }) {
+function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick, sectionIds = null }) {
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: stockKeys.valueBySupplier(STORE_CODE, sectionId),
-    queryFn: () => spareStockService.valueBySupplier(STORE_CODE, sectionId).then((r) => r.data.data),
+    queryKey: [...stockKeys.valueBySupplier(STORE_CODE, sectionId), sectionIds?.join(",") ?? null],
+    queryFn: () => spareStockService.valueBySupplier(STORE_CODE, sectionId, 10, sectionIds).then((r) => r.data.data),
     staleTime: 60_000,
   });
 
   const drillOf = (title, subtitle, ids, exportName) => {
     const want = new Set(ids);
     onDrill({
-      title, subtitle, exportName, columns: STOCK_VALUE_COLUMNS, onRowClick: onStockClick, valueChart: true,
+      title, subtitle, exportName, columns: STOCK_VALUE_COLUMNS, onRowClick: onStockClick, top10: STOCK_VALUE_TOP10,
       rows: stockRows.filter((r) => want.has(r.part_id))
         .sort((a, b) => (b.stock_value || 0) - (a.stock_value || 0)),
     });
@@ -826,11 +891,12 @@ function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick }) {
 // needs the part itself. The parent already holds the list, so it resolves.
 function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   parts = [], stockRows = [], reorderPlanned = true, onReorderExport, sectionId, loading = false,
-  sections = [], listLoading = false }) {
+  sections = [], listLoading = false, sectionIds = null }) {
   const navigate = useNavigate();
   const kpi = overview?.kpis || null;
-  // Store-wide figures (consumption, receiving) are never quoted on a section page.
-  const storeLevel = sectionId == null;
+  // Store-wide figures (consumption, receiving) are quoted only on the true
+  // whole-store view — not a single section, and not a section group either.
+  const storeLevel = sectionId == null && !(sectionIds && sectionIds.length);
   const belowMin = useMemo(() => deriveBelowMin(stockRows), [stockRows]);
   const [pendingOpen, setPendingOpen] = useState(false);
   // Rows kept with the source they came from, so the columns always match them;
@@ -844,25 +910,53 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   // that attention line, with the ERP mirror's freshness, and its drill lists
   // those lines; an older overview without the block keeps its SRV figure.
   const receiving = overview?.receiving_pending ?? null;
-  const attention = useMemo(() => (overview?.attention || []).map((it) => {
-    if (it.key !== "srv_pending") return it;
-    if (!receiving) return { ...it, label: "GRN / Quality pending (ERP)" };
-    const count = receiving.total ?? receiving.quality_pending ?? it.count;
-    const fresh = receiving.erp ? erpFreshness(receiving.erp) : null;
-    const extra = [
-      receiving.check ? `${num(receiving.check)} to check with ERP` : null,
-      receiving.to_add ? `${num(receiving.to_add)} accepted, to be added` : null,
-    ].filter(Boolean).join(" · ");
-    return {
-      ...it, label: "GRN / Quality pending (ERP)", count,
-      hint: [
-        "ERP GRN lines awaiting quality clearance in ERP",
-        extra,
-        fresh ? `${fresh.text}${fresh.stale && !fresh.empty ? ` (${fresh.ageDays} d old)` : ""}` : null,
-      ].filter(Boolean).join(" · "),
-      severity: count || receiving.check ? "warning" : "ok",
-    };
-  }), [overview, receiving]);
+  const rp = overview?.returns_pending || null;
+  const returnsTotal = rp ? (rp.inspection || 0) + (rp.hold || 0) + (rp.damaged || 0) : 0;
+  // "Never counted" is dropped from the board: a physical count happens only
+  // quarterly and stock will come from ERP, so an uncounted part is not an
+  // action item here. (Server still sends it; we just don't surface it.)
+  // Zero stock + below minimum are folded into ONE "Critical parts" line, placed
+  // where the zero-stock line was (see criticalLine); the server always sends both.
+  const attention = useMemo(() => {
+    const items = overview?.attention || [];
+    const below = items.find((it) => it.key === "below_min");
+    return items.filter((it) => it.key !== "never_counted" && it.key !== "below_min").map((it) => {
+      if (it.key === "zero_stock") return criticalLine(it, below);
+      if (it.key !== "srv_pending") return it;
+      if (!receiving) return { ...it, label: "GRN / Quality pending (ERP)" };
+      const count = receiving.total ?? receiving.quality_pending ?? it.count;
+      const fresh = receiving.erp ? erpFreshness(receiving.erp) : null;
+      const extra = [
+        receiving.check ? `${num(receiving.check)} to check with ERP` : null,
+        receiving.to_add ? `${num(receiving.to_add)} accepted, to be added` : null,
+      ].filter(Boolean).join(" · ");
+      return {
+        ...it, label: "GRN / Quality pending (ERP)", count,
+        hint: [
+          "ERP GRN lines awaiting quality clearance in ERP",
+          extra,
+          fresh ? `${fresh.text}${fresh.stale && !fresh.empty ? ` (${fresh.ageDays} d old)` : ""}` : null,
+        ].filter(Boolean).join(" · "),
+        severity: count || receiving.check ? "warning" : "ok",
+      };
+    });
+  }, [overview, receiving]);
+  // Who must act on each board line, and by when: the Action Tracker's items for
+  // this same scope, keyed by line key. The board only decorates its rows with
+  // them — while this loads, or if the call fails, it renders as before and
+  // every owner reads "—".
+  const management = useSpareManagement(STORE_CODE, sectionId, { sectionIds });
+  const tracker = useMemo(
+    () => Object.fromEntries((management.data?.tracker?.items || []).map((t) => [t.key, t])),
+    [management.data]);
+  // The critical and reorder lines quote the tracker's money — each line's own
+  // restock spend — so this board and the full tracker one click away show the
+  // same rupees on the same line. Without the tracker a line keeps what the
+  // overview sent: the all-short-parts figure on the critical line, labelled so.
+  const boardLines = useMemo(() => attention.map((it) => {
+    const line = RESTOCK_LINES.includes(it.key) ? tracker[it.key] : null;
+    return line?.value == null ? it : { ...it, value: line.value, value_label: line.value_label };
+  }), [attention, tracker]);
 
   const fromReceipts = Boolean(receiving);
   useEffect(() => {
@@ -929,6 +1023,8 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   const [toType, setToType] = useState("text");
   const [rangedCons, setRangedCons] = useState(null);
   const [consLoading, setConsLoading] = useState(false);
+  const [topConsumedData, setTopConsumedData] = useState([]);
+  const [moveData, setMoveData] = useState([]);
   const custom = Boolean(consFrom && consTo);
   const qFrom = custom ? consFrom : undefined;
   const qTo = custom ? consTo : undefined;
@@ -953,29 +1049,47 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   const machineData = rangedCons ? rangedCons.machine : (overview?.consumption?.by_machine || []);
   const typeData = rangedCons ? rangedCons.type : (overview?.consumption?.by_type || []);
 
+  // Consumed parts, ranked by issued qty (store-wide — this endpoint has no
+  // section scope). The ONE home for the consumed-parts list: the card shows the
+  // top of it and exports the whole list, so the drills no longer repeat it.
+  // Follows the same range: a set calendar range wins, otherwise all-time.
+  useEffect(() => {
+    if (!storeLevel) { setTopConsumedData([]); return; }
+    let cancelled = false;
+    spareStockService.topConsumed(STORE_CODE, 300, custom ? 30 : 3650, qFrom, qTo)
+      .then((r) => { if (!cancelled) setTopConsumedData(r.data.data || []); })
+      .catch(() => { if (!cancelled) setTopConsumedData([]); });
+    return () => { cancelled = true; };
+  }, [storeLevel, custom, qFrom, qTo]);
+
+  // Received vs issued per day, last 30 days — the trend behind today's Added /
+  // Issued KPIs (store-wide). Real ledger RECEIPT / ISSUE rows.
+  useEffect(() => {
+    if (!storeLevel) { setMoveData([]); return; }
+    let cancelled = false;
+    spareStockService.movementTrend(STORE_CODE, 30)
+      .then((r) => { if (!cancelled) setMoveData(r.data.data || []); })
+      .catch(() => { if (!cancelled) setMoveData([]); });
+    return () => { cancelled = true; };
+  }, [storeLevel]);
+
   // The single donut opens a full-detail drill: machine + part-type breakdowns,
-  // the daily trend and the whole consumed-parts list. All of it is fetched only
-  // when the drill is opened (and refetched if the range changes while open), so
-  // the summary page stays a single light request. `consDrill` names which of
-  // the three donuts was drilled — that dimension leads the drill, with the
-  // daily trend and the consumed-parts list (labelled by description) below.
+  // the daily trend — fetched only when the drill is opened (and refetched if
+  // the range changes while open), so the summary page stays light. `consDrill`
+  // names which of the three donuts was drilled; that dimension leads the drill,
+  // with the daily trend below. The ranked consumed-parts list is NOT repeated
+  // here — it has one home, the "Top Consumed Parts" card on the page (store-wide
+  // either way), so the same list no longer appears in all three drills.
   const [consDrill, setConsDrill] = useState(null);
-  const [consumedParts, setConsumedParts] = useState([]);
   const [trendData, setTrendData] = useState([]);
   const [consDetailLoading, setConsDetailLoading] = useState(false);
   useEffect(() => {
     if (!consDrill) return;
     let cancelled = false;
     setConsDetailLoading(true);
-    Promise.all([
-      spareStockService.topConsumed(STORE_CODE, 300, 3650, qFrom, qTo).then((r) => r.data.data).catch(() => []),
-      spareStockService.consumptionTrend(STORE_CODE, 90, undefined, qFrom, qTo).then((r) => r.data.data).catch(() => []),
-    ]).then(([consumed, trend]) => {
-      if (cancelled) return;
-      setConsumedParts(consumed);
-      setTrendData(trend);
-      setConsDetailLoading(false);
-    });
+    spareStockService.consumptionTrend(STORE_CODE, 90, undefined, qFrom, qTo)
+      .then((r) => r.data.data).catch(() => [])
+      .then((trend) => { if (!cancelled) { setTrendData(trend); setConsDetailLoading(false); } });
     return () => { cancelled = true; };
   }, [consDrill, qFrom, qTo]);
 
@@ -997,7 +1111,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   const opener = (drillDown) => () => setDrill(drillDown);
 
   const partsDrill = (title, subtitle, rows, exportName) => ({
-    title, subtitle, rows, exportName, columns: COLUMNS, onRowClick: onPartClick,
+    title, subtitle, rows, exportName, columns: COLUMNS, onRowClick: onPartClick, fit: true,
   });
   const stockDrill = (title, subtitle, rows, exportName) => ({
     title, subtitle, rows, exportName, columns: BELOW_MIN_COLUMNS, onRowClick: onStockClick,
@@ -1016,8 +1130,8 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
     setDrill({ title, subtitle: "Loading…", rows: [], columns, loading: true, onRowClick: onStockClick, _tag: tag });
     try {
       const res = inbound
-        ? await spareStockService.todayReceipts(STORE_CODE, sectionId ?? undefined)
-        : await spareStockService.todayIssues(STORE_CODE, sectionId ?? undefined);
+        ? await spareStockService.todayReceipts(STORE_CODE, sectionId ?? undefined, sectionIds)
+        : await spareStockService.todayIssues(STORE_CODE, sectionId ?? undefined, sectionIds);
       if (drillRef.current?._tag !== tag) return; // superseded (closed / another drill)
       const rows = res.data.data || [];
       const qty = rows.reduce((s, r) => s + Math.abs(Number(r.qty_delta) || 0), 0);
@@ -1039,19 +1153,26 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   const counted = stockRows.filter((r) => r.qty_on_hand != null);
   const byStatus = (status) => stockRows.filter((r) => r.status === status);
 
-  // Above-max parts with how far over, furthest first — the excess drill.
+  // Above-max parts with how far over, furthest first — the excess drill. The
+  // money tied up in the excess (excess qty × rate; null with no rate) is worked
+  // out once here, so the list's column and its Top 10 read the same figure.
   const excessRows = useMemo(() => stockRows
     .filter((r) => r.status === "Above Maximum")
-    .map((r) => ({ ...r, excess_qty: Math.round((r.qty_on_hand - (r.max_stock_level || 0)) * 100) / 100 }))
+    .map((r) => {
+      const excess_qty = Math.round((r.qty_on_hand - (r.max_stock_level || 0)) * 100) / 100;
+      const excess_value = r.unit_price == null ? null : Math.round(excess_qty * Number(r.unit_price) * 100) / 100;
+      return { ...r, excess_qty, excess_value };
+    })
     .sort((a, b) => b.excess_qty - a.excess_qty), [stockRows]);
   // Every short part (empty / below min / at reorder), worst first.
   const shortRows = useMemo(() => deriveBelowMin(stockRows, Infinity), [stockRows]);
+  // The critical ones among them — zero stock, then below minimum — in that order.
+  const criticalRows = useMemo(
+    () => shortRows.filter((r) => CRITICAL_STATUSES.includes(r.status)), [shortRows]);
 
   // One opener per stock status, shared by the health bar, the attention list
   // and the KPI drills — so a status always opens the same list.
   const STATUS_DRILL = {
-    "Out of Stock": ["Zero Stock", "Counted, and nothing on the shelf", "spares_zero_stock"],
-    "Below Minimum": ["Below Minimum", "In stock has fallen under the minimum", "spares_below_minimum"],
     "Reorder": ["Reorder", "At or below the reorder level — time to order", "spares_reorder"],
     "Healthy": ["Healthy", "Counted and inside Min / Max", "spares_healthy"],
     "Not Counted": ["Never Counted", "No count has ever been recorded — these are not judged against Min/Max", "spares_never_counted"],
@@ -1061,14 +1182,22 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
       setDrill({
         title: "Excess Parts", subtitle: "Above the maximum, furthest over first",
         rows: excessRows, columns: EXCESS_COLUMNS, onRowClick: onStockClick, exportName: "spares_excess",
+        top10: EXCESS_TOP10,
       });
+      return;
+    }
+    // "Critical" is the summary's one figure for two statuses, not a status a row
+    // carries — it lists the parts of both (the drill's own "By status" ring then
+    // shows the zero-stock / below-minimum split).
+    if (status === "Critical") {
+      setDrill(stockDrill("Critical Parts", "Zero stock and below minimum — worst first", criticalRows, "spares_critical"));
       return;
     }
     const [title, sub, file] = STATUS_DRILL[status] || [status, "", "spares"];
     setDrill(stockDrill(title, sub, byStatus(status), file));
   };
   const ATTENTION_STATUS = {
-    zero_stock: "Out of Stock", below_min: "Below Minimum", reorder: "Reorder",
+    critical: "Critical", reorder: "Reorder",
     excess: "Above Maximum", never_counted: "Not Counted",
   };
   // A line opens its parts on this page; its action button goes to the screen
@@ -1083,7 +1212,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
     navigate(it.action.status ? `${it.action.to}?status=${encodeURIComponent(it.action.status)}` : it.action.to);
   };
   const valueDrill = (title, subtitle, rows, file) => setDrill({
-    title, subtitle, exportName: file, onRowClick: onStockClick, columns: STOCK_VALUE_COLUMNS, valueChart: true,
+    title, subtitle, exportName: file, onRowClick: onStockClick, columns: STOCK_VALUE_COLUMNS, top10: STOCK_VALUE_TOP10,
     rows: rows.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value),
   });
 
@@ -1123,13 +1252,42 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   // page shows only its own categories (no tabs). Everything is read off the
   // loaded stock rows (sub_category + stock_value + section_id), so no extra call.
   const [catTab, setCatTab] = useState("ALL");
+  const [catSub, setCatSub] = useState("");   // a sub-section within the selected group ("" = whole group)
   const catSections = useMemo(
     () => (sections || []).filter((s) => stockRows.some((r) => String(r.section_id) === String(s.id))),
     [sections, stockRows]);
+  // Tabs collapse sub-sections into their GROUP: Press Tool Room + General Tool
+  // Room show as one "Tool Room" tab (group_name); an ungrouped section (e.g.
+  // Maintenance) keeps its own tab. Selecting the group scopes to both.
+  const catTabs = useMemo(() => {
+    const out = [{ id: "ALL", name: "All" }];
+    const seen = new Set();
+    for (const s of catSections) {
+      const g = (s.group_name || "").trim();
+      if (g) {
+        if (!seen.has(g)) { seen.add(g); out.push({ id: `grp:${g}`, name: g }); }
+      } else {
+        out.push({ id: String(s.id), name: s.name });
+      }
+    }
+    return out;
+  }, [catSections]);
+  // When a GROUP tab is active, a dropdown can narrow it to one sub-section
+  // (Press / General Tool Room); empty = the whole group.
+  const activeGroup = String(catTab).startsWith("grp:") ? String(catTab).slice(4) : null;
+  const groupSubs = useMemo(
+    () => (activeGroup ? catSections.filter((s) => (s.group_name || "").trim() === activeGroup) : []),
+    [activeGroup, catSections]);
   const catScopeRows = useMemo(() => {
     if (!storeLevel || catTab === "ALL") return stockRows;
+    if (String(catTab).startsWith("grp:")) {
+      if (catSub) return stockRows.filter((r) => String(r.section_id) === String(catSub));
+      const g = String(catTab).slice(4);
+      const ids = new Set(catSections.filter((s) => (s.group_name || "").trim() === g).map((s) => String(s.id)));
+      return stockRows.filter((r) => ids.has(String(r.section_id)));
+    }
     return stockRows.filter((r) => String(r.section_id) === String(catTab));
-  }, [stockRows, catTab, storeLevel]);
+  }, [stockRows, catTab, catSub, storeLevel, catSections]);
   const catList = useMemo(() => categoryBreakdown(catScopeRows), [catScopeRows]);
   const catTotal = useMemo(
     () => catScopeRows.reduce((s, r) => s + (Number(r.stock_value) || 0), 0), [catScopeRows]);
@@ -1141,11 +1299,13 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
       : catScopeRows.filter((r) => catKey(r) === c.category))
       .slice().sort((a, b) => (Number(b.stock_value) || 0) - (Number(a.stock_value) || 0));
     const scope = storeLevel && catTab !== "ALL"
-      ? ` · ${catSections.find((s) => String(s.id) === String(catTab))?.name || ""}` : "";
+      ? ` · ${catSub
+        ? (catSections.find((s) => String(s.id) === String(catSub))?.name || "")
+        : (catTabs.find((t) => String(t.id) === String(catTab))?.name || "")}` : "";
     setDrill({
       title: c.category.replace(/ · .*/, ""),
       subtitle: `${money(c.value)} · ${num(c.parts)} parts${scope}`,
-      rows, columns: STOCK_VALUE_COLUMNS, onRowClick: onStockClick, valueChart: true,
+      rows, columns: STOCK_VALUE_COLUMNS, onRowClick: onStockClick, top10: STOCK_VALUE_TOP10,
       exportName: `category_${c.category}`.replace(/[^\w]+/g, "_").toLowerCase(),
     });
   };
@@ -1161,23 +1321,24 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
           <div>
             <h3 className="section-title">Store Status</h3>
             <p className="section-hint">
-              Movements since the {new Date(kpi?.today?.since || Date.now())
-                .toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} shift start
+              Live inventory snapshot · today since the {new Date(kpi?.today?.since || Date.now())
+                .toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} shift · click any card to open its parts
             </p>
           </div>
           <ErpStatusStrip erp={overview?.erp} quality={overview?.data_quality}
             generatedAt={overview?.generated_at} onQuality={() => navigate("/parts")} />
         </div>
-        {/* Four across, two rows — not eight across. At eight the card is
-            ~175px, and once the chip takes its column the label truncates to
-            "TOT…" and the figure clips. A KPI you cannot read is not a KPI. */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {/* The count comes from the overview (same total the Live Stock hint
-              shows), so this tile lands with the others and never waits on the
-              ~2 MB stock list; `stats.total` is only the fallback if the
-              overview failed. The drill still opens the full list (which loads
-              in the background). */}
-          <KpiCard featured tone="blue" label="Total Spare Parts" icon={Wrench}
+        {/* Grouped like the reference board — Overview then Today / flow — so the
+            eye reads a story, not a flat strip. These are SUMMARY + flow figures
+            only; every health / quality / counted alert lives once, below, in
+            "What needs attention" (so the top never re-states the action board).
+            Every tile is the same white card (loading props keep the figure from
+            ramping from a placeholder 0); each opens the parts behind it. Figures
+            all come from the ONE overview call, so a tile never waits on the
+            ~2 MB stock list. */}
+        <p className={KPI_GROUP}>Store overview</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <KpiCard featured tone="blue" label="Total Active Parts" icon={Wrench}
             value={kpi ? kpi.total_parts : stats.total} loading={loading}
             onClick={opener(partsDrill("Total Spare Parts", "Every active part in this list", parts, "spares_all"))} />
           <KpiCard featured tone="navy" label="Live Stock" icon={Package} value={kpi ? kpi.total_qty : 0} unit="pcs" loading={loading}
@@ -1190,18 +1351,20 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               title: "Stock Value", exportName: "spare_stock_value", onRowClick: onStockClick,
               subtitle: `${money(kpi?.stock_value)} across ${num(kpi?.valued_parts)} counted parts that carry a rate`,
               rows: counted.filter((r) => r.stock_value != null).sort((a, b) => b.stock_value - a.stock_value),
-              columns: STOCK_VALUE_COLUMNS,
-              // Opens with the Live-Dashboard "Top 10 by Value" bar chart above
-              // the list — the highest-value spares, graphically, on drill.
-              valueChart: true,
+              columns: STOCK_VALUE_COLUMNS, top10: STOCK_VALUE_TOP10,
             })} />
-          {/* While the data loads the five tiles show a skeleton, then land the
-              real figure directly (no count-up from a placeholder 0 — that read
-              as "no stock, then stock"). On a fetch error they fall back to each
-              card's 0 / — instead of a stuck skeleton. Today Received / Issued
-              simply settle at 0 on a section page, which has no store-wide ops. */}
-          {/* Stock-ins, not arrivals: receiving happens in ERP, and a line is
-              added here when the qty quality accepted in ERP reaches store stock. */}
+          {/* Working capital sitting idle — stock above the planned maximum
+              (qty over max × rate). Opens the parts above their maximum. */}
+          <KpiCard featured tone="blue" label="Excess Capital" icon={Gem} loading={loading}
+            value={compactMoney(overview?.value?.excess || null)} valueTitle={money(overview?.value?.excess)}
+            hint="Money tied up above maximum"
+            onClick={() => openStatus("Above Maximum")} />
+        </div>
+
+        <p className={`${KPI_GROUP} mt-5`}>Operations</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {/* Stock-ins, not arrivals: a line is added here only when ERP-accepted
+              quantity reaches store stock. Settles at 0 on a section page. */}
           <KpiCard featured tone="green" label="Today Added to Stock" icon={ArrowDownToLine}
             value={kpi?.today?.received_qty ?? 0} unit="pcs" loading={loading}
             hint={`${kpi?.today?.received_lines ?? 0} stock-in line${kpi?.today?.received_lines === 1 ? "" : "s"}`}
@@ -1210,6 +1373,16 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
             value={kpi?.today?.issued_qty ?? 0} unit="pcs" loading={loading}
             hint={`${kpi?.today?.issued_lines ?? 0} issue line${kpi?.today?.issued_lines === 1 ? "" : "s"}`}
             onClick={() => openToday("out")} />
+          {/* Held, not issuable — ERP GRN lines still awaiting Maintenance / Tool
+              Room quality clearance in ERP. Store-level figure; full detail is on
+              Receiving & GRN (and listed in the Action Tracker below). */}
+          <KpiCard featured tone="violet" label="GRN / Quality Pending" icon={ShieldCheck} loading={loading}
+            value={receiving?.quality_pending ?? receiving?.total ?? 0}
+            hint="Awaiting ERP quality clearance"
+            onClick={() => navigate("/receiving")} />
+          <KpiCard featured tone="amber" label="Pending Returns" icon={Repeat2}
+            value={returnsTotal} loading={loading} hint="Sent back, not yet verified"
+            onClick={() => navigate("/work-queue")} />
         </div>
       </section>
 
@@ -1226,12 +1399,12 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
           </div>
           <span className="text-xs text-slate-400">Total {money(catTotal)}</span>
         </div>
-        {storeLevel && catSections.length > 1 && (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {[{ id: "ALL", name: "All" }, ...catSections].map((s) => {
+        {storeLevel && catTabs.length > 2 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {catTabs.map((s) => {
               const on = String(catTab) === String(s.id);
               return (
-                <button key={s.id} type="button" onClick={() => setCatTab(String(s.id))}
+                <button key={s.id} type="button" onClick={() => { setCatTab(String(s.id)); setCatSub(""); }}
                   className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${on
                     ? "border-toyotared bg-toyotared text-white"
                     : "border-slate-200 text-slate-600 hover:border-toyotared hover:text-toyotared dark:border-navy-700 dark:text-slate-300"}`}>
@@ -1239,6 +1412,15 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
                 </button>
               );
             })}
+            {/* Inside a group tab: narrow to one sub-section (Press / General). */}
+            {activeGroup && groupSubs.length > 1 && (
+              <select value={catSub} onChange={(e) => setCatSub(e.target.value)}
+                aria-label={`${activeGroup} sub-section`}
+                className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 focus:border-toyotared focus:outline-none dark:border-navy-700 dark:bg-navy-900 dark:text-slate-300">
+                <option value="">All of {activeGroup}</option>
+                {groupSubs.map((s) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+              </select>
+            )}
           </div>
         )}
         {listLoading ? (
@@ -1266,13 +1448,21 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
           Coverage & Spread (Parts by Rack, Master Data Completeness, Parts by
           Price), and Total Spares already sits in Store Status above. */}
 
-      {/* ---- Action Required: what is wrong, how serious, where, how much, and
-           what to do — one server-computed list, worst first. ---- */}
+      {/* ---- Action Tracker: what is wrong, how serious, where, how much, who
+           must act by when, and what to do — one server-computed list, worst
+           first. The full tracker (every line, owner / target / remarks) has its
+           own page. ---- */}
       {overview && kpi && (
         <section>
-          <div className="mb-3">
-            <h3 className="section-title">Action Required</h3>
-            <p className="section-hint">Each opens the parts behind it</p>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="section-title">Action Tracker</h3>
+              <p className="section-hint">Each opens the parts behind it</p>
+            </div>
+            <button type="button" onClick={() => navigate("/action-tracker")}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-toyotared hover:underline">
+              Open full tracker <ArrowRight size={13} aria-hidden="true" />
+            </button>
           </div>
           {/* With nothing counted, every line that compares a quantity against
               Min/Max is empty by definition — four zeros beside "4,816 never
@@ -1297,7 +1487,8 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               </div>
             </div>
           ) : (
-            <AttentionBoard items={attention} onOpen={openAttention} onAction={actAttention} />
+            <AttentionBoard items={boardLines} tracker={tracker} toRestock={overview.value?.to_restock}
+              onOpen={openAttention} onAction={actAttention} />
           )}
         </section>
       )}
@@ -1311,9 +1502,11 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
             <p className="section-hint">Every status and every bar opens its parts</p>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <HealthBar health={overview.health} total={kpi.total_parts} onStatus={openStatus} />
+            <HealthBar health={overview.health} total={kpi.total_parts} onStatus={openStatus}
+              onCard={() => setDrill(stockDrill("Inventory Health", "Every counted part, by stock status", counted, "spares_counted"))} />
             <ValuePanel
               value={overview.value}
+              onCard={() => valueDrill("Stock Value", `${money(overview.value.total)} on the shelf — every valued part`, stockRows, "spares_stock_value")}
               onRestock={() => setDrill({
                 title: "Short parts — restock to max", exportName: "spares_short_restock",
                 subtitle: `${money(overview.value.to_restock)} to bring every empty, below-minimum and at-reorder part back to its maximum`,
@@ -1326,7 +1519,10 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
             {/* Min · Current · Max moved here from Inventory Health, which is
                 where the status donut already lives. The two together are the
                 whole stock picture; apart, each half repeated the other. */}
-            <div className="card">
+            <div
+              className={`card ${counted.length > 0 ? "cursor-pointer transition-shadow hover:border-toyotared/40 hover:shadow-lg" : ""}`}
+              onClick={counted.length > 0 ? (e) => { if (!e.target.closest("button,a,input,select,textarea,[role=button]")) setDrill(stockDrill("Min · Current · Max", "Every counted part against its limits", counted, "spare_min_max")); } : undefined}
+            >
               <CardHead icon={ChartColumn} tone="blue" title="Min · Current · Max"
                 hint="Counted parts, furthest out of band first"
                 action={counted.length > 5 ? (
@@ -1399,6 +1595,29 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
           Required both drill to the same list, and that drill carries its own
           Export button. A third copy as a flat table was redundant. */}
 
+      {/* ---- Stock In vs Out: received vs issued per day for the last 30 days —
+           the trend behind today's Added / Issued KPIs, from the ledger. Its
+           own fixed 30-day window (a daily series over all-time is meaningless),
+           so it sits apart from the range-controlled Consumption section. ---- */}
+      {overview && storeLevel && (
+        <section>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="section-title">Stock In vs Out</h3>
+              <p className="section-hint">Received vs issued per day</p>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] font-medium text-slate-400">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "#10b981" }} aria-hidden="true" />Received</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "#e11d48" }} aria-hidden="true" />Issued</span>
+              <span>· last 30 days</span>
+            </div>
+          </div>
+          <div className="card">
+            <MovementBars data={moveData} />
+          </div>
+        </section>
+      )}
+
       {/* ---- Consumption analytics: a headline strip over four charts, all
            scoped by one range picker ---- */}
       {overview && storeLevel && (
@@ -1461,6 +1680,40 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               </div>
             ))}
           </div>
+
+          {/* Most-consumed parts in the same range — the ranked companion to the
+              donuts, and the ONE home for this list (the drills no longer repeat
+              it). Shows the top of it, clicks open the part, exports the full
+              list. Store-wide (this endpoint carries no section scope). */}
+          <div className="card mt-4">
+            <div className="flex items-start justify-between gap-2">
+              <CardHead icon={TrendingUp} tone="red" title="Top Consumed Parts"
+                hint={`Most-issued parts, ranked by quantity · ${consRangeTitle}`} />
+              {topConsumedData.length > 0 && (
+                <button className="btn-secondary py-1.5 text-[13px] shrink-0"
+                  onClick={() => downloadXlsx(
+                    `spare_consumed_${custom ? `${consFrom}_${consTo}` : "all"}`,
+                    ["Part No", "Description", "Qty Issued"],
+                    topConsumedData.map((p) => [p.part_no, p.part_name || "", Number(p.qty) || 0]),
+                    "Consumed",
+                  )}>
+                  <Download size={14} aria-hidden="true" /> Excel (full list)
+                </button>
+              )}
+            </div>
+            <div className={`transition-opacity ${consLoading ? "opacity-50" : ""}`}>
+              <TopConsumedBars
+                data={topConsumedData.slice(0, 12)}
+                onBarClick={(p) => {
+                  const row = stockRows.find((r) => r.part_no === p.part_no);
+                  if (row && onStockClick) onStockClick(row);
+                }}
+              />
+              {topConsumedData.length > 12 && (
+                <p className="mt-3 text-xs text-slate-400">Showing the top 12 of {num(topConsumedData.length)} — download for the full list.</p>
+              )}
+            </div>
+          </div>
         </section>
       )}
 
@@ -1469,7 +1722,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
           <h3 className="section-title">Value by Supplier</h3>
           <p className="section-hint">Who last supplied the stock on the shelf, from the ERP gate entries</p>
         </div>
-        <SupplierValueCard sectionId={sectionId} stockRows={stockRows}
+        <SupplierValueCard sectionId={sectionId} sectionIds={sectionIds} stockRows={stockRows}
           onDrill={setDrill} onStockClick={onStockClick} />
       </section>
 
@@ -1551,7 +1804,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
       </section>
 
       {/* No standalone "Highest Value Spares" section — the Top-10-by-value bar
-          chart now opens inside the Stock Value tile's drill (valueChart), the
+          chart now opens inside the Stock Value tile's drill (top10), the
           way the Live Dashboard does it. */}
 
       {/* ---- Recent Activity: what has actually happened to stock ---- */}
@@ -1629,47 +1882,6 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
                 : <TrendArea data={trendData} />}
             </div>
           </div>
-
-          <div className="card">
-            <div className="flex items-start justify-between gap-2">
-              <CardHead icon={ClipboardList} tone="violet" title="Consumed parts — by quantity"
-                hint="Ranked by quantity issued, labelled with the part description" />
-              <button className="btn-secondary py-1.5 text-[13px] shrink-0"
-                onClick={() => downloadXlsx(
-                  `spare_consumed_${custom ? `${consFrom}_${consTo}` : "all"}`,
-                  ["Part No", "Description", "Qty Issued"],
-                  consumedParts.map((p) => [p.part_no, p.part_name || "", Number(p.qty) || 0]),
-                  "Consumed",
-                )}>
-                <Download size={14} aria-hidden="true" /> Excel (full list)
-              </button>
-            </div>
-            {consDetailLoading ? (
-              <div className="space-y-2.5 py-2">
-                {Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton h-6 w-full rounded" />)}
-              </div>
-            ) : (
-              <>
-                <HorizontalBars
-                  data={consumedParts.slice(0, 20).map((p) => ({
-                    ...p,
-                    name: p.part_name ? `${p.part_name} · ${p.part_no}` : p.part_no,
-                    value: Number(p.qty) || 0,
-                  }))}
-                  color="#6366f1"
-                  valueSuffix=" pcs"
-                  emptyMessage="Nothing issued in this range"
-                  onBarClick={(d) => {
-                    const row = stockRows.find((r) => r.part_no === d.part_no);
-                    if (row && onStockClick) { setConsDrill(null); onStockClick(row); }
-                  }}
-                />
-                {consumedParts.length > 20 && (
-                  <p className="text-xs text-slate-400 mt-3">Showing the top 20 of {num(consumedParts.length)} — download for the full list.</p>
-                )}
-              </>
-            )}
-          </div>
         </div>,
         document.body,
       )}
@@ -1726,13 +1938,16 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
 }
 
 const COLUMNS = [
-  { key: "part_no", label: "Part No", sortable: true },
+  { key: "part_no", label: "Part No", sortable: true, width: "112px" },
+  // No width → in the drill's fixed layout Description takes the remaining room
+  // and WRAPS (fully visible, no horizontal scroll).
   { key: "part_name", label: "Description", sortable: true },
-  { key: "location", label: "Location", sortable: true, render: (r) => r.location || "—" },
+  { key: "location", label: "Location", sortable: true, width: "132px", render: (r) => r.location || "—" },
   {
     key: "rework_location",
     label: "Rework Location",
     sortable: true,
+    width: "150px",
     // Called out rather than left as plain text: these are the parts that
     // leave their shelf for rework, which is the thing the sheet's own
     // "REWORK LOCATION" column exists to flag.
@@ -1746,21 +1961,21 @@ const COLUMNS = [
         <span className="text-slate-300 dark:text-slate-600">—</span>
       ),
   },
-  { key: "uom", label: "UOM", render: (r) => r.uom || "—" },
+  { key: "uom", label: "UOM", width: "72px", render: (r) => r.uom || "—" },
   {
-    key: "min_stock_level", label: "Min", sortable: true, align: "right",
+    key: "min_stock_level", label: "Min", sortable: true, align: "right", width: "72px",
     sortValue: (r) => Number(r.min_stock_level || 0),
     render: (r) => num(r.min_stock_level),
   },
   {
-    key: "max_stock_level", label: "Max", sortable: true, align: "right",
+    key: "max_stock_level", label: "Max", sortable: true, align: "right", width: "72px",
     sortValue: (r) => Number(r.max_stock_level || 0),
     render: (r) => (r.max_stock_level == null
       ? <span className="text-slate-300 dark:text-slate-600">—</span>
       : num(r.max_stock_level)),
   },
   {
-    key: "unit_price", label: "Rate", sortable: true, align: "right",
+    key: "unit_price", label: "Rate", sortable: true, align: "right", width: "94px",
     sortValue: (r) => Number(r.unit_price || 0),
     exportValue: (r) => (r.unit_price == null ? "" : r.unit_price),
     render: (r) => (r.unit_price == null
@@ -1769,18 +1984,72 @@ const COLUMNS = [
   },
 ];
 
-function SectionDetail({ section }) {
-  const [rows, setRows] = useState([]);
+// A section GROUP page — e.g. Tool Room, which gathers Press Tool Room and
+// General Tool Room. One dashboard with a dropdown: "All" shows the whole group
+// (both areas together, scoped on the server by section_ids), or pick one area
+// to see just that section. Every figure here is the group's, never the store's.
+function GroupDetail({ groupName, sections }) {
   const { openPart } = usePartDrawer();
+  const members = useMemo(
+    () => (sections || []).filter((s) => (s.group_name || "") === groupName),
+    [sections, groupName]);
+  const memberIds = useMemo(() => members.map((m) => m.id), [members]);
+  // "all" = the whole group; otherwise one member section id (as a string).
+  const [pick, setPick] = useState("all");
+  const isAll = pick === "all" || !members.some((m) => String(m.id) === pick);
+  const sectionId = isAll ? undefined : Number(pick);
+  const sectionIds = isAll ? memberIds : null;
+  const { overview, stockRows, loading, listLoading } =
+    useSpareDashboardData(sectionId, members.length > 0, sectionIds);
+  const parts = useMemo(() => stockRows.map((r) => ({ ...r, id: r.part_id })), [stockRows]);
+  const stats = useStoreStats(parts);
 
-  useEffect(() => {
-    fetchAllParts({ store_code: STORE_CODE, section_id: section.id, is_active: true })
-      .then(setRows)
-      .catch(() => setRows([]));
-  }, [section.id]);
+  // Sections load a tick after mount; show a skeleton until then rather than
+  // flashing "no sections" before the list has even arrived.
+  if (!sections.length) {
+    return <div className="skeleton h-40 w-full max-w-3xl" />;
+  }
+  if (!members.length) {
+    return <p className="text-sm text-slate-500 dark:text-slate-400">No sections in “{groupName}”.</p>;
+  }
+  return (
+    <div className="space-y-8">
+      {/* The filter the user asked for: All, or one area at a time. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Show</span>
+        <select value={isAll ? "all" : pick} onChange={(e) => setPick(e.target.value)}
+          className="input-field w-auto min-w-[15rem]">
+          <option value="all">All — {groupName} ({members.length} areas)</option>
+          {members.map((m) => <option key={m.id} value={String(m.id)}>{m.name}</option>)}
+        </select>
+      </div>
+      <SpareDashboard
+        stats={stats}
+        onPartClick={(p) => openPart(p.id)}
+        onStockClick={(row) => openPart(row.part_id)}
+        overview={overview}
+        parts={parts}
+        stockRows={stockRows}
+        loading={loading}
+        listLoading={listLoading}
+        sections={sections}
+        sectionId={sectionId}
+        sectionIds={sectionIds}
+      />
+    </div>
+  );
+}
 
-  const stats = useStoreStats(rows);
+function SectionDetail({ section }) {
+  const { openPart } = usePartDrawer();
   const { overview, stockRows, loading: dataLoading, listLoading: dataListLoading } = useSpareDashboardData(section.id);
+  // Parts come from the already-cached stock list, NOT a second, un-cached,
+  // paginated fetch of the part master: every field the dashboard needs is
+  // already on each stock row (the store page does exactly this). This is what
+  // made moving between sections slow — each visit re-fetched every page of the
+  // master afresh; now a revisit is served from the React-Query cache.
+  const parts = useMemo(() => stockRows.map((r) => ({ ...r, id: r.part_id })), [stockRows]);
+  const stats = useStoreStats(parts);
   // Bin Washing M/C spares are ordered as the machine needs them, not planned
   // to a min/max, so the reorder panel is noise there even though the rows
   // carry limits. Other sections plan against their maximum as usual.
@@ -1800,7 +2069,7 @@ function SectionDetail({ section }) {
         onPartClick={(p) => openPart(p.id)}
         onStockClick={(row) => openPart(row.part_id)}
         overview={overview}
-        parts={rows}
+        parts={parts}
         stockRows={stockRows}
         loading={dataLoading}
         listLoading={dataListLoading}
@@ -1816,18 +2085,21 @@ function SectionDetail({ section }) {
 }
 
 export default function MaintenanceStore() {
-  const { sectionId } = useParams();
+  const { sectionId, groupName } = useParams();
   const navigate = useNavigate();
   const [sections, setSections] = useState([]);
   const { openPart } = usePartDrawer();
+  // The reorder Excel is the Reports page's file, so it needs the Reports right.
+  const { user } = useAuth();
 
   useEffect(() => {
     storeService.sections(STORE_CODE).then((res) => res.data.data).catch(() => []).then(setSections);
   }, []);
 
-  // Skipped when a section is open: this component still runs its hooks before
-  // handing off to SectionDetail, and the store-wide figures would go unused.
-  const { overview, stockRows, loading: dataLoading, listLoading: dataListLoading } = useSpareDashboardData(undefined, !sectionId);
+  // Skipped when a section OR a group is open: this component still runs its
+  // hooks before handing off, and the store-wide figures would go unused.
+  const { overview, stockRows, loading: dataLoading, listLoading: dataListLoading } =
+    useSpareDashboardData(undefined, !sectionId && !groupName);
   // `parts` is derived from the stock list rather than fetched separately — the
   // stock rows already carry every part field (plus on-hand / status / value),
   // so pulling the ~4,800-row part master a SECOND time on load was pure
@@ -1837,63 +2109,25 @@ export default function MaintenanceStore() {
   const stats = useStoreStats(parts);
   const loading = !sectionId && overview == null;
 
-  // The reorder alert: pop it up once when the app first lands on the main
-  // store screen (not on every section), with a section-wise breakdown of what
-  // needs ordering. Computed off the full stock list, so the counts are real.
-  const [reorderPopup, setReorderPopup] = useState(false);
-  const sectionName = useMemo(
-    () => Object.fromEntries(sections.map((s) => [String(s.id), s.name])), [sections]);
-  const reorderParts = useMemo(
-    () => stockRows.filter((r) => ["Out of Stock", "Below Minimum", "Reorder"].includes(r.status)),
-    [stockRows]);
-  const reorderBySection = useMemo(() => {
-    const by = {};
-    reorderParts.forEach((r) => { const k = String(r.section_id ?? "—"); by[k] = (by[k] || 0) + 1; });
-    return Object.entries(by)
-      .map(([sid, count]) => ({ name: sectionName[sid] || "Unassigned", count }))
-      .sort((a, b) => b.count - a.count);
-  }, [reorderParts, sectionName]);
-
-  // The reorder list as a section- and category-wise Excel with the quantity to
-  // order per part — what a store hand attaches when raising the shortage with
-  // the concerned department. Order qty = the gap up to the maximum (the same
-  // figure the backend's reorder feed uses), falling back to the gap up to the
-  // minimum when no maximum is planned.
+  // The Needs Reordering Excel is the store's one reorder list — the same file
+  // the Reports page and the reorder mail give: worst first, the quantity to
+  // order, and coloured (dark red = no stock, red = at or below min, orange = at
+  // the reorder level; Order Qty bold), built by the server. The dashboard used
+  // to make its own plain sheet; the store wants the coloured list wherever the
+  // reorder list opens (15 Oct 2026). (The "Needs Reordering" pop-up that used
+  // to open here is gone: the app now greets with "What needs your attention".)
   const downloadReorderExcel = () => {
-    const orderQty = (r) => {
-      if (r.shortfall != null) return r.shortfall;
-      const gap = (r.min_stock_level || 0) - (r.qty_on_hand || 0);
-      return gap > 0 ? Math.round(gap * 100) / 100 : null;
-    };
-    const sec = (r) => sectionName[String(r.section_id)] || "Unassigned";
-    const cat = (r) => r.sub_category || "Uncategorised";
-    const sorted = [...reorderParts].sort((a, b) =>
-      sec(a).localeCompare(sec(b))
-      || cat(a).localeCompare(cat(b))
-      || String(a.part_no || "").localeCompare(String(b.part_no || "")));
-    const headers = ["Section", "Category", "Part No", "Description", "Location",
-      "In Stock", "Reorder Level", "Min", "Max", "Order Qty", "Rate", "Order Value", "Status"];
-    const body = sorted.map((r) => {
-      const q = orderQty(r);
-      return [
-        sec(r), cat(r), r.part_no || "", r.part_name || "", r.location || "",
-        r.qty_on_hand ?? 0, r.reorder_level ?? "", r.min_stock_level ?? "", r.max_stock_level ?? "",
-        q ?? "", r.unit_price ?? "",
-        q != null && r.unit_price != null ? Math.round(q * r.unit_price * 100) / 100 : "",
-        r.status,
-      ];
-    });
-    downloadXlsx(`reorder_list_${new Date().toISOString().slice(0, 10)}`, headers, body, "Reorder");
+    const d = new Date();
+    const day = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+    // A failure is already on screen as the API client's toast.
+    downloadFile("/reports/reorder_list/excel", `Reorder Critical List ${day}.xlsx`, { store_code: STORE_CODE })
+      .catch(() => {});
   };
-  useEffect(() => {
-    if (sectionId || reorderParts.length === 0) return;
-    let seen = false;
-    try { seen = sessionStorage.getItem("dx_reorder_popup_shown") === "1"; } catch { /* private mode */ }
-    if (!seen) {
-      setReorderPopup(true);
-      try { sessionStorage.setItem("dx_reorder_popup_shown", "1"); } catch { /* ignore */ }
-    }
-  }, [reorderParts.length, sectionId]);
+  // A section GROUP page (e.g. Tool Room) — one screen for its sibling sections
+  // with a dropdown to see All of them together or each on its own.
+  if (groupName) {
+    return <GroupDetail groupName={groupName} sections={sections} />;
+  }
 
   // Which section is open comes from the URL, so the sidebar's section links
   // and the cards below land in exactly the same place.
@@ -1917,72 +2151,8 @@ export default function MaintenanceStore() {
         loading={dataLoading}
         listLoading={dataListLoading}
         sections={sections}
-        onReorderExport={downloadReorderExcel}
+        onReorderExport={can(user, "reports") ? downloadReorderExcel : undefined}
       />
-
-      {/* Reorder alert — premium, section-wise; shown once when the app opens. */}
-      <Modal
-        open={reorderPopup}
-        onClose={() => setReorderPopup(false)}
-        size="xl"
-        footer={
-          <div className="flex flex-wrap gap-2 justify-end">
-            <button className="btn-secondary" onClick={downloadReorderExcel}>
-              <Download size={14} aria-hidden="true" /> Excel (section &amp; category-wise, with order qty)
-            </button>
-            <button className="btn-primary" onClick={() => setReorderPopup(false)}>Got it</button>
-          </div>
-        }
-      >
-        <div className="-mx-5 -mt-4 mb-4 px-5 py-4 text-white"
-          style={{ background: "linear-gradient(120deg,#8f0713 0%,#eb0a1e 55%,#ff6a3d 100%)" }}>
-          <div className="flex items-center gap-3">
-            <span className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0"><TriangleAlert size={24} aria-hidden="true" /></span>
-            <div className="min-w-0">
-              <h3 className="text-2xl font-extrabold leading-tight">Needs Reordering</h3>
-              <p className="text-sm text-white/80">
-                {reorderParts.length} part{reorderParts.length === 1 ? "" : "s"} out of stock, below minimum, or at reorder level
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {reorderBySection.length > 0 && (
-          <div className="mb-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">By section — where the shortage is</p>
-            <div className="space-y-2">
-              {reorderBySection.map((s, i) => (
-                <div key={s.name} className="flex items-center gap-3 text-sm">
-                  <span className="w-32 shrink-0 truncate font-medium text-slate-600 dark:text-slate-300">{s.name}</span>
-                  <span className="flex-1 h-3 rounded-full bg-slate-100 dark:bg-navy-800 overflow-hidden">
-                    <span className="block h-full rounded-full" style={{
-                      width: `${Math.max(6, (s.count / (reorderBySection[0]?.count || 1)) * 100)}%`,
-                      background: REORDER_BAR_COLORS[i % REORDER_BAR_COLORS.length],
-                    }} />
-                  </span>
-                  <span className="w-8 text-right font-extrabold tabular text-slate-800 dark:text-white">{s.count}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">The parts</p>
-        <div className="rounded-xl border border-red-200 dark:border-red-500/30 divide-y divide-red-100 dark:divide-red-500/20 max-h-[38vh] overflow-y-auto">
-          {reorderParts.map((r) => (
-            <div key={r.part_id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-              <div className="min-w-0">
-                <span className="font-semibold text-red-600 dark:text-red-400">{r.part_no}</span>
-                <span className="text-slate-500 dark:text-slate-400 ml-2">{r.part_name}</span>
-                <span className="text-[11px] text-slate-400 ml-2">· {sectionName[String(r.section_id)] || "—"}</span>
-              </div>
-              <span className="shrink-0 text-xs font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
-                {r.qty_on_hand ?? 0} in stock · {r.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      </Modal>
 
       {/* Only once there is something to compare. The sidebar is where you go
           to a section; this table is where you see which section is planned

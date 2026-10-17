@@ -1,11 +1,18 @@
 """Consumption Analytics — what the Spare store issued over a chosen window,
 set against the same-length window just before it.
 
-Consumption is GROSS issued quantity: the ISSUE ledger rows, quantity =
--qty_delta. Returns are not netted off (a part issued and later sent back still
-counts as issued), and the response says so in `basis`. Value is quantity x the
-part's CURRENT unit rate — the ledger stores no rate per movement — so it is
-labelled as valued at today's rate, never presented as a historical cost.
+Consumption is GROSS issued quantity: the ISSUE ledger rows, cancelled ones
+aside, quantity = -qty_delta. Returns are not netted off (a part issued and
+later sent back still counts as issued), and the response says so in `basis`.
+Value is quantity x the part's CURRENT unit rate — the ledger stores no rate
+per movement — so it is labelled as valued at today's rate, never presented as
+a historical cost. (The screen's table, ConsumptionTableService, nets returns.)
+
+By department means the department that CONSUMES the part — the one owning its
+section (consumers()) — never the department typed on the issue, who often is
+the store itself handing it out ("consumption maintenance and tool room karega
+store nhi", "store to material issue karta h" — the store, 14 Oct 2026). The
+department filter and the filter bar's department list follow the same rule.
 
 Days are plant-clock calendar days. created_at is stored in UTC, so each row is
 dated after shifting it by the server's local offset; a UTC cut would put every
@@ -16,9 +23,14 @@ a bucket or a baseline week before that is NOT a measured zero: the response
 marks it (`complete`, `coverage`) and withholds any % change or spike reading
 that would be built on it.
 
-Two queries — every ISSUE row the window, its previous window and the spike
-look-back touch, and the store's first ledger date — then one Python pass. No
-SQLite-only strftime/date(), so it reads the same on any database.
+A window may run to MAX_DAYS (5 years), so the screen's month- and year-wise
+table can share the charts' From / To; a day-by-day chart stops at
+MAX_DAILY_DAYS.
+
+Three small reads — every ISSUE row the window, its previous window and the
+spike look-back touch, the store's first ledger date, and who consumes each
+section — then one Python pass. No SQLite-only strftime/date(), so it reads the
+same on any database.
 """
 import statistics
 from datetime import date, datetime, time, timedelta, timezone
@@ -33,7 +45,12 @@ from app.models.store import Section, Store
 from app.utils.exceptions import BadRequestError, NotFoundError
 
 DEFAULT_DAYS = 30
-MAX_DAYS = 400
+# Five years: long enough for the screen's month- and year-wise tables, which
+# share the charts' From / To ("month wise ya year wise" — the store, 14 Oct 2026).
+MAX_DAYS = 1830
+# A day-by-day chart stops at the old 400-day cap: past it the bars are too thin
+# to read, and Week / Month (or Auto) say the same thing legibly.
+MAX_DAILY_DAYS = 400
 GRANULARITIES = ("day", "week", "month")
 TOP_PARTS = 10
 
@@ -43,20 +60,28 @@ SPIKE_MIN_WEEKS = 8
 SPIKE_SIGMA = 3
 
 UNCATEGORISED = "Uncategorised"
+# The consumer of a part with no section: no department owns it.
+NO_SECTION = "No section"
 
-# An issue with no machine yet is usually one the fitter has not confirmed —
-# Stage 2 is where the machine gets recorded — not missing data.
-AWAITING_STATUSES = ("PENDING_USER_CONFIRMATION", "ISSUED_BY_STORE")
-AWAITING_MACHINE = "Awaiting fitter's confirmation"
-NO_MACHINE = "Not recorded"
+# Where an issue went when the fitter recorded no line and no machine (place_of).
+DIE = "Die {}"
+NO_PLACE = "Installed, place not recorded"
+NOT_RECORDED = "Not recorded yet"
+# A line with no machine, on the By machine chart (the table has a Line column).
+LINE_ONLY = "Line {}"
+PLACE_BASIS = ("The line and machine the fitter recorded on Confirm Installation. With neither: 'Die <no>' = "
+               f"fitted on a die alone; '{NO_PLACE}' = installed with no place given; '{NOT_RECORDED}' = "
+               "not installed yet (most of these are simply waiting for the fitter).")
 
 BASIS = {
-    "quantity": "Gross issued quantity (ISSUE rows). Returns are not netted off.",
+    "quantity": "Gross issued quantity (ISSUE rows, cancelled issues aside). Returns are not netted off.",
+    "department": "The department that consumes the part: the one owning the part's section, never the "
+                  f"department written on the issue (the store only hands parts out). '{NO_SECTION}' = "
+                  "parts placed in no section.",
     "value": "Issued quantity x each part's current unit rate (valued at today's rate); "
-             "parts with no rate are left out of the value.",
+             "parts with no rate (or a rate of 0) are left out of the value.",
     "day": "Plant-clock calendar day of the issue.",
-    "machine": f"'{AWAITING_MACHINE}' = issued, and the fitter has not yet confirmed the machine "
-               f"(Stage 2); '{NO_MACHINE}' = confirmed or closed with no machine given.",
+    "machine": PLACE_BASIS + f" '{LINE_ONLY.format('<line>')}' = a line given with no machine.",
 }
 
 
@@ -85,6 +110,74 @@ def _parse_day(value, name):
         return date.fromisoformat(str(value).strip())
     except ValueError:
         raise BadRequestError(f"'{name}' must be a date as YYYY-MM-DD") from None
+
+
+def consumers(store_code):
+    """Who consumes the parts of each section of the store: the active
+    department named like the section's GROUP (Tool Room = Press + General
+    Tool Room), else the one named like the section (Maintenance) — the
+    reorder mail's rule. Store and Purchase own no section: they hand parts
+    out and buy them, they do not consume them (the store's rule, 14 Oct
+    2026). A section no department owns counts under its own group / section
+    name. Returns ({section id: consumer}, the departments owning an active
+    section, in master order)."""
+    depts = Department.query.filter_by(is_active=True).order_by(Department.sort_order, Department.name).all()
+    by_name = {d.name.strip().lower(): d.name.strip() for d in depts}
+    owner, owning = {}, set()
+    for sec in Section.query.join(Store, Store.id == Section.store_id).filter(Store.code == store_code).all():
+        group = (sec.group_name or "").strip()
+        dept = by_name.get(group.lower()) if group else None
+        dept = dept or by_name.get(sec.name.strip().lower())
+        owner[sec.id] = dept or group or sec.name.strip()
+        if dept and sec.is_active:
+            owning.add(dept)
+    return owner, [d.name.strip() for d in depts if d.name.strip() in owning]
+
+
+def consumer_of(owner, section_id):
+    """The department that consumes a part of this section (`owner` from
+    consumers()); NO_SECTION for a part with none, or one outside the store."""
+    return owner.get(section_id, NO_SECTION) if section_id else NO_SECTION
+
+
+def place_of(line_name, line_no, machine, die_no, installed):
+    """(line, machine) of an issue as the Consumption screen names them — the
+    By machine chart and the table's Line / Machine view share this one rule,
+    so the same issue never carries two names on one screen.
+
+    The line and machine are what the fitter recorded at installation. With
+    neither, the machine slot says what is known instead: install asks for at
+    least a line, machine OR die, so a part fitted on a die alone is installed
+    and the die is where it went (Tool Room records die parts so) — "Die D-9";
+    one installed with no place given is NO_PLACE; one not installed yet is
+    NOT_RECORDED, usually just waiting for the fitter, not missing data.
+    `installed` = through Confirm Installation (confirmed_at), as on the
+    Installations list: a later return changes the issue's status, not that."""
+    line = " ".join(v.strip() for v in (line_name, line_no) if v and v.strip()) or None
+    machine = (machine or "").strip() or None
+    if not (line or machine):
+        die = (die_no or "").strip()
+        machine = DIE.format(die) if die else NO_PLACE if installed else NOT_RECORDED
+    return line, machine
+
+
+def consumer_clause(owner, department):
+    """SQL for "the part is consumed by `department`" (case and spaces aside):
+    consumer_of() as a filter, so a filtered figure and its breakdown bar agree."""
+    name = department.strip().lower()
+    match = Part.section_id.in_([sid for sid, who in owner.items() if who.lower() == name])
+    if name == NO_SECTION.lower():
+        match = or_(match, Part.section_id.is_(None), Part.section_id.notin_(list(owner)))
+    return match
+
+
+def type_clause(part_type):
+    """SQL for "the part's type (sub_category) is `part_type`", case and spaces
+    aside; "Uncategorised" also matches a part with no type."""
+    match = func.lower(func.trim(Part.sub_category)) == part_type.lower()
+    if part_type.lower() == UNCATEGORISED.lower():
+        match = or_(match, Part.sub_category.is_(None), func.trim(Part.sub_category) == "")
+    return match
 
 
 def _pct(now, base):
@@ -246,9 +339,10 @@ class ConsumptionAnalyticsService:
         part_type = (part_type or "").strip() or None
         part = self._part(store_code, part_id) if part_id is not None else None
         section = self._section(store_code, section_id) if section_id is not None else None
+        owner, _ = consumers(store_code)
 
         rows = self._issue_rows(store_code, min(prev_start, weeks[0][0]), max(end, weeks[-1][1]), offset,
-                                section_id, department, part_type, part_id)
+                                section_id, department, part_type, part_id, owner)
         since = self._ledger_since(store_code, offset)
 
         buckets = _buckets(start, end, gran)
@@ -271,10 +365,13 @@ class ConsumptionAnalyticsService:
                 d += timedelta(days=1)
         weekly = {}
 
-        for (pid, delta, created, dept, machine, status, pno, pname, uom, rate,
+        for (pid, delta, created, line_name, line_no, machine, die_no, confirmed_at, pno, pname, uom, rate,
              sec_id, sub_cat, sec_name, day) in rows:
             qty = -float(delta or 0)
-            rate = float(rate) if rate is not None else None
+            # A rate of 0 is a missing rate, as in the table under the charts
+            # (spare_report_service._money): the chart's unrated lines and the
+            # table's unrated issues count the same issues.
+            rate = float(rate) if rate else None
             value = qty * rate if rate is not None else None
             if pid not in info:
                 info[pid] = {"part_no": pno, "part_name": pname, "uom": uom, "unit_price": rate}
@@ -283,14 +380,19 @@ class ConsumptionAnalyticsService:
                 cur.add(pid, qty, value)
                 series_cur[slot[day]].add(pid, qty, value)
                 by_part.setdefault(pid, _Totals()).add(pid, qty, value)
-                d_name = (dept or "").strip()
-                by_dept.setdefault((d_name or "Not recorded", d_name or None), _Totals()).add(pid, qty, value)
+                # Who consumes it (the owner of the part's section), not who
+                # took it out — and its key is the department filter's value.
+                d_name = consumer_of(owner, sec_id)
+                by_dept.setdefault((d_name, d_name), _Totals()).add(pid, qty, value)
                 by_section.setdefault((sec_name or "Unassigned", sec_id), _Totals()).add(pid, qty, value)
                 t_name = (sub_cat or "").strip() or UNCATEGORISED
                 by_type.setdefault((t_name, t_name), _Totals()).add(pid, qty, value)
-                m_name = (machine or "").strip()
-                m_label = m_name or (AWAITING_MACHINE if status in AWAITING_STATUSES else NO_MACHINE)
-                by_machine.setdefault((m_label, m_name or None), _Totals()).add(pid, qty, value)
+                # Named as the table's Line / Machine view names it (place_of);
+                # a line with no machine is shown by its line. The key is the
+                # recorded machine, None for a stand-in name.
+                line, m_label = place_of(line_name, line_no, machine, die_no, confirmed_at is not None)
+                recorded = (machine or "").strip() or None
+                by_machine.setdefault((m_label or LINE_ONLY.format(line), recorded), _Totals()).add(pid, qty, value)
             elif prev_start <= day <= prev_end:
                 prev.add(pid, qty, value)
                 # Laid over the current bucket the same distance into the window.
@@ -391,8 +493,12 @@ class ConsumptionAnalyticsService:
 
     def options(self, store_code):
         """What the filter bar can offer: the store's sections, its part types
-        (sub_category, with part counts) and the departments issues are booked
-        to — the department master plus any name already on an ISSUE row."""
+        (sub_category, with part counts) and the departments that CONSUME its
+        parts — the owners of its active sections in master order, then any
+        active section no department owns (by its group / section name), then
+        "No section" when active parts sit in none. Never a department that only
+        takes parts out or buys them (Store, Purchase): the store's rule, 14 Oct
+        2026."""
         sections = [
             {"id": sid, "name": name} for sid, name in
             db.session.query(Section.id, Section.name)
@@ -406,17 +512,18 @@ class ConsumptionAnalyticsService:
                        .group_by(Part.sub_category)):
             name = (sub or "").strip() or UNCATEGORISED
             types[name] = types.get(name, 0) + n
-        depts = {(n or "").strip() for (n,) in
-                 db.session.query(Department.name).filter(Department.is_active.is_(True))}
-        depts |= {(n or "").strip() for (n,) in
-                  db.session.query(SpareStockLedger.department).distinct()
-                  .join(Part, Part.id == SpareStockLedger.part_id)
-                  .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE")}
+        owner, departments = consumers(store_code)
+        departments += sorted({owner[s["id"]] for s in sections} - set(departments), key=str.lower)
+        loose = (db.session.query(Part.id)
+                 .filter(Part.store_code == store_code, Part.is_active.is_(True), Part.section_id.is_(None))
+                 .first())
+        if loose is not None:
+            departments.append(NO_SECTION)
         return {
             "sections": sections,
             "types": sorted(({"name": k, "parts": v} for k, v in types.items()),
                             key=lambda t: (-t["parts"], t["name"])),
-            "departments": sorted(d for d in depts if d),
+            "departments": departments,
         }
 
     # ---------------------------------------------------------------- helpers
@@ -435,7 +542,7 @@ class ConsumptionAnalyticsService:
             raise BadRequestError("'from' must be on or before 'to' (and not after today)")
         span = (end - start).days + 1
         if span > MAX_DAYS:
-            raise BadRequestError(f"The window is {span} days; the most is {MAX_DAYS}")
+            raise BadRequestError(f"The window is {span} days; the most is {MAX_DAYS} (5 years)")
         return start, end, clamped
 
     @staticmethod
@@ -444,6 +551,9 @@ class ConsumptionAnalyticsService:
             return "day" if days <= 62 else "week" if days <= 190 else "month"
         if value not in GRANULARITIES:
             raise BadRequestError(f"granularity must be one of {', '.join(GRANULARITIES)}")
+        if value == "day" and days > MAX_DAILY_DAYS:
+            raise BadRequestError(f"Day by day covers at most {MAX_DAILY_DAYS} days and the window is {days}: "
+                                  "choose Week or Month")
         return value
 
     @staticmethod
@@ -462,28 +572,29 @@ class ConsumptionAnalyticsService:
         return s
 
     @staticmethod
-    def _issue_rows(store_code, first_day, last_day, offset, section_id, department, part_type, part_id):
-        """Every ISSUE row between two plant days, with the part facts the
-        breakdowns need — one query. Each row gains its plant day last."""
+    def _issue_rows(store_code, first_day, last_day, offset, section_id, department, part_type, part_id,
+                    owner):
+        """Every ISSUE row between two plant days, cancelled ones aside (a
+        cancelled issue was not consumed), with the part facts the breakdowns
+        need — one query. `department` is the CONSUMING department (`owner`
+        from consumers()). Each row gains its plant day last."""
         lo = datetime.combine(first_day, time.min) - offset
         hi = datetime.combine(last_day + timedelta(days=1), time.min) - offset
         L = SpareStockLedger
-        q = (db.session.query(L.part_id, L.qty_delta, L.created_at, L.department, L.machine, L.status,
-                              Part.part_no, Part.part_name, Part.uom, Part.unit_price,
+        q = (db.session.query(L.part_id, L.qty_delta, L.created_at, L.line_name, L.line_no, L.machine, L.die_no,
+                              L.confirmed_at, Part.part_no, Part.part_name, Part.uom, Part.unit_price,
                               Part.section_id, Part.sub_category, Section.name)
              .join(Part, Part.id == L.part_id)
              .outerjoin(Section, Section.id == Part.section_id)
              .filter(Part.store_code == store_code, L.txn_type == "ISSUE",
+                     or_(L.status.is_(None), L.status != "CANCELLED"),
                      L.created_at >= lo, L.created_at < hi))
         if section_id is not None:
             q = q.filter(Part.section_id == section_id)
         if department:
-            q = q.filter(func.lower(func.trim(L.department)) == department.lower())
+            q = q.filter(consumer_clause(owner, department))
         if part_type:
-            match = func.lower(func.trim(Part.sub_category)) == part_type.lower()
-            if part_type.lower() == UNCATEGORISED.lower():
-                match = or_(match, Part.sub_category.is_(None), func.trim(Part.sub_category) == "")
-            q = q.filter(match)
+            q = q.filter(type_clause(part_type))
         if part_id is not None:
             q = q.filter(L.part_id == part_id)
         out = []

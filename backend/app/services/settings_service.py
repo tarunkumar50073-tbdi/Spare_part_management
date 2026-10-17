@@ -10,10 +10,20 @@ from flask import current_app
 
 from app.models.app_setting import AppSetting
 from app.models.store import Section, Store
+from app.services.backup_service import BackupService
 from app.services.barcode_service import (
     LABEL_DEFAULTS, LABEL_SETTING_KEY, PRINTER_DEFAULTS, PRINTER_SETTING_KEY, BarcodeService,
 )
+from app.services.email_engine import EmailEngine
+from app.services.email_rules import rule_settings
+from app.utils import mailer
 from app.utils.exceptions import ValidationError
+
+SMTP_SETTING_KEY = "smtp"
+# Non-secret SMTP server fields an admin may set from the UI. The password is
+# NEVER among them — when auth is required it stays in .env (SMTP_PASSWORD).
+SMTP_FIELDS = ("host", "port", "from_email", "from_display", "use_tls", "use_ssl",
+               "requires_auth", "username")
 
 
 class SettingsService:
@@ -54,6 +64,61 @@ class SettingsService:
         AppSetting.set_value(PRINTER_SETTING_KEY, current, user)
         return current
 
+    # ---- SMTP mail server (non-secret: host / port / From / TLS / auth toggle) ----
+
+    def smtp_config(self):
+        """The effective SMTP server settings for the Settings screen — the saved
+        DB values over the .env defaults. A password is NEVER returned; the UI
+        only learns whether one is present in .env (`password_in_env`)."""
+        c = mailer.effective_smtp_cfg()
+        saved = AppSetting.get_value(SMTP_SETTING_KEY, {}) or {}
+        return {
+            "host": c.get("SMTP_HOST") or "",
+            "port": int(c.get("SMTP_PORT") or 25),
+            "from_email": c.get("SMTP_FROM") or "",
+            "from_display": c.get("MAIL_FROM_DISPLAY") or "",
+            "use_tls": bool(c.get("SMTP_USE_TLS", True)),
+            "use_ssl": bool(c.get("SMTP_USE_SSL")),
+            "requires_auth": bool(saved.get("requires_auth", bool(c.get("SMTP_USER")))),
+            "username": c.get("SMTP_USER") or "",
+            "configured": mailer.smtp_is_configured(),
+            "password_in_env": bool(current_app.config.get("SMTP_PASSWORD")),
+        }
+
+    def set_smtp_config(self, data, user=None):
+        """Persist the non-secret SMTP server settings (takes effect at once, no
+        restart). The password is never accepted here."""
+        current = AppSetting.get_value(SMTP_SETTING_KEY, {}) or {}
+        for k in SMTP_FIELDS:
+            if k in data:
+                current[k] = data[k]
+        # A sign-in with neither SSL nor STARTTLS would put the mailbox password
+        # on the LAN in the clear; the mailer refuses to send that way, so do
+        # not let it be saved. Judged after the merge (like the printer rule
+        # above), each value falling back to .env exactly as the mailer reads it.
+        cfg = current_app.config
+        encrypted = (current.get("use_tls", cfg.get("SMTP_USE_TLS", True))
+                     or current.get("use_ssl", cfg.get("SMTP_USE_SSL"))
+                     or (current.get("port") or cfg.get("SMTP_PORT")) == 465)
+        if current.get("requires_auth", bool(cfg.get("SMTP_USER"))) and not encrypted:
+            msg = "A mail server that needs a sign-in must use TLS or SSL — switch one on, or turn the sign-in off"
+            raise ValidationError(msg, errors={"use_tls": [msg]})
+        AppSetting.set_value(SMTP_SETTING_KEY, current, user)
+        return self.smtp_config()
+
+    def send_test_mail(self, to, user=None):
+        """Send a one-line test mail to prove the current SMTP settings work.
+        Returns the mailer's result ({'ok':..., 'reason'?:...})."""
+        to = (to or "").strip()
+        if not to:
+            raise ValidationError("A test recipient e-mail is required", errors={"to": ["required"]})
+        # Through the mail engine (same result dict), so a test shows in Email Logs.
+        return EmailEngine().submit(
+            mail_type="smtp_test", subject="TBDI Digital SMP — test mail",
+            body=("This is a test mail from TBDI Digital SMP.\nIf you received it, the mail settings work."
+                  f"\n\n{mailer.SYSTEM_NOTE}"),
+            to=[to], trigger="TEST", triggered_by=user, mode="sync")
+
     # ---- read-only system status ----
 
     def system_status(self):
@@ -61,19 +126,23 @@ class SettingsService:
         are reduced to booleans ("configured" yes/no); no host, user, password,
         key or URL value is ever included."""
         cfg = current_app.config
-        smtp_configured = bool(cfg.get("SMTP_HOST") and (cfg.get("SMTP_FROM") or cfg.get("SMTP_USER")))
+        # SMTP reflects the EFFECTIVE config (Settings-screen values over .env).
+        smtp = mailer.effective_smtp_cfg()
+        # The daily window-time mail is a notification rule now; the .env flags
+        # are only its default until an admin saves it.
+        daily_mail, _ = rule_settings("window_time_daily")
         erp_write = bool(cfg.get("ERP_STOCK_WRITE_ENABLED"))
         erp_api = bool(cfg.get("ERP_API_BASE_URL"))
         max_bytes = cfg.get("MAX_CONTENT_LENGTH") or 0
         return {
             "email": {
-                "configured": smtp_configured,
-                "daily_mail_enabled": bool(cfg.get("WINDOW_TIME_MAIL_ENABLED")),
-                "daily_mail_hour": cfg.get("WINDOW_TIME_MAIL_HOUR"),
-                "smtp_port": cfg.get("SMTP_PORT"),
-                "use_tls": bool(cfg.get("SMTP_USE_TLS")),
-                "use_ssl": bool(cfg.get("SMTP_USE_SSL")),
-                "from_display": cfg.get("MAIL_FROM_DISPLAY"),
+                "configured": mailer.smtp_is_configured(),
+                "daily_mail_enabled": daily_mail["enabled"],
+                "daily_mail_hour": daily_mail["hour"],
+                "smtp_port": smtp.get("SMTP_PORT"),
+                "use_tls": bool(smtp.get("SMTP_USE_TLS")),
+                "use_ssl": bool(smtp.get("SMTP_USE_SSL")),
+                "from_display": smtp.get("MAIL_FROM_DISPLAY"),
             },
             "erp": {
                 "read_sync_configured": bool(cfg.get("ERP_DB_HOST")),
@@ -88,7 +157,19 @@ class SettingsService:
                 "max_mb": round(max_bytes / (1024 * 1024), 1) if max_bytes else None,
             },
             "label": self.label_config(),
+            "backup": self.backup_status(),
         }
+
+    def backup_status(self):
+        """The daily database backup (store's request of 16 Oct 2026): on/off,
+        the time, days kept, the last attempt and the newest good file. A
+        problem reading it is shown in its own box — it must never take the
+        rest of System status down with it."""
+        try:
+            return BackupService().status()
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.exception("system status: backup status failed")
+            return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
 
     # ---- store / section visibility ----
 

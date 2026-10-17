@@ -19,15 +19,31 @@ export const ISSUE_STATUS = {
   PENDING_USER_CONFIRMATION: { label: "Awaiting user confirmation", badge: "badge-warning" },
   PARTIALLY_USED: { label: "Installed — partly used", badge: "badge-success" },
   INSTALLED: { label: "Installed", badge: "badge-success" },
-  // A return goes to the store inspection first (spec 14) — it is not stock
-  // again until inspected Good, so the label says where it actually is.
-  RETURNED: { label: "Returned to store (inspection)", badge: "badge-neutral" },
-  PARTIALLY_RETURNED: { label: "Partly returned to store (inspection)", badge: "badge-neutral" },
+  // A return is taken straight back into store stock (store rule, 14 Oct
+  // 2026) — the label says where the part is now.
+  RETURNED: { label: "Returned to store", badge: "badge-neutral" },
+  PARTIALLY_RETURNED: { label: "Partly returned to store", badge: "badge-neutral" },
   CANCELLED: { label: "Cancelled", badge: "badge-neutral" },
 };
-// The two statuses the Stage-2 queue holds (pending_confirmations).
-const AWAITING = new Set(["ISSUED_BY_STORE", "PENDING_USER_CONFIRMATION"]);
 const USED = new Set(["INSTALLED", "PARTIALLY_USED"]);
+
+// Waiting for the fitter's confirmation — the backend's one rule
+// (spare_stock_service.awaiting_confirmation_clause, the store's "Waiting list
+// wali kami", 16 Oct 2026), so Scan Part agrees with the Waiting list, the bell
+// and the Work Queue: never confirmed, one of these statuses, and something of
+// it still out. PARTIALLY_RETURNED is here because an issue partly returned
+// BEFORE anyone confirmed it still has the rest out with the user, unconfirmed.
+export const AWAITING_CONFIRMATION_STATUSES = new Set([
+  "ISSUED_BY_STORE", "PENDING_USER_CONFIRMATION", "PARTIALLY_RETURNED",
+]);
+
+/** True while `issue` waits for Stage 2. A row that does not carry
+ *  outstanding_qty is judged by its status and confirmed_at alone. */
+export const isAwaitingConfirmation = (issue) =>
+  Boolean(issue)
+  && !issue.confirmed_at
+  && AWAITING_CONFIRMATION_STATUSES.has(issue.status)
+  && (issue.outstanding_qty == null || Number(issue.outstanding_qty) > 0);
 
 export const issueStatusLabel = (status) => {
   if (ISSUE_STATUS[status]) return ISSUE_STATUS[status].label;
@@ -37,15 +53,30 @@ export const issueStatusLabel = (status) => {
 };
 
 // A confirmation with 0 used is stored as PARTIALLY_USED (confirm_installation:
-// used < issued) — nothing was fitted, so it must not read as installed.
+// used < issued) — nothing was fitted, so it must not read as installed or
+// partly used. It reads "Not used yet" everywhere: this pill, Confirm
+// Installation, the Part Ledger and the Scan Part timeline.
+export const NONE_USED = { label: "Not used yet", badge: "badge-warning" };
 export const isNoneUsed = (issue) =>
   issue?.status === "PARTIALLY_USED" && issue.actual_qty != null && Number(issue.actual_qty) === 0;
 
+/** How one issue's status reads ({ label, badge }) — NONE_USED for a
+ *  confirmation with nothing used; undefined for a status with no entry. */
+export const issueStatusMeta = (issue) => (isNoneUsed(issue) ? NONE_USED : ISSUE_STATUS[issue?.status]);
+
+/** How much of an issue an installation entry (Part Ledger row) records used:
+ *  "used 1 of 2", "not used yet", or "usage not recorded". */
+export const installUsedText = (entry) => {
+  if (entry.actual_qty == null) return "usage not recorded";
+  const used = Number(entry.actual_qty);
+  return used > 0 ? `used ${num(used)} of ${num(entry.issued_qty)}` : "not used yet";
+};
+
 /** Pass `issue` when the row is at hand, so a none-used confirmation says so. */
 export function IssueStatusPill({ status, issue }) {
-  if (isNoneUsed(issue)) return <span className="badge badge-neutral">Confirmed — none used</span>;
   const s = issue ? issue.status : status;
-  return <span className={`badge ${ISSUE_STATUS[s]?.badge || "badge-neutral"}`}>{issueStatusLabel(s)}</span>;
+  const meta = issue ? issueStatusMeta(issue) : ISSUE_STATUS[s];
+  return <span className={`badge ${meta?.badge || "badge-neutral"}`}>{meta?.label || issueStatusLabel(s)}</span>;
 }
 
 // Ledger times are stored in UTC and SQLite hands them back with no offset —
@@ -113,11 +144,11 @@ const STATE = {
 const ENDINGS = {
   RETURNED: {
     Icon: Undo2,
-    text: "Came back to the store against this issue — nothing of it is still out. The store inspects it before any of it is stock again.",
+    text: "Came back to the store against this issue and went back into store stock — nothing of it is still out.",
   },
   PARTIALLY_RETURNED: {
     Icon: Undo2,
-    text: "Some came back to the store against this issue and waits for the store inspection — the rest is still out.",
+    text: "Some came back to the store against this issue and went back into store stock — the rest is still out.",
   },
   CANCELLED: { Icon: Ban, text: "This issue is closed." },
 };
@@ -134,6 +165,7 @@ function buildSteps(issue) {
   const closed = s === "RETURNED" || s === "CANCELLED";
   const legacy = !s;
   const later = closed || legacy ? "skipped" : "pending";
+  const awaiting = isAwaitingConfirmation(issue);
 
   const issued = {
     key: "issued", title: "Issued by store", state: "done",
@@ -166,9 +198,9 @@ function buildSteps(issue) {
     }
     : {
       key: "confirm", title: "Machine / line confirmed",
-      state: AWAITING.has(s) ? "current" : later,
+      state: awaiting ? "current" : later,
       lines: [
-        AWAITING.has(s) ? "Fitter to re-scan and confirm"
+        awaiting ? "Fitter to re-scan and confirm"
           : legacy ? "Not tracked for this issue"
             : closed ? "Not confirmed before the issue closed" : "Not confirmed yet",
         issue.machine && `Machine named at issue: ${issue.machine}`,

@@ -1,10 +1,17 @@
 """Department master — the departments the spare store serves and the e-mail
 each one's reorder notifications are sent to. The reorder notifier reads its
 recipient list straight off this master (repo.reorder_recipients)."""
+from app.models.department_recipient import ROLES as RECIPIENT_ROLES
 from app.repositories.department_repository import (
     DepartmentRecipientRepository, DepartmentRepository,
 )
 from app.utils.exceptions import BadRequestError, NotFoundError
+
+
+def _clean_role(role):
+    """Normalise a recipient role to one of TO / CC / BCC (default TO)."""
+    r = (role or "TO").strip().upper()
+    return r if r in RECIPIENT_ROLES else "TO"
 
 
 class DepartmentService:
@@ -24,7 +31,7 @@ class DepartmentService:
 
     # ---- person-wise recipients ----
 
-    def add_recipient(self, dept_id, name, email):
+    def add_recipient(self, dept_id, name, email, role="TO"):
         if not self.repo.get_by_id(dept_id):
             raise NotFoundError(f"Department {dept_id} not found")
         name = (name or "").strip()
@@ -32,7 +39,7 @@ class DepartmentService:
             raise BadRequestError("Person name is required")
         rec = self.rec_repo.create(
             department_id=dept_id, name=name,
-            email=(email or "").strip() or None, is_active=True)
+            email=(email or "").strip() or None, role=_clean_role(role), is_active=True)
         return rec.to_dict()
 
     def update_recipient(self, rec_id, data):
@@ -47,6 +54,8 @@ class DepartmentService:
             fields["name"] = name
         if "email" in data:
             fields["email"] = (data["email"] or "").strip() or None
+        if "role" in data:
+            fields["role"] = _clean_role(data["role"])
         if "is_active" in data:
             fields["is_active"] = bool(data["is_active"])
         return self.rec_repo.update(rec, **fields).to_dict()

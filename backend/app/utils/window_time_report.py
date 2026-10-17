@@ -23,6 +23,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.utils.excel_io import _excel_safe
+
 FIXED_COLS = 5  # S.No, Arrival Plan, Departure Plan, Supplier Name, Frequency
 _THIN = Side(style="thin", color="BFBFBF")
 BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
@@ -115,7 +117,7 @@ def build_window_time_report(year, month, master_rows, status_by_day):
         ws.cell(r, 1, i + 1).alignment = CENTER
         ws.cell(r, 2, mr["window_start"].strftime("%H:%M")).alignment = CENTER
         ws.cell(r, 3, mr["window_end"].strftime("%H:%M")).alignment = CENTER
-        name_cell = ws.cell(r, 4, mr["supplier_name"] or mr["vendor_code"])
+        name_cell = ws.cell(r, 4, _excel_safe(mr["supplier_name"] or mr["vendor_code"]))
         name_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         freq_cell = ws.cell(r, 5, mr["frequency"])
         freq_cell.fill = FREQ_FILL

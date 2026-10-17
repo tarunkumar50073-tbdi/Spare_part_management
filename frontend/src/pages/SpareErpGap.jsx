@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { Scale } from "lucide-react";
+import toast from "react-hot-toast";
+import { Scale, Download, Upload } from "lucide-react";
 import Badge from "../components/Badge.jsx";
+import Can from "../components/Can.jsx";
 import { spareStockService } from "../services/spareStockService.js";
+import { downloadFile } from "../utils/download.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { useStoreCategories } from "../constants/categories.js";
 
@@ -35,6 +38,24 @@ export default function SpareErpGap() {
   const [keyword, setKeyword] = useState("");
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // Load the ERP side from Excel (stand-in until the ERP API is connected), then
+  // refresh the comparison.
+  const onUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      const res = await spareStockService.erpStockImport(file, activeCode);
+      const r = res.data?.data || {};
+      toast.success(`${r.updated ?? 0} part(s) ERP stock updated${r.error_count ? ` · ${r.error_count} skipped` : ""}`);
+      setReloadKey((k) => k + 1);
+    } catch { /* the global handler shows the error toast */ }
+    finally { setUploading(false); }
+  };
 
   useEffect(() => {
     if (!activeCode) return undefined;
@@ -58,7 +79,7 @@ export default function SpareErpGap() {
     // A newer store/filter selection must win even if an older request is
     // slower — ignore the stale response rather than let it overwrite.
     return () => { cancelled = true; };
-  }, [activeCode, keyword, category, status]);
+  }, [activeCode, keyword, category, status, reloadKey]);
 
   const cards = [
     { label: "Matched", value: summary?.matched, tone: "text-emerald-600 dark:text-emerald-400" },
@@ -69,14 +90,31 @@ export default function SpareErpGap() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="font-semibold text-slate-800 dark:text-white flex items-center gap-2">
-          <Scale size={18} className="text-toyotared" /> ERP vs Physical Gap
-        </h2>
-        <p className="text-xs text-slate-400 mt-0.5">
-          ERP stock (from the ERP feed) against this store&apos;s own counted stock. Count parts in Store Stock to fill
-          the physical column; ERP arrives automatically from ERP Stock Sync — nothing to upload here.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-semibold text-slate-800 dark:text-white flex items-center gap-2">
+            <Scale size={18} className="text-toyotared" /> ERP vs Physical
+          </h2>
+          <p className="text-xs text-slate-400 mt-0.5 max-w-2xl">
+            ERP stock against this store&apos;s physical count. The physical column comes from your Store Stock counts;
+            load the ERP column from Excel here — a stand-in until the ERP API is connected, after which it syncs automatically.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" className="btn-secondary"
+            onClick={() => downloadFile("/spare-stock/erp-stock/template", "spare_erp_stock_template.xlsx", { store_code: activeCode })}>
+            <Download size={14} aria-hidden="true" /> Template
+          </button>
+          {/* The upload writes ERP stock (Store Stock edit on the server); a
+              view-only login — the Manager template, 17 Oct 2026 — reads the gap
+              without a button that would only be refused. */}
+          <Can mod="store_stock" edit>
+            <label className={`btn-primary cursor-pointer ${uploading ? "opacity-60 pointer-events-none" : ""}`}>
+              <Upload size={14} aria-hidden="true" /> {uploading ? "Uploading…" : "Upload ERP Stock"}
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={onUpload} disabled={uploading} />
+            </label>
+          </Can>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -87,6 +125,15 @@ export default function SpareErpGap() {
           </div>
         ))}
       </div>
+
+      {summary && (summary.not_synced > 0 || summary.no_physical > 0) && (
+        <p className="-mt-1 text-[11px] text-slate-400">
+          {[
+            summary.not_synced ? `${summary.not_synced.toLocaleString()} part(s) have no ERP stock loaded yet` : null,
+            summary.no_physical ? `${summary.no_physical.toLocaleString()} not counted yet` : null,
+          ].filter(Boolean).join(" · ")}
+        </p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <input

@@ -7,7 +7,7 @@ export const employeeService = {
   // -> { mobile, found, active?, employee }. `config` passes axios options
   // (e.g. { silent: true } where the form shows its own message).
   lookup: (mobile, config = {}) => api.get("/employees/lookup", { params: { mobile }, ...config }),
-  list: (params) => api.get("/employees", { params }),
+  list: (params, config = {}) => api.get("/employees", { params, ...config }),
   // { mobile, name, employee_code?, department, designation?, company? }.
   // `config` as for lookup — the counter's quick-add shows its own message.
   create: (payload, config = {}) => api.post("/employees", payload, config),

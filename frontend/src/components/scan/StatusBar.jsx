@@ -10,13 +10,15 @@ import { scanIcon } from "./scanIcons.js";
 // each keeps its OWN state here — a tick re-renders the few characters of the
 // clock, never the Scan Part page or a half-filled action form beneath it.
 
-// Issue | Receive & Label — what a scan opens (lib/scanStatus SCAN_MODE). The
-// page owns the mode; `onMode` must be stable (this strip is memoised).
-function ModeSwitch({ mode, onMode }) {
+// Issue | Receive & Lot Tag | Put-away Check — what the page does with a scan
+// (lib/scanStatus SCAN_MODE). `modes` are the ones this user may use. The page
+// owns the mode; `modes` and `onMode` must be stable (this strip is memoised).
+function ModeSwitch({ mode, modes, onMode }) {
   return (
     <div role="group" aria-label="Scan mode — what a scan opens"
       className="inline-flex rounded-lg bg-slate-100 p-0.5 dark:bg-navy-800">
-      {Object.entries(SCAN_MODE).map(([key, m]) => {
+      {modes.map((key) => {
+        const m = SCAN_MODE[key];
         const on = mode === key;
         const Icon = scanIcon(m.icon);
         return (
@@ -71,7 +73,7 @@ function NetworkChip() {
   );
 }
 
-function StatusBar({ storeName, operator, mode, onMode }) {
+function StatusBar({ storeName, operator, mode, modes, onMode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl2 border border-slate-200 bg-white px-4 py-2 text-sm dark:border-navy-800 dark:bg-navy-900">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
@@ -81,7 +83,7 @@ function StatusBar({ storeName, operator, mode, onMode }) {
         <span className="truncate rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-navy-800 dark:text-slate-300">
           {storeName || "Spare Parts Store"}
         </span>
-        {onMode && <ModeSwitch mode={mode} onMode={onMode} />}
+        {onMode && <ModeSwitch mode={mode} modes={modes} onMode={onMode} />}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <NetworkChip />

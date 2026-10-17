@@ -11,3 +11,7 @@ xlrd>=2.0.1
 psycopg2-binary>=2.9.9
 requests>=2.32.3
 reportlab>=4.2.5
+Pillow>=10.0.0     # images in Excel (the logo on the Daily Stock Report)
+
+# ---- tests only ----
+pytest>=8.0.0

@@ -1,12 +1,18 @@
 """Returns to store and the store inspection — spec 13 / 14.
 
 A department sends an issued part back against its ORIGINAL issue (never as a
-free receipt). What comes back is not stock yet: it waits on a SpareReturn for
-the store inspection, and only a GOOD / reusable result puts it back on the
-shelf — as one RETURN ledger row per inspection, written through
-SpareStockService._write so on-hand, balance_after and the cached stock lists
-move together. "Inspection Required" holds it, "Damaged" keeps it apart (it may
-go to a supplier for rework on an RGP, or be scrapped) and "Scrap" ends it.
+free receipt). The store's rule (14 Oct 2026): no inspection — whatever the
+user hands back is taken straight back into store stock when the return is
+recorded. return_to_store does that through the GOOD inspection, in the same
+transaction, so there is one stock-in routine: one RETURN ledger row per GOOD
+result, written through SpareStockService._write so on-hand, balance_after and
+the cached stock lists move together, and the return closes the way a fully
+Good inspection closes it.
+
+The inspection itself stays for a return recorded before that rule and still
+waiting: GOOD puts it back on the shelf, "Inspection Required" holds it,
+"Damaged" keeps it apart (it may go to a supplier for rework on an RGP, or be
+scrapped) and "Scrap" ends it.
 
 Every step writes one journal row inside the same atomic() as the change it
 describes, so the part history can never disagree with the documents. Each
@@ -61,6 +67,13 @@ RESULT_WORDS = {
 # operator's own words for "Other".
 REASON_MAX = 60
 
+# The remark of the GOOD inspection return_to_store runs (the store's rule,
+# 14 Oct 2026), on its journal row and its RETURN ledger row alike. It is the
+# one mark of a return taken straight back: the part timeline shows such a
+# return as one event (ScanResultService) and the Part Ledger does not call it
+# inspected (frontend pages/SparePartHistory.jsx compares the same text).
+TAKEN_BACK_REMARK = "Taken back into stock on return — no inspection (store rule)"
+
 
 def _text(value, limit=None):
     """Trimmed text or None — a blank field is "not given", never an empty value."""
@@ -101,11 +114,16 @@ class SpareReturnService:
         Up to what is still out on that issue (issued - returned) may come
         back, installed parts included — they can be removed from the machine.
         `qty` None returns everything still out (the older one-click return of
-        a returnable tool). Creates a SpareReturn waiting for inspection with
-        the issue's department / person / line / machine / die copied onto it,
-        and sets the issue RETURNED (nothing left out) or PARTIALLY_RETURNED.
-        No ledger row and no stock change: the material is not available until
-        the store inspection passes it as good."""
+        a returnable tool). Creates a SpareReturn with the issue's department /
+        person / line / machine / die copied onto it, and sets the issue
+        RETURNED (nothing left out) or PARTIALLY_RETURNED.
+
+        The store's rule (14 Oct 2026): no inspection. In the same transaction
+        the whole quantity goes back into store stock through the GOOD
+        inspection (inspect), remarked TAKEN_BACK_REMARK: +qty on hand, one
+        RETURN ledger row carrying the reason and who returned it, and the
+        return CLOSED with all of it good. Two journal rows, as the two steps
+        always wrote: RETURN_TO_STORE, then RETURN_INSPECTION (GOOD)."""
         issue = db.session.get(SpareStockLedger, issue_id)
         if issue is None or issue.txn_type != "ISSUE":
             raise BadRequestError("That is not an issue that can be returned")
@@ -168,12 +186,19 @@ class SpareReturnService:
                 return_reason=reason, remarks=note,
                 scanned_code=scanned_code, scan_source=scan_source,
             )
+            # Nothing waits for an inspection: the GOOD path is the one
+            # stock-in routine, run here inside this transaction (atomic()
+            # nests), so the return and its stock-in commit — or fail — as one.
+            self.inspect(ret.id, "GOOD", qty_back, from_bucket="RETURN_PENDING",
+                         remarks=TAKEN_BACK_REMARK, user=user)
         return self.to_dict(ret)
 
     # ---------------------------------------------------------- inspection
 
     def inspect(self, return_id, result, qty=None, from_bucket=None, remarks=None, user=None):
-        """Spec 14: the store inspects returned material.
+        """Spec 14: the store inspects returned material — and the GOOD path
+        return_to_store runs for every new return (the store's rule); a return
+        recorded before that rule may still wait for it.
 
         `from_bucket` defaults to what is waiting (RETURN_PENDING), then what is
         held (RETURN_HOLD), then what is damaged (DAMAGED); `qty` None takes all

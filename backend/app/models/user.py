@@ -23,6 +23,10 @@ PERMISSION_MODULES = [
     {"key": "spare_store", "label": "Spare Parts Store (dashboard)"},
     {"key": "store_stock", "label": "Store Stock (count / edit)"},
     {"key": "scan_part", "label": "Scan Part — issue / receive / return"},
+    # The locked-store KIOSK (outside the store): a requester submits a part
+    # request here. Request-only — it cannot issue; the supervisor (scan_part)
+    # fulfils it. Grant this to the kiosk device's own login.
+    {"key": "kiosk", "label": "Kiosk — part request (outside store)"},
     # Stage-2 only: a line user may confirm where an issued part was fitted
     # (line / machine / die + how much was used) WITHOUT the full issue /
     # receive / return rights that scan_part carries. There is no per-part QR to

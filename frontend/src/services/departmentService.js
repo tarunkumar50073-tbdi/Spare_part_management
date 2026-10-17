@@ -11,4 +11,8 @@ export const departmentService = {
   addRecipient: (deptId, payload) => api.post(`/departments/${deptId}/recipients`, payload),
   updateRecipient: (recId, payload) => api.put(`/departments/recipients/${recId}`, payload),
   deleteRecipient: (recId) => api.delete(`/departments/recipients/${recId}`),
+
+  // Reorder / low-stock mail — preview who/what would be sent, and send now.
+  reorderMailStatus: () => api.get("/departments/reorder-mail/status"),
+  sendReorderMail: () => api.post("/departments/reorder-mail/send"),
 };

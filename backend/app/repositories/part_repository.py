@@ -27,8 +27,27 @@ class PartRepository(BaseRepository):
     def get_by_scan_code(self, code):
         """Scan-match a part by its dedicated barcode first, falling back to
         part_no — parts without a distinct barcode label still scan correctly.
-        Both lookups are case-insensitive."""
-        return self.get_by_barcode(code) or self.get_by_part_no(code)
+        Both lookups are case-insensitive.
+
+        A printed label QR can carry MORE than the code: the lot tag encodes
+        "GateEntryNo PartNo" and the bin sheet encodes "PartNo Location". So if
+        the whole scan doesn't match, try each whitespace-separated token too —
+        the part-no / barcode token resolves, the gate-no / location one is
+        ignored. This lets the issue flow, put-away and every scan screen read a
+        bin-sheet or lot-tag QR, not just a bare part number."""
+        code = (code or "").strip()
+        if not code:
+            return None
+        hit = self.get_by_barcode(code) or self.get_by_part_no(code)
+        if hit:
+            return hit
+        tokens = code.split()
+        if len(tokens) > 1:
+            for tok in tokens:
+                hit = self.get_by_barcode(tok) or self.get_by_part_no(tok)
+                if hit:
+                    return hit
+        return None
 
     # "Not set" for these three is a missing value OR a zero/blank — the Spare
     # Parts sheets carry 0 for "no maximum decided" rather than leaving the

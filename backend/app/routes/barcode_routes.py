@@ -148,8 +148,14 @@ def part_barcodes(part_id):
 @bp.route("/scan-audit", methods=["GET"])
 @permission_required("scan_audit", "view")
 def scan_audit():
+    # The Scan Audit screen is no longer administrators only (Store Supervisor
+    # template, 17 Oct 2026), so the store it asks for must be one of the
+    # caller's own, like every other store screen.
+    code = request.args.get("store_code")
+    if code:
+        require_store_access(code)
     return success_response(service.list_scan_audit(
-        store_code=request.args.get("store_code"),
+        store_code=code,
         result=request.args.get("result"),
         scan_mode=request.args.get("scan_mode"),
         scan_source=request.args.get("scan_source"),

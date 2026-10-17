@@ -9,6 +9,8 @@ import {
 import Modal from "../Modal.jsx";
 import Badge from "../Badge.jsx";
 import Traceability from "./Traceability.jsx";
+import { installUsedText } from "./IssueLifecycle.jsx";
+import { placeText } from "../scan/forms/flow.js";
 import { useCan } from "../Can.jsx";
 import { spareStockService } from "../../services/spareStockService.js";
 import { spareFlowService } from "../../services/spareFlowService.js";
@@ -31,7 +33,7 @@ const SEV = {
 };
 const TXN_TONE = {
   OPENING: "text-slate-500", RECEIPT: "text-emerald-600", ISSUE: "text-rose-600",
-  RETURN: "text-amber-600", ADJUSTMENT: "text-blue-600",
+  RETURN: "text-amber-600", ADJUSTMENT: "text-blue-600", INSTALLATION: "text-indigo-600 dark:text-indigo-400",
 };
 
 function Section({ title, icon: Icon, children, aside }) {
@@ -118,6 +120,12 @@ export default function PartDrawer({ partId, onClose }) {
   // label comes out with no print history behind it (spec 8). Each hook is
   // called on every render, never inside a short-circuit.
   const canSeeReceiving = useCan("spare_store", "view");
+  // The footer's way out to Part Ledger / Scan Part only for a login that may
+  // open them: the drawer opens from screens a viewer reaches too (the Manager
+  // template — view only, no Scan Part — store's role templates, 17 Oct 2026),
+  // and a button onto "Access restricted" is no button.
+  const canLedger = useCan("part_ledger", "view");
+  const canScan = useCan("scan_part", "view");
   const [counting, setCounting] = useState(false);
   const [draft, setDraft] = useState("");
   const [tracing, setTracing] = useState(false);
@@ -171,18 +179,22 @@ export default function PartDrawer({ partId, onClose }) {
         title={p ? `${p.part_no} — ${p.part_name || ""}` : "Part"}
         footer={p && (
           <>
-            <button type="button" className="btn-secondary" onClick={() => go(`/spare-part-history?part_id=${partId}`)}>
-              <History size={14} aria-hidden="true" /> Part Ledger
-            </button>
+            {canLedger && (
+              <button type="button" className="btn-secondary" onClick={() => go(`/spare-part-history?part_id=${partId}`)}>
+                <History size={14} aria-hidden="true" /> Part Ledger
+              </button>
+            )}
             <button type="button" className="btn-secondary" onClick={() => setTracing(true)}>
               <Route size={14} aria-hidden="true" /> Trace
             </button>
             {/* Deep link: Scan Part opens on this very part (contract), so the
                 operator lands on its status and actions without re-scanning. */}
-            <button type="button" className="btn-primary" onClick={() => go(`/scan-part?part=${partId}`)}
-              title="Issue, return, inspect and RGP are done on the Scan Part workstation — receiving, GRN and quality clearance are done in ERP">
-              <ScanBarcode size={14} aria-hidden="true" /> Open in Scan Part
-            </button>
+            {canScan && (
+              <button type="button" className="btn-primary" onClick={() => go(`/scan-part?part=${partId}`)}
+                title="Issue, return, inspect and RGP are done on the Scan Part workstation — receiving, GRN and quality clearance are done in ERP">
+                <ScanBarcode size={14} aria-hidden="true" /> Open in Scan Part
+              </button>
+            )}
           </>
         )}>
         {isPending ? (
@@ -204,6 +216,12 @@ export default function PartDrawer({ partId, onClose }) {
               {p.old_part_no && <span>Ref {p.old_part_no}</span>}
               {!p.is_active && <span className="font-semibold text-rose-600">Inactive</span>}
             </div>
+
+            {p.specification && (
+              <div className="text-xs text-slate-600 dark:text-slate-300">
+                <span className="font-semibold text-slate-500 dark:text-slate-400">Specification: </span>{p.specification}
+              </div>
+            )}
 
             {ov.alerts.length > 0 && (
               <ul className="space-y-1.5" aria-label="Alerts">
@@ -330,7 +348,21 @@ export default function PartDrawer({ partId, onClose }) {
                 <p className="text-xs text-slate-500">No movement recorded yet.</p>
               ) : (
                 <ul className="divide-y divide-slate-100 text-xs dark:divide-navy-800">
-                  {ov.transactions.map((t) => (
+                  {ov.transactions.map((t) => (t.row_kind === "installation" ? (
+                    // Where an issued part was installed (an Update Line / Machine
+                    // entry): it moves no stock — no qty, the balance carries on.
+                    <li key={t.id} className="flex items-center justify-between gap-2 py-1.5 italic text-slate-500 dark:text-slate-400"
+                      title="Installation entry — where an issued part was fitted and how much was used; no stock moves">
+                      <span className="w-28 shrink-0 tabular">{fmtStamp(t.at)}</span>
+                      <span className={`w-20 shrink-0 font-semibold ${TXN_TONE.INSTALLATION}`}>INSTALL</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {[placeText(t) || "Line / machine not given", installUsedText(t), t.created_by && `by ${t.created_by}`]
+                          .filter(Boolean).join(" · ")}
+                      </span>
+                      <span className="w-14 shrink-0 text-right">—</span>
+                      <span className="w-12 shrink-0 text-right tabular text-slate-400">{num(t.balance_after)}</span>
+                    </li>
+                  ) : (
                     <li key={t.id} className="flex items-center justify-between gap-2 py-1.5">
                       <span className="w-28 shrink-0 tabular text-slate-500">{fmtStamp(t.at)}</span>
                       <span className={`w-20 shrink-0 font-semibold ${TXN_TONE[t.txn_type] || ""}`}>{t.txn_type}</span>
@@ -341,7 +373,7 @@ export default function PartDrawer({ partId, onClose }) {
                       <span className="w-14 shrink-0 text-right font-semibold tabular">{t.qty_delta > 0 ? "+" : ""}{num(t.qty_delta)}</span>
                       <span className="w-12 shrink-0 text-right tabular text-slate-400">{num(t.balance_after)}</span>
                     </li>
-                  ))}
+                  )))}
                 </ul>
               )}
             </Section>

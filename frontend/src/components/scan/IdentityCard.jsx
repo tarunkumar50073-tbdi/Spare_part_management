@@ -50,11 +50,21 @@ export default function IdentityCard({ part, ident, onOpenDetails, onClear }) {
           {meta.length > 0 && <p className="mt-0.5 text-xs text-slate-400">{meta.join(" · ")}</p>}
         </div>
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-navy-700 dark:bg-navy-800/60">
-          <p className="kpi-label">Location</p>
+          {/* A part can sit in two places — the shelf for new parts and, separately,
+              the rework shelf — so both are shown when set, labelled New / Rework
+              (the store's words). */}
+          <p className="kpi-label">{part.rework_location ? "Location · New" : "Location"}</p>
           <p className="flex items-center gap-1.5 text-lg font-bold text-slate-900 dark:text-white">
             <MapPin size={16} className="text-toyotared" aria-hidden="true" />
             {part.location || <span className="text-sm font-medium text-slate-400">No location set</span>}
           </p>
+          {part.rework_location && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-base font-bold text-amber-700 dark:text-amber-300">
+              <MapPin size={15} aria-hidden="true" />
+              <span className="text-[11px] font-semibold uppercase tracking-wide">Rework</span>
+              {part.rework_location}
+            </p>
+          )}
         </div>
       </div>
 

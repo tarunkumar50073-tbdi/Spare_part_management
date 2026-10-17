@@ -43,6 +43,9 @@ from app.models.app_setting import AppSetting
 from app.models.spare_flow import SpareReceipt, SpareReturn, SpareRgp, SpareTransaction
 from app.models.employee import Employee
 from app.models.equipment import Equipment
+from app.models.put_away_log import PutAwayLog
+from app.models.part_request import PartRequest
+from app.models.email_engine import EmailMessage, EmailAttachment, EmailAttempt, NotificationState
 
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",
@@ -55,4 +58,6 @@ __all__ = [
     "ReportRecipient", "MailSendLog",
     "PartBarcode", "ScanAudit", "LabelPrintAudit", "SpareLocationHistory", "PartImportHistory",
     "AppSetting", "SpareReceipt", "SpareReturn", "SpareRgp", "SpareTransaction", "Employee", "Equipment",
+    "PutAwayLog", "PartRequest",
+    "EmailMessage", "EmailAttachment", "EmailAttempt", "NotificationState",
 ]

@@ -4,12 +4,24 @@ import { setUnauthorizedHandler } from "../services/api.js";
 
 const AuthContext = createContext(null);
 
+// Auto sign-out after this long with no mouse / keyboard / scroll activity, so a
+// shared store terminal left unattended does not stay logged in. The login screen
+// then shows why (see logoutReason).
+const IDLE_LIMIT_MS = 30 * 60 * 1000;
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  // Why the session ended, shown on the login screen ("inactivity" after an idle
+  // timeout). Null for a first visit or a manual sign-out.
+  const [logoutReason, setLogoutReason] = useState(null);
   // Separate from `user` being null: on the very first paint we do not yet
   // know whether there is a session, and flashing the login screen at someone
   // who is already signed in looks like being logged out.
   const [checking, setChecking] = useState(true);
+  // True from a successful sign-in until the "what needs your attention" pop-up
+  // has had its turn. The pop-up also opens once per browser tab on its own (see
+  // AttentionPopup); this flag makes it open again after every sign-in.
+  const [freshLogin, setFreshLogin] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -33,21 +45,52 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (username, password) => {
     const res = await authService.login(username, password);
     setUser(res.data.data);
+    setLogoutReason(null);
+    setFreshLogin(true);
     return res.data.data;
   }, []);
 
-  const logout = useCallback(async () => {
+  const logout = useCallback(async (reason = null) => {
     try {
       await authService.logout();
     } finally {
       // Clear locally even if the call failed — whatever the server thinks,
-      // this browser is done with the session.
+      // this browser is done with the session. `reason` is a string only when
+      // called in code (e.g. "inactivity"); a click handler passes its event,
+      // which we ignore.
       setUser(null);
+      setFreshLogin(false);
+      setLogoutReason(typeof reason === "string" ? reason : null);
     }
   }, []);
 
+  // Idle auto-logout: only while signed in. Any real activity reschedules the
+  // timer; IDLE_LIMIT_MS of none signs the user out with an "inactivity" reason.
+  useEffect(() => {
+    if (!user) return undefined;
+    let timer;
+    let last = 0;
+    const reset = () => {
+      const now = Date.now();
+      if (now - last < 1000) return; // throttle — mousemove fires constantly
+      last = now;
+      clearTimeout(timer);
+      timer = setTimeout(() => logout("inactivity"), IDLE_LIMIT_MS);
+    };
+    const events = ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "wheel"];
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+    reset();
+    return () => {
+      clearTimeout(timer);
+      events.forEach((e) => window.removeEventListener(e, reset));
+    };
+  }, [user, logout]);
+
   return (
-    <AuthContext.Provider value={{ user, checking, login, logout, refresh }}>
+    <AuthContext.Provider value={{
+      user, checking, login, logout, refresh, logoutReason, clearLogoutReason: () => setLogoutReason(null),
+      freshLogin, ackFreshLogin: () => setFreshLogin(false),
+    }}>
       {children}
     </AuthContext.Provider>
   );

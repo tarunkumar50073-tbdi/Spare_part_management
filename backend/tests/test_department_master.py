@@ -1,7 +1,8 @@
 """Department Email Master: departments are seeded, an admin can set each one's
 reorder e-mail, blank clears to NULL, names stay unique, and only the
 notify-flagged departments that actually carry an address are handed to the
-reorder notifier. Writes are ADMIN-only for people; the ERP machine key passes.
+reorder notifier. Writes need a signed-in person with the right to edit the
+master; the machine key alone is refused (the master decides who is mailed).
 """
 import pytest
 
@@ -104,22 +105,41 @@ def test_create_route_requires_admin(client):
     assert resp.status_code == 403  # a signed-in non-admin cannot mutate the master
 
 
-def test_machine_caller_can_manage_master(client):
+def _admin(client):
+    _seq["n"] += 1
+    user = User(username=f"deptadmin{_seq['n']}", role="ADMIN", is_active=True)
+    user.set_password("pw")
+    db.session.add(user)
+    db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = user.id
+    return client
+
+
+def test_machine_caller_cannot_manage_master(client):
+    name = _name("CNC-Line")
     resp = client.post(
         "/api/v1/departments",
-        json={"name": _name("CNC-Line"), "email": "cnc@plant.test", "notify_reorder": True},
+        json={"name": name, "email": "cnc@plant.test", "notify_reorder": True},
         headers={"X-API-Key": "test-machine-key"},
     )
+    assert resp.status_code == 403  # the key alone does not decide who is mailed
+    assert DepartmentRepository().get_by_name(name) is None
+
+
+def test_signed_in_admin_manages_master_through_the_route(client):
+    admin = _admin(client)
+    resp = admin.post("/api/v1/departments",
+                      json={"name": _name("CNC-Line"), "email": "cnc@plant.test", "notify_reorder": True})
     assert resp.status_code == 201
-    assert resp.get_json()["data"]["email"] == "cnc@plant.test"
+    created = resp.get_json()["data"]
+    assert created["email"] == "cnc@plant.test" and created["notify_reorder"] is True
+    resp = admin.put(f"/api/v1/departments/{created['id']}", json={"notify_reorder": False})
+    assert resp.status_code == 200 and resp.get_json()["data"]["notify_reorder"] is False
 
 
 def test_invalid_email_is_rejected_at_the_route(client):
-    resp = client.post(
-        "/api/v1/departments",
-        json={"name": _name("Bad-Mail"), "email": "not-an-email"},
-        headers={"X-API-Key": "test-machine-key"},
-    )
+    resp = _admin(client).post("/api/v1/departments", json={"name": _name("Bad-Mail"), "email": "not-an-email"})
     assert resp.status_code == 422  # marshmallow Email validation bites (Unprocessable Entity)
 
 

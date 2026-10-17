@@ -1,9 +1,10 @@
 """Spare return inspection REST API - spec 13 / 14.
 
 Prefix /api/v1/spare-flow. A return is raised against its original issue on
-/spare-stock/issues/<id>/return (spare_stock_routes); what comes back waits
-here for the store inspection, which alone can put it back in stock. Every id
-is resolved to its own store and store access is enforced on it.
+/spare-stock/issues/<id>/return (spare_stock_routes) and taken straight back
+into store stock (store rule, 14 Oct 2026); the inspection here is for a return
+recorded before that rule and still waiting. Every id is resolved to its own
+store and store access is enforced on it.
 """
 from flask import Blueprint, request
 

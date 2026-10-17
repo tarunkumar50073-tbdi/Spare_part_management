@@ -169,7 +169,7 @@ def test_returnable_double_return_rejected():
     p = _part(); _stock(p.id, 5)
     svc.issue(p.id, 1, "Tool Room", returnable=True)
     lid = _issue_row(p.id).id
-    svc.return_item(lid)                       # first return is held for inspection
+    svc.return_item(lid)                       # first return: all of it back in stock
     with pytest.raises(BadRequestError):       # a second return must not count it again
         svc.return_item(lid)
 

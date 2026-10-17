@@ -25,6 +25,10 @@ import { num } from "../../lib/format.js";
 //   busy          a write is in flight — both buttons are locked
 //   onBack()      back to the form, values kept
 //   onConfirm()   send it
+//   canSave       optional: whether this user may save it (FormShell passes it,
+//                 since a form can name a right of its own); left out, it is
+//                 Scan Part edit, as before
+//   lockedText    optional: what shows in place of the button when they may not
 
 // Receipt / RGP / issue status metas carry only a badge class; the dot colour
 // follows the badge tone so every status reads with the same visual language.
@@ -54,8 +58,22 @@ const shown = (v) => (v == null || v === "" ? null : v);
 
 export default function ActionConfirm({
   title, icon: Icon = CircleCheck, part, qty, uom, moves = [], changes = [], fields = [],
-  note, confirmLabel = "Confirm", busy = false, onBack, onConfirm,
+  note, confirmLabel = "Confirm", busy = false, onBack, onConfirm, canSave, lockedText,
 }) {
+  const locked = (
+    <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <Lock size={14} aria-hidden="true" />{lockedText || "View only — saving needs the Scan Part edit right"}
+    </span>
+  );
+  // Deliberately NOT auto-focused: a scan gun ends every read with Enter, and a
+  // focused Confirm would turn the next scan into a write.
+  const confirmButton = (
+    <button type="button" className="btn-primary px-5 py-2.5 text-base disabled:cursor-not-allowed disabled:opacity-60"
+      onClick={onConfirm} disabled={busy} aria-busy={busy}>
+      {busy ? <LoaderCircle size={18} className="animate-spin" aria-hidden="true" /> : <Check size={18} aria-hidden="true" />}
+      {busy ? "Saving…" : confirmLabel}
+    </button>
+  );
   return (
     <section aria-label={`Confirm ${title}`} className="space-y-4">
       <StepLabel n={3} label="Confirm" />
@@ -102,8 +120,13 @@ export default function ActionConfirm({
               <div key={c.label} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
                 <dt className="w-28 shrink-0 text-slate-500 dark:text-slate-400">{c.label}</dt>
                 <dd className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="text-slate-400 line-through decoration-slate-300 dark:decoration-navy-600">{shown(c.from) ?? "Not recorded"}</span>
-                  <ArrowRight size={14} className="text-slate-400" aria-label="to" />
+                  {/* Nothing recorded before: just the new value, no struck-out "Not recorded". */}
+                  {shown(c.from) != null && (
+                    <>
+                      <span className="text-slate-400 line-through decoration-slate-300 dark:decoration-navy-600">{shown(c.from)}</span>
+                      <ArrowRight size={14} className="text-slate-400" aria-label="to" />
+                    </>
+                  )}
                   <span className="font-semibold text-slate-900 dark:text-white">{shown(c.to) ?? "Not recorded"}</span>
                 </dd>
               </div>
@@ -135,19 +158,9 @@ export default function ActionConfirm({
         <button type="button" className="btn-secondary" onClick={onBack} disabled={busy}>
           <ArrowLeft size={16} aria-hidden="true" />Back
         </button>
-        {/* Deliberately NOT auto-focused: a scan gun ends every read with Enter,
-            and a focused Confirm would turn the next scan into a write. */}
-        <Can mod="scan_part" edit fallback={
-          <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <Lock size={14} aria-hidden="true" />View only — saving needs the Scan Part edit right
-          </span>
-        }>
-          <button type="button" className="btn-primary px-5 py-2.5 text-base disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={onConfirm} disabled={busy} aria-busy={busy}>
-            {busy ? <LoaderCircle size={18} className="animate-spin" aria-hidden="true" /> : <Check size={18} aria-hidden="true" />}
-            {busy ? "Saving…" : confirmLabel}
-          </button>
-        </Can>
+        {canSave === undefined
+          ? <Can mod="scan_part" edit fallback={locked}>{confirmButton}</Can>
+          : canSave ? confirmButton : locked}
       </div>
     </section>
   );

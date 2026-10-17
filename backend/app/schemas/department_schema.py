@@ -23,10 +23,12 @@ class DepartmentUpdateSchema(Schema):
 class DepartmentRecipientCreateSchema(Schema):
     name = fields.String(required=True, validate=validate.Length(min=1, max=120))
     email = fields.Email(allow_none=True)
+    role = fields.String(load_default="TO", validate=validate.OneOf(["TO", "CC", "BCC"]))
     is_active = fields.Boolean(load_default=True)
 
 
 class DepartmentRecipientUpdateSchema(Schema):
     name = fields.String(validate=validate.Length(min=1, max=120))
     email = fields.Email(allow_none=True)
+    role = fields.String(validate=validate.OneOf(["TO", "CC", "BCC"]))
     is_active = fields.Boolean()

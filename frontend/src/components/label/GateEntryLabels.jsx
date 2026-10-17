@@ -114,7 +114,7 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
     if (reasonMissing) { setReasonTried(true); return; }
     printLabels(buildLotTagsHtml(items.map((it) => ({
       part_no: it.part_no, part_name: it.part_name, lot_qty: it.qty, uom: it.uom,
-      location: it.location, supplier: entry.ven_name,
+      location: it.location, supplier: entry.ven_name, specification: it.specification,
       gate_no: entry.gate_entry_no, gate_date: entry.gate_entry_dt,
     })), config));
     setJob({
@@ -197,8 +197,8 @@ function GatePrintDialog({ storeCode, entry, items, config, onClose, onRecorded 
   }
 
   const title = step === "confirm"
-    ? `Confirm Label Printing — Gate Entry ${entry.gate_entry_no}`
-    : `Label Printing — Gate Entry ${entry.gate_entry_no}`;
+    ? `Confirm Lot Tag Printing — Gate Entry ${entry.gate_entry_no}`
+    : `Lot Tag Printing — Gate Entry ${entry.gate_entry_no}`;
 
   return (
     <Modal open onClose={close} title={title} footer={footer}>
@@ -463,7 +463,7 @@ function EntryDetail({ entry, canPrint, configReady, picked, lastPrinted, onPick
             </div>
             <button type="button" className="btn-primary" disabled={!canStart}
               onClick={() => onPrint(entry, chosen)}>
-              <Printer size={16} aria-hidden="true" /> Print {plural(total, "tag")}
+              <Printer size={16} aria-hidden="true" /> Print {plural(total, "lot tag")}
             </button>
           </div>
         </>

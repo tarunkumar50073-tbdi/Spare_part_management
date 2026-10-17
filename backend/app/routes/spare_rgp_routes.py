@@ -72,7 +72,8 @@ def supplier_return(rgp_id):
 @bp.route("/rgps/<int:rgp_id>/grn", methods=["POST"])
 @permission_required("scan_part", "edit")
 def rgp_grn(rgp_id):
-    """RGP GRN (spec 18/19): the supervisor's ERP GRN no. puts it back in stock."""
+    """RGP GRN (spec 18/19): the supervisor's ERP GRN no. puts it back in stock
+    — in the part's rework bin when it keeps one (the message says which)."""
     _rgp(rgp_id)
     data = validate_payload(SpareRgpGrnSchema(), _body())
     qty = float(data["qty"])
@@ -82,8 +83,9 @@ def rgp_grn(rgp_id):
         scanned_code=data.get("scanned_code"), scan_source=data.get("scan_source"),
     )
     publish("stock", {"part_id": rgp["part_id"], "rgp_id": rgp_id, "action": "rgp_grn"})
+    put = f" — put it in the rework bin {rgp['rework_bin']}" if rgp["rework_bin"] else ""
     return success_response(
-        rgp, f"RGP GRN {rgp['grn_no']} recorded · {qty:g} added to store stock", 201)
+        rgp, f"RGP GRN {rgp['grn_no']} recorded · {qty:g} added to store stock{put}", 201)
 
 
 @bp.route("/rgps/<int:rgp_id>/cancel", methods=["POST"])

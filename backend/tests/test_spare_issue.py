@@ -1,11 +1,14 @@
 """Spare issue flow (new feature): issuing a spare to a department writes an
 ISSUE ledger row tagged with the department, deducts on-hand, and feeds
-Department-wise Consumption. Refuses to over-issue below zero.
+Department-wise Consumption — counted for the department owning the part's
+section, not the one typed. Refuses to over-issue below zero.
 
 Since the QR traceability flow (spec 9 / 13 / 14) a return is held for the
 store inspection — on-hand moves only when the inspection passes it as GOOD —
 and a physical receive records a receipt instead of adding stock.
 """
+import uuid
+
 import pytest
 
 from app.extensions import db
@@ -14,7 +17,6 @@ from app.models.spare_flow import SpareReceipt, SpareReturn
 from app.models.spare_stock import SpareStock, SpareStockLedger
 from app.models.user import User, UserStoreAccess
 from app.services.spare_receipt_service import ReceivingInErpError
-from app.services.spare_return_service import SpareReturnService
 from app.services.spare_stock_service import SpareStockService
 from app.utils.exceptions import BadRequestError, NotFoundError
 
@@ -46,6 +48,37 @@ def _dept_total(rows, name):
 @pytest.fixture()
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture()
+def owned():
+    """A store of its own (IS<tag>) with one section, owned by the department
+    named like it — the consumer of its parts. Issues are typed "Store", the
+    store's own people, who only hand parts out. The department is removed and
+    the store switched off afterwards, so no other test's lists see them."""
+    from app.models.department import Department
+    from app.models.store import Section, Store
+    tag = uuid.uuid4().hex[:6].upper()
+    store = Store(code=f"IS{tag}", name=f"Issue Store {tag}")
+    db.session.add(store)
+    db.session.flush()
+    dept = Department(name=f"IS Owner {tag}", sort_order=90)
+    section = Section(store_id=store.id, name=dept.name)
+    db.session.add_all([dept, section])
+    db.session.commit()
+
+    def part(in_section=True):
+        p = _part(store.code)
+        if in_section:
+            p.section_id = section.id
+            db.session.commit()
+        return p
+
+    yield type("Owned", (), {"code": store.code, "dept": dept.name, "part": staticmethod(part)})
+    db.session.rollback()
+    Department.query.filter_by(id=dept.id).delete()
+    Store.query.filter_by(id=store.id).update({"is_active": False})
+    db.session.commit()
 
 
 def test_issue_deducts_and_tags_department():
@@ -95,13 +128,34 @@ def test_issue_invalid_department_is_rejected():
         svc.issue(p.id, 1, "Canteen")
 
 
-def test_consumption_by_department_accumulates():
+def test_consumption_by_department_counts_the_consuming_department(owned):
+    """Department-wise consumption — the dashboard's By Department donut, the
+    TV board's this-month departments, the consumption Excel — belongs to the
+    department owning the part's section, never the one typed on the issue:
+    the store's own people take parts out, the store does not consume them
+    ("consumption maintenance and tool room karega store nhi" — the store, 14
+    Oct 2026). A cancelled issue was not consumed; a part in no section counts
+    under "No section"."""
+    from openpyxl import load_workbook
+    from app.services.spare_dashboard_service import SpareDashboardService
     svc = SpareStockService()
-    p = _part(); _set_physical(p.id, 50)
-    before = _dept_total(svc.consumption_by_department("MAINTENANCE"), "Tool Room")
-    svc.issue(p.id, 7, "Tool Room")
-    after = _dept_total(svc.consumption_by_department("MAINTENANCE"), "Tool Room")
-    assert after - before == 7.0
+    p = owned.part(); _set_physical(p.id, 50)
+    loose = owned.part(in_section=False); _set_physical(loose.id, 10)
+    svc.issue(p.id, 7, "Store")
+    svc.issue(p.id, 2.5, "Tool Room")
+    svc.issue(loose.id, 3, "Store")
+    cancelled = svc.issue(p.id, 5, "Store")["issue"]["id"]
+    SpareStockLedger.query.filter_by(id=cancelled).update({"status": "CANCELLED"})
+    db.session.commit()
+
+    split = [{"name": owned.dept, "value": 9.5}, {"name": "No section", "value": 3.0}]   # largest first
+    assert svc.consumption_by_department(owned.code) == split
+    consumption = SpareDashboardService()._consumption(owned.code, None)
+    assert consumption["by_department"] == split
+    assert not {"Store", "Tool Room"} & {d["name"] for d in consumption["this_month_by_department"]}
+    sheet = load_workbook(svc.consumption_report_excel(owned.code))["By Department"]
+    assert [tuple(r) for r in sheet.iter_rows(values_only=True)] == [
+        ("Department", "Issued Qty"), (owned.dept, 9.5), ("No section", 3)]
 
 
 def test_issue_route_enforces_store_access(client):
@@ -151,14 +205,13 @@ def test_returnable_issue_is_outstanding_then_returns():
     ledger_id = mine[0]["id"]
 
     res = svc.return_item(ledger_id)                    # bring it back
-    assert _on_hand(p.id) == 8.0                         # held for inspection, not stock yet
+    assert _on_hand(p.id) == 10.0                        # straight back in stock (no inspection)
+    assert res["qty_on_hand"] == 10.0 and res["return"]["status"] == "CLOSED"
     assert not any(r["id"] == ledger_id for r in svc.outstanding_returnables("MAINTENANCE"))
 
     with pytest.raises(BadRequestError):                # can't return twice
         svc.return_item(ledger_id)
-
-    SpareReturnService().inspect(res["return"]["id"], "GOOD", 2)
-    assert _on_hand(p.id) == 10.0                        # the inspection restores it
+    assert _on_hand(p.id) == 10.0
 
 
 def test_non_returnable_issue_is_not_outstanding():
@@ -177,30 +230,28 @@ def _last_issue_id(part_id):
 
 # ---- store return slip (a department sending an issued part back) ----
 
-def test_return_goes_to_inspection_and_good_puts_it_back():
+def test_return_goes_straight_back_into_stock():
     """The user's case: an ordinary part is issued, does not fit, and the dept
     sends it back — even though it was never flagged returnable. It is recorded
-    against the original issue and held for inspection (spec 13/14): on-hand
-    moves only when the inspection passes it as GOOD."""
+    against the original issue and, by the store's rule (14 Oct 2026: no
+    inspection), goes straight back on the shelf."""
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 10)
     svc.issue(p.id, 3, "Press Shop", returnable=False)  # a plain issue
     lid = _last_issue_id(p.id)
 
     res = svc.return_item(lid, reason="Fitment Issue", returned_by="Ramesh", user="storekpr")
-    assert _on_hand(p.id) == 7.0                         # not stock until inspected
+    assert _on_hand(p.id) == 10.0                        # all 3 back on the shelf at once
+    assert res["qty_on_hand"] == 10.0                    # the answer carries the new stock
     assert res["returned_qty"] == 3.0
     assert res["return_no"].startswith("RET-")           # a return number was raised
     assert res["issue_status"] == "RETURNED"
     doc = res["return"]
-    assert doc["status"] == "INSPECTION_PENDING" and doc["qty_pending"] == 3.0
+    assert doc["status"] == "CLOSED" and (doc["qty_good"], doc["qty_pending"]) == (3.0, 0.0)
     assert doc["issue_id"] == lid and doc["department"] == "Press Shop"
     assert doc["reason"] == "Fitment Issue" and doc["returned_by"] == "Ramesh"
-    assert not SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RETURN").count()
     assert db.session.get(SpareStockLedger, lid).status == "RETURNED"
 
-    SpareReturnService().inspect(doc["id"], "GOOD", 3, user="storekpr")
-    assert _on_hand(p.id) == 10.0                        # all 3 back on the shelf
     ret = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RETURN").one()
     assert ret.return_no == res["return_no"]
     assert ret.return_reason == "Fitment Issue"
@@ -217,14 +268,14 @@ def test_partial_return_leaves_remainder_outstanding():
     lid = _last_issue_id(p.id)
 
     r1 = svc.return_item(lid, qty=4, reason="Excess / Not Required")
-    assert _on_hand(p.id) == 4.0                          # held for inspection
+    assert _on_hand(p.id) == 8.0                          # the 4 are back in stock
     assert r1["issue_status"] == "PARTIALLY_RETURNED"
 
     out = next(r for r in svc.returnable_issues_for_part(p.id) if r["id"] == lid)
     assert out["outstanding_qty"] == 2.0 and out["returned_qty"] == 4.0
 
     r2 = svc.return_item(lid, qty=2, reason="Excess / Not Required")
-    assert _on_hand(p.id) == 4.0                          # still nothing inspected
+    assert _on_hand(p.id) == 10.0                         # and the rest
     assert r2["issue_status"] == "RETURNED"
     assert not any(r["id"] == lid for r in svc.returnable_issues_for_part(p.id))
 
@@ -242,8 +293,8 @@ def test_cannot_return_more_than_is_out():
 
 def test_installed_issue_can_be_returned():
     """An installed part can be removed from the machine and sent back: what is
-    still out is issued - returned, whatever was fitted. It still waits for
-    inspection before it is stock again."""
+    still out is issued - returned, whatever was fitted. It is stock again at
+    once."""
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 10)
     svc.issue(p.id, 3, "Maintenance")
@@ -251,7 +302,7 @@ def test_installed_issue_can_be_returned():
     svc.confirm_installation(lid, machine="M-1", actual_qty=3)   # all fitted
     res = svc.return_item(lid, reason="Machine Change")
     assert res["returned_qty"] == 3.0 and res["issue_status"] == "RETURNED"
-    assert _on_hand(p.id) == 7.0
+    assert _on_hand(p.id) == 10.0
 
 
 def test_partially_used_issue_can_return_everything_still_out():
@@ -267,7 +318,7 @@ def test_partially_used_issue_can_return_everything_still_out():
     assert out["machine"] == "M-2"
     res = svc.return_item(lid, reason="Fitment Issue")
     assert res["returned_qty"] == 5.0
-    assert _on_hand(p.id) == 5.0            # 10 - 5 issued; the return waits for inspection
+    assert _on_hand(p.id) == 10.0           # 10 - 5 issued + 5 back
 
 
 def test_return_numbers_are_sequential_and_never_reused():
@@ -471,19 +522,16 @@ def test_top_consumed_ranks_by_issued_quantity():
     assert order.get(a.part_no, 10 ** 9) < order.get(b.part_no, 10 ** 9 + 1)  # 30 ranks above 5
 
 
-def test_consumption_window_scopes_breakdowns_to_recent_days():
+def test_consumption_window_scopes_breakdowns_to_recent_days(owned):
     """The Day/Week/Month/Year picker: consumption_by_department(days=N) counts
-    only issues inside the last N days, while days=None stays all-time. Deltas,
-    because the store's totals accumulate across the shared test DB."""
+    only issues inside the last N days, while days=None stays all-time — for
+    the consuming department, whoever the issue was typed to."""
     from datetime import datetime, timedelta
     svc = SpareStockService()
-    p = _part(); _set_physical(p.id, 50)
+    p = owned.part(); _set_physical(p.id, 50)
 
-    base_all = _dept_total(svc.consumption_by_department("MAINTENANCE"), "Maintenance")
-    base_week = _dept_total(svc.consumption_by_department("MAINTENANCE", days=7), "Maintenance")
-
-    svc.issue(p.id, 3, "Maintenance")   # recent — inside every window
-    svc.issue(p.id, 9, "Maintenance")   # backdated below to fall outside a short window
+    svc.issue(p.id, 3, "Store")   # recent — inside every window
+    svc.issue(p.id, 9, "Store")   # backdated below to fall outside a short window
     old = (SpareStockLedger.query
            .filter_by(part_id=p.id, txn_type="ISSUE")
            .filter(SpareStockLedger.qty_delta == -9)
@@ -491,27 +539,21 @@ def test_consumption_window_scopes_breakdowns_to_recent_days():
     old.created_at = datetime.utcnow() - timedelta(days=400)
     db.session.commit()
 
-    all_after = _dept_total(svc.consumption_by_department("MAINTENANCE"), "Maintenance")
-    week_after = _dept_total(svc.consumption_by_department("MAINTENANCE", days=7), "Maintenance")
-    year_after = _dept_total(svc.consumption_by_department("MAINTENANCE", days=365), "Maintenance")
-
-    assert all_after - base_all == 12.0    # both issues in the all-time view
-    assert week_after - base_week == 3.0   # only the recent one in the 7-day window
-    assert year_after - base_week == 3.0   # 400 days back is outside a year too
+    assert _dept_total(svc.consumption_by_department(owned.code), owned.dept) == 12.0    # both, all-time
+    assert _dept_total(svc.consumption_by_department(owned.code, days=7), owned.dept) == 3.0
+    assert _dept_total(svc.consumption_by_department(owned.code, days=365), owned.dept) == 3.0   # 400 days back
 
 
-def test_consumption_date_range_scopes_to_the_calendar_window():
+def test_consumption_date_range_scopes_to_the_calendar_window(owned):
     """The Consumption calendar picker: consumption_by_department(date_from,
     date_to) counts only issues whose date falls inside [from, to]."""
     from datetime import datetime
     svc = SpareStockService()
-    p = _part(); _set_physical(p.id, 100)
+    p = owned.part(); _set_physical(p.id, 100)
 
     window = ("2000-01-01", "2000-01-31")
-    base = _dept_total(svc.consumption_by_department("MAINTENANCE", None, None, *window), "Tool Room")
-
-    svc.issue(p.id, 5, "Tool Room")   # dated today — outside the Jan-2000 window
-    svc.issue(p.id, 8, "Tool Room")   # backdated into the window below
+    svc.issue(p.id, 5, "Store")   # dated today — outside the Jan-2000 window
+    svc.issue(p.id, 8, "Store")   # backdated into the window below
     old = (SpareStockLedger.query
            .filter_by(part_id=p.id, txn_type="ISSUE")
            .filter(SpareStockLedger.qty_delta == -8)
@@ -519,8 +561,8 @@ def test_consumption_date_range_scopes_to_the_calendar_window():
     old.created_at = datetime(2000, 1, 15, 10, 0, 0)
     db.session.commit()
 
-    inside = _dept_total(svc.consumption_by_department("MAINTENANCE", None, None, *window), "Tool Room")
-    assert inside - base == 8.0   # only the 15-Jan-2000 issue lands in the range
+    # Only the 15-Jan-2000 issue lands in the range.
+    assert svc.consumption_by_department(owned.code, None, None, *window) == [{"name": owned.dept, "value": 8.0}]
 
 
 def test_consumption_trend_custom_range_spans_every_day():

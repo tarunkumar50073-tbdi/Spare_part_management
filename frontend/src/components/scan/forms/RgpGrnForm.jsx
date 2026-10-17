@@ -13,6 +13,8 @@ import { RgpCard } from "./DocCards.jsx";
 // ERP for material the supplier brought back. Recording it here with that GRN
 // no. adds the quantity back to Store Stock (a RECEIPT ledger row) and closes
 // the RGP once everything sent is back. Nothing is posted to ERP from here.
+// Reworked material goes to the part's REWORK bin when it keeps one (the RGP's
+// rework_bin, store rule 14 Oct 2026); otherwise to its own location.
 
 export default function RgpGrnForm({ scan, target, onDone, onCancel }) {
   const uid = useId();
@@ -22,6 +24,8 @@ export default function RgpGrnForm({ scan, target, onDone, onCancel }) {
   const pick = useDocChoice(rgps, target);
   const rgp = pick.doc;
   const pending = qtyOf(rgp?.qty_grn_pending);
+  const reworkBin = rgp?.rework_bin || null;
+  const putIn = reworkBin ? ` Put it in the rework bin ${reworkBin}.` : "";
 
   const [qty, setQty] = useState(() => pending);
   const [grnNo, setGrnNo] = useState("");
@@ -68,14 +72,15 @@ export default function RgpGrnForm({ scan, target, onDone, onCancel }) {
         { label: "Supplier", value: g.ven_name },
         { label: "RGP GRN no. (ERP)", value: payload.grn_no },
         { label: "GRN date", value: grnDate ? fmtDate(grnDate) : null },
+        { label: "Put it in", value: reworkBin ? `Rework bin ${reworkBin}` : part.location },
         { label: "RGP after this", value: closes ? "Closed — everything sent is back in stock" : "Stays open" },
         { label: "Remarks", value: payload.remarks },
       ],
-      note: `Adds ${fmtQty(payload.qty, part.uom)} back to Store Stock — available for issue. Recorded in this app with your ERP GRN no. — nothing is posted to ERP.`,
+      note: `Adds ${fmtQty(payload.qty, part.uom)} back to Store Stock — available for issue.${putIn} Recorded in this app with your ERP GRN no. — nothing is posted to ERP.`,
       confirmLabel: "Confirm RGP GRN",
       submit: () => flow.run(
         () => spareFlowService.rgpGrn(g.id, payload),
-        `RGP GRN no. ${payload.grn_no} recorded — ${fmtQty(payload.qty, part.uom)} back in Store Stock${closes ? ` · ${g.rgp_no} closed` : ""}`,
+        `RGP GRN no. ${payload.grn_no} recorded — ${fmtQty(payload.qty, part.uom)} back in Store Stock${closes ? ` · ${g.rgp_no} closed` : ""}${reworkBin ? ` · put it in the rework bin ${reworkBin}` : ""}`,
       ),
     });
   };
@@ -90,6 +95,9 @@ export default function RgpGrnForm({ scan, target, onDone, onCancel }) {
           { label: "Description", value: part.part_name },
           { label: "Back, GRN pending", value: rgp ? fmtQty(pending, part.uom) : null },
           { label: "RGP out date", value: rgp ? fmtDate(rgp.rgp_date) : null },
+          reworkBin
+            ? { label: "Rework bin", value: reworkBin, strong: true }
+            : { label: "Location", value: part.location, empty: "Not set" },
         ]} />
       }>
       <DocPicker legend="RGP waiting for GRN" name={`${uid}-rgp`} docs={rgps} value={pick.id} onChange={pick.setId}
@@ -117,7 +125,10 @@ export default function RgpGrnForm({ scan, target, onDone, onCancel }) {
                 className="input-field" placeholder="Optional" />
             </Field>
           </div>
-          <Note>Stock is added back to Store Stock once you confirm.</Note>
+          <Note tone={reworkBin ? "warn" : "info"}>
+            Stock is added back to Store Stock once you confirm.
+            {reworkBin && ` Put it in the rework bin ${reworkBin} — material back from rework does not go to the fresh location${part.location ? ` ${part.location}` : ""}.`}
+          </Note>
         </>
       )}
     </FormShell>

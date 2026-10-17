@@ -66,24 +66,42 @@ function concat(parts) {
   return out;
 }
 
-// A worksheet from a 2-D array. A number becomes a numeric cell (so Excel can
-// sum/sort it); anything else an inline string. Empty cells are simply omitted,
-// which is valid and keeps the file small.
-function sheetXml(matrix) {
+// A worksheet from a 2-D array: row 0 is a styled header that stays frozen and
+// carries filter dropdowns; the rest is the body. Numbers become numeric cells
+// (so Excel can sum/sort); anything else an inline string. Every cell carries a
+// bordered style so the file opens as a proper table rather than bare values.
+function sheetXml(matrix, widths) {
+  const nCols = widths.length;
+  const nRows = matrix.length;
   const rowsXml = matrix.map((cells, r) => {
-    const cellsXml = cells.map((val, c) => {
-      if (val == null || val === "") return "";
+    const s = r === 0 ? 1 : 2; // 1 = header style, 2 = body style
+    let cellsXml = "";
+    for (let c = 0; c < nCols; c++) {
+      const val = cells[c];
       const ref = `${colLetter(c)}${r + 1}`;
       if (typeof val === "number" && Number.isFinite(val)) {
-        return `<c r="${ref}"><v>${val}</v></c>`;
+        cellsXml += `<c r="${ref}" s="${s}"><v>${val}</v></c>`;
+      } else if (val == null || val === "") {
+        cellsXml += `<c r="${ref}" s="${s}"/>`;
+      } else {
+        cellsXml += `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(val)}</t></is></c>`;
       }
-      return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(val)}</t></is></c>`;
-    }).join("");
+    }
     return `<row r="${r + 1}">${cellsXml}</row>`;
   }).join("");
+  const colsXml = nCols
+    ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols>`
+    : "";
+  // Freeze the header row so it stays visible while scrolling.
+  const views = `<sheetViews><sheetView workbookViewId="0">` +
+    `<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>` +
+    `<selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews>`;
+  const filter = nRows > 0 && nCols > 0
+    ? `<autoFilter ref="A1:${colLetter(nCols - 1)}${nRows}"/>` : "";
+  // Element order matters to Excel: sheetViews, cols, sheetData, autoFilter.
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
-    `<sheetData>${rowsXml}</sheetData></worksheet>`;
+    views + colsXml + `<sheetData>${rowsXml}</sheetData>` + filter + `</worksheet>`;
 }
 
 const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
@@ -92,6 +110,7 @@ const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` 
   `<Default Extension="xml" ContentType="application/xml"/>` +
   `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
   `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
+  `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
   `</Types>`;
 
 const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
@@ -102,7 +121,35 @@ const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
 const WORKBOOK_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
   `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
   `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>` +
+  `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>` +
   `</Relationships>`;
+
+// A tiny stylesheet so every export opens as a proper table: a bold white-on-navy
+// header row and thin borders on every cell. The sheet references s="1" (header)
+// and s="2" (body) from the cellXfs below.
+const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+  `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+  `<fonts count="2">` +
+    `<font><sz val="11"/><name val="Calibri"/></font>` +
+    `<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>` +
+  `</fonts>` +
+  `<fills count="3">` +
+    `<fill><patternFill patternType="none"/></fill>` +
+    `<fill><patternFill patternType="gray125"/></fill>` +
+    `<fill><patternFill patternType="solid"><fgColor rgb="FF1F3A5F"/><bgColor indexed="64"/></patternFill></fill>` +
+  `</fills>` +
+  `<borders count="2">` +
+    `<border><left/><right/><top/><bottom/><diagonal/></border>` +
+    `<border><left style="thin"><color rgb="FFD4DBE6"/></left><right style="thin"><color rgb="FFD4DBE6"/></right><top style="thin"><color rgb="FFD4DBE6"/></top><bottom style="thin"><color rgb="FFD4DBE6"/></bottom><diagonal/></border>` +
+  `</borders>` +
+  `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>` +
+  `<cellXfs count="3">` +
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` +
+    `<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>` +
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>` +
+  `</cellXfs>` +
+  `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>` +
+  `</styleSheet>`;
 
 function workbookXml(sheetName) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
@@ -143,15 +190,34 @@ function zipStore(files) {
   return concat([...locals, centralBytes, eocd]);
 }
 
+// Column widths (character units) sized to the longest value in each column,
+// clamped so one long cell can't make a column absurdly wide.
+function colWidths(matrix) {
+  let nCols = 0;
+  for (const row of matrix) nCols = Math.max(nCols, row.length);
+  const w = new Array(nCols).fill(8);
+  for (const row of matrix) {
+    for (let c = 0; c < nCols; c++) {
+      const v = row[c];
+      if (v == null) continue;
+      const len = String(v).length + 2;
+      if (len > w[c]) w[c] = Math.min(50, len);
+    }
+  }
+  return w;
+}
+
 // Build the .xlsx bytes for one sheet whose first array is the header row.
 function buildXlsx(sheetName, matrix) {
   const safeName = (sheetName || "Sheet1").slice(0, 31).replace(/[\\/?*[\]:]/g, " ") || "Sheet1";
+  const widths = colWidths(matrix);
   return zipStore([
     { name: "[Content_Types].xml", bytes: enc.encode(CONTENT_TYPES) },
     { name: "_rels/.rels", bytes: enc.encode(RELS) },
     { name: "xl/workbook.xml", bytes: enc.encode(workbookXml(safeName)) },
     { name: "xl/_rels/workbook.xml.rels", bytes: enc.encode(WORKBOOK_RELS) },
-    { name: "xl/worksheets/sheet1.xml", bytes: enc.encode(sheetXml(matrix)) },
+    { name: "xl/styles.xml", bytes: enc.encode(STYLES_XML) },
+    { name: "xl/worksheets/sheet1.xml", bytes: enc.encode(sheetXml(matrix, widths)) },
   ]);
 }
 

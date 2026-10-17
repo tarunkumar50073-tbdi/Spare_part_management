@@ -1,16 +1,92 @@
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { Eye, EyeOff, KeyRound, Pencil, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import {
+  Check, ClipboardCheck, Eye, EyeOff, KeyRound, Pencil, ScanBarcode, ShieldCheck, Tablet, Trash2, Tv,
+  UserPlus, Wrench,
+} from "lucide-react";
 import Modal from "../components/Modal.jsx";
 import { useConfirm } from "../components/ConfirmDialog.jsx";
 import { adminService } from "../services/adminService.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useStores } from "../context/StoreContext.jsx";
+import { ROLE_TEMPLATES, TEMPLATE_HELP, isBlank, matchTemplate, templateFields } from "../lib/roleTemplates.js";
 
 const ROLES = [
   { value: "STORE_USER", label: "Store User" },
   { value: "ADMIN", label: "Admin (full access)" },
 ];
+
+// One glyph per role template (lib/roleTemplates.json holds the rights).
+const TEMPLATE_ICONS = {
+  store_staff: ScanBarcode,
+  store_supervisor: ClipboardCheck,
+  line_user: Wrench,
+  kiosk: Tablet,
+  manager: Eye,
+  live_board: Tv,
+};
+
+// The type of login at the top of the form (store's request of 17 Oct 2026:
+// "template bana de"): one tap fills the rights grid and the store access below,
+// which stay editable. The heading says which template the form matches now —
+// "Custom" once a box is changed away from every template.
+//
+// No cards while the Role is Admin: a template makes the login a Store User, so
+// one stray tap on an admin's form (the signed-in admin's own included) would
+// demote it on Save. Turning an admin into a Store User stays the deliberate
+// Role change it was; the cards come back once the Role says Store User.
+function TemplatePicker({ form, onPick }) {
+  const current = matchTemplate(form);
+  const admin = form.role === "ADMIN";
+  const state = admin
+    ? { text: "Admin — every right", badge: "badge-danger" }
+    : current
+      ? { text: current.short, badge: "badge-success" }
+      : isBlank(form)
+        ? { text: "None picked", badge: "badge-neutral" }
+        : { text: "Custom", badge: "badge-warning" };
+  return (
+    <div>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Template</p>
+        <span className={`badge ${state.badge}`}>{state.text}</span>
+      </div>
+      {admin ? (
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          An Admin has every right, so templates do not apply. To give this login a template, set Role to Store User below first.
+        </p>
+      ) : (
+        <>
+          <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">{TEMPLATE_HELP}</p>
+          <div role="group" aria-label="Template" className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {ROLE_TEMPLATES.map((t) => {
+              const on = current?.key === t.key;
+              const Icon = TEMPLATE_ICONS[t.key] || ShieldCheck;
+              return (
+                <button key={t.key} type="button" aria-pressed={on} onClick={() => onPick(t)}
+                  className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/50 ${on
+                    ? "border-toyotared bg-toyotared/5 dark:bg-toyotared/10"
+                    : "border-slate-200 hover:border-slate-300 hover:bg-slate-50 dark:border-navy-700 dark:hover:border-navy-600 dark:hover:bg-navy-900/40"}`}>
+                  <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md ${on
+                    ? "bg-toyotared text-white" : "bg-slate-100 text-slate-500 dark:bg-navy-800 dark:text-slate-300"}`}>
+                    <Icon size={15} aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1 text-sm font-semibold text-slate-800 dark:text-white">
+                      {t.label}
+                      {on && <Check size={14} className="shrink-0 text-toyotared" aria-hidden="true" />}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-slate-500 dark:text-slate-400">{t.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 // A blank form for a new user.
 const emptyForm = () => ({
@@ -78,6 +154,15 @@ export default function Admin() {
       ...f,
       stores: f.stores.includes(code) ? f.stores.filter((s) => s !== code) : [...f.stores, code],
     }));
+
+  // A template replaces the role, store access and every right at once; the
+  // login ID, name, password and Active stay as typed.
+  const pickTemplate = (t) => setForm((f) => ({ ...f, ...templateFields(t) }));
+
+  // Store codes the user holds that are not in the store list — a store since
+  // switched off (Child Parts in Spare-only mode). Shown so they can be removed:
+  // they keep the user's rights from matching a template.
+  const hiddenStores = form ? form.stores.filter((code) => !(stores || []).some((s) => s.code === code)) : [];
 
   const save = async () => {
     if (!form.username.trim()) return toast.error("Username is required");
@@ -182,9 +267,21 @@ export default function Admin() {
                     <p className="text-[11px] text-slate-400">{u.full_name || "—"}</p>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`badge ${u.is_admin ? "badge-danger" : "badge-neutral"}`}>
-                      {u.is_admin ? "Admin" : "Store User"}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className={`badge ${u.is_admin ? "badge-danger" : "badge-neutral"}`}>
+                        {u.is_admin ? "Admin" : "Store User"}
+                      </span>
+                      {/* Which template the saved rights match (store, 17 Oct 2026). */}
+                      {!u.is_admin && (() => {
+                        const t = matchTemplate(u);
+                        return (
+                          <span className={`badge ${t ? "badge-info" : "badge-warning"}`}
+                            title={t ? `Rights match the ${t.label} template` : "Rights differ from every template"}>
+                            {t ? t.short : "Custom"}
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </td>
                   <td className="px-4 py-3"><PasswordCell value={u.password} /></td>
                   <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
@@ -224,6 +321,8 @@ export default function Admin() {
         }>
         {form && (
           <div className="space-y-4">
+            <TemplatePicker form={form} onPick={pickTemplate} />
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block">
                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Username</span>
@@ -255,14 +354,26 @@ export default function Admin() {
 
             {isStoreUser ? (
               <>
-                {stores?.length > 1 && (
+                {/* Shown with a single store too: in Spare-only mode it used to
+                    be hidden, so a new login got no store and could open
+                    nothing; a template fills it, and here it can be unticked. */}
+                {(stores?.length > 0 || hiddenStores.length > 0) && (
                   <div>
                     <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Store access</p>
                     <div className="flex flex-wrap gap-2">
-                      {stores.map((s) => (
+                      {(stores || []).map((s) => (
                         <label key={s.code} className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border cursor-pointer ${form.stores.includes(s.code) ? "border-toyotared bg-toyotared/5 text-toyotared" : "border-slate-200 dark:border-navy-700 text-slate-600 dark:text-slate-300"}`}>
                           <input type="checkbox" className="hidden" checked={form.stores.includes(s.code)} onChange={() => toggleStore(s.code)} />
+                          {form.stores.includes(s.code) && <Check size={12} aria-hidden="true" />}
                           {s.name}
+                        </label>
+                      ))}
+                      {hiddenStores.map((code) => (
+                        <label key={code} title="This store is switched off — untick to remove the access"
+                          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border cursor-pointer border-slate-300 border-dashed text-slate-500 dark:border-navy-600 dark:text-slate-400">
+                          <input type="checkbox" className="hidden" checked onChange={() => toggleStore(code)} />
+                          <Check size={12} aria-hidden="true" />
+                          {code} (switched off)
                         </label>
                       ))}
                     </div>

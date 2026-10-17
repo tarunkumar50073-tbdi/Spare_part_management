@@ -2,10 +2,14 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { barcodeService } from "../services/barcodeService.js";
+import { can } from "../utils/permissions.js";
 import { parseServerTime } from "../lib/format.js";
 
-// Admin-only scan-audit trail: every barcode scan (camera / gun / manual),
-// success or failure, across all modes — the /barcode/scan-audit endpoint.
+// Scan-audit trail: every barcode scan (camera / gun / manual), success or
+// failure, across all modes — the /barcode/scan-audit endpoint. Open to whoever
+// holds the Scan Audit right, as the route and the server already check: it was
+// administrators only here, so the Store Supervisor template (store's role
+// templates, 17 Oct 2026) got the menu item and then a refusal.
 const RESULTS = ["", "SUCCESS", "UNKNOWN_BARCODE", "INACTIVE_BARCODE", "FAILED"];
 const MODES = ["", "LOOKUP", "ISSUE", "RECEIVE", "UPDATE_LOCATION", "HISTORY", "MAPPING"];
 const SOURCES = ["", "TABLET_CAMERA", "USB_SCANNER", "BLUETOOTH_SCANNER", "MANUAL_ENTRY"];
@@ -20,14 +24,14 @@ export default function ScanAudit() {
   const { activeCode } = useStores();
   const { user } = useAuth();
   const storeCode = activeCode || "MAINTENANCE";
-  const isAdmin = !!user?.is_admin;
+  const allowed = can(user, "scan_audit");
 
   const [rows, setRows] = useState([]);
   const [filters, setFilters] = useState({ result: "", scan_mode: "", scan_source: "" });
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(() => {
-    if (!isAdmin) return;
+    if (!allowed) return;
     setLoading(true);
     barcodeService.scanAudit({
       store_code: storeCode,
@@ -39,13 +43,13 @@ export default function ScanAudit() {
       .then((r) => setRows(r.data.data || []))
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
-  }, [isAdmin, storeCode, filters]);
+  }, [allowed, storeCode, filters]);
 
   useEffect(() => { load(); }, [load]);
 
-  if (!isAdmin) {
+  if (!allowed) {
     return <div className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
-      Scan audit is an administrator view.</div>;
+      Scan Audit needs the Scan Audit right — ask an administrator under User Management.</div>;
   }
 
   const Sel = ({ k, opts }) => (

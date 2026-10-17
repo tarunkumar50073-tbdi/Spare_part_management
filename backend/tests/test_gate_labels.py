@@ -139,8 +139,8 @@ def test_lines_group_per_gate_entry_and_part(client):
     assert e["printed_state"] == "NOT_PRINTED"
     ia, ib = e["items"]
     assert ia == {"part_id": a.id, "part_no": a.part_no, "part_name": a.part_name,
-                  "location": "R1-S1-B1", "uom": "NO", "qty": 5.0, "default_copies": 5,
-                  "copies_capped": False, "printed_copies": 0, "is_active": True}
+                  "location": "R1-S1-B1", "uom": "NO", "specification": None, "qty": 5.0,
+                  "default_copies": 5, "copies_capped": False, "printed_copies": 0, "is_active": True}
     assert ib["part_id"] == b.id and ib["qty"] == 1.0 and ib["location"] is None
 
 

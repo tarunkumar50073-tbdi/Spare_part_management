@@ -55,6 +55,12 @@ class Section(BaseModel):
 
     store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False, index=True)
     name = db.Column(db.String(60), nullable=False)
+    # Optional umbrella that gathers sibling sections under one sidebar entry and
+    # one reorder mail — e.g. "Press Tool Room" and "General Tool Room" both carry
+    # group_name "Tool Room", so they show as one filterable "Tool Room" page and
+    # a department named "Tool Room" mails the shortages of both. NULL = the
+    # section stands on its own (Maintenance).
+    group_name = db.Column(db.String(60), nullable=True)
     sort_order = db.Column(db.Integer, nullable=False, default=100)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
 
@@ -68,7 +74,8 @@ class Section(BaseModel):
         return {
             "id": self.id, "store_id": self.store_id,
             "store_code": self.store.code if self.store else None,
-            "name": self.name, "sort_order": self.sort_order, "is_active": self.is_active,
+            "name": self.name, "group_name": self.group_name,
+            "sort_order": self.sort_order, "is_active": self.is_active,
         }
 
     def __repr__(self):
