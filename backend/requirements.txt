@@ -10,8 +10,9 @@ openpyxl>=3.1.5
 xlrd>=2.0.1
 psycopg2-binary>=2.9.9
 requests>=2.32.3
+certifi>=2026.10.19   # the CA list requests trusts: drops the emSign (eMudhra) roots distrusted in Oct 2026
 reportlab>=4.2.5
-Pillow>=10.0.0     # images in Excel (the logo on the Daily Stock Report)
+Pillow>=13.0.0     # images in Excel (the logo on the Daily Stock Report) and the part photos; 13.0 fixes the image-decoder advisories (24 Oct 2026)
 
 # ---- tests only ----
 pytest>=8.0.0
