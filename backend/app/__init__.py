@@ -162,6 +162,10 @@ def _session_hours():
     return hours if 0 < hours <= 24 * 31 else _SESSION_HOURS_DEFAULT
 
 
+def _env_flag(name):
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def create_app(env_name=None):
     env_name = env_name or os.getenv("FLASK_ENV", "development")
     app = Flask(__name__)
@@ -185,6 +189,10 @@ def create_app(env_name=None):
     # security fix", 16 Oct 2026). SESSION_LIFETIME_HOURS overrides the 12 h.
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    # Served over HTTPS (the live site since 24 Oct 2026), the sign-in cookie
+    # must never travel on plain HTTP: SESSION_COOKIE_SECURE=1 in that server's
+    # .env marks it Secure. Off by default, for the plant LAN's plain HTTP.
+    app.config["SESSION_COOKIE_SECURE"] = _env_flag("SESSION_COOKIE_SECURE")
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=_session_hours())
     # One sign-in lasts 12 h from the moment of signing in, however busy the
     # screen. Flask's default re-issues the cookie on every request, which
@@ -200,6 +208,16 @@ def create_app(env_name=None):
     # and the queued mails with it, and must never mail any of them.
     app.config.setdefault("MAIL_ENGINE_FORCE_OFF",
                           os.getenv("MAIL_ENGINE_FORCE_OFF", "").strip().lower() in ("1", "true", "yes", "on"))
+
+    # Behind a reverse proxy (nginx / a load balancer terminating HTTPS) every
+    # request arrives from the proxy's own address, so the per-IP login limit
+    # was one shared bucket for the whole internet and https looked like http.
+    # TRUST_PROXY=1 reads the client address and scheme from the ONE proxy in
+    # front (X-Forwarded-For / -Proto / -Host). Never set it on a server the
+    # browsers reach directly: the headers would then be the client's to forge.
+    if _env_flag("TRUST_PROXY"):
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     db.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)

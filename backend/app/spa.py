@@ -11,6 +11,7 @@ proxy target.
 import os
 
 from flask import abort, send_from_directory
+from werkzeug.security import safe_join
 
 # Anything under these belongs to the API or the health probe and must never
 # be answered with index.html, or a mistyped endpoint would return an HTML
@@ -50,9 +51,14 @@ def register_spa(app):
         # path is a client-side route like /short-parts, which only React
         # Router knows about, so it gets index.html and resolves in the
         # browser. Without this a refresh on any inner page 404s.
+        # safe_join BEFORE touching the disk: os.path.join(dist, path) let an
+        # absolute path through, so "/C:/any/file" (or "//host/share/x" on
+        # Windows, which reaches out over SMB) answered 404 when the file
+        # existed and the app page when not, to anyone, signed in or not
+        # (security audit, 24 Oct 2026). Only a file inside the build is served.
         if path:
-            candidate = os.path.join(dist, path)
-            if os.path.isfile(candidate):
+            candidate = safe_join(dist, path)
+            if candidate and os.path.isfile(candidate):
                 resp = send_from_directory(dist, path)
                 # Vite fingerprints its bundles (index-<hash>.js / .css), so the
                 # content behind a given URL never changes — cache them hard.
