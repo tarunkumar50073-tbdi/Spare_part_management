@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
-import { ArrowLeft, Camera, CheckCircle2, ImagePlus, MapPin, Search } from "lucide-react";
+import { ArrowLeft, Camera, CheckCircle2, Eye, ImagePlus, MapPin, Search } from "lucide-react";
 import { useCan } from "../../components/Can.jsx";
+import Modal from "../../components/Modal.jsx";
 import PhotoCapture from "../../components/PhotoCapture.jsx";
 import { useStores } from "../../context/StoreContext.jsx";
 import { partService } from "../../services/partService.js";
@@ -59,6 +60,8 @@ export default function PartPhotos() {
   const [nextId, setNextId] = useState(null);
   // The shot being checked before Save: { part, file }.
   const [capture, setCapture] = useState(null);
+  // The part whose saved photo is open big (a tap on a card that has one).
+  const [viewing, setViewing] = useState(null);
   const camera = useRef(null);
   const target = useRef(null);
   const cardRefs = useRef({});
@@ -265,7 +268,10 @@ export default function PartPhotos() {
               const isNext = p.id === nextId;
               return (
                 <button key={p.id} type="button" ref={(el) => { cardRefs.current[p.id] = el; }}
-                  onClick={() => shoot(p)} disabled={!canEdit || Boolean(busyId)}
+                  // A part with its photo opens it big (Retake is there); one
+                  // without opens the camera straight away, as before.
+                  onClick={() => (p.image_file ? setViewing(p) : shoot(p))}
+                  disabled={Boolean(busyId) || (!canEdit && !p.image_file)}
                   className={`card flex items-stretch gap-3 p-3 text-left transition disabled:cursor-default ${
                     isNext ? "ring-2 ring-toyotared" : p.image_file ? "ring-1 ring-emerald-300 dark:ring-emerald-500/40" : ""}`}>
                   <span className="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 dark:bg-navy-800">
@@ -291,9 +297,13 @@ export default function PartPhotos() {
                     <span className="mt-1 flex items-center gap-1 text-[12px] font-semibold text-slate-500 dark:text-slate-400">
                       <MapPin size={12} aria-hidden="true" /> {p.location || "no location"}
                     </span>
-                    {canEdit && (
-                      <span className={`mt-1 inline-flex items-center gap-1 text-[12px] font-semibold ${p.image_file ? "text-slate-400" : "text-toyotared"}`}>
-                        <Camera size={13} aria-hidden="true" /> {p.image_file ? "Tap to retake" : "Tap to take photo"}
+                    {p.image_file ? (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-emerald-700 dark:text-emerald-400">
+                        <Eye size={13} aria-hidden="true" /> Tap to view photo
+                      </span>
+                    ) : canEdit && (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-toyotared">
+                        <Camera size={13} aria-hidden="true" /> Tap to take photo
                       </span>
                     )}
                   </span>
@@ -330,6 +340,27 @@ export default function PartPhotos() {
           "Camera or Files?" step); a laptop shows its file picker instead. */}
       <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={(e) => took(e.target.files?.[0])} />
+
+      {/* The saved photo, big. Retake closes this and opens the camera from the
+          same tap (a browser opens the camera only from one). */}
+      <Modal open={Boolean(viewing)} onClose={() => setViewing(null)} size="xl"
+        title={viewing ? `${viewing.part_no} — ${viewing.part_name || ""}` : "Photo"}
+        footer={viewing && canEdit ? (
+          <button type="button" className="btn-primary"
+            onClick={() => { const part = viewing; setViewing(null); shoot(part); }}>
+            <Camera size={15} aria-hidden="true" /> Retake photo
+          </button>
+        ) : null}>
+        {viewing && (
+          <>
+            <img src={partService.imageUrl(viewing)} alt={`Photo of ${viewing.part_no}`}
+              className="mx-auto max-h-[68vh] w-auto rounded-lg" />
+            <p className="mt-2 flex items-center justify-center gap-1 text-[13px] text-slate-500 dark:text-slate-400">
+              <MapPin size={13} aria-hidden="true" /> {viewing.location || "no location"}
+            </p>
+          </>
+        )}
+      </Modal>
 
       {capture && (
         <PhotoCapture part={capture.part} first={capture.file}
