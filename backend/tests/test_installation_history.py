@@ -254,7 +254,9 @@ def test_history_filters_apply_to_installation_rows(make):
 def test_history_route_carries_the_installation_rows(make, client):
     code = make.store()
     p, _ = _installed_twice(code)
-    c = _as(client, make.user([code]))
+    c = _as(client, make.user([code]))                                     # the store, but no right
+    assert c.get(f"/api/v1/spare-stock/parts/{p.id}/history").status_code == 403
+    c = _as(client, make.user([code], {"part_ledger": {"view": True}}))
     r = c.get(f"/api/v1/spare-stock/parts/{p.id}/history?limit=500")
     assert r.status_code == 200
     assert _kinds(r.get_json()["data"]) == _kinds(_hist(p.id))
@@ -454,12 +456,14 @@ def test_installations_route_is_gated_like_pending_confirmations(make, client, a
     _as(client, make.user([code], {"install_confirm": {"edit": True}}))   # a line user
     assert statuses() == [200, 200]
     assert statuses(query="") == [400, 400]                                # store_code required
-    _as(client, make.user([code]))                                         # no module right at all
-    assert statuses() == [200, 200]
+    # No module right at all: the store alone no longer reads these (security
+    # audit, 24 Oct 2026).
+    _as(client, make.user([code]))
+    assert statuses() == [403, 403]
     with client.session_transaction() as sess:
         sess.clear()
     assert statuses(headers={"X-API-Key": app.config["API_KEY"]}) == [200, 200]   # the machine caller
 
-    _as(client, make.user([code]))
+    _as(client, make.user([code], {"install_confirm": {"edit": True}}))
     r = client.get(f"/api/v1/spare-stock/installations?store_code={code}&q=MC-G&limit=5")
     assert [x["id"] for x in r.get_json()["data"]] == [lid]

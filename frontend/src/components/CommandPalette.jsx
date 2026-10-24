@@ -6,7 +6,7 @@ import { useStockList } from "../lib/stockQueries.js";
 import { usePartDrawer } from "../context/PartDrawerContext.jsx";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { can } from "../utils/permissions.js";
+import { can, seesSpareStock } from "../utils/permissions.js";
 
 // Quick-jump destinations. `mod`/`admin` gate an entry to who may open it.
 const NAV = [
@@ -63,7 +63,7 @@ export default function CommandPalette() {
   // The active store's parts — the shared cached stock list (lib/stockQueries),
   // the same copy the dashboard, Store Stock and Part Ledger read. Fetched only
   // once the palette opens, and usually already there from the screen behind it.
-  const { data: parts, isPending: loading } = useStockList(activeCode, null, { enabled: open });
+  const { data: parts, isPending: loading } = useStockList(activeCode, null, { enabled: open && seesSpareStock(user) });
 
   // Ctrl/Cmd+K toggles the palette from anywhere.
   useEffect(() => {

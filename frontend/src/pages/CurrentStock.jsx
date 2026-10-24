@@ -31,7 +31,7 @@ export default function CurrentStock() {
     (async () => {
       setLoading(true);
       try {
-        const res = await currentStockService.list();
+        const res = await currentStockService.list({ store_code: "CHILD_PART" });
         if (alive) setRows(res.data.data || []);
       } catch {
         /* handled globally */

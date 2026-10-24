@@ -76,6 +76,7 @@ def test_part_overview_route_is_store_scoped(client):
     _seq["n"] += 1
     u = User(username=f"pouser{_seq['n']}", role="STORE_USER", is_active=True)
     u.set_password("pw")
+    u.set_permissions({"spare_store": {"view": True}})   # the spare stock needs a right (24 Oct 2026)
     db.session.add(u)
     db.session.flush()
     db.session.add(UserStoreAccess(user_id=u.id, store_code="MAINTENANCE"))

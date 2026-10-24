@@ -423,10 +423,12 @@ def client(app):
     return app.test_client()
 
 
-def _login(client, role="STORE_USER", stores=()):
+def _login(client, role="STORE_USER", stores=(), perms=None):
     u = User(username=f"alertuser{_next()}", role=role, is_active=True)
     u.set_password("pw")
-    u.set_permissions({})                   # no module rights: the bell needs none
+    # The bell reads the spare stock, so since 24 Oct 2026 it needs a Spare
+    # Store right besides the store (the Notification Center's, here).
+    u.set_permissions({"notifications": {"view": True}} if perms is None else perms)
     db.session.add(u)
     db.session.flush()
     for code in stores:
@@ -443,6 +445,8 @@ def test_endpoint_is_store_scoped(client, seeded):
     assert c.get("/api/v1/spare-alerts").status_code == 400
     assert c.get(f"/api/v1/spare-alerts?store_code={s.code}").status_code == 403
 
+    c = _login(client, stores=(s.code,), perms={})                     # the store, but no right
+    assert c.get(f"/api/v1/spare-alerts?store_code={s.code}").status_code == 403
     c = _login(client, stores=(s.code,))
     r = c.get(f"/api/v1/spare-alerts?store_code={s.code}")
     assert r.status_code == 200

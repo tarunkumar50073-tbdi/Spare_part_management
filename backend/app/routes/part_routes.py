@@ -7,7 +7,7 @@ from app.utils.validators import validate_payload
 from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import success_response, paginated_response
 from app.utils.exceptions import BadRequestError
-from app.utils.authz import current_user, permission_required
+from app.utils.authz import current_user, permission_required, require_store_access, scoped_store
 from app.utils.event_bus import publish
 from app.services.spare_stock_service import invalidate_stock_cache
 
@@ -24,6 +24,14 @@ service = PartService()
 images = PartImageService()
 
 
+def _own_part(part_id):
+    """The part, if it belongs to one of the caller's stores. A part edit or
+    delete by id used to reach any store's part (security audit, 24 Oct 2026)."""
+    part = service.get(part_id)
+    require_store_access(part.store_code)
+    return part
+
+
 @bp.route("", methods=["GET"])
 def list_parts():
     keyword = request.args.get("keyword")
@@ -31,7 +39,7 @@ def list_parts():
     is_active = {"true": True, "false": False}.get((is_active or "").lower())
     query = service.list_parts(
         keyword=keyword, is_active=is_active,
-        store_code=request.args.get("store_code"),
+        store_code=scoped_store(request.args.get("store_code")),
         section_id=request.args.get("section_id", type=int),
         # "max" / "rate" / "location" — the fields a keeper still has to fill
         # in. Anything else is ignored rather than rejected, so a stale
@@ -54,7 +62,7 @@ def missing_counts():
     lists it will throw away just to read their totals."""
     is_active = request.args.get("is_active")
     return success_response(service.count_missing(
-        store_code=request.args.get("store_code"),
+        store_code=scoped_store(request.args.get("store_code")),
         is_active={"true": True, "false": False}.get((is_active or "").lower()),
     ))
 
@@ -66,7 +74,7 @@ def filter_options():
     ?is_active=true counts active parts only (the Photo Mode's list)."""
     is_active = request.args.get("is_active")
     return success_response(service.repo.filter_options(
-        store_code=request.args.get("store_code") or None,
+        store_code=scoped_store(request.args.get("store_code")),
         section_id=request.args.get("section_id", type=int),
         is_active={"true": True, "false": False}.get((is_active or "").lower())))
 
@@ -86,6 +94,7 @@ def upload_part_image(part_id):
     file = request.files.get("file")
     if not file or file.filename == "":
         raise BadRequestError("No photo uploaded")
+    _own_part(part_id)
     part = images.save(part_id, file.stream, user=current_user())
     return success_response(part.to_dict(), "Photo saved")
 
@@ -93,20 +102,21 @@ def upload_part_image(part_id):
 @bp.route("/<int:part_id>/image", methods=["DELETE"])
 @permission_required("part_master", "edit")
 def delete_part_image(part_id):
+    _own_part(part_id)
     part = images.delete(part_id, user=current_user())
     return success_response(part.to_dict(), "Photo removed")
 
 
 @bp.route("/<int:part_id>", methods=["GET"])
 def get_part(part_id):
-    part = service.get(part_id)
-    return success_response(part.to_dict())
+    return success_response(_own_part(part_id).to_dict())
 
 
 @bp.route("", methods=["POST"])
 @permission_required("part_master", "edit")
 def create_part():
     data = validate_payload(PartCreateSchema(), request.get_json(force=True) or {})
+    scoped_store(data.get("store_code"))
     part = service.create(data)
     _parts_changed(part_id=part.id)
     return success_response(part.to_dict(), "Part created", 201)
@@ -116,6 +126,9 @@ def create_part():
 @permission_required(("part_master", "data_quality"), "edit")
 def update_part(part_id):
     data = validate_payload(PartUpdateSchema(), request.get_json(force=True) or {})
+    current = _own_part(part_id)
+    if data.get("store_code") and data["store_code"] != current.store_code:
+        require_store_access(data["store_code"])        # moved: the new store must be the caller's too
     part = service.update(part_id, data)
     _parts_changed(part_id=part.id)
     return success_response(part.to_dict(), "Part updated")
@@ -124,6 +137,7 @@ def update_part(part_id):
 @bp.route("/<int:part_id>", methods=["DELETE"])
 @permission_required("part_master", "edit")
 def delete_part(part_id):
+    _own_part(part_id)
     service.delete(part_id)
     _parts_changed(part_id=part_id)
     return success_response(None, "Part deleted")
@@ -138,7 +152,7 @@ def download_template():
 
 @bp.route("/export", methods=["GET"])
 def export_parts():
-    buf = service.export_all(store_code=request.args.get("store_code"))
+    buf = service.export_all(store_code=scoped_store(request.args.get("store_code")))
     return send_file(buf, as_attachment=True, download_name="part_master_export.xlsx",
                       mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -165,7 +179,7 @@ def import_parts():
     # body to validate, and these only decide where NEW rows land.
     report = service.bulk_import_excel(
         file.stream,
-        store_code=request.form.get("store_code") or None,
+        store_code=scoped_store(request.form.get("store_code")),
         section_id=request.form.get("section_id", type=int),
         user=(u.username if u else None),
         filename=file.filename,
@@ -197,6 +211,7 @@ def derive_categories():
     store_code = data.get("store_code") or request.args.get("store_code")
     if not store_code:
         raise BadRequestError("store_code is required")
+    require_store_access(store_code)
     dry_run = bool(data.get("dry_run"))
     result = service.derive_component_types(store_code, dry_run=dry_run)
     if not dry_run:

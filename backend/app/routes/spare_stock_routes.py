@@ -19,6 +19,7 @@ from app.schemas.spare_stock_schema import (
     PutAwayRecordSchema,
 )
 from app.utils.authz import permission_required, require_store_access
+from app.utils.authz import SPARE_INSTALL_VIEW, SPARE_STOCK_VIEW
 from app.utils.event_bus import publish
 from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
@@ -93,6 +94,7 @@ def _username():
 
 
 @bp.route("", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def list_stock():
     return success_response(service.list_stock(
         _store_code(), section_id=request.args.get("section_id", type=int),
@@ -101,6 +103,7 @@ def list_stock():
 
 
 @bp.route("/summary", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def summary():
     return success_response(service.get_summary(
         _store_code(), section_id=request.args.get("section_id", type=int),
@@ -108,6 +111,7 @@ def summary():
 
 
 @bp.route("/analytics", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def analytics():
     store = _store_code()
     data = service.analytics(store, section_id=_section())
@@ -118,6 +122,7 @@ def analytics():
 
 
 @bp.route("/erp-gap", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def erp_gap():
     return success_response(service.erp_gap(
         _store_code(),
@@ -128,11 +133,13 @@ def erp_gap():
 
 
 @bp.route("/erp-gap/summary", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def erp_gap_summary():
     return success_response(service.erp_gap_summary(_store_code()))
 
 
 @bp.route("/consumption", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def consumption():
     store = _store_code()
     section_id = _section()
@@ -151,12 +158,14 @@ def consumption():
 
 
 @bp.route("/consumption/report", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def consumption_report():
     return success_response(service.consumption_by_period(
         _store_code(), period=request.args.get("period", "month"), section_id=_section()))
 
 
 @bp.route("/consumption/export", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def consumption_export():
     date_from, date_to = _date_range()
     buf = service.consumption_report_excel(
@@ -167,11 +176,13 @@ def consumption_export():
 
 
 @bp.route("/machines", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def machines():
     return success_response(service.machines_used(_store_code()))
 
 
 @bp.route("/consumption-trend", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def consumption_trend():
     date_from, date_to = _date_range()
     return success_response(service.consumption_trend(
@@ -181,6 +192,7 @@ def consumption_trend():
 
 
 @bp.route("/movement-trend", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def movement_trend():
     date_from, date_to = _date_range()
     return success_response(service.movement_trend(
@@ -190,16 +202,19 @@ def movement_trend():
 
 
 @bp.route("/consumption-comparison", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def consumption_comparison():
     return success_response(service.consumption_comparison(_store_code(), section_id=_section()))
 
 
 @bp.route("/part-facts", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def part_facts():
     return success_response(service.part_facts(_store_code()))
 
 
 @bp.route("/value-by-supplier", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def value_by_supplier():
     return success_response(service.stock_value_by_last_supplier(
         _store_code(), section_id=_section(), top=request.args.get("top", default=10, type=int),
@@ -207,6 +222,7 @@ def value_by_supplier():
 
 
 @bp.route("/top-consumed", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def top_consumed():
     date_from, date_to = _date_range()
     return success_response(service.top_consumed(
@@ -218,16 +234,19 @@ def top_consumed():
 
 
 @bp.route("/returnables", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def returnables():
     return success_response(service.outstanding_returnables(_store_code()))
 
 
 @bp.route("/reorder", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def reorder():
     return success_response(service.reorder_list(_store_code()))
 
 
 @bp.route("/erp-sync/pending", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def erp_sync_pending():
     return success_response({
         "pending": service.pending_erp_count(_store_code()),
@@ -236,6 +255,7 @@ def erp_sync_pending():
 
 
 @bp.route("/erp-sync/pending/list", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def erp_sync_pending_list():
     """The individual movements behind the Pending-ERP count — the drill list."""
     store = _store_code()
@@ -280,6 +300,7 @@ def return_issue(ledger_id):
 
 
 @bp.route("/parts/<int:part_id>/returnable-issues", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def returnable_issues(part_id):
     """Issues of this part still out on the floor — the pick-list for a return."""
     _require_part_store(part_id)
@@ -287,6 +308,7 @@ def returnable_issues(part_id):
 
 
 @bp.route("/by-status", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def by_status():
     status = request.args.get("status")
     if not status:
@@ -298,6 +320,7 @@ def by_status():
 
 
 @bp.route("/excess", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def excess():
     return success_response(service.list_excess(
         _store_code(), limit=request.args.get("limit", type=int),
@@ -306,23 +329,27 @@ def excess():
 
 
 @bp.route("/today", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def today():
     return success_response(service.today_movements(_store_code(), section_id=_section(), section_ids=_section_ids()))
 
 
 @bp.route("/today/issues", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def today_issues():
     """The ISSUE rows since shift start — the drill behind Today's Issue."""
     return success_response(service.today_issues(_store_code(), section_id=_section(), section_ids=_section_ids()))
 
 
 @bp.route("/today/receipts", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def today_receipts():
     """The RECEIPT rows since shift start — the drill behind Today Added to Stock."""
     return success_response(service.today_receipts(_store_code(), section_id=_section(), section_ids=_section_ids()))
 
 
 @bp.route("/activity", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def activity():
     return success_response(service.recent_activity(
         _store_code(), limit=request.args.get("limit", default=20, type=int),
@@ -330,16 +357,19 @@ def activity():
 
 
 @bp.route("/flow", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def material_flow():
     return success_response(flow.material_flow(_store_code()))
 
 
 @bp.route("/pending", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def pending():
     return success_response(flow.pending_summary(_store_code()))
 
 
 @bp.route("/pending/list", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def pending_list():
     return success_response(flow.list_pending(
         _store_code(), kind=request.args.get("kind", "all"),
@@ -348,12 +378,14 @@ def pending_list():
 
 
 @bp.route("/traceability/<int:part_id>", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def traceability(part_id):
     _require_part_store(part_id)
     return success_response(flow.traceability(part_id))
 
 
 @bp.route("/below-minimum", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def below_minimum():
     return success_response(service.list_below_minimum(
         _store_code(), limit=request.args.get("limit", type=int),
@@ -362,17 +394,20 @@ def below_minimum():
 
 
 @bp.route("/parts/<int:part_id>", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def part_stock(part_id):
     _require_part_store(part_id)
     return success_response(service.get_for_part(part_id))
 
 
 @bp.route("/scan", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def scan_lookup():
     return success_response(service.resolve_scan(_store_code(), request.args.get("code")))
 
 
 @bp.route("/parts/<int:part_id>/latest-lot", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def latest_lot(part_id):
     """The part's latest ERP gate entry and its lot qty — what Put-away Check
     fills Lot Qty with since the lot tags went (17 Oct 2026; there is no tag
@@ -472,18 +507,21 @@ def confirm_issue(ledger_id):
 
 
 @bp.route("/pending-confirmations", methods=["GET"])
+@permission_required(SPARE_INSTALL_VIEW, "view")
 def pending_confirmations():
     return success_response(service.pending_confirmations(
         _store_code(), limit=request.args.get("limit", type=int)))
 
 
 @bp.route("/parts/<int:part_id>/pending-confirmations", methods=["GET"])
+@permission_required(SPARE_INSTALL_VIEW, "view")
 def part_pending_confirmations(part_id):
     _require_part_store(part_id)
     return success_response(service.pending_confirmations_for_part(part_id))
 
 
 @bp.route("/installations", methods=["GET"])
+@permission_required(SPARE_INSTALL_VIEW, "view")
 def installations():
     """Issues already confirmed as installed — where each one is fitted now,
     newest confirmation first (q searches; limit 200 by default, at most
@@ -516,6 +554,7 @@ def update_location(part_id):
 
 
 @bp.route("/parts/<int:part_id>/overview", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def part_overview(part_id):
     """Everything about one spare in one call — the part drawer."""
     from app.services.spare_part_overview_service import SparePartOverviewService
@@ -524,12 +563,14 @@ def part_overview(part_id):
 
 
 @bp.route("/parts/<int:part_id>/location-history", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def part_location_history(part_id):
     _require_part_store(part_id)
     return success_response(service.location_history_for_part(part_id))
 
 
 @bp.route("/parts/<int:part_id>/history", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def part_history(part_id):
     _require_part_store(part_id)
     return success_response(service.history_for_part(
@@ -541,6 +582,7 @@ def part_history(part_id):
 
 
 @bp.route("/template", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def download_template():
     # When a store is named, enforce access on it — the template is pre-filled
     # with that store's part numbers + quantities (audit finding AUTHZ).
@@ -553,6 +595,7 @@ def download_template():
 
 
 @bp.route("/export", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def export_stock():
     buf = service.export_excel(_store_code(), section_id=request.args.get("section_id", type=int))
     return send_file(buf, as_attachment=True,
@@ -560,6 +603,7 @@ def export_stock():
 
 
 @bp.route("/daily-report", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def daily_report():
     """The Daily Stock Report: the store's whole stock position as one MIS
     workbook, ready to print (services/stock_mis_report). Store-scoped like the
@@ -570,6 +614,7 @@ def daily_report():
 
 
 @bp.route("/daily-stock-only", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def daily_stock_only():
     """The Daily Stock Report (Stock Only): one sheet with only the stock of
     every active part (services/stock_mis_report). Store-scoped like the MIS."""
@@ -598,6 +643,7 @@ def import_stock():
 
 
 @bp.route("/erp-stock/template", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def download_erp_template():
     # Pre-filled with the store's part numbers + current ERP qty (audit AUTHZ:
     # a named store is access-enforced).

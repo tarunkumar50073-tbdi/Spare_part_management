@@ -344,7 +344,7 @@ SUPERVISOR_EXTRA = [
     ("post", "/api/v1/barcode/mapping", {}),       # supplier barcode mapping (Scan Part)
     ("post", "/api/v1/departments", {}),           # Department Emails
     ("get", "/api/v1/departments/reorder-mail/status", None),
-    ("get", "/api/v1/barcode/scan-audit", None),   # Scan Audit
+    ("get", _q("/api/v1/barcode/scan-audit"), None),   # Scan Audit, as its page asks (with the store)
     ("get", "/api/v1/audit-logs", None),           # Audit Trail
     ("get", _q("/api/v1/erp-control/status"), None),   # ERP Control Center
     ("put", "/api/v1/employees/{person}", {"designation": "Fitter"}),   # Employee Master edit

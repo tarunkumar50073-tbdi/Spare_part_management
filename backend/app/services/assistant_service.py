@@ -631,6 +631,14 @@ class AssistantService:
         if not (query or "").strip():
             return self._reply("Type what you're looking for — a part number, a stock status "
                                "(short, reorder, excess), a report, or a screen name.", [], self._suggest("", user))
+        # Stock figures only for someone who may see the spare stock: any login
+        # could ask for rupee values before (security audit, 24 Oct 2026).
+        # Anyone else still gets the screens they may open. (No user = the
+        # machine caller; the route always passes the signed-in person.)
+        from app.utils.authz import sees_spare_stock
+        if user is not None and not (sees_spare_stock(user) and user.can_access_store(STORE)):
+            return self._reply("Stock figures need a Spare Store right — ask the admin. "
+                               "Screens you can open:", [], self._suggest((query or "").lower(), user))
         rows = self.stock.list_stock(STORE)
         sections = self._sections()
         a = _Ask(query, self._vocab(rows, sections))

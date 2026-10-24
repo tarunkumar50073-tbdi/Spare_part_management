@@ -65,11 +65,16 @@ def make():
         db.session.commit()
         return p
 
-    def user(perms):
+    def user(perms, stores=None):
+        # A store user reaches the parts of their own stores only (24 Oct
+        # 2026): by default, the stores this test made.
         u = User(username=f"pp{_TAG.lower()}{_n()}", role="STORE_USER", is_active=True)
         u.set_password("pw")
         u.set_permissions(perms)
         db.session.add(u)
+        db.session.flush()
+        for code in (made["stores"] if stores is None else stores):
+            db.session.add(UserStoreAccess(user_id=u.id, store_code=code))
         db.session.commit()
         made["users"].append(u.id)
         return u
@@ -145,11 +150,15 @@ def test_photo_api_needs_the_part_master_edit_right(app, make, photos):
     part = make.part(code, sec)
     viewer = make.user({"part_master": {"view": True, "edit": False}})
     editor = make.user({"part_master": {"view": True, "edit": True}})
+    stranger = make.user({"part_master": {"view": True, "edit": True}}, stores=[])   # another store's editor
     c = app.test_client()
     assert c.get(f"{URL}/{part.id}/image").status_code == 401                # signed in only
     _as(c, viewer)
     r = c.post(f"{URL}/{part.id}/image", data={"file": (_jpeg(), "a.jpg")}, content_type="multipart/form-data")
     assert r.status_code == 403
+    _as(c, stranger)
+    r = c.post(f"{URL}/{part.id}/image", data={"file": (_jpeg(), "a.jpg")}, content_type="multipart/form-data")
+    assert r.status_code == 403                                              # not a part of their store
     _as(c, editor)
     r = c.post(f"{URL}/{part.id}/image", data={"file": (_jpeg(), "a.jpg")}, content_type="multipart/form-data")
     assert r.status_code == 200 and r.get_json()["data"]["image_file"]

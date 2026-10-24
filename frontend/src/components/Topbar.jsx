@@ -13,7 +13,7 @@ import { storeDashboardService } from "../services/storeDashboardService.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
-import { can } from "../utils/permissions.js";
+import { can, seesSpareStock } from "../utils/permissions.js";
 import { parseServerTime } from "../lib/format.js";
 
 // The coming multi-plant switch. Today the app serves one plant, so Plant 1 is
@@ -238,7 +238,9 @@ export default function Topbar({ title, showSearch = true }) {
   const { data: alertData, isError: alertsFailed, refetch: refetchAlerts } = useQuery({
     queryKey: alertsKey(alertsCode),
     queryFn: () => fetchAlerts(alertsCode),
-    enabled: Boolean(alertsCode),
+    // Only for a login that may see the spare stock: the server refuses the
+    // rest, and a refusal every few minutes would only be a toast.
+    enabled: Boolean(alertsCode) && seesSpareStock(user),
     refetchInterval: ALERTS_REFRESH_MS,
   });
   const alertList = alertData?.alerts || [];

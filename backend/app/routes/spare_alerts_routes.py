@@ -8,6 +8,7 @@ from flask import Blueprint, request
 
 from app.services.spare_alerts_service import SpareAlertsService
 from app.utils.authz import require_store_access
+from app.utils.authz import SPARE_STOCK_VIEW, permission_required
 from app.utils.exceptions import BadRequestError
 from app.utils.response import success_response
 
@@ -16,6 +17,7 @@ service = SpareAlertsService()
 
 
 @bp.route("", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW, "view")
 def list_alerts():
     code = request.args.get("store_code")
     if not code:

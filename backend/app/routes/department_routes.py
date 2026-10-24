@@ -14,7 +14,7 @@ from app.schemas.department_schema import (
 )
 from app.services.department_service import DepartmentService
 from app.services.reorder_mail_service import ReorderMailService
-from app.utils.authz import permission_required, signed_in_required
+from app.utils.authz import current_user, is_machine, permission_required, signed_in_required
 from app.utils.response import success_response
 from app.utils.validators import validate_payload
 
@@ -25,7 +25,15 @@ service = DepartmentService()
 @bp.route("", methods=["GET"])
 def list_departments():
     active_only = request.args.get("active") in ("1", "true")
-    return success_response(service.list_departments(active_only=active_only))
+    rows = service.list_departments(active_only=active_only)
+    # Who each department's mails go to (names + e-mail addresses) is for the
+    # Department Emails screen; the issue screen's dropdown needs the names only
+    # (security audit, 24 Oct 2026: any login read the mail address book).
+    user = current_user()
+    if not (is_machine() or (user is not None and user.can("departments", "view"))):
+        for row in rows:
+            row.pop("recipients", None)
+    return success_response(rows)
 
 
 # A department's tick decides whether it is mailed, and its name which parts it

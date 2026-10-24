@@ -6,7 +6,7 @@ from flask import Blueprint, request
 
 from app.schemas.report_recipient_schema import ReportRecipientCreateSchema, ReportRecipientUpdateSchema
 from app.services.report_recipient_service import ReportRecipientService
-from app.utils.authz import admin_required, signed_in_required
+from app.utils.authz import admin_required, permission_required, signed_in_required
 from app.utils.response import success_response
 from app.utils.validators import validate_payload
 
@@ -15,6 +15,7 @@ service = ReportRecipientService()
 
 
 @bp.route("", methods=["GET"])
+@permission_required("departments", "view")
 def list_recipients():
     active_only = request.args.get("active") in ("1", "true")
     return success_response(service.list_recipients(

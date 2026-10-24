@@ -3,7 +3,7 @@ mirrors (/api/v1/current-stock, /pending-grn, /stock-valuation)."""
 from flask import Blueprint, request
 
 from app.services.erp_report_service import ERPReportService
-from app.utils.authz import require_store_access
+from app.utils.authz import scoped_store
 from app.utils.response import success_response
 
 bp = Blueprint("erp_reports", __name__, url_prefix="/api/v1")
@@ -11,10 +11,7 @@ service = ERPReportService()
 
 
 def _store():
-    store = request.args.get("store_code")
-    if store:
-        require_store_access(store)
-    return store
+    return scoped_store(request.args.get("store_code"))
 
 
 @bp.route("/current-stock", methods=["GET"])

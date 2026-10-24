@@ -638,6 +638,7 @@ def client(app):
 def _login_store_user(client, store="MAINTENANCE"):
     u = User(username=f"scanuser{_n()}", role="STORE_USER", is_active=True)
     u.set_password("pw")
+    u.set_permissions({"scan_part": {"view": True}})     # the spare stock needs a right (24 Oct 2026)
     db.session.add(u)
     db.session.flush()
     db.session.add(UserStoreAccess(user_id=u.id, store_code=store))

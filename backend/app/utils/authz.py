@@ -19,7 +19,21 @@ from functools import wraps
 
 from flask import g
 
-from app.utils.exceptions import ForbiddenError
+from app.utils.exceptions import BadRequestError, ForbiddenError
+
+# Every Spare Store screen that shows stock, rates or movements. A read of the
+# spare stock needs a right on at least one of them, besides access to the
+# store: before 24 Oct 2026 store access alone was enough, so a login with
+# only the line user's Confirm Installation (or none at all) could download the
+# whole stock list with its rupee values (security audit, 24 Oct 2026).
+SPARE_STOCK_VIEW = (
+    "spare_store", "live_dashboard", "action_tracker", "notifications", "store_stock",
+    "inventory_control", "put_away_check", "scan_part", "work_queue", "consumption",
+    "receiving", "short_rejection", "part_ledger", "erp_gap", "erp_control", "part_master",
+    "data_quality", "supplier_barcodes", "reports", "challan_register",
+)
+# The line user's Confirm Installation screen reads its own lists only.
+SPARE_INSTALL_VIEW = SPARE_STOCK_VIEW + ("install_confirm",)
 
 
 def current_user():
@@ -110,6 +124,30 @@ def machine_required(fn):
             return fn(*args, **kwargs)
         raise ForbiddenError("This endpoint is driven by ERP, not the app UI")
     return wrapper
+
+
+def sees_spare_stock(user):
+    """Whether a signed-in person may see the spare stock's figures (the
+    machine caller, passed as None, always may)."""
+    if user is None:
+        return is_machine()
+    return user.is_admin or any(user.can(m, "view") for m in SPARE_STOCK_VIEW)
+
+
+def scoped_store(store_code):
+    """The store a read is about, checked against the caller's access. Left out,
+    only an administrator (or the machine) reads every store at once; anyone
+    else must name one of theirs — a read that fell back to "all stores" when
+    the store was left out handed any login every store's data (security
+    audit, 24 Oct 2026)."""
+    code = (store_code or "").strip() or None
+    if code:
+        require_store_access(code)
+        return code
+    user = current_user()
+    if is_machine() or (user is not None and user.is_admin):
+        return None
+    raise BadRequestError("store_code is required")
 
 
 def require_store_access(store_code):

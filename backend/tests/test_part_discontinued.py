@@ -14,7 +14,7 @@ from openpyxl import Workbook
 from app.extensions import db
 from app.models.part import Part
 from app.models.store import Section, Store
-from app.models.user import User
+from app.models.user import User, UserStoreAccess
 from app.repositories.part_repository import PartRepository
 from app.services.inventory_control_service import InventoryControlService
 from app.services.part_service import PartService
@@ -55,11 +55,16 @@ def make():
             SpareStockService().set_quantity(p.id, qty, txn_type="OPENING")
         return p
 
-    def user(perms):
+    def user(perms, stores=None):
+        # A store user reaches the parts of their own stores only (24 Oct
+        # 2026): by default, the stores this test made.
         u = User(username=f"dc{_TAG.lower()}{_n()}", role="STORE_USER", is_active=True)
         u.set_password("pw")
         u.set_permissions(perms)
         db.session.add(u)
+        db.session.flush()
+        for code in (made["stores"] if stores is None else stores):
+            db.session.add(UserStoreAccess(user_id=u.id, store_code=code))
         db.session.commit()
         made["users"].append(u.id)
         return u

@@ -15,7 +15,7 @@ from app.schemas.barcode_schema import (
 )
 from app.services.auth_service import AuthService
 from app.services.barcode_service import BarcodeService
-from app.utils.authz import permission_required, require_store_access
+from app.utils.authz import permission_required, require_store_access, scoped_store
 from app.utils.event_bus import publish
 from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
@@ -151,9 +151,7 @@ def scan_audit():
     # The Scan Audit screen is no longer administrators only (Store Supervisor
     # template, 17 Oct 2026), so the store it asks for must be one of the
     # caller's own, like every other store screen.
-    code = request.args.get("store_code")
-    if code:
-        require_store_access(code)
+    code = scoped_store(request.args.get("store_code"))
     return success_response(service.list_scan_audit(
         store_code=code,
         result=request.args.get("result"),

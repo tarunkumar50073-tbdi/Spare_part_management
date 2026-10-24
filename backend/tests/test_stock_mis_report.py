@@ -469,10 +469,13 @@ def test_empty_store_builds():
 _seq = {"n": 0}
 
 
-def _login(client, role, stores=()):
+def _login(client, role, stores=(), perms=None):
     _seq["n"] += 1
     user = User(username=f"misuser{_seq['n']}", role=role, is_active=True)
     user.set_password("pw")
+    # Reading the spare stock needs a Spare Store right besides the store
+    # (24 Oct 2026): Store Stock's, here, unless a test says otherwise.
+    user.set_permissions({"store_stock": {"view": True}} if perms is None else perms)
     db.session.add(user)
     db.session.flush()
     for code in stores:
@@ -605,6 +608,9 @@ def test_route_is_gated_like_the_stock_export(report, client):
     for url in (export, URL, STOCK_ONLY_URL):
         assert client.get(url, query_string={"store_code": STORE}).status_code == 403
         assert client.get(url).status_code == 400            # store_code is required
+    _login(client, "STORE_USER", stores=[STORE], perms={})        # this store, but no right
+    for url in (export, URL, STOCK_ONLY_URL):
+        assert client.get(url, query_string={"store_code": STORE}).status_code == 403
     _login(client, "STORE_USER", stores=[STORE])
     for url in (export, URL, STOCK_ONLY_URL):
         assert client.get(url, query_string={"store_code": STORE}).status_code == 200
