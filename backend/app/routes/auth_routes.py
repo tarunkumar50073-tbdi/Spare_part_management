@@ -59,7 +59,13 @@ def new_captcha():
 
 @bp.route("/logout", methods=["POST"])
 def logout():
-    session.clear()
+    """Ends the login — unless the tab asking signed in as someone other than
+    the user signed in now (X-DX-User): that tab is done, but the other
+    person's login, made in another tab, stays."""
+    from app import TAB_USER_HEADER
+    tab_user = request.headers.get(TAB_USER_HEADER)
+    if not tab_user or tab_user == str(session.get(SESSION_USER_KEY)):
+        session.clear()
     return success_response(None, "Signed out")
 
 

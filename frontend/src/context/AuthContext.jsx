@@ -1,6 +1,6 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { authService } from "../services/authService.js";
-import { setUnauthorizedHandler } from "../services/api.js";
+import { setTabUser, setUnauthorizedHandler } from "../services/api.js";
 
 const AuthContext = createContext(null);
 
@@ -19,35 +19,66 @@ const boardOnly = (u) => {
   return granted.length > 0 && granted.every(([mod]) => mod === "live_dashboard");
 };
 
-// A sign-in lasts while the app stays open (the store, 24 Oct 2026: "address
-// daalte hi bina login k khul rha h" → a new login every time). The server's
-// cookie outlives a closed tab or browser (12 h), so the app opened afresh — the
-// address typed again, a favourite, the browser reopened — ends that old login
-// and asks again — in the same tab too, when the address is typed or a
-// favourite opened there. A refresh (or Back) of a tab that was in use keeps it
-// (the tab's mark in sessionStorage, the time of its last activity), and so does
-// a second tab while another one of the app is still open (it answers on the
-// channel). The Live Board TV login is spared (boardOnly): the TV must come back
-// by itself.
+// A login belongs to the tab it was made in (the store, 24 Oct 2026: "address
+// daalte hi bina login k khul rha h" → a new login every time; "agar 1 me khula
+// h to dusre me bina login na khule kyunki 1 website par alag alag user
+// kholenge"). The server's cookie is one per browser and outlives a closed tab
+// (12 h), so:
+// - the app opened in a tab — the address typed, a favourite, a new tab, the
+//   browser reopened — always asks for a login. The old login also ends on the
+//   server, unless another tab of the app is still working on it;
+// - a refresh (or Back) of a tab that was in use in the last 30 minutes keeps
+//   its login (the tab's mark in sessionStorage: its user, its last activity);
+// - when someone signs in in one tab, every tab signed in as another user drops
+//   to the login screen (told on the channel; the server also refuses such a
+//   tab's calls, see setTabUser in services/api.js);
+// - the Live Board TV login is spared (boardOnly): the TV must come back by
+//   itself after a restart.
 const TAB_KEY = "dx_tab_login";
 const CHANNEL = "dx_login";
-const markTab = () => { try { sessionStorage.setItem(TAB_KEY, String(Date.now())); } catch { /* checked below */ } };
+// This page's own name on the channel, so it never answers or follows itself.
+const TAB_ID = Math.random().toString(36).slice(2);
+const markTab = (id) => {
+  try { sessionStorage.setItem(TAB_KEY, JSON.stringify({ id, at: Date.now() })); } catch { /* read below */ }
+};
 const unmarkTab = () => { try { sessionStorage.removeItem(TAB_KEY); } catch { /* nothing to clear */ } };
-// This page is a refresh / Back of a tab that signed in and was in use within
-// the idle limit. A browser whose storage cannot be read keeps the login as
-// before (it cannot be told apart).
-const tabInUse = () => {
+// The tab's mark; undefined when the storage cannot be read at all.
+const readMark = () => {
+  let raw;
   try {
-    const nav = performance.getEntriesByType?.("navigation")?.[0]?.type;
-    if (nav === "navigate" || nav === "prerender") return false;   // the address typed, a favourite, a link
-    const at = Number(sessionStorage.getItem(TAB_KEY));
-    return Boolean(at) && Date.now() - at < IDLE_LIMIT_MS;
+    raw = sessionStorage.getItem(TAB_KEY);
   } catch {
-    return true;
+    return undefined;
+  }
+  try {
+    return JSON.parse(raw || "null");
+  } catch {
+    return null;
   }
 };
-// Whether another tab of the app is open and signed in (it answers "here").
-const anotherTabOpen = () => new Promise((resolve) => {
+// This page is a refresh / Back of a tab that signed in as `me` and was in use
+// within the idle limit. A browser whose storage cannot be read keeps the login
+// on a refresh as before (it cannot be told apart).
+const tabInUse = (me) => {
+  const nav = performance.getEntriesByType?.("navigation")?.[0]?.type;
+  if (nav === "navigate" || nav === "prerender") return false;   // the address typed, a favourite, a new tab
+  const mark = readMark();
+  if (mark === undefined) return true;
+  return Boolean(mark) && mark.id === me.id && Date.now() - mark.at < IDLE_LIMIT_MS;
+};
+// Tells the other tabs of the app (a login, a sign-out).
+const tell = (msg) => {
+  try {
+    const ch = new BroadcastChannel(CHANNEL);
+    ch.postMessage({ ...msg, from: TAB_ID });
+    ch.close();
+  } catch {
+    // an old browser: the server's check still holds
+  }
+};
+// Whether another tab of the app is open and signed in — as user `id`, or as
+// anyone when `id` is not given.
+const anotherTabOpen = (id = null) => new Promise((resolve) => {
   let ch;
   try {
     ch = new BroadcastChannel(CHANNEL);
@@ -61,8 +92,8 @@ const anotherTabOpen = () => new Promise((resolve) => {
     resolve(open);
   };
   const timer = setTimeout(() => done(false), 400);
-  ch.onmessage = (e) => { if (e.data === "here") done(true); };
-  ch.postMessage("anyone");
+  ch.onmessage = ({ data }) => { if (data?.type === "here" && (id == null || data.id === id)) done(true); };
+  ch.postMessage({ type: "anyone", from: TAB_ID });
 });
 
 export function AuthProvider({ children }) {
@@ -83,14 +114,20 @@ export function AuthProvider({ children }) {
     try {
       const res = await authService.me();
       const me = res.data.data;
-      if (!tabInUse() && !boardOnly(me) && !(await anotherTabOpen())) {
-        // The app opened afresh on an old login: it ends here.
-        try { await authService.logout(); } catch (_) { /* the login screen follows anyway */ }
+      if (me && !tabInUse(me) && !boardOnly(me)) {
+        // Opened afresh on an old login: this tab asks for its own. The old
+        // login ends too, unless another tab is still working on it.
+        if (!(await anotherTabOpen())) {
+          try { await authService.logout(); } catch (_) { /* the login screen follows anyway */ }
+        }
         unmarkTab();
         setUser(null);
         return;
       }
-      markTab();
+      if (me) {
+        setTabUser(me.id);
+        markTab(me.id);
+      }
       setUser(me);
     } catch (_) {
       setUser(null);
@@ -99,24 +136,45 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // The signed-in user, for the callbacks below (they are made once).
+  const meRef = useRef(null);
+  meRef.current = user;
+
+  // This tab is done with its login; the server's is left alone (it may be
+  // another person's, made in another tab). A reason, when given, is shown on
+  // the login screen; without one the one already there stays (a late 401
+  // after an idle sign-out must not wipe "30 minutes of inactivity").
+  const dropTab = useCallback((reason = null) => {
+    setTabUser(null);
+    unmarkTab();
+    setUser(null);
+    setFreshLogin(false);
+    if (reason) setLogoutReason(reason);
+  }, []);
+
   useEffect(() => {
     // Any 401 from anywhere — an expired session, an account disabled while
-    // someone was working — drops straight back to the login screen.
-    setUnauthorizedHandler(() => setUser(null));
+    // someone was working, someone else signed in in another tab — drops
+    // straight back to the login screen.
+    setUnauthorizedHandler((reason) => dropTab(reason));
     refresh();
     return () => setUnauthorizedHandler(null);
-  }, [refresh]);
+  }, [refresh, dropTab]);
 
   const login = useCallback(async (username, password, captcha) => {
     const res = await authService.login(username, password, captcha);
-    markTab();
-    setUser(res.data.data);
+    const me = res.data.data;
+    setTabUser(me.id);
+    markTab(me.id);
+    tell({ type: "login", id: me.id });
+    setUser(me);
     setLogoutReason(null);
     setFreshLogin(true);
-    return res.data.data;
+    return me;
   }, []);
 
   const logout = useCallback(async (reason = null) => {
+    const id = meRef.current?.id;
     try {
       await authService.logout();
     } finally {
@@ -124,12 +182,18 @@ export function AuthProvider({ children }) {
       // this browser is done with the session. `reason` is a string only when
       // called in code (e.g. "inactivity"); a click handler passes its event,
       // which we ignore.
-      unmarkTab();
-      setUser(null);
-      setFreshLogin(false);
-      setLogoutReason(typeof reason === "string" ? reason : null);
+      if (id != null) tell({ type: "logout", id });
+      dropTab(typeof reason === "string" ? reason : null);
     }
-  }, []);
+  }, [dropTab]);
+
+  // 30 idle minutes in this tab. When the same person is still working in
+  // another tab, only this tab is closed off — their login there carries on.
+  const idleOut = useCallback(async () => {
+    const id = meRef.current?.id;
+    if (id != null && (await anotherTabOpen(id))) dropTab("inactivity");
+    else logout("inactivity");
+  }, [dropTab, logout]);
 
   // Idle auto-logout: only while signed in. Any real activity reschedules the
   // timer; IDLE_LIMIT_MS of none signs the user out with an "inactivity" reason.
@@ -141,9 +205,9 @@ export function AuthProvider({ children }) {
       const now = Date.now();
       if (now - last < 1000) return; // throttle — mousemove fires constantly
       last = now;
-      markTab();                 // the tab's last activity, read on a refresh
+      markTab(user.id);          // the tab's last activity, read on a refresh
       clearTimeout(timer);
-      timer = setTimeout(() => logout("inactivity"), IDLE_LIMIT_MS);
+      timer = setTimeout(idleOut, IDLE_LIMIT_MS);
     };
     const events = ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "wheel"];
     events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
@@ -152,10 +216,12 @@ export function AuthProvider({ children }) {
       clearTimeout(timer);
       events.forEach((e) => window.removeEventListener(e, reset));
     };
-  }, [user, logout]);
+  }, [user, idleOut]);
 
-  // While signed in, answer a newly opened tab of the app that asks whether
-  // one is already open — so a second tab does not end this login.
+  // While signed in: answer a newly opened tab that asks whether one is open
+  // (so it does not end this login on the server), drop to the login screen
+  // when someone else signs in in another tab, and follow a sign-out made in
+  // another tab of the same login.
   useEffect(() => {
     if (!user) return undefined;
     let ch;
@@ -164,9 +230,14 @@ export function AuthProvider({ children }) {
     } catch {
       return undefined;
     }
-    ch.onmessage = (e) => { if (e.data === "anyone") ch.postMessage("here"); };
+    ch.onmessage = ({ data }) => {
+      if (!data || data.from === TAB_ID) return;
+      if (data.type === "anyone") ch.postMessage({ type: "here", id: user.id, from: TAB_ID });
+      else if (data.type === "login" && data.id !== user.id) dropTab("other-user");
+      else if (data.type === "logout" && data.id === user.id) dropTab(null);
+    };
     return () => ch.close();
-  }, [user]);
+  }, [user, dropTab]);
 
   return (
     <AuthContext.Provider value={{

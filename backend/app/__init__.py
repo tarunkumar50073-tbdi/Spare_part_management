@@ -18,6 +18,9 @@ from app.utils.response import error_response
 # one. /auth/me is here too because the SPA asks it on boot precisely to find
 # out whether it has a session, and /auth/captcha draws the sign-in page's
 # Security Check code before anyone is signed in.
+# The header a browser tab sends with the id of the user it signed in as.
+TAB_USER_HEADER = "X-DX-User"
+
 _AUTH_EXEMPT_PATHS = {
     "/api/v1/health",
     "/api/v1/auth/login",
@@ -58,6 +61,14 @@ def _register_auth_guard(app):
         # A signed-in browser session.
         user = AuthService().get_user(session.get("user_id"))
         if user:
+            # Every tab of a browser shares the one login cookie. A tab names the
+            # user it signed in as (X-DX-User); once someone else has signed in
+            # in another tab, this tab must not act as them (the store, 24 Oct
+            # 2026: "1 website par alag alag user kholenge").
+            tab_user = request.headers.get(TAB_USER_HEADER)
+            if tab_user and tab_user != str(user.id):
+                return error_response("Someone else has signed in on this browser. Please sign in again.",
+                                      401, errors={"code": "OTHER_USER"})
             g.current_user = user
             return None
         # Or a machine caller with the shared key. Constant-time compare so the

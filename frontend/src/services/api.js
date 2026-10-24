@@ -27,6 +27,18 @@ export const setUnauthorizedHandler = (fn) => {
   onUnauthorized = fn;
 };
 
+// The user this tab signed in as, sent with every call (X-DX-User). All tabs
+// share one login cookie; after someone else signs in in another tab, the
+// server refuses this tab's calls rather than run them as that person.
+let tabUser = null;
+export const setTabUser = (id) => {
+  tabUser = id ?? null;
+};
+api.interceptors.request.use((config) => {
+  if (tabUser != null) config.headers["X-DX-User"] = String(tabUser);
+  return config;
+});
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -37,7 +49,7 @@ api.interceptors.response.use(
     // the very screen that explains what to do. /auth/login is exempt — there
     // a 401 really is the answer to what the user just typed.
     if (status === 401 && !url.includes("/auth/login")) {
-      onUnauthorized?.();
+      onUnauthorized?.(error?.response?.data?.errors?.code === "OTHER_USER" ? "other-user" : null);
       return Promise.reject(error);
     }
     // A caller that shows the error itself (e.g. the Scan Part "Unknown supplier
