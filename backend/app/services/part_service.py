@@ -226,14 +226,14 @@ class PartService:
 
     def delete(self, part_id):
         part = self.get(part_id)
-        photo = part.image_file
+        photos = part.photo_files
         with atomic():
             self._audit("PART_DELETED", part.id, part.part_no, f"deleted ({part.part_name})")
             self.repo.delete(part)
         LiveStockService.invalidate_rows_cache()
-        if photo:
+        if photos:
             from app.services.part_image_service import PartImageService
-            PartImageService.forget(photo)
+            PartImageService.forget(*photos)
 
     def bulk_import_excel(self, file_stream, store_code=None, section_id=None,
                           user=None, filename=None, sheet_name=None):

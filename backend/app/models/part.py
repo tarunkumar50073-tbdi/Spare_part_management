@@ -77,6 +77,9 @@ class Part(BaseModel):
     # new photo gets a new name, so the URL carrying it is never served stale
     # from a browser cache (services/part_image_service.py).
     image_file = db.Column(db.String(80), nullable=True)
+    # Its 2nd and 3rd photos (24 Oct 2026: two or three angles may all be
+    # kept), comma-separated file names; image_file stays the main one.
+    extra_images = db.Column(db.String(200), nullable=True)
 
     new_part_no = db.Column(db.String(30), nullable=True)
     old_part_no = db.Column(db.String(30), nullable=True)
@@ -116,3 +119,14 @@ class Part(BaseModel):
 
     def __repr__(self):
         return f"<Part {self.part_no} {self.part_name}>"
+
+    @property
+    def photo_files(self):
+        """The part's photos, main first — at most three."""
+        extra = [n for n in (self.extra_images or "").split(",") if n.strip()]
+        return ([self.image_file] if self.image_file else []) + [n.strip() for n in extra]
+
+    def to_dict(self):
+        out = super().to_dict()
+        out["photos"] = self.photo_files
+        return out

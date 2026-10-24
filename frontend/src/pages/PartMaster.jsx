@@ -5,7 +5,8 @@ import { Pencil, Trash2, Search, Repeat2, Camera, Factory, ImageOff, ImagePlus, 
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
-import PhotoCapture from "../components/PhotoCapture.jsx";
+import PartPhotoView from "../components/PartPhotoView.jsx";
+import PhotoCapture, { MAX_SHOTS } from "../components/PhotoCapture.jsx";
 import { useConfirm } from "../components/ConfirmDialog.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ExcelActions from "../components/ExcelActions.jsx";
@@ -71,6 +72,7 @@ export default function PartMaster() {
   const [filterOpts, setFilterOpts] = useState(null);
   // The photo being looked at (a part row), and the part a new photo is for.
   const [viewing, setViewing] = useState(null);
+  const [viewN, setViewN] = useState(0);               // which of its photos is on show
   const [photoBusy, setPhotoBusy] = useState(null);
   const photoInput = useRef(null);
   const fileInput = useRef(null);
@@ -178,11 +180,11 @@ export default function PartMaster() {
     setFilters((f) => ({ ...f, [key]: value, ...(key === "section_id" ? { rack: "" } : {}) }));
   const anyFilter = Object.values(filters).some(Boolean);
 
-  // ---- the part's photo ----
-  // The camera straight away by default (📷 is one tap, 21 Oct 2026), its shot
-  // checked before Save — Retake / + Another angle (components/PhotoCapture.jsx,
-  // 23 Oct 2026); the photo viewer also offers a saved picture from the
-  // gallery / a file, saved as picked.
+  // ---- the part's photos (up to 3 angles, the first the main one) ----
+  // The camera straight away by default (📷 is one tap, 21 Oct 2026), its shots
+  // checked before Save — Retake / + Another angle / ✕ (components/PhotoCapture.jsx,
+  // 23-24 Oct 2026); the photo viewer also offers saved pictures from the
+  // gallery / a file (up to 3), saved as picked.
   const pickPhoto = (row, fromFile = false) => {
     photoFor.current = row;
     const input = fromFile ? fileInput.current : photoInput.current;
@@ -192,38 +194,50 @@ export default function PartMaster() {
     }
   };
   const patchRow = (part) => {
-    setRows((prev) => prev.map((r) => (r.id === part.id ? { ...r, image_file: part.image_file } : r)));
-    setViewing((v) => (v && v.id === part.id ? { ...v, image_file: part.image_file } : v));
+    const photos = { image_file: part.image_file, photos: part.photos };
+    setRows((prev) => prev.map((r) => (r.id === part.id ? { ...r, ...photos } : r)));
+    setViewing((v) => (v && v.id === part.id ? { ...v, ...photos } : v));
   };
-  const pickedPhoto = (file, check) => {
+  const pickedPhoto = (list, check) => {
     const row = photoFor.current;
-    if (!file || !row) return;
-    if (!file.type.startsWith("image/")) {
+    const files = Array.from(list || []);
+    if (!files.length || !row) return;
+    if (files.some((f) => !f.type.startsWith("image/"))) {
       toast.error("Choose a photo (JPG / PNG)");
       return;
     }
-    if (check) setCapture({ part: row, file });
-    else uploadPhoto(row, file);
+    if (files.length > MAX_SHOTS) toast(`Only the first ${MAX_SHOTS} are kept — a part has up to ${MAX_SHOTS} photos`);
+    if (check) setCapture({ part: row, file: files[0] });
+    else uploadPhoto(row, files.slice(0, MAX_SHOTS));
   };
-  const uploadPhoto = async (row, file) => {
+  const uploadPhoto = async (row, files) => {
     setPhotoBusy(row.id);
     try {
-      const res = await partService.uploadImage(row.id, await shrinkPhoto(file));
+      const blobs = await Promise.all(files.map((f) => shrinkPhoto(f)));
+      const res = await partService.uploadImages(row.id, blobs);
       patchRow(res.data.data);
+      setViewN(0);
       loadCounts();
       setCapture(null);
-      toast.success(`Photo saved for ${row.part_no}`);
+      toast.success(`${files.length > 1 ? `${files.length} photos` : "Photo"} saved for ${row.part_no}`);
     } catch (_) {
       /* handled globally */
     } finally {
       setPhotoBusy(null);
     }
   };
+  // Takes out the photo on show in the viewer; the next one moves up.
   const removePhoto = async (row) => {
-    if (!(await confirm({ title: "Remove photo", message: `Remove the photo of ${row.part_no}?`, confirmText: "Remove" }))) return;
+    const count = partService.photosOf(row).length;
+    const n = Math.min(viewN, count - 1);
+    const message = count > 1
+      ? `Remove photo ${n + 1} of ${row.part_no}? The other ${count - 1 > 1 ? `${count - 1} stay` : "one stays"}.`
+      : `Remove the photo of ${row.part_no}?`;
+    if (!(await confirm({ title: "Remove photo", message, confirmText: "Remove" }))) return;
     try {
-      const res = await partService.removeImage(row.id);
+      const res = await partService.removeImage(row.id, n);
       patchRow(res.data.data);
+      setViewN(Math.max(0, Math.min(n, (res.data.data.photos?.length || 1) - 1)));
       loadCounts();
       toast.success("Photo removed");
     } catch (_) {
@@ -236,10 +250,14 @@ export default function PartMaster() {
       return <span className="block h-11 w-11 animate-pulse rounded-lg bg-slate-200 dark:bg-navy-700" aria-label="Saving photo" />;
     }
     if (thumb) {
+      const count = partService.photosOf(r).length;
       return (
-        <button type="button" onClick={() => setViewing(r)} title="Open the photo"
-          className="block h-11 w-11 overflow-hidden rounded-lg ring-1 ring-slate-200 hover:ring-2 hover:ring-toyotared dark:ring-navy-700">
+        <button type="button" onClick={() => { setViewN(0); setViewing(r); }} title={count > 1 ? `Open the ${count} photos` : "Open the photo"}
+          className="relative block h-11 w-11 overflow-hidden rounded-lg ring-1 ring-slate-200 hover:ring-2 hover:ring-toyotared dark:ring-navy-700">
           <img src={thumb} alt={`Photo of ${r.part_no}`} loading="lazy" className="h-full w-full object-cover" />
+          {count > 1 && (
+            <span className="absolute bottom-0 right-0 rounded-tl-md bg-black/65 px-1 text-[10px] font-bold leading-4 text-white">{count}</span>
+          )}
         </button>
       );
     }
@@ -627,19 +645,21 @@ export default function PartMaster() {
       {/* One pair of pickers for every row. `capture` opens a phone / tablet
           camera straight away; a laptop shows its file picker for both. */}
       <input ref={photoInput} type="file" accept="image/*" capture="environment" className="hidden"
-        onChange={(e) => pickedPhoto(e.target.files?.[0], true)} />
-      <input ref={fileInput} type="file" accept="image/*" className="hidden"
-        onChange={(e) => pickedPhoto(e.target.files?.[0], false)} />
+        onChange={(e) => pickedPhoto(e.target.files, true)} />
+      <input ref={fileInput} type="file" accept="image/*" multiple className="hidden"
+        onChange={(e) => pickedPhoto(e.target.files, false)} />
       {capture && (
         <PhotoCapture part={capture.part} first={capture.file}
-          onSave={(file) => uploadPhoto(capture.part, file)} onClose={() => setCapture(null)} />
+          onSave={(files) => uploadPhoto(capture.part, files)} onClose={() => setCapture(null)} />
       )}
 
       <Modal open={Boolean(viewing)} onClose={() => setViewing(null)} size="xl"
         title={viewing ? `${viewing.part_no} — ${viewing.part_name}` : "Photo"}
         footer={viewing && canEdit ? (
           <>
-            <button type="button" className="btn-danger" onClick={() => removePhoto(viewing)}>Remove photo</button>
+            {viewing.image_file && (
+              <button type="button" className="btn-danger" onClick={() => removePhoto(viewing)}>Remove this photo</button>
+            )}
             <button type="button" className="btn-secondary" onClick={() => pickPhoto(viewing, true)}>
               <ImagePlus size={15} aria-hidden="true" /> From gallery / file
             </button>
@@ -648,11 +668,7 @@ export default function PartMaster() {
             </button>
           </>
         ) : null}>
-        {viewing && partService.imageUrl(viewing) && (
-          <img src={partService.imageUrl(viewing)} alt={`Photo of ${viewing.part_no}`}
-            className="mx-auto max-h-[70vh] w-auto rounded-lg" />
-        )}
-        {viewing && !viewing.image_file && <p className="text-sm text-slate-400">No photo.</p>}
+        {viewing && <PartPhotoView part={viewing} n={viewN} onShow={setViewN} maxHeight="max-h-[66vh]" />}
       </Modal>
 
       <Modal

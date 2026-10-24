@@ -81,29 +81,33 @@ def filter_options():
 
 @bp.route("/<int:part_id>/image", methods=["GET"])
 def part_image(part_id):
-    """The part's photo (?size=thumb for the small copy). The URL carries the
-    file name (?v=...), which changes with every new photo, so it may be cached."""
-    path = images.path(part_id, thumb=request.args.get("size") == "thumb")
+    """The part's photo (?n=1 / 2 for its other angles, ?size=thumb for the
+    small copy). The URL carries the file name (?v=...), which changes with
+    every new photo, so it may be cached."""
+    path = images.path(part_id, thumb=request.args.get("size") == "thumb",
+                       n=request.args.get("n", default=0, type=int))
     return send_file(path, mimetype="image/jpeg", max_age=30 * 24 * 3600)
 
 
 @bp.route("/<int:part_id>/image", methods=["POST"])
 @permission_required("part_master", "update")
 def upload_part_image(part_id):
-    """A new photo for the part (multipart "file"), replacing its old one."""
-    file = request.files.get("file")
-    if not file or file.filename == "":
+    """New photos for the part — one to three multipart "file" fields, the
+    first the main one — replacing what it had."""
+    files = [f for f in request.files.getlist("file") if f and f.filename]
+    if not files:
         raise BadRequestError("No photo uploaded")
     _own_part(part_id)
-    part = images.save(part_id, file.stream, user=current_user())
-    return success_response(part.to_dict(), "Photo saved")
+    part = images.save_set(part_id, [f.stream for f in files], user=current_user())
+    return success_response(part.to_dict(), "Photo saved" if len(files) == 1 else f"{len(files)} photos saved")
 
 
 @bp.route("/<int:part_id>/image", methods=["DELETE"])
 @permission_required("part_master", "update")
 def delete_part_image(part_id):
+    """?n=… removes that one photo (the next takes its place); without it, all."""
     _own_part(part_id)
-    part = images.delete(part_id, user=current_user())
+    part = images.delete(part_id, user=current_user(), n=request.args.get("n", type=int))
     return success_response(part.to_dict(), "Photo removed")
 
 

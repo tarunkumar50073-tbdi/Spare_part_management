@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
-import { ArrowLeft, Camera, CheckCircle2, Eye, ImagePlus, MapPin, Search } from "lucide-react";
+import { ArrowLeft, Camera, CheckCircle2, Eye, ImagePlus, MapPin, Search, Trash2 } from "lucide-react";
 import { useCan } from "../../components/Can.jsx";
+import { useConfirm } from "../../components/ConfirmDialog.jsx";
 import Modal from "../../components/Modal.jsx";
+import PartPhotoView from "../../components/PartPhotoView.jsx";
 import PhotoCapture from "../../components/PhotoCapture.jsx";
 import { useStores } from "../../context/StoreContext.jsx";
 import { partService } from "../../services/partService.js";
@@ -21,8 +23,9 @@ import { num } from "../../lib/format.js";
 // A browser lets a page open the camera only from a tap, so "next" is one tap
 // on that button, never a camera that pops up by itself.
 //
-// The photo is the Part Master's (one per part, services/part_image_service.py);
-// taking one here is the same as the 📷 on the Part Master list.
+// The photos are the Part Master's (up to 3 angles per part since 24 Oct 2026,
+// services/part_image_service.py); taking them here is the same as the 📷 on
+// the Part Master list.
 
 const PAGE = 60;
 const RACK_MAX = 2000;
@@ -46,6 +49,7 @@ function savePref(value) {
 export default function PartPhotos() {
   const { activeCode, activeStore } = useStores();
   const canEdit = useCan("part_master", "update");
+  const confirm = useConfirm();
   const sections = activeStore?.sections || [];
   const [sectionId, setSectionId] = useState(() => readPref().section_id || "");
   const [rack, setRack] = useState(() => readPref().rack || "");
@@ -62,6 +66,7 @@ export default function PartPhotos() {
   const [capture, setCapture] = useState(null);
   // The part whose saved photo is open big (a tap on a card that has one).
   const [viewing, setViewing] = useState(null);
+  const [viewN, setViewN] = useState(0);              // which of its photos is on show
   const camera = useRef(null);
   const target = useRef(null);
   const cardRefs = useRef({});
@@ -134,35 +139,63 @@ export default function PartPhotos() {
     setCapture({ part, file });
   };
 
-  const upload = async (part, file) => {
+  // The counts move on the spot (+1 a part got its first photo, -1 it lost its
+  // last); the server's own tally comes with the next rack / section change.
+  const countPhoto = (part, step) => setOpts((o) => o && {
+    ...o,
+    photos: { ...o.photos, with_photo: o.photos.with_photo + step },
+    racks: o.racks.map((r) => (r.value.toUpperCase() === rackOf(part.location).toUpperCase()
+      ? { ...r, no_photo: Math.max(0, r.no_photo - step) } : r)),
+  });
+
+  const upload = async (part, files) => {
     const firstPhoto = !part.image_file;           // read before the upload changes anything
     setBusyId(part.id);
     try {
-      const res = await partService.uploadImage(part.id, await shrinkPhoto(file));
+      const blobs = await Promise.all(files.map((f) => shrinkPhoto(f)));
+      const res = await partService.uploadImages(part.id, blobs);
       const saved = res.data.data;
-      const updated = parts.map((p) => (p.id === part.id ? { ...p, image_file: saved.image_file } : p));
+      const updated = parts.map((p) => (p.id === part.id ? { ...p, image_file: saved.image_file, photos: saved.photos } : p));
       setParts(updated);
-      if (firstPhoto) {
-        // The counts move on the spot; the server's own tally comes with the
-        // next rack / section change.
-        setOpts((o) => o && {
-          ...o,
-          photos: { ...o.photos, with_photo: o.photos.with_photo + 1 },
-          racks: o.racks.map((r) => (r.value.toUpperCase() === rackOf(part.location).toUpperCase()
-            ? { ...r, no_photo: Math.max(0, r.no_photo - 1) } : r)),
-        });
-      }
+      if (firstPhoto) countPhoto(part, 1);
       // The next part still without a photo, after this one (then from the top).
       const at = updated.findIndex((p) => p.id === part.id);
       const after = [...updated.slice(at + 1), ...updated.slice(0, at)].find((p) => !p.image_file);
       setNextId(after?.id ?? null);
       if (after) cardRefs.current[after.id]?.scrollIntoView({ behavior: "smooth", block: "center" });
       setCapture(null);
-      toast.success(`Photo saved — ${part.part_no}`);
+      toast.success(`${files.length > 1 ? `${files.length} photos` : "Photo"} saved — ${part.part_no}`);
     } catch (_) {
       /* handled globally */
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // Takes out the photo on show; the next one moves up (the first is the main).
+  const removeShown = async () => {
+    const part = viewing;
+    const count = partService.photosOf(part).length;
+    const n = Math.min(viewN, count - 1);
+    const message = count > 1
+      ? `Remove photo ${n + 1} of ${part.part_no}? The other ${count - 1 > 1 ? `${count - 1} stay` : "one stays"}.`
+      : `Remove the photo of ${part.part_no}? It will have no photo.`;
+    if (!(await confirm({ title: "Remove photo", message, confirmText: "Remove" }))) return;
+    try {
+      const saved = (await partService.removeImage(part.id, n)).data.data;
+      const after = { ...part, image_file: saved.image_file, photos: saved.photos };
+      setParts((ps) => ps.map((p) => (p.id === part.id ? after : p)));
+      if (saved.photos.length) {
+        setViewing(after);
+        setViewN(Math.min(n, saved.photos.length - 1));
+      } else {
+        setViewing(null);
+        countPhoto(part, -1);
+        setNextId((id) => id ?? part.id);
+      }
+      toast.success("Photo removed");
+    } catch (_) {
+      /* handled globally */
     }
   };
 
@@ -270,7 +303,7 @@ export default function PartPhotos() {
                 <button key={p.id} type="button" ref={(el) => { cardRefs.current[p.id] = el; }}
                   // A part with its photo opens it big (Retake is there); one
                   // without opens the camera straight away, as before.
-                  onClick={() => (p.image_file ? setViewing(p) : shoot(p))}
+                  onClick={() => { if (p.image_file) { setViewN(0); setViewing(p); } else shoot(p); }}
                   disabled={Boolean(busyId) || (!canEdit && !p.image_file)}
                   className={`card flex items-stretch gap-3 p-3 text-left transition disabled:cursor-default ${
                     isNext ? "ring-2 ring-toyotared" : p.image_file ? "ring-1 ring-emerald-300 dark:ring-emerald-500/40" : ""}`}>
@@ -299,7 +332,8 @@ export default function PartPhotos() {
                     </span>
                     {p.image_file ? (
                       <span className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-emerald-700 dark:text-emerald-400">
-                        <Eye size={13} aria-hidden="true" /> Tap to view photo
+                        <Eye size={13} aria-hidden="true" />
+                        {partService.photosOf(p).length > 1 ? `Tap to view ${partService.photosOf(p).length} photos` : "Tap to view photo"}
                       </span>
                     ) : canEdit && (
                       <span className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-toyotared">
@@ -341,20 +375,25 @@ export default function PartPhotos() {
       <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={(e) => took(e.target.files?.[0])} />
 
-      {/* The saved photo, big. Retake closes this and opens the camera from the
-          same tap (a browser opens the camera only from one). */}
+      {/* The saved photos, big. Remove takes out the one on show; Retake
+          closes this and opens the camera from the same tap (a browser opens
+          the camera only from one) — the new shots replace the old. */}
       <Modal open={Boolean(viewing)} onClose={() => setViewing(null)} size="xl"
         title={viewing ? `${viewing.part_no} — ${viewing.part_name || ""}` : "Photo"}
         footer={viewing && canEdit ? (
-          <button type="button" className="btn-primary"
-            onClick={() => { const part = viewing; setViewing(null); shoot(part); }}>
-            <Camera size={15} aria-hidden="true" /> Retake photo
-          </button>
+          <>
+            <button type="button" className="btn-danger" onClick={removeShown}>
+              <Trash2 size={15} aria-hidden="true" /> Remove this photo
+            </button>
+            <button type="button" className="btn-primary"
+              onClick={() => { const part = viewing; setViewing(null); shoot(part); }}>
+              <Camera size={15} aria-hidden="true" /> Retake photos
+            </button>
+          </>
         ) : null}>
         {viewing && (
           <>
-            <img src={partService.imageUrl(viewing)} alt={`Photo of ${viewing.part_no}`}
-              className="mx-auto max-h-[68vh] w-auto rounded-lg" />
+            <PartPhotoView part={viewing} n={viewN} onShow={setViewN} />
             <p className="mt-2 flex items-center justify-center gap-1 text-[13px] text-slate-500 dark:text-slate-400">
               <MapPin size={13} aria-hidden="true" /> {viewing.location || "no location"}
             </p>
@@ -364,7 +403,7 @@ export default function PartPhotos() {
 
       {capture && (
         <PhotoCapture part={capture.part} first={capture.file}
-          onSave={(file) => upload(capture.part, file)} onClose={() => setCapture(null)} />
+          onSave={(files) => upload(capture.part, files)} onClose={() => setCapture(null)} />
       )}
     </div>
   );

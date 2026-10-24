@@ -34,6 +34,8 @@ FOLDER_SUFFIX = "_part_images"
 PHOTO_MAX = 1600
 THUMB_MAX = 240
 THUMB_SUFFIX = "_t"
+# A part keeps up to this many photos — angles of it, the first the main one.
+MAX_PHOTOS = 3
 # Only the formats a camera or a saved picture comes in — never Pillow's rarer
 # decoders on an upload — and the picture's size is read from its header BEFORE
 # its pixels: a 1 MB PNG can unpack to gigabytes (security audit, 24 Oct 2026).
@@ -101,68 +103,101 @@ class PartImageService:
             raise NotFoundError(f"Part {part_id} not found")
         return part
 
-    def path(self, part_id, thumb=False):
-        """The file to send for a part's photo (or its small copy)."""
+    def path(self, part_id, thumb=False, n=0):
+        """The file to send for a part's photo number `n` (0 = the main one), or
+        its small copy."""
         part = self._part(part_id)
         folder = image_folder()
-        if not part.image_file or not folder:
+        files = part.photo_files
+        if not files or not folder:
             raise NotFoundError(f"Part {part.part_no} has no photo")
-        name = _thumb_name(part.image_file) if thumb else part.image_file
+        if not 0 <= n < len(files):
+            raise NotFoundError(f"Part {part.part_no} has no photo {n + 1}")
+        chosen = files[n]
+        name = _thumb_name(chosen) if thumb else chosen
         full = os.path.join(folder, name)
         if thumb and not os.path.isfile(full):
-            full = os.path.join(folder, part.image_file)       # no small copy: the photo itself
+            full = os.path.join(folder, chosen)                # no small copy: the photo itself
         if not os.path.isfile(full):
             raise NotFoundError(f"The photo of part {part.part_no} is missing from the photo folder")
         return full
 
     def save(self, part_id, stream, user=None):
-        """Store a new photo for the part (replacing its old one). Returns the part."""
+        """Store one new photo for the part, replacing its photos. Returns the part."""
+        return self.save_set(part_id, [stream], user=user)
+
+    def save_set(self, part_id, streams, user=None):
+        """Store 1 to MAX_PHOTOS new photos for the part — angles of it, the
+        first the main one — replacing whatever it had (the store, 24 Oct
+        2026: every angle that came out right is kept). Every picture is
+        checked before any file is written. Returns the part."""
         part = self._part(part_id)
         folder = image_folder()
         if not folder:
             raise BadRequestError("This database is not a file — there is no folder to keep photos in")
-        img = _open_picture(stream)
+        streams = list(streams or [])
+        if not streams:
+            raise BadRequestError("No photo uploaded")
+        if len(streams) > MAX_PHOTOS:
+            raise BadRequestError(f"At most {MAX_PHOTOS} photos of a part")
+        pictures = [_open_picture(s) for s in streams]
         os.makedirs(folder, exist_ok=True)
-        name = f"{part.id}-{secrets.token_hex(4)}.jpg"
-        photo, thumb = img.copy(), img.copy()
-        photo.thumbnail((PHOTO_MAX, PHOTO_MAX))
-        thumb.thumbnail((THUMB_MAX, THUMB_MAX))
-        # Written under a temp name and renamed, so a half-written file is never served.
-        for picture, final in ((photo, name), (thumb, _thumb_name(name))):
-            partial = os.path.join(folder, final + ".partial")
-            picture.save(partial, "JPEG", quality=84, optimize=True)
-            os.replace(partial, os.path.join(folder, final))
-        old = part.image_file
+        names = []
         try:
+            for img in pictures:
+                name = f"{part.id}-{secrets.token_hex(4)}.jpg"
+                photo, thumb = img.copy(), img.copy()
+                photo.thumbnail((PHOTO_MAX, PHOTO_MAX))
+                thumb.thumbnail((THUMB_MAX, THUMB_MAX))
+                # Written under a temp name and renamed, so a half-written file is never served.
+                for picture, final in ((photo, name), (thumb, _thumb_name(name))):
+                    partial = os.path.join(folder, final + ".partial")
+                    picture.save(partial, "JPEG", quality=84, optimize=True)
+                    os.replace(partial, os.path.join(folder, final))
+                names.append(name)
+            old = part.photo_files
             with atomic():
-                part.image_file = name
-                self._audit(part, "photo replaced" if old else "photo added", user)
+                part.image_file = names[0]
+                part.extra_images = ",".join(names[1:]) or None
+                what = f"{len(names)} photo(s) saved" + (" (replacing the old)" if old else "")
+                self._audit(part, what, user)
         except Exception:
-            _remove(folder, name)
+            for name in names:
+                _remove(folder, name)
             raise
-        if old:
-            _remove(folder, old)
+        for name in old:
+            _remove(folder, name)
         return part
 
-    def delete(self, part_id, user=None):
+    def delete(self, part_id, user=None, n=None):
+        """Remove the part's photo number `n` (0 = the main one; the next takes
+        its place), or every photo when `n` is None. Returns the part."""
         part = self._part(part_id)
-        old = part.image_file
-        if not old:
+        files = part.photo_files
+        if not files:
             return part
+        if n is not None and not 0 <= n < len(files):
+            raise NotFoundError(f"Part {part.part_no} has no photo {n + 1}")
+        gone = files if n is None else [files[n]]
+        keep = [] if n is None else files[:n] + files[n + 1:]
         with atomic():
-            part.image_file = None
-            self._audit(part, "photo removed", user)
+            part.image_file = keep[0] if keep else None
+            part.extra_images = ",".join(keep[1:]) or None
+            self._audit(part, "photos removed" if n is None else f"photo {n + 1} removed", user)
         folder = image_folder()
         if folder:
-            _remove(folder, old)
+            for name in gone:
+                _remove(folder, name)
         return part
 
     @staticmethod
-    def forget(image_file):
+    def forget(*image_files):
         """Remove a deleted part's photo files (best effort)."""
         folder = image_folder()
-        if image_file and folder:
-            _remove(folder, image_file)
+        if folder:
+            for name in image_files:
+                if name:
+                    _remove(folder, name)
 
     @staticmethod
     def _audit(part, what, user):

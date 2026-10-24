@@ -330,3 +330,91 @@ def test_the_supplier_list_can_be_scoped_to_one_stores_parts(app, make):
     Part.query.filter(Part.supplier_id == sup.id).update({"supplier_id": None})
     db.session.delete(sup)
     db.session.commit()
+
+
+# ---- up to three angles (24 Oct 2026) ------------------------------------------------------------
+
+def test_two_or_three_angles_are_all_kept_the_first_the_main(make, photos):
+    """"dono thik lagi to dono rhni chahiye": every angle saved is kept, the
+    first in image_file (lists, filters, boards), the rest beside it."""
+    code, sec = make.store()
+    part = make.part(code, sec)
+    svc = PartImageService()
+    out = svc.save_set(part.id, [_jpeg(color=(200, 0, 0)), _jpeg(color=(0, 200, 0)), _jpeg(color=(0, 0, 200))])
+    assert len(out.photo_files) == 3 and out.image_file == out.photo_files[0]
+    assert out.to_dict()["photos"] == out.photo_files
+    assert len(os.listdir(photos)) == 6                                  # each with its small copy
+    for n, name in enumerate(out.photo_files):
+        assert svc.path(part.id, n=n).endswith(name)
+        assert svc.path(part.id, thumb=True, n=n).endswith(name.replace(".jpg", "_t.jpg"))
+    with pytest.raises(NotFoundError, match="no photo 4"):
+        svc.path(part.id, n=3)
+    with pytest.raises(BadRequestError, match="At most 3"):
+        svc.save_set(part.id, [_jpeg() for _ in range(4)])
+
+
+def test_one_angle_can_be_taken_out_and_the_next_moves_up(make, photos):
+    """"teen khechi and 2 sahi lagi to 1 hta sake"."""
+    code, sec = make.store()
+    part = make.part(code, sec)
+    svc = PartImageService()
+    first, second, third = svc.save_set(part.id, [_jpeg(), _jpeg(), _jpeg()]).photo_files
+    assert svc.delete(part.id, n=0).photo_files == [second, third]      # the main one gone: the next leads
+    assert sorted(os.listdir(photos)) == sorted([second, second.replace(".jpg", "_t.jpg"),
+                                                 third, third.replace(".jpg", "_t.jpg")])
+    assert svc.delete(part.id, n=1).photo_files == [second]
+    assert svc.delete(part.id).photo_files == [] and os.listdir(photos) == []
+
+
+def test_a_bad_picture_among_the_angles_writes_nothing(make, photos):
+    code, sec = make.store()
+    part = make.part(code, sec)
+    keep = PartImageService().save(part.id, _jpeg()).image_file
+    with pytest.raises(BadRequestError, match="not a photo"):
+        PartImageService().save_set(part.id, [_jpeg(), io.BytesIO(b"not a picture")])
+    db.session.refresh(part)
+    assert part.photo_files == [keep]
+    assert sorted(os.listdir(photos)) == sorted([keep, keep.replace(".jpg", "_t.jpg")])
+
+
+def test_deleting_a_part_removes_every_angle(make, photos):
+    code, sec = make.store()
+    part = make.part(code, sec)
+    PartImageService().save_set(part.id, [_jpeg(), _jpeg()])
+    PartService().delete(part.id)
+    assert os.listdir(photos) == []
+
+
+def test_the_photo_api_takes_and_serves_several_angles(app, make, photos):
+    code, sec = make.store()
+    part = make.part(code, sec)
+    editor = make.user({"part_master": {"view": True, "update": True}})
+    c = _as(app.test_client(), editor)
+    r = c.post(f"{URL}/{part.id}/image", content_type="multipart/form-data",
+               data={"file": [(_jpeg(), "a.jpg"), (_jpeg(color=(0, 90, 0)), "b.jpg")]})
+    assert r.status_code == 200 and len(r.get_json()["data"]["photos"]) == 2
+    for n in (0, 1):
+        got = c.get(f"{URL}/{part.id}/image?n={n}&size=thumb")
+        assert got.status_code == 200 and got.mimetype == "image/jpeg"
+        got.close()
+    assert c.get(f"{URL}/{part.id}/image?n=2").status_code == 404
+    r = c.delete(f"{URL}/{part.id}/image?n=1")
+    assert r.status_code == 200 and len(r.get_json()["data"]["photos"]) == 1
+    r = c.post(f"{URL}/{part.id}/image", content_type="multipart/form-data",
+               data={"file": [(_jpeg(), f"{i}.jpg") for i in range(4)]})
+    assert r.status_code == 400
+
+
+def test_a_live_database_without_the_photos_column_gets_it_on_boot(app):
+    """The live server's database may not be SQLite, where _patch_schema never
+    runs: the column for the 2nd / 3rd photo is added by the portable step."""
+    from sqlalchemy import inspect, text
+    from app import _add_late_columns
+    names = lambda: {c["name"] for c in inspect(db.engine).get_columns("parts")}
+    db.session.execute(text("ALTER TABLE parts DROP COLUMN extra_images"))
+    db.session.commit()
+    assert "extra_images" not in names()
+    _add_late_columns()
+    assert "extra_images" in names()
+    _add_late_columns()                                          # a second boot changes nothing
+    assert "extra_images" in names()

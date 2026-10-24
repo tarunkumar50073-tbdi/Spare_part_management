@@ -356,6 +356,7 @@ def create_app(env_name=None):
         with app.app_context():
             db.create_all()
             _patch_schema()
+            _add_late_columns()
             _split_rights()
             _crud_rights()
             # Portable (ORM + a plain UPDATE), so it runs on every dialect — not
@@ -435,6 +436,28 @@ def _start_backup_worker(app):
         BackupService.start_worker(app)
     except Exception:  # noqa: BLE001
         app.logger.exception("database backup worker could not start; the app runs on without it")
+
+
+# Nullable columns added after the app went live (24 Oct 2026, on a Linux
+# server whose database may not be SQLite): (table, column, SQL type). Added
+# on boot wherever they are missing, on any database.
+LATE_COLUMNS = (
+    # The part's 2nd and 3rd photos, comma-separated file names (24 Oct 2026).
+    ("parts", "extra_images", "VARCHAR(200)"),
+)
+
+
+def _add_late_columns():
+    """Add any LATE_COLUMNS column a table lacks. Portable — the inspector and a
+    plain ALTER TABLE ... ADD COLUMN work on SQLite, PostgreSQL and MySQL —
+    unlike _patch_schema, which returns early on anything but SQLite."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    for table, col, kind in LATE_COLUMNS:
+        if table in tables and col not in {c["name"] for c in inspector.get_columns(table)}:
+            db.session.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {kind}"))
+            db.session.commit()
 
 
 def _patch_schema():
