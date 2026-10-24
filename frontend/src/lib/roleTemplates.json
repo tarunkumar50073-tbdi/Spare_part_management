@@ -1,5 +1,5 @@
 {
-  "about": "Ready-made rights for a new login, picked at the top of the User Management form (store's request of 17 Oct 2026: \"template bana de\" — one pick of a type and all its rights fall into place). The store approved the six types and their screens on 17 Oct 2026; the Kiosk device type went the same day with the kiosk itself (\"management k according manual detail fill karke issuance karna time waste h\"), leaving five. Each right was checked against the screens the person uses and the endpoints those screens call; `why` says which. This one file is read by the User Management screen (lib/roleTemplates.js) and by the backend test (backend/tests/test_role_templates.py), which signs in as each template and calls those endpoints. Keys are backend/app/models/user.py PERMISSION_MODULES; edit always carries view (edit implies view).",
+  "about": "Ready-made rights for a new login, picked at the top of the User Management form (store's request of 17 Oct 2026: \"template bana de\" — one pick of a type and all its rights fall into place). The store approved the six types and their screens on 17 Oct 2026; the Kiosk device type went the same day with the kiosk itself (\"management k according manual detail fill karke issuance karna time waste h\"), leaving five. Each right was checked against the screens the person uses and the endpoints those screens call; `why` says which. This one file is read by the User Management screen (lib/roleTemplates.js) and by the backend test (backend/tests/test_role_templates.py), which signs in as each template and calls those endpoints. Keys are backend/app/models/user.py PERMISSION_MODULES. Rights are CRUD since 24 Oct 2026 (view = read only, create = add new, update = change, delete = remove / cancel); any write carries view, and only the actions a screen has (MODULE_ACTIONS) are ever true. Each old edit became every write its screen has, so a template does what it did before.",
   "templates": [
     {
       "key": "store_staff",
@@ -9,21 +9,21 @@
       "role": "STORE_USER",
       "stores": ["MAINTENANCE"],
       "permissions": {
-        "spare_store": { "view": true, "edit": false },
-        "scan_part": { "view": true, "edit": true },
-        "store_stock": { "view": true, "edit": true },
-        "part_ledger": { "view": true, "edit": false },
-        "employees": { "view": true, "edit": false },
-        "reports": { "view": true, "edit": false },
-        "rejection_request": { "view": true, "edit": true },
-        "action_tracker": { "view": true, "edit": false },
-        "notifications": { "view": true, "edit": false },
-        "consumption": { "view": true, "edit": false },
-        "receiving": { "view": true, "edit": false },
-        "short_rejection": { "view": true, "edit": false },
-        "inventory_control": { "view": true, "edit": false },
-        "put_away_check": { "view": true, "edit": true },
-        "work_queue": { "view": true, "edit": true }
+        "spare_store": { "view": true, "create": false, "update": false, "delete": false },
+        "scan_part": { "view": true, "create": true, "update": true, "delete": true },
+        "store_stock": { "view": true, "create": true, "update": true, "delete": false },
+        "part_ledger": { "view": true, "create": false, "update": false, "delete": false },
+        "employees": { "view": true, "create": false, "update": false, "delete": false },
+        "reports": { "view": true, "create": false, "update": false, "delete": false },
+        "rejection_request": { "view": true, "create": true, "update": true, "delete": false },
+        "action_tracker": { "view": true, "create": false, "update": false, "delete": false },
+        "notifications": { "view": true, "create": false, "update": false, "delete": false },
+        "consumption": { "view": true, "create": false, "update": false, "delete": false },
+        "receiving": { "view": true, "create": false, "update": false, "delete": false },
+        "short_rejection": { "view": true, "create": false, "update": false, "delete": false },
+        "inventory_control": { "view": true, "create": false, "update": false, "delete": false },
+        "put_away_check": { "view": true, "create": true, "update": false, "delete": false },
+        "work_queue": { "view": true, "create": false, "update": false, "delete": false }
       },
       "why": {
         "spare_store": "Spare Parts Store dashboard + sections (GET /dashboard/spare/overview + /management)",
@@ -51,30 +51,30 @@
       "role": "STORE_USER",
       "stores": ["MAINTENANCE"],
       "permissions": {
-        "spare_store": { "view": true, "edit": false },
-        "scan_part": { "view": true, "edit": true },
-        "store_stock": { "view": true, "edit": true },
-        "part_ledger": { "view": true, "edit": false },
-        "reports": { "view": true, "edit": false },
-        "part_master": { "view": true, "edit": true },
-        "supplier_barcodes": { "view": true, "edit": true },
-        "departments": { "view": true, "edit": true },
-        "scan_audit": { "view": true, "edit": false },
-        "audit_trail": { "view": true, "edit": false },
-        "erp_gap": { "view": true, "edit": false },
-        "employees": { "view": true, "edit": true },
-        "challan_register": { "view": true, "edit": true },
-        "rejection_request": { "view": true, "edit": true },
-        "action_tracker": { "view": true, "edit": false },
-        "notifications": { "view": true, "edit": false },
-        "consumption": { "view": true, "edit": false },
-        "receiving": { "view": true, "edit": false },
-        "short_rejection": { "view": true, "edit": false },
-        "inventory_control": { "view": true, "edit": false },
-        "put_away_check": { "view": true, "edit": true },
-        "work_queue": { "view": true, "edit": true },
-        "data_quality": { "view": true, "edit": true },
-        "erp_control": { "view": true, "edit": false }
+        "spare_store": { "view": true, "create": false, "update": false, "delete": false },
+        "scan_part": { "view": true, "create": true, "update": true, "delete": true },
+        "store_stock": { "view": true, "create": true, "update": true, "delete": false },
+        "part_ledger": { "view": true, "create": false, "update": false, "delete": false },
+        "reports": { "view": true, "create": false, "update": false, "delete": false },
+        "part_master": { "view": true, "create": true, "update": true, "delete": true },
+        "supplier_barcodes": { "view": true, "create": true, "update": true, "delete": false },
+        "departments": { "view": true, "create": true, "update": true, "delete": true },
+        "scan_audit": { "view": true, "create": false, "update": false, "delete": false },
+        "audit_trail": { "view": true, "create": false, "update": false, "delete": false },
+        "erp_gap": { "view": true, "create": false, "update": false, "delete": false },
+        "employees": { "view": true, "create": true, "update": true, "delete": false },
+        "challan_register": { "view": true, "create": true, "update": true, "delete": true },
+        "rejection_request": { "view": true, "create": true, "update": true, "delete": false },
+        "action_tracker": { "view": true, "create": false, "update": false, "delete": false },
+        "notifications": { "view": true, "create": false, "update": false, "delete": false },
+        "consumption": { "view": true, "create": false, "update": false, "delete": false },
+        "receiving": { "view": true, "create": false, "update": false, "delete": false },
+        "short_rejection": { "view": true, "create": false, "update": false, "delete": false },
+        "inventory_control": { "view": true, "create": false, "update": false, "delete": false },
+        "put_away_check": { "view": true, "create": true, "update": false, "delete": false },
+        "work_queue": { "view": true, "create": false, "update": false, "delete": false },
+        "data_quality": { "view": true, "create": false, "update": true, "delete": false },
+        "erp_control": { "view": true, "create": false, "update": false, "delete": false }
       },
       "why": {
         "spare_store": "as Store Staff",
@@ -111,7 +111,7 @@
       "role": "STORE_USER",
       "stores": ["MAINTENANCE"],
       "permissions": {
-        "install_confirm": { "view": true, "edit": true }
+        "install_confirm": { "view": true, "create": false, "update": true, "delete": false }
       },
       "why": {
         "install_confirm": "Confirm Installation (POST /spare-stock/issues/:id/confirm; its Line / Machine / Die pick-lists, GET /equipment, accept this right too). Its lists GET /spare-stock/pending-confirmations, /installations and /spare-flow/parts/:id/scan-result need only the store."
@@ -125,23 +125,23 @@
       "role": "STORE_USER",
       "stores": ["MAINTENANCE"],
       "permissions": {
-        "spare_store": { "view": true, "edit": false },
-        "store_stock": { "view": true, "edit": false },
-        "part_ledger": { "view": true, "edit": false },
-        "erp_gap": { "view": true, "edit": false },
-        "reports": { "view": true, "edit": false },
-        "audit_trail": { "view": true, "edit": false },
-        "live_dashboard": { "view": true, "edit": false },
-        "challan_register": { "view": true, "edit": false },
-        "rejection_request": { "view": true, "edit": false },
-        "action_tracker": { "view": true, "edit": false },
-        "notifications": { "view": true, "edit": false },
-        "consumption": { "view": true, "edit": false },
-        "receiving": { "view": true, "edit": false },
-        "short_rejection": { "view": true, "edit": false },
-        "inventory_control": { "view": true, "edit": false },
-        "put_away_check": { "view": true, "edit": false },
-        "erp_control": { "view": true, "edit": false }
+        "spare_store": { "view": true, "create": false, "update": false, "delete": false },
+        "store_stock": { "view": true, "create": false, "update": false, "delete": false },
+        "part_ledger": { "view": true, "create": false, "update": false, "delete": false },
+        "erp_gap": { "view": true, "create": false, "update": false, "delete": false },
+        "reports": { "view": true, "create": false, "update": false, "delete": false },
+        "audit_trail": { "view": true, "create": false, "update": false, "delete": false },
+        "live_dashboard": { "view": true, "create": false, "update": false, "delete": false },
+        "challan_register": { "view": true, "create": false, "update": false, "delete": false },
+        "rejection_request": { "view": true, "create": false, "update": false, "delete": false },
+        "action_tracker": { "view": true, "create": false, "update": false, "delete": false },
+        "notifications": { "view": true, "create": false, "update": false, "delete": false },
+        "consumption": { "view": true, "create": false, "update": false, "delete": false },
+        "receiving": { "view": true, "create": false, "update": false, "delete": false },
+        "short_rejection": { "view": true, "create": false, "update": false, "delete": false },
+        "inventory_control": { "view": true, "create": false, "update": false, "delete": false },
+        "put_away_check": { "view": true, "create": false, "update": false, "delete": false },
+        "erp_control": { "view": true, "create": false, "update": false, "delete": false }
       },
       "why": {
         "spare_store": "Spare Parts Store dashboard + sections (read)",
@@ -171,7 +171,7 @@
       "role": "STORE_USER",
       "stores": ["MAINTENANCE"],
       "permissions": {
-        "live_dashboard": { "view": true, "edit": false }
+        "live_dashboard": { "view": true, "create": false, "update": false, "delete": false }
       },
       "why": {
         "live_dashboard": "Live Board (GET /dashboard/spare/overview + /management accept it); its other figures (GET /spare-stock/today, /flow, /activity, /spare-flow/queues) need only the store. Without spare_store the board hides its Main Dashboard exit."

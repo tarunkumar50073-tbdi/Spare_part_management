@@ -79,7 +79,9 @@ function EditDialog({ open, initial, kind, onClose, onSaved }) {
 export default function EquipmentMaster() {
   const qc = useQueryClient();
   // The Line / Machine / Die master is the Part Master right's (23 Oct 2026).
-  const canEdit = useCan("part_master", "edit");
+  const canEdit = useCan("part_master", "update");             // E: a row's edit
+  const canCreate = useCan("part_master", "create");           // C: add, seed
+  const canImport = useCan("part_master", ["create", "update"]); // an import adds and changes
   const [kind, setKind] = useState("LINE");
   const [filter, setFilter] = useState("active");
   const [editing, setEditing] = useState(null);
@@ -152,7 +154,7 @@ export default function EquipmentMaster() {
             its number; a value not on the list can still be typed on the floor and added here.
           </p>
         </div>
-        {canEdit && (
+        {canCreate && (
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-secondary" onClick={onSeed} disabled={seeding}>
               <Wand2 size={16} aria-hidden="true" /> {seeding ? "Seeding…" : "Seed from installations"}
@@ -160,7 +162,8 @@ export default function EquipmentMaster() {
             <button type="button" className="btn-secondary" onClick={() => downloadXlsx("line_machine_die_template.xlsx", TEMPLATE_HEADERS, [])}>
               <FileDown size={16} aria-hidden="true" /> Template
             </button>
-            <button type="button" className="btn-secondary" onClick={() => fileRef.current?.click()} disabled={importing}>
+            <button type="button" className="btn-secondary" onClick={() => fileRef.current?.click()} disabled={importing || !canImport}
+              title={canImport ? undefined : "Importing needs both the Create and Edit rights"}>
               <FileUp size={16} aria-hidden="true" /> {importing ? "Importing…" : "Import Excel"}
             </button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"

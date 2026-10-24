@@ -163,7 +163,8 @@ function AddBarcodeForm({ part, onSaved, onCancel }) {
 export default function BarcodesPanel({ part, barcodes, defaultOpen = false, onRelease }) {
   const qc = useQueryClient();
   const confirm = useConfirm();
-  const canEdit = useCan("supplier_barcodes", "edit");
+  const canEdit = useCan("supplier_barcodes", "update");   // E: switch a mapping on / off
+  const canAdd = useCan("supplier_barcodes", "create");    // C: add one
   const bodyId = useId();
   const [open, setOpen] = useState(defaultOpen);
   const [adding, setAdding] = useState(false);
@@ -253,7 +254,7 @@ export default function BarcodesPanel({ part, barcodes, defaultOpen = false, onR
             </ul>
           )}
 
-          {!canEdit ? (
+          {!canAdd ? (
             <p className="mt-2.5 text-xs text-slate-500 dark:text-slate-400">
               Ask a supervisor to add a supplier barcode or switch one off.
             </p>

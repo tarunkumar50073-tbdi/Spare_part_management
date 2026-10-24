@@ -149,7 +149,8 @@ export default function SpareStock() {
   const { activeCode, activeStore } = useStores();
   // Import (opening stock upload) is a store_stock write — hide it, and the
   // toolbar's Add button, from a view-only user; Template/Export stay visible.
-  const canEditStock = useCan("store_stock", "edit");
+  const canEditStock = useCan("store_stock", "update");   // E: count, upload
+  const canPrintBins = useCan("store_stock", "create");   // C: bin location sheets
   const confirm = useConfirm();
   const qc = useQueryClient();
   const { openPart } = usePartDrawer();
@@ -612,14 +613,14 @@ export default function SpareStock() {
             sections={sections} types={types} racks={racks} section={section} type={type} rack={rack} gap={gap}
             onChange={setParam} active={filtersActive} onClear={() => applyView({})} />
           <div className="flex flex-wrap items-center gap-2">
-            {canEditStock && (
+            {canPrintBins && (
               <button type="button" onClick={openBinPicker} disabled={Boolean(binParts || pickParts) || !enriched.length}
                 title="Pick a section, a rack and its bins (e.g. R4 → B5) to print their 130×90 mm location sheets"
                 className="btn-secondary py-1 text-[13px] disabled:opacity-40">
                 <LayoutGrid size={14} aria-hidden="true" /> Bin sheets by rack / bin
               </button>
             )}
-            {(section || rack) && canEditStock && (
+            {(section || rack) && canPrintBins && (
               <button type="button" onClick={printSectionBins} disabled={Boolean(binParts) || !visible.length}
                 title="Print one 130×90 mm location sheet per bin for the current filter (whole section or rack) — grouped by rack location"
                 className="btn-secondary py-1 text-[13px] disabled:opacity-40">
@@ -631,7 +632,7 @@ export default function SpareStock() {
         </div>
         <div className="mb-3">
           <BulkBar count={selected.size} onExport={exportSelected} onPrintBins={printBinSheets}
-            printing={Boolean(binParts)} canPrint={canEditStock} onClear={() => setSelected(new Set())} />
+            printing={Boolean(binParts)} canPrint={canPrintBins} onClear={() => setSelected(new Set())} />
         </div>
         <Table
           columns={columns}
@@ -697,7 +698,7 @@ export default function SpareStock() {
                     <td className="px-3 py-2.5">{r.department || "—"}</td>
                     <td className="px-3 py-2.5">{r.machine || "—"}</td>
                     <td className="px-3 py-2.5 text-right">
-                      <Can mod="scan_part" edit>
+                      <Can mod="scan_part" action="create">
                         <button
                           onClick={() => handleReturn(r.id, r.part_no)}
                           className="text-xs px-2.5 py-1 rounded bg-emerald-600 text-white hover:opacity-90"

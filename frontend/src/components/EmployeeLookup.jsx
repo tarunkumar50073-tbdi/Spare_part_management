@@ -101,8 +101,8 @@ export default function EmployeeLookup({
   const id = useId();
   const qc = useQueryClient();
   // Both hooks always run (a short-circuit would change the hook order).
-  const canScan = useCan("scan_part", "edit");
-  const canMaster = useCan("employees", "edit");
+  const canScan = useCan("scan_part", "create");
+  const canMaster = useCan("employees", "create");
   const canAdd = canScan || canMaster;
   const emp = value?.employee || null;
   const [typed, setTyped] = useState(() => value?.typed ?? value?.mobile ?? "");

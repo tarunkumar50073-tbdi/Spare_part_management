@@ -599,8 +599,8 @@ export default function ErpControlCenter() {
   const { activeCode: code, loading: storesLoading } = useStores();
   const { openPart } = usePartDrawer();
   // POST /spare-stock/erp-sync takes the Store Stock or the ERP Control Center edit right.
-  const canPushStock = useCan("store_stock", "edit");
-  const canPushErp = useCan("erp_control", "edit");
+  const canPushStock = useCan("store_stock", "update");
+  const canPushErp = useCan("erp_control", "update");
   const canPush = canPushStock || canPushErp;
   const confirm = useConfirm();
   const qc = useQueryClient();

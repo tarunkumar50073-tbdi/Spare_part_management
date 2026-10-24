@@ -29,7 +29,7 @@ def get_sheet():
 
 
 @bp.route("/submit", methods=["POST"])
-@permission_required("child_store", "edit")
+@permission_required("child_store", "create")
 def submit():
     data = validate_payload(StockCountSubmitSchema(), request.get_json(force=True) or {})
     count = service.submit(data["count_date"], data["entries"])
@@ -51,7 +51,7 @@ def export_sheet():
 
 
 @bp.route("/import", methods=["POST"])
-@permission_required("child_store", "edit")
+@permission_required("child_store", "update")
 def import_counts():
     count_date = _parse_date_param() or date.today()
     file = request.files.get("file")

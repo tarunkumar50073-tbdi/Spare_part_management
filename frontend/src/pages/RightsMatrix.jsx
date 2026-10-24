@@ -3,13 +3,15 @@ import toast from "react-hot-toast";
 import { Grid3x3, RotateCcw, Save, ShieldCheck } from "lucide-react";
 import { adminService } from "../services/adminService.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { BLANK_RIGHTS, crudOf, fullRights, withRight } from "../lib/rights.js";
 
-// Rights Matrix — every store user (rows) against every module (columns), with a
-// View / Edit toggle in each cell. The same per-module rights the Admin screen
+// Rights Matrix — every store user (rows) against every module (columns), with
+// the module's own rights in each cell: R read, C create, E edit, D delete
+// (CRUD since 24 Oct 2026 — a screen shows only the rights it has). The same per-module rights the Admin screen
 // sets one user at a time, but seen and changed for everyone at once. Admins are
 // listed read-only (they always have everything). Saving writes only the users
 // that changed, through the existing admin API — no new backend.
-const BLANK = { view: false, edit: false };
+const BLANK = BLANK_RIGHTS;
 const clone = (obj) => JSON.parse(JSON.stringify(obj || {}));
 
 export default function RightsMatrix() {
@@ -38,20 +40,16 @@ export default function RightsMatrix() {
   const setCell = (u, key, action, val) => {
     setEdits((prev) => {
       const base = prev[u.id] ? clone(prev[u.id]) : clone(u.permissions || {});
-      const entry = { ...(base[key] || BLANK) };
-      entry[action] = val;
-      if (action === "edit" && val) entry.view = true;      // edit implies view
-      if (action === "view" && !val) entry.edit = false;    // can't edit what you can't see
-      base[key] = entry;
+      base[key] = withRight(base[key], action, val);   // a write brings Read; no Read, no writes
       return { ...prev, [u.id]: base };
     });
   };
 
-  // Per-row quick fill: give a user view / edit / nothing on every module at once.
+  // Per-row quick fill: give a user Read only / every right / nothing on every module at once.
   const fillRow = (u, mode) => {
     const map = {};
     if (mode !== "none") {
-      modules.forEach((m) => { map[m.key] = { view: true, edit: mode === "edit" }; });
+      modules.forEach((m) => { map[m.key] = fullRights(m, mode === "view"); });
     }
     setEdits((prev) => ({ ...prev, [u.id]: map }));
   };
@@ -96,7 +94,8 @@ export default function RightsMatrix() {
             <Grid3x3 size={22} className="text-toyotared" /> Rights Matrix
           </h2>
           <p className="text-xs text-slate-400 dark:text-slate-500">
-            Every store user against every module. <b>V</b> = can open &amp; view, <b>E</b> = can edit (edit turns view on too).
+            Every store user against every module. <b>R</b> = read only (no action) · <b>C</b> = create / add new ·
+            <b>E</b> = edit what exists · <b>D</b> = delete / cancel. C, E or D turns R on; a screen shows only the rights it has.
             Admins always have everything.
           </p>
         </div>
@@ -131,8 +130,8 @@ export default function RightsMatrix() {
                     <th key={m.key} title={m.label}
                       className="px-2 py-2 text-center text-[11px] font-semibold text-slate-500 dark:text-slate-300 border-b border-slate-200 dark:border-navy-800 align-bottom min-w-[92px]">
                       <span className="block leading-tight">{m.label}</span>
-                      <span className="mt-1 flex justify-center gap-3 text-[10px] text-slate-400 font-normal">
-                        <span>V</span><span>E</span>
+                      <span className="mt-1 flex justify-center gap-2.5 text-[10px] text-slate-400 font-normal">
+                        {crudOf(m).map((c) => <span key={c.key} title={`${c.label} — ${c.hint}`}>{c.short}</span>)}
                       </span>
                     </th>
                   ))}
@@ -149,8 +148,8 @@ export default function RightsMatrix() {
                         </div>
                         <div className="text-[11px] text-slate-400">{u.full_name || "—"}{u.is_active ? "" : " · disabled"}</div>
                         <div className="mt-1 flex gap-1">
-                          <button type="button" onClick={() => fillRow(u, "view")} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-navy-800 text-slate-500 hover:text-toyotared">All view</button>
-                          <button type="button" onClick={() => fillRow(u, "edit")} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-navy-800 text-slate-500 hover:text-toyotared">All edit</button>
+                          <button type="button" onClick={() => fillRow(u, "view")} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-navy-800 text-slate-500 hover:text-toyotared">All read</button>
+                          <button type="button" onClick={() => fillRow(u, "all")} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-navy-800 text-slate-500 hover:text-toyotared">All rights</button>
                           <button type="button" onClick={() => fillRow(u, "none")} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-navy-800 text-slate-500 hover:text-toyotared">Clear</button>
                         </div>
                       </td>
@@ -158,9 +157,11 @@ export default function RightsMatrix() {
                         const c = cellOf(u, m.key);
                         return (
                           <td key={m.key} className="px-2 py-2 text-center border-l border-slate-50 dark:border-navy-900">
-                            <div className="flex justify-center gap-3">
-                              <Chk checked={!!c.view} title={`${u.username} — view ${m.label}`} onChange={(v) => setCell(u, m.key, "view", v)} />
-                              <Chk checked={!!c.edit} title={`${u.username} — edit ${m.label}`} onChange={(v) => setCell(u, m.key, "edit", v)} />
+                            <div className="flex justify-center gap-2.5">
+                              {crudOf(m).map((r) => (
+                                <Chk key={r.key} checked={!!c[r.key]} title={`${u.username} — ${r.label} (${r.hint}): ${m.label}`}
+                                  onChange={(v) => setCell(u, m.key, r.key, v)} />
+                              ))}
                             </div>
                           </td>
                         );

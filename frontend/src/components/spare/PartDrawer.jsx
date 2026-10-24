@@ -113,7 +113,7 @@ function Tile({ label, value, tone = "", sub }) {
 export default function PartDrawer({ partId, onClose, back = null }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const canCount = useCan("store_stock", "edit");
+  const canCount = useCan("store_stock", "update");
   // Printing is gated like POST /barcode/print (any-of scan_part / store_stock /
   // part_master "edit"). The browser print runs BEFORE that call records it, so
   // a user who cannot record a print must not be able to start one — else a

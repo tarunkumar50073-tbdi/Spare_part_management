@@ -48,7 +48,8 @@ const mailName = (r) => `${r.request_no} ${r.ven_name} rejection.eml`;
 
 export default function RejectionRequests() {
   const { activeCode } = useStores();
-  const canEdit = useCan("rejection_request", "edit");
+  const canCreate = useCan("rejection_request", "create");   // C: make a mail
+  const canEdit = useCan("rejection_request", "update");     // E: mail settings, open a mail draft
   const qc = useQueryClient();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -75,7 +76,7 @@ export default function RejectionRequests() {
         )}
       </div>
 
-      {canEdit ? (
+      {canCreate ? (
         <MailForm storeCode={activeCode} onMade={(row) => { qc.invalidateQueries({ queryKey: ["rejections", "list"] }); openMail(row); }} />
       ) : (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">You can see the mails made. Making one needs the Rejection Mail edit right.</p>

@@ -357,6 +357,7 @@ def create_app(env_name=None):
             db.create_all()
             _patch_schema()
             _split_rights()
+            _crud_rights()
             # Portable (ORM + a plain UPDATE), so it runs on every dialect — not
             # from inside _patch_schema, which returns early on non-SQLite and so
             # would leave a fresh Postgres DB with no stores at all (audit
@@ -714,6 +715,31 @@ def _rebuild_spare_ledger_if_check_stale(engine):
         return True
     finally:
         raw.close()
+
+
+def _crud_rights():
+    """Rewrite every saved rights map into the CRUD form of 24 Oct 2026 (the
+    store: "proper crud bna"): an old {view, edit} entry becomes {view,
+    create, update, delete}, its edit going to each write the screen has —
+    the same login can do the same things the day after. Runs once (an
+    AppSetting mark); reading an old map already gives the same answer
+    (models.user.normalize_rights), so this only tidies what is stored."""
+    import json
+    from app.models.app_setting import AppSetting
+    from app.models.user import User
+
+    mark = "rights_crud_2026_10_24"
+    if AppSetting.get_value(mark):
+        return
+    for user in User.query.all():
+        if user.is_admin or not user.permissions:
+            continue
+        try:
+            saved = json.loads(user.permissions)
+        except (ValueError, TypeError):
+            continue
+        user.set_permissions(saved)
+    AppSetting.set_value(mark, True)   # commits the users too
 
 
 def _split_rights():

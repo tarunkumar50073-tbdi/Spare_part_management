@@ -44,7 +44,7 @@ function savePref(value) {
 
 export default function PartPhotos() {
   const { activeCode, activeStore } = useStores();
-  const canEdit = useCan("part_master", "edit");
+  const canEdit = useCan("part_master", "update");
   const sections = activeStore?.sections || [];
   const [sectionId, setSectionId] = useState(() => readPref().section_id || "");
   const [rack, setRack] = useState(() => readPref().rack || "");

@@ -18,7 +18,7 @@ def list_holding():
 
 
 @bp.route("/<int:holding_entry_id>/transfer", methods=["POST"])
-@permission_required("child_store", "edit")
+@permission_required("child_store", "update")
 def transfer(holding_entry_id):
     data = validate_payload(TransferSchema(), request.get_json(force=True) or {})
     entry = service.transfer_to_rack(

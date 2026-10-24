@@ -100,7 +100,7 @@ export default function ReturnForm({ scan, target, onDone, onCancel }) {
   };
 
   return (
-    <FormShell flow={flow} onCancel={onCancel} onReview={review} reviewLabel="Review return"
+    <FormShell flow={flow} right="create" onCancel={onCancel} onReview={review} reviewLabel="Review return"
       verify={
         <Facts items={[
           { label: "Part No.", value: part.part_no, strong: true },

@@ -39,7 +39,7 @@ def list_equipment():
 
 
 @bp.route("", methods=["POST"])
-@permission_required(("part_master", "scan_part"), "edit")
+@permission_required(("part_master", "scan_part"), "create")
 def create_equipment():
     """Also the install form's quick-add for a line/machine/die not on the master."""
     data = validate_payload(EquipmentCreateSchema(), request.get_json(force=True) or {})
@@ -47,14 +47,14 @@ def create_equipment():
 
 
 @bp.route("/<int:eq_id>", methods=["PUT"])
-@permission_required("part_master", "edit")
+@permission_required("part_master", "update")
 def update_equipment(eq_id):
     data = validate_payload(EquipmentUpdateSchema(), request.get_json(force=True) or {})
     return success_response(service.update(eq_id, data, user=username()), "Updated")
 
 
 @bp.route("/seed", methods=["POST"])
-@permission_required("part_master", "edit")
+@permission_required("part_master", "create")
 def seed_equipment():
     """Populate the master from the distinct line/machine/die values already
     recorded on past installations. Idempotent — safe to run again later."""
@@ -77,7 +77,7 @@ def export():
 
 
 @bp.route("/import", methods=["POST"])
-@permission_required("part_master", "edit")
+@permission_required("part_master", ("create", "update"))
 def import_equipment():
     file = request.files.get("file")
     if not file:

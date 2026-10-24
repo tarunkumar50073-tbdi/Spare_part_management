@@ -159,11 +159,11 @@ export default function PutAwayCheck({ embedded = false }) {
   // view-only login — the Manager template (17 Oct 2026) — still sees Right /
   // Wrong Location, but is told it cannot confirm instead of meeting a refusal.
   // POST /put-away/record takes the Store Stock or the Put-away Check edit right.
-  const canRecordStock = useCan("store_stock", "edit");
-  const canRecordPutAway = useCan("put_away_check", "edit");
+  const canRecordStock = useCan("store_stock", "create");
+  const canRecordPutAway = useCan("put_away_check", "create");
   const canRecord = canRecordStock || canRecordPutAway;
   // Map an unknown supplier barcode to the part, as on Scan Part.
-  const canMap = useCan("supplier_barcodes", "edit");
+  const canMap = useCan("supplier_barcodes", "create");
   const [failure, setFailure] = useState(null); // a code that named no part (ScanFailurePanel)
   const storeCode = activeCode || "MAINTENANCE";
   const [part, setPart] = useState(null);     // identified part — a bin scan is expected next

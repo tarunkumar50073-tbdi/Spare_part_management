@@ -73,7 +73,9 @@ const Pill = ({ map, value }) => (value ? <span className={`badge ${map[value] |
 
 export default function ChallanRegister() {
   const { activeCode } = useStores();
-  const canEdit = useCan("challan_register", "edit");
+  const canCreate = useCan("challan_register", "create");   // C: a new challan
+  const canEdit = useCan("challan_register", "update");     // E: edit, invoice / GRN links, ERP refresh
+  const canCancel = useCan("challan_register", "delete");   // D: cancel a challan
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const filters = useMemo(() => Object.fromEntries(FILTER_KEYS.map((k) => [k, params.get(k) || ""])), [params]);
@@ -146,7 +148,7 @@ export default function ChallanRegister() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {canEdit && (
+          {canCreate && (
             <button type="button" className="btn-primary" onClick={() => setEntryOpen(true)}>
               <Plus size={15} aria-hidden="true" /> New urgent challan
             </button>
@@ -310,7 +312,7 @@ export default function ChallanRegister() {
           onSaved={(row) => { setEntryOpen(false); reload(); setOpenId(row.id); }} />
       )}
       {openId != null && (
-        <DetailDrawer id={openId} canEdit={canEdit} options={opts.data} onClose={() => setOpenId(null)} onChanged={reload} />
+        <DetailDrawer id={openId} canEdit={canEdit} canCancel={canCancel} options={opts.data} onClose={() => setOpenId(null)} onChanged={reload} />
       )}
     </div>
   );
@@ -515,7 +517,7 @@ function Fact({ label, children }) {
   );
 }
 
-function DetailDrawer({ id, canEdit, options, onClose, onChanged }) {
+function DetailDrawer({ id, canEdit, canCancel, options, onClose, onChanged }) {
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["challans", "one", id],
@@ -541,19 +543,19 @@ function DetailDrawer({ id, canEdit, options, onClose, onChanged }) {
             <span className="text-[12px] text-slate-500 dark:text-slate-400">Quality</span><Pill map={QUALITY_PILL} value={c.quality_status} />
             <span className="text-[12px] text-slate-500 dark:text-slate-400">PO</span><Pill map={PO_PILL} value={c.po_status} />
           </div>
-          {canEdit && (
+          {(canEdit || canCancel) && (
             <div className="flex flex-wrap gap-2">
-              {c.can.link_invoice && (
+              {canEdit && c.can.link_invoice && (
                 <button type="button" className="btn-primary" onClick={() => setDialog({ kind: "invoice" })}>
                   <Link2 size={15} aria-hidden="true" /> Link Invoice to Challan
                 </button>
               )}
-              {c.can.edit && (
+              {canEdit && c.can.edit && (
                 <button type="button" className="btn-secondary" onClick={() => setDialog({ kind: "edit" })}>
                   <Pencil size={15} aria-hidden="true" /> Edit
                 </button>
               )}
-              {c.can.cancel && (
+              {canCancel && c.can.cancel && (
                 <button type="button" className="btn-danger" onClick={() => setDialog({ kind: "cancel" })}>
                   <Ban size={15} aria-hidden="true" /> Cancel challan
                 </button>

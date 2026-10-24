@@ -159,7 +159,7 @@ def put_away_pending():
 
 
 @bp.route("/srvs/<int:srv_id>/put-away/confirm", methods=["POST"])
-@permission_required("child_store", "edit")
+@permission_required("child_store", "update")
 def put_away_confirm(srv_id):
     """Put Away — scan rack, scan part, confirm. The server (not just the
     UI) validates the scanned part matches this SRV's own part before

@@ -280,10 +280,10 @@ function columnsFor(tab, { canAct, canViewReceiving, now }) {
       ageCol("created_at"),
       actionCol((r) => (
         <div className="flex flex-wrap gap-1.5">
-          <ActionLink row={r} action="INSPECT" target={r.id} canAct={canAct} />
+          <ActionLink row={r} action="INSPECT" target={r.id} canAct={canAct.update} />
           {/* A return's held / damaged quantity can go to a supplier for rework from here. */}
           {qty(r.qty_hold) + qty(r.qty_damaged) > 0 && (
-            <ActionLink row={r} action="RGP_OUT" target={r.id} canAct={canAct} primary={false} />
+            <ActionLink row={r} action="RGP_OUT" target={r.id} canAct={canAct.create} primary={false} />
           )}
         </div>
       )),
@@ -342,7 +342,7 @@ function columnsFor(tab, { canAct, canViewReceiving, now }) {
         )),
       },
       actionCol((r) => (withSupplier
-        ? <ActionLink row={r} action="RGP_RETURN" target={r.id} canAct={canAct} />
+        ? <ActionLink row={r} action="RGP_RETURN" target={r.id} canAct={canAct.update} />
         : <ActionLink row={r} action="RGP_GRN" target={r.id} canAct={canAct} />)),
     ];
   }
@@ -405,7 +405,10 @@ function QueueSkeleton() {
 
 export default function WorkQueue() {
   const { openPart } = usePartDrawer();
-  const canAct = useCan("scan_part", "edit");
+  const canCreate = useCan("scan_part", "create");
+  const canUpdate = useCan("scan_part", "update");
+  // RGP out is new (C); an inspection or RGP return changes (E).
+  const canAct = { create: canCreate, update: canUpdate };
   const canViewReceiving = useCan("receiving", "view");
   // GET /erp-grn/preview is any-of (spare_store, store_stock, receiving,
   // work_queue) view. Each hook is called on every render, never inside a

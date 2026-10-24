@@ -25,7 +25,7 @@ def preview():
 
 
 @bp.route("/post", methods=["POST"])
-@permission_required(("store_stock", "receiving"), "edit")
+@permission_required(("store_stock", "receiving"), "create")
 def post_now():
     """Add the accepted, not-yet-added ERP GRN lines to store stock now (the ERP
     sync does the same after every run)."""

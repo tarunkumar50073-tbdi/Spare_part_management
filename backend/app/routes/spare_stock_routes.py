@@ -267,13 +267,13 @@ def erp_sync_pending_list():
 
 
 @bp.route("/erp-sync", methods=["POST"])
-@permission_required(("store_stock", "erp_control"), "edit")
+@permission_required(("store_stock", "erp_control"), "update")
 def erp_sync():
     return success_response(service.sync_pending_to_erp(_store_code()))
 
 
 @bp.route("/issues/<int:ledger_id>/return", methods=["POST"])
-@permission_required("scan_part", "edit")
+@permission_required("scan_part", "create")
 def return_issue(ledger_id):
     """Take an issued part back against its original issue (spec 13). The
     store's rule (14 Oct 2026): no inspection — the quantity goes straight
@@ -419,7 +419,7 @@ def latest_lot(part_id):
 
 
 @bp.route("/put-away/record", methods=["POST"])
-@permission_required(("store_stock", "put_away_check"), "edit")
+@permission_required(("store_stock", "put_away_check"), "create")
 def put_away_record():
     """Record a confirmed put-away (Put-away Check → Confirm Put Away): the part
     was physically shelved in one of its bins (fresh, or rework when it has one).
@@ -438,7 +438,7 @@ def put_away_record():
 
 
 @bp.route("/parts/<int:part_id>", methods=["PUT"])
-@permission_required("store_stock", "edit")
+@permission_required("store_stock", "update")
 def set_quantity(part_id):
     _require_part_store(part_id)
     data = validate_payload(SpareStockSetSchema(), request.get_json(force=True) or {})
@@ -453,7 +453,7 @@ def set_quantity(part_id):
 
 
 @bp.route("/parts/<int:part_id>/issue", methods=["POST"])
-@permission_required("scan_part", "edit")
+@permission_required("scan_part", "create")
 def issue_part(part_id):
     """Stage 1 — store issues to a department + person (no machine/line). The
     person comes from the Employee master (employee_id / issued_to_mobile) or,
@@ -481,7 +481,7 @@ def issue_part(part_id):
 # Stage 2 is open to a line user holding only install_confirm, as well as to a
 # full scan_part user — issuing (Stage 1) stays scan_part-only. Store access is
 # still checked below against the part's store.
-@permission_required(("scan_part", "install_confirm"), "edit")
+@permission_required(("scan_part", "install_confirm"), "update")
 def confirm_issue(ledger_id):
     """Stage 2 — the user at the line records line + machine + die + usage.
     Repeatable ("Update Line / Machine") while something of the issue is
@@ -540,7 +540,7 @@ def receive_part(part_id):
 
 
 @bp.route("/parts/<int:part_id>/update-location", methods=["POST"])
-@permission_required("scan_part", "edit")
+@permission_required("scan_part", "update")
 def update_location(part_id):
     _require_part_store(part_id)
     data = validate_payload(SpareLocationSchema(), request.get_json(force=True) or {})
@@ -624,7 +624,7 @@ def daily_stock_only():
 
 
 @bp.route("/import", methods=["POST"])
-@permission_required("store_stock", "edit")
+@permission_required("store_stock", "update")
 def import_stock():
     # store_code is REQUIRED and access-enforced (audit finding AUTHZ): without
     # it the per-row store guard in bulk_import is skipped, letting an upload
@@ -656,7 +656,7 @@ def download_erp_template():
 
 
 @bp.route("/erp-stock/import", methods=["POST"])
-@permission_required("store_stock", "edit")
+@permission_required("store_stock", "update")
 def import_erp_stock():
     # The ERP side of ERP-vs-Physical, loaded from Excel until the ERP API is
     # connected. store_code is REQUIRED + access-enforced (per-row store guard).

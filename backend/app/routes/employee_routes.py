@@ -45,7 +45,7 @@ def list_employees():
 
 
 @bp.route("", methods=["POST"])
-@permission_required(("employees", "scan_part"), "edit")
+@permission_required(("employees", "scan_part"), "create")
 def create_employee():
     """Also the counter's quick-add for a mobile number not on the master."""
     data = validate_payload(EmployeeCreateSchema(), request.get_json(force=True) or {})
@@ -53,7 +53,7 @@ def create_employee():
 
 
 @bp.route("/<int:emp_id>", methods=["PUT"])
-@permission_required("employees", "edit")
+@permission_required("employees", "update")
 def update_employee(emp_id):
     data = validate_payload(EmployeeUpdateSchema(), request.get_json(force=True) or {})
     return success_response(service.update(emp_id, data, user=username()), "Person updated")
@@ -74,7 +74,7 @@ def export():
 
 
 @bp.route("/import", methods=["POST"])
-@permission_required("employees", "edit")
+@permission_required("employees", ("create", "update"))
 def import_employees():
     file = request.files.get("file")
     if not file:

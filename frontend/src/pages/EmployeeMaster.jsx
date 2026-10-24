@@ -93,7 +93,9 @@ function EditDialog({ open, initial, departments, onClose, onSaved }) {
 
 export default function EmployeeMaster() {
   const qc = useQueryClient();
-  const canEdit = useCan("employees", "edit");
+  const canEdit = useCan("employees", "update");             // E: a row's edit
+  const canCreate = useCan("employees", "create");           // C: add, seed
+  const canImport = useCan("employees", ["create", "update"]); // an import adds and changes
   const [filter, setFilter] = useState("active");
   const [editing, setEditing] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -158,12 +160,13 @@ export default function EmployeeMaster() {
             department fill in from here; a number not on the list can be added right there.
           </p>
         </div>
-        {canEdit && (
+        {canCreate && (
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-secondary" onClick={() => downloadXlsx("employee_master_template.xlsx", TEMPLATE_HEADERS, [])}>
               <FileDown size={16} aria-hidden="true" /> Template
             </button>
-            <button type="button" className="btn-secondary" onClick={() => fileRef.current?.click()} disabled={importing}>
+            <button type="button" className="btn-secondary" onClick={() => fileRef.current?.click()} disabled={importing || !canImport}
+              title={canImport ? undefined : "Importing needs both the Create and Edit rights"}>
               <FileUp size={16} aria-hidden="true" /> {importing ? "Importing…" : "Import Excel"}
             </button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"

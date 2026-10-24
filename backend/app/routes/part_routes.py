@@ -88,7 +88,7 @@ def part_image(part_id):
 
 
 @bp.route("/<int:part_id>/image", methods=["POST"])
-@permission_required("part_master", "edit")
+@permission_required("part_master", "update")
 def upload_part_image(part_id):
     """A new photo for the part (multipart "file"), replacing its old one."""
     file = request.files.get("file")
@@ -100,7 +100,7 @@ def upload_part_image(part_id):
 
 
 @bp.route("/<int:part_id>/image", methods=["DELETE"])
-@permission_required("part_master", "edit")
+@permission_required("part_master", "update")
 def delete_part_image(part_id):
     _own_part(part_id)
     part = images.delete(part_id, user=current_user())
@@ -113,7 +113,7 @@ def get_part(part_id):
 
 
 @bp.route("", methods=["POST"])
-@permission_required("part_master", "edit")
+@permission_required("part_master", "create")
 def create_part():
     data = validate_payload(PartCreateSchema(), request.get_json(force=True) or {})
     scoped_store(data.get("store_code"))
@@ -123,7 +123,7 @@ def create_part():
 
 
 @bp.route("/<int:part_id>", methods=["PUT"])
-@permission_required(("part_master", "data_quality"), "edit")
+@permission_required(("part_master", "data_quality"), "update")
 def update_part(part_id):
     data = validate_payload(PartUpdateSchema(), request.get_json(force=True) or {})
     current = _own_part(part_id)
@@ -135,7 +135,7 @@ def update_part(part_id):
 
 
 @bp.route("/<int:part_id>", methods=["DELETE"])
-@permission_required("part_master", "edit")
+@permission_required("part_master", "delete")
 def delete_part(part_id):
     _own_part(part_id)
     service.delete(part_id)
@@ -158,7 +158,7 @@ def export_parts():
 
 
 @bp.route("/import/preview", methods=["POST"])
-@permission_required("part_master", "edit")
+@permission_required("part_master", ("create", "update"))
 def preview_import_parts():
     """Dry-run before committing: per-row INSERT/UPDATE/ERROR + counts."""
     file = request.files.get("file")
@@ -169,7 +169,7 @@ def preview_import_parts():
 
 
 @bp.route("/import", methods=["POST"])
-@permission_required("part_master", "edit")
+@permission_required("part_master", ("create", "update"))
 def import_parts():
     file = request.files.get("file")
     if not file or file.filename == "":
@@ -203,7 +203,7 @@ def import_history():
 
 
 @bp.route("/derive-categories", methods=["POST"])
-@permission_required("part_master", "edit")
+@permission_required("part_master", "update")
 def derive_categories():
     """Auto-fill parts' component type (sub_category) from their description.
     Pass {"dry_run": true} to preview counts without writing."""

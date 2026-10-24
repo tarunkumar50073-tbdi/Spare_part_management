@@ -41,7 +41,7 @@ def list_departments():
 # so creating or changing one is a signed-in person's call, like its people.
 
 @bp.route("", methods=["POST"])
-@permission_required("departments", "edit")
+@permission_required("departments", "create")
 @signed_in_required
 def create_department():
     data = validate_payload(DepartmentCreateSchema(), request.get_json(force=True) or {})
@@ -49,7 +49,7 @@ def create_department():
 
 
 @bp.route("/<int:dept_id>", methods=["PUT"])
-@permission_required("departments", "edit")
+@permission_required("departments", "update")
 @signed_in_required
 def update_department(dept_id):
     data = validate_payload(DepartmentUpdateSchema(), request.get_json(force=True) or {})
@@ -61,7 +61,7 @@ def update_department(dept_id):
 # right as above): the machine key alone cannot add, change or remove one.
 
 @bp.route("/<int:dept_id>/recipients", methods=["POST"])
-@permission_required("departments", "edit")
+@permission_required("departments", "create")
 @signed_in_required
 def add_recipient(dept_id):
     data = validate_payload(DepartmentRecipientCreateSchema(), request.get_json(force=True) or {})
@@ -70,7 +70,7 @@ def add_recipient(dept_id):
 
 
 @bp.route("/recipients/<int:rec_id>", methods=["PUT"])
-@permission_required("departments", "edit")
+@permission_required("departments", "update")
 @signed_in_required
 def update_recipient(rec_id):
     data = validate_payload(DepartmentRecipientUpdateSchema(), request.get_json(force=True) or {})
@@ -78,7 +78,7 @@ def update_recipient(rec_id):
 
 
 @bp.route("/recipients/<int:rec_id>", methods=["DELETE"])
-@permission_required("departments", "edit")
+@permission_required("departments", "delete")
 @signed_in_required
 def delete_recipient(rec_id):
     return success_response(service.delete_recipient(rec_id), "Recipient removed")
@@ -94,7 +94,7 @@ def reorder_mail_status():
 
 
 @bp.route("/reorder-mail/send", methods=["POST"])
-@permission_required("departments", "edit")
+@permission_required("departments", "create")
 @signed_in_required
 def reorder_mail_send():
     """Send the reorder mail now (force): every flagged department with recipients

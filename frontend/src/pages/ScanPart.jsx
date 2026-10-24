@@ -82,6 +82,8 @@ import { can } from "../utils/permissions.js";
 // Search and Manual Entry are typed, so the scan audit records them as such.
 const TYPED = "MANUAL_ENTRY";
 const PRINT_ACTIONS = new Set(["PRINT_LABEL", "REPRINT_LABEL"]);
+// Scan Part actions that make something new (Create); the rest change (Edit).
+const CREATE_ACTIONS = new Set(["ISSUE", "RETURN", "RGP_OUT"]);
 const TIMELINE_PREVIEW = 6;
 
 // The mode this terminal last used. Storage can be unavailable (a private
@@ -186,11 +188,14 @@ export default function ScanPart() {
   // Rights: recording a movement needs Scan Part edit; a label may be printed
   // by anyone who may edit stock or the part master (the /barcode/print rule);
   // mapping a supplier barcode is its own right.
-  const canEdit = useCan("scan_part", "edit");
-  const canEditStock = useCan("store_stock", "edit");
-  const canEditMaster = useCan("part_master", "edit");
-  const canPrint = canEdit || canEditStock || canEditMaster;
-  const canMap = useCan("supplier_barcodes", "edit");
+  // CRUD (24 Oct 2026): an issue, return, RGP out or label is new (C); an
+  // inspection, RGP GRN / return, location or line update changes (E).
+  const canCreate = useCan("scan_part", "create");
+  const canUpdate = useCan("scan_part", "update");
+  const canPrintStock = useCan("store_stock", "create");
+  const canPrintMaster = useCan("part_master", "create");
+  const canPrint = canCreate || canPrintStock || canPrintMaster;
+  const canMap = useCan("supplier_barcodes", "create");
   const canWorkQueue = useCan("work_queue");
 
   const { ident, failure, resolving, resolve, openById, clear, clearFailure, scanQuery } = useScanWorkstation(storeCode);
@@ -221,8 +226,9 @@ export default function ScanPart() {
   }, [mode]);
 
   const allowed = useCallback(
-    (key) => key === "HISTORY" || (PRINT_ACTIONS.has(key) ? canPrint : canEdit),
-    [canEdit, canPrint]);
+    (key) => key === "HISTORY" || (PRINT_ACTIONS.has(key) ? canPrint
+      : CREATE_ACTIONS.has(key) ? canCreate : canUpdate),
+    [canCreate, canUpdate, canPrint]);
   const enabledKeys = useMemo(
     () => new Set((scan?.actions || []).filter((a) => a.enabled).map((a) => a.key)), [scan]);
   const canAct = useCallback((key) => enabledKeys.has(key) && allowed(key), [enabledKeys, allowed]);

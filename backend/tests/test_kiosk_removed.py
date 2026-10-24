@@ -178,7 +178,7 @@ def test_an_old_kiosk_login_opens_nothing_with_it(client):
     assert client.get(f"/api/v1/part-requests?store_code={STORE}").status_code == 404
     # Saved again (the admin form, the rights matrix), the unknown right drops off.
     old.set_permissions({"kiosk": {"view": True, "edit": True}, "reports": {"view": True, "edit": False}})
-    assert json.loads(old.permissions) == {"reports": {"view": True, "edit": False}}
+    assert json.loads(old.permissions) == {"reports": {"view": True, "create": False, "update": False, "delete": False}}
     db.session.rollback()
 
 

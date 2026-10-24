@@ -83,7 +83,7 @@ const TONES = {
 
 /**
  * failure   { code, result, message }
- * canMap    useCan("supplier_barcodes", "edit")
+ * canMap    useCan("supplier_barcodes", "create")
  * onMapped  called once a mapping is saved — the workstation re-resolves the
  *           same code, which now identifies the part (spec 6)
  */

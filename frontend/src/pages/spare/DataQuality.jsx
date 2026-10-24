@@ -128,8 +128,8 @@ function parseDraft(field, draft, row) {
 export default function DataQuality() {
   const { activeCode, activeStore, loading: storesLoading } = useStores();
   // PUT /parts/<id> takes the Part Master or the Data Quality edit right.
-  const canEditMaster = useCan("part_master", "edit");
-  const canEditQuality = useCan("data_quality", "edit");
+  const canEditMaster = useCan("part_master", "update");
+  const canEditQuality = useCan("data_quality", "update");
   const canEdit = canEditMaster || canEditQuality;
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();

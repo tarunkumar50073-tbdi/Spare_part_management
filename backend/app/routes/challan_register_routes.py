@@ -121,7 +121,7 @@ def supplier_options(part_id):
 
 
 @bp.route("", methods=["POST"])
-@permission_required(RIGHT, "edit")
+@permission_required(RIGHT, "create")
 def create():
     data = _body()
     out = service.create(_store_code(data.get("store_code") or ""), data, user=current_user())
@@ -130,7 +130,7 @@ def create():
 
 
 @bp.route("/refresh-grn", methods=["POST"])
-@permission_required(RIGHT, "edit")
+@permission_required(RIGHT, "update")
 def refresh_grn():
     data = _body()
     return success_response(service.refresh_from_erp(_store_code(data.get("store_code") or request.args.get(
@@ -144,19 +144,19 @@ def detail(pk):
 
 
 @bp.route("/<int:pk>", methods=["PATCH"])
-@permission_required(RIGHT, "edit")
+@permission_required(RIGHT, "update")
 def update(pk):
     return success_response(service.update(_row(pk).id, _body(), user=current_user()))
 
 
 @bp.route("/<int:pk>/cancel", methods=["POST"])
-@permission_required(RIGHT, "edit")
+@permission_required(RIGHT, "delete")
 def cancel(pk):
     return success_response(service.cancel(_row(pk).id, _body(), user=current_user()))
 
 
 @bp.route("/<int:pk>/invoices", methods=["POST"])
-@permission_required(RIGHT, "edit")
+@permission_required(RIGHT, "update")
 def link_invoice(pk):
     out = service.link_invoice(_row(pk).id, _body(), user=current_user())
     return success_response(out, message="Invoice already linked" if out.get("replayed") else "Invoice linked")
@@ -169,6 +169,6 @@ def grn_candidates(pk):
 
 
 @bp.route("/<int:pk>/invoices/<int:link_id>/grn", methods=["POST"])
-@permission_required(RIGHT, "edit")
+@permission_required(RIGHT, "update")
 def link_grn(pk, link_id):
     return success_response(service.link_grn(_row(pk).id, link_id, _body(), user=current_user()))

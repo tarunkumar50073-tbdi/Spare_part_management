@@ -159,7 +159,7 @@ export default function ActionConfirm({
           <ArrowLeft size={16} aria-hidden="true" />Back
         </button>
         {canSave === undefined
-          ? <Can mod="scan_part" edit fallback={locked}>{confirmButton}</Can>
+          ? <Can mod="scan_part" action="update" fallback={locked}>{confirmButton}</Can>
           : canSave ? confirmButton : locked}
       </div>
     </section>

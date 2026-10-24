@@ -37,7 +37,7 @@ def pending_count():
 # signed-in user could post rows into the store's Pending RGP report. The spare
 # store's own supplier rework lives on /spare-flow (spare_rgp_routes).
 @bp.route("", methods=["POST"])
-@permission_required("child_store", "edit")
+@permission_required("child_store", "create")
 def create_rgp():
     data = validate_payload(RGPCreateSchema(), request.get_json(force=True) or {})
     require_store_access(data.get("store_code") or "CHILD_PART")

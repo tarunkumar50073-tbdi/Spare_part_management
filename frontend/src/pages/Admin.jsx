@@ -10,6 +10,7 @@ import { adminService } from "../services/adminService.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useStores } from "../context/StoreContext.jsx";
 import { ROLE_TEMPLATES, TEMPLATE_HELP, isBlank, matchTemplate, templateFields } from "../lib/roleTemplates.js";
+import { CRUD, anyRight, withRight } from "../lib/rights.js";
 
 // The server's rule too (admin_service.MIN_PASSWORD_LEN): 8 since 24 Oct 2026.
 const MIN_PASSWORD_LEN = 8;
@@ -144,11 +145,8 @@ export default function Admin() {
 
   const setPerm = (key, action, val) =>
     setForm((f) => {
-      const entry = { ...(f.permissions[key] || { view: false, edit: false }) };
-      entry[action] = val;
-      if (action === "edit" && val) entry.view = true;       // edit implies view
-      if (action === "view" && !val) entry.edit = false;     // can't edit what you can't see
-      return { ...f, permissions: { ...f.permissions, [key]: entry } };
+      // A write brings Read; taking Read away takes every write with it.
+      return { ...f, permissions: { ...f.permissions, [key]: withRight(f.permissions[key], action, val) } };
     });
 
   const toggleStore = (code) =>
@@ -231,7 +229,7 @@ export default function Admin() {
     role: u.role, is_active: u.is_active, stores: u.stores || [], permissions: liveRights(u.permissions),
   });
 
-  const grantedCount = (perms) => Object.values(liveRights(perms)).filter((p) => p.view || p.edit).length;
+  const grantedCount = (perms) => Object.values(liveRights(perms)).filter(anyRight).length;
 
   if (!user?.is_admin) {
     return (
@@ -394,28 +392,36 @@ export default function Admin() {
                   </div>
                 )}
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Module rights — View lets them open it, Edit lets them change data</p>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+                    Module rights — R read only · C create / add new · E edit what exists · D delete / cancel
+                  </p>
                   <div className="rounded-lg border border-slate-200 dark:border-navy-800 overflow-hidden">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 bg-slate-50 dark:bg-navy-900/50">
                           <th className="px-3 py-2">Module</th>
-                          <th className="px-3 py-2 text-center w-20">View</th>
-                          <th className="px-3 py-2 text-center w-20">Edit</th>
+                          {CRUD.map((c) => (
+                            <th key={c.key} className="px-2 py-2 text-center w-14" title={`${c.label} — ${c.hint}`}>{c.short}</th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
                         {modules.map((m) => {
-                          const p = form.permissions[m.key] || { view: false, edit: false };
+                          const p = form.permissions[m.key] || {};
+                          const has = m.actions || ["view"];
                           return (
                             <tr key={m.key}>
                               <td className="px-3 py-2 text-slate-700 dark:text-slate-200">{m.label}</td>
-                              <td className="px-3 py-2 text-center">
-                                <input type="checkbox" checked={p.view} onChange={(e) => setPerm(m.key, "view", e.target.checked)} />
-                              </td>
-                              <td className="px-3 py-2 text-center">
-                                <input type="checkbox" checked={p.edit} onChange={(e) => setPerm(m.key, "edit", e.target.checked)} />
-                              </td>
+                              {CRUD.map((c) => (
+                                <td key={c.key} className="px-2 py-2 text-center">
+                                  {has.includes(c.key) ? (
+                                    <input type="checkbox" checked={Boolean(p[c.key])} title={`${c.label} — ${c.hint}`}
+                                      onChange={(e) => setPerm(m.key, c.key, e.target.checked)} />
+                                  ) : (
+                                    <span className="text-slate-300 dark:text-slate-600" title="This screen has no such action">—</span>
+                                  )}
+                                </td>
+                              ))}
                             </tr>
                           );
                         })}

@@ -21,17 +21,20 @@ import { FlowStepContext, inputCls, isStoreDepartment, useDepartments } from "./
  */
 export function FormShell({
   flow, verify, children, onCancel, onReview, reviewLabel = "Review", reviewIcon: ReviewIcon = ArrowRight,
-  blocked = false, editRight = null,
+  blocked = false, editRight = null, right = "update",
 }) {
   // Saving needs Scan Part edit — or the form's own right: the install update
   // saves with Confirm Installation edit too (the confirm endpoint accepts it),
   // so a Line User login is not shown "View only" with no Confirm button on the
   // one screen it is for (store's role templates, 17 Oct 2026). Both hooks always
   // run; with no editRight the second asks the same as the first.
-  const mayScan = useCan("scan_part", "edit");
-  const mayOwn = useCan(editRight?.mod || "scan_part", "edit");
+  // `right` is the form's CRUD action (24 Oct 2026): "create" for an issue,
+  // return or RGP out, "update" for the rest.
+  const mayScan = useCan("scan_part", right);
+  const mayOwn = useCan(editRight?.mod || "scan_part", right);
   const mayEdit = mayScan || mayOwn;
-  const rightText = editRight ? `the Scan Part or ${editRight.label} edit right` : "the Scan Part edit right";
+  const word = right === "create" ? "Create" : "Edit";
+  const rightText = editRight ? `the Scan Part or ${editRight.label} ${word} right` : `the Scan Part ${word} right`;
   // Tell the workstation's step indicator where the operator is. Through a
   // ref, so a parent passing a fresh arrow each render does not re-fire it.
   const onStep = useContext(FlowStepContext);

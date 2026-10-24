@@ -14,7 +14,7 @@ def list_notifications():
 
 
 @bp.route("/<int:notification_id>/resolve", methods=["POST"])
-@permission_required("child_store", "edit")
+@permission_required("child_store", "update")
 def resolve(notification_id):
     n = service.resolve(notification_id)
     return success_response(n.to_dict(), "Notification resolved")

@@ -67,7 +67,11 @@ function RoleSelect({ value, onChange, disabled }) {
 }
 
 export default function DepartmentMaster() {
-  const canEdit = useCan("departments", "edit");
+  const canEdit = useCan("departments", "update");   // E: change a department / person
+  // Rules of hooks: every useCan runs, then they are combined.
+  const canAdd = useCan("departments", "create");
+  const canRemove = useCan("departments", "delete");
+  const canAny = canAdd || canEdit || canRemove;
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -227,7 +231,7 @@ export default function DepartmentMaster() {
             )}
           </>
         )}
-        <Can mod="departments" edit>
+        <Can mod="departments" action="create">
           <button type="button" onClick={sendReorderNow} disabled={sending || totalPeople === 0}
             title="Send only the reorder list now, to every ticked department (To / Cc / Bcc as set below)"
             className="btn-primary !py-1.5 text-xs inline-flex items-center gap-1.5 ml-auto disabled:opacity-50">
@@ -242,7 +246,7 @@ export default function DepartmentMaster() {
         </p>
       </div>
 
-      {!canEdit && (
+      {!canAny && (
         <p className="text-[13px] text-amber-600 dark:text-amber-400">
           You are viewing this master read-only — an administrator can edit the recipients.
         </p>
@@ -298,7 +302,7 @@ export default function DepartmentMaster() {
                           <EmailInput value={rec.email} disabled={!canEdit}
                             onChange={(v) => patchPerson(r.id, rec.id, { email: v })}
                             onBlur={() => canEdit && savePerson(rec)} />
-                          <Can mod="departments" edit>
+                          <Can mod="departments" action="delete">
                             <button type="button" onClick={() => removePerson(r.id, rec.id)}
                               className="shrink-0 rounded-lg px-2.5 text-slate-400 hover:text-rose-500" title="Remove">✕</button>
                           </Can>
@@ -307,7 +311,7 @@ export default function DepartmentMaster() {
                       {r.recipients.length === 0 && (
                         <div className="text-xs text-slate-400">No people yet.</div>
                       )}
-                      <Can mod="departments" edit>
+                      <Can mod="departments" action="create">
                         <div className="flex items-stretch gap-2 max-w-3xl pt-0.5">
                           <RoleSelect value={r._draft.role || "TO"}
                             onChange={(v) => patchDraft(r.id, { role: v })} />
@@ -329,7 +333,7 @@ export default function DepartmentMaster() {
           </table>
         </div>
 
-        <Can mod="departments" edit>
+        <Can mod="departments" action="create">
           <div className="border-t border-slate-200 dark:border-navy-800 bg-slate-50 dark:bg-navy-900/50 px-4 py-3">
             <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Add a department</p>
             <div className="flex flex-col md:flex-row md:items-center gap-2">

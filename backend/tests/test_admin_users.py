@@ -18,7 +18,9 @@ def test_create_user_stores_visible_password_and_permissions():
     })
     assert out["username"] == "operator1"
     assert out["password"] == "pass12345"                       # admin can see it
-    assert out["permissions"]["store_stock"] == {"view": True, "edit": True}
+    # An old {view, edit} map is taken as every write the screen has (Store
+    # Stock: create + update, it has no delete) — CRUD since 24 Oct 2026.
+    assert out["permissions"]["store_stock"] == {"view": True, "create": True, "update": True, "delete": False}
     assert out["stores"] == ["MAINTENANCE"]
 
     user = User.query.filter_by(username="operator1").first()
@@ -53,7 +55,9 @@ def test_admin_role_has_every_permission():
     user = User.query.get(a["id"])
     assert user.can("part_master", "edit")
     assert user.can("admin", "edit")
-    assert user.get_permissions()["reports"] == {"view": True, "edit": True}
+    # Every action each screen has: Reports is read-only.
+    assert user.get_permissions()["reports"] == {"view": True, "create": False, "update": False, "delete": False}
+    assert user.get_permissions()["part_master"] == {"view": True, "create": True, "update": True, "delete": True}
 
 
 def test_cannot_delete_own_account():

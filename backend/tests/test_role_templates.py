@@ -39,7 +39,7 @@ from app.extensions import db
 from app.models.employee import Employee
 from app.models.part import Part
 from app.models.spare_stock import SpareStockLedger
-from app.models.user import PERMISSION_MODULES, ROLES, User
+from app.models.user import PERMISSION_MODULES, ROLES, User, MODULE_ACTIONS
 from app.services.spare_stock_service import SpareStockService
 
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -61,10 +61,16 @@ def _n():
     return _seq["n"]
 
 
+WRITES = ("create", "update", "delete")
+
+
 def _can(perms, mod, action="view"):
-    """The SPA's can() (utils/permissions.js) for a store user: edit implies view."""
+    """The SPA's can() (utils/permissions.js) for a store user: CRUD since 24
+    Oct 2026, any write brings view."""
     p = perms.get(mod) or {}
-    return bool(p.get("edit")) if action == "edit" else bool(p.get("view") or p.get("edit"))
+    if action == "view":
+        return bool(p.get("view") or any(p.get(a) for a in WRITES))
+    return bool(p.get(action))
 
 
 # ---- the definitions themselves ----------------------------------------------------------
@@ -84,8 +90,10 @@ def test_template_is_well_formed(key):
     assert t["permissions"], "a template grants something"
     for mod, p in t["permissions"].items():
         assert mod in modules, f"{key}: unknown module {mod}"
-        assert set(p) == {"view", "edit"} and all(isinstance(v, bool) for v in p.values())
-        assert p["view"], f"{key}.{mod}: edit without view, or a right that grants nothing"
+        assert set(p) == {"view", "create", "update", "delete"} and all(isinstance(v, bool) for v in p.values())
+        assert p["view"], f"{key}.{mod}: a write without read, or a right that grants nothing"
+        has = MODULE_ACTIONS.get(mod, ("view",))
+        assert all(a in has for a in WRITES if p[a]), f"{key}.{mod}: a right its screen does not have"
         assert mod in t["why"], f"{key}.{mod}: say which screen needs it"
     assert set(t["why"]) == set(t["permissions"])
     # Nobody made from a template is an administrator in disguise.
@@ -102,14 +110,14 @@ def test_narrow_templates_hold_only_their_one_screen():
 
 @pytest.mark.parametrize("key", ["manager", "live_board"])
 def test_view_only_templates_change_nothing(key):
-    assert not any(p["edit"] for p in TEMPLATES[key]["permissions"].values())
+    assert not any(p[a] for p in TEMPLATES[key]["permissions"].values() for a in WRITES)
 
 
 def test_supervisor_has_everything_staff_has():
     staff = TEMPLATES["store_staff"]["permissions"]
     sup = TEMPLATES["store_supervisor"]["permissions"]
     for mod, p in staff.items():
-        for action in ("view", "edit"):
+        for action in ("view",) + WRITES:
             if p[action]:
                 assert _can(sup, mod, action), (mod, action)
 

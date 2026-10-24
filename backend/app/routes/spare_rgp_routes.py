@@ -34,7 +34,7 @@ def _rgp(rgp_id):
 
 
 @bp.route("/returns/<int:return_id>/rgp-out", methods=["POST"])
-@permission_required("scan_part", "edit")
+@permission_required("scan_part", "create")
 def rgp_out(return_id):
     """RGP OUT - REWORK (spec 16): held / damaged returned material to a supplier."""
     ret = require_doc_store(db.session.get(SpareReturn, return_id), "Return")
@@ -55,7 +55,7 @@ def rgp_out(return_id):
 
 
 @bp.route("/rgps/<int:rgp_id>/supplier-return", methods=["POST"])
-@permission_required("scan_part", "edit")
+@permission_required("scan_part", "update")
 def supplier_return(rgp_id):
     """RGP RETURN (spec 18): the supplier brought it back — RGP GRN pending."""
     _rgp(rgp_id)
@@ -70,7 +70,7 @@ def supplier_return(rgp_id):
 
 
 @bp.route("/rgps/<int:rgp_id>/grn", methods=["POST"])
-@permission_required("scan_part", "edit")
+@permission_required("scan_part", "update")
 def rgp_grn(rgp_id):
     """RGP GRN (spec 18/19): the supervisor's ERP GRN no. puts it back in stock
     — in the part's rework bin when it keeps one (the message says which)."""
@@ -89,7 +89,7 @@ def rgp_grn(rgp_id):
 
 
 @bp.route("/rgps/<int:rgp_id>/cancel", methods=["POST"])
-@permission_required("scan_part", "edit")
+@permission_required("scan_part", "delete")
 def cancel_rgp(rgp_id):
     """Cancel an RGP raised by mistake (only before any supplier return)."""
     _rgp(rgp_id)

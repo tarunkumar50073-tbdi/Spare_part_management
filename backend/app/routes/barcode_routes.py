@@ -85,7 +85,7 @@ def resolve():
 
 
 @bp.route("/print", methods=["POST"])
-@permission_required(PRINT_MODULES, "edit")
+@permission_required(PRINT_MODULES, "create")
 def print_label():
     """Record a confirmed label print. `source` (how the part was identified)
     decides whether a reason is needed — see BarcodeService.record_print.
@@ -106,7 +106,7 @@ def print_label():
 
 
 @bp.route("/print-bulk", methods=["POST"])
-@permission_required(PRINT_MODULES, "edit")
+@permission_required(PRINT_MODULES, "create")
 def print_labels_bulk():
     """Record labels for up to 300 parts in one go (the stock list's bulk
     action, so the source is STORE_STOCK unless the caller says otherwise).
@@ -163,7 +163,7 @@ def scan_audit():
 
 
 @bp.route("/mapping", methods=["POST"])
-@permission_required("supplier_barcodes", "edit")
+@permission_required("supplier_barcodes", "create")
 def create_mapping():
     data = validate_payload(SupplierBarcodeMapSchema(), request.get_json(force=True) or {})
     _require_part_store(data["part_id"])
@@ -175,7 +175,7 @@ def create_mapping():
 
 
 @bp.route("/mapping/<int:mapping_id>/active", methods=["PUT"])
-@permission_required("supplier_barcodes", "edit")
+@permission_required("supplier_barcodes", "update")
 def set_mapping_active(mapping_id):
     # Same rule as every other part id here: the mapping's part must be in a
     # store the caller may act on, so a raw mapping id can't switch off another

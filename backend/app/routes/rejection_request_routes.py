@@ -82,13 +82,13 @@ def get_settings():
 
 
 @bp.route("/settings", methods=["PUT"])
-@permission_required(RIGHT, "edit")
+@permission_required(RIGHT, "update")
 def put_settings():
     return success_response(service.set_settings(_body(), user=current_user()), message="Mail settings saved")
 
 
 @bp.route("", methods=["POST"])
-@permission_required(RIGHT, "edit")
+@permission_required(RIGHT, "create")
 def create():
     data = _body()
     out = service.create(_store_code(data.get("store_code") or ""), data, user=current_user())
@@ -103,7 +103,7 @@ def detail(pk):
 
 
 @bp.route("/<int:pk>/mail", methods=["GET"])
-@permission_required(RIGHT, "edit")
+@permission_required(RIGHT, "update")
 def mail(pk):
     data, name = service.mail_draft(_row(pk).id, user=current_user())
     return send_file(io.BytesIO(data), as_attachment=True, download_name=name, mimetype="message/rfc822")

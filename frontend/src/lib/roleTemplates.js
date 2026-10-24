@@ -24,15 +24,16 @@ export const TEMPLATE_HELP =
 
 const copy = (obj) => JSON.parse(JSON.stringify(obj || {}));
 
-// A rights map reduced to what it allows: { module: "view" | "edit" }, modules
-// with nothing ticked left out. Edit implies view (as the grid and the server
-// treat it), so { view: false, edit: true } and { view: true, edit: true } read
-// the same, and an all-false entry the server kept reads as no entry.
+// A rights map reduced to what it allows: { module: "RCUD" flags }, modules
+// with nothing ticked left out. Any write brings view (as the grid and the
+// server treat it), and an all-false entry the server kept reads as no entry.
+const ACTIONS = ["view", "create", "update", "delete"];
 function levels(perms) {
   const out = {};
   Object.entries(perms || {}).forEach(([key, p]) => {
-    if (p?.edit) out[key] = "edit";
-    else if (p?.view) out[key] = "view";
+    const w = ACTIONS.slice(1).map((a) => Boolean(p?.[a]));
+    const v = Boolean(p?.view) || w.some(Boolean);
+    if (v) out[key] = [v, ...w].map((b) => (b ? "1" : "0")).join("");
   });
   return out;
 }

@@ -45,7 +45,7 @@ def get_return(return_id):
 
 
 @bp.route("/returns/<int:return_id>/inspect", methods=["POST"])
-@permission_required("scan_part", "edit")
+@permission_required("scan_part", "update")
 def inspect_return(return_id):
     """Spec 14 store inspection: {result, qty, from_bucket?, remarks?}. Only
     GOOD adds the quantity back to available stock."""

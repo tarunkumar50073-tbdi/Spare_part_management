@@ -143,7 +143,7 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
   };
 
   return (
-    <FormShell flow={flow} onCancel={onCancel} onReview={review} reviewLabel="Review issue" blocked={available <= 0}
+    <FormShell flow={flow} right="create" onCancel={onCancel} onReview={review} reviewLabel="Review issue" blocked={available <= 0}
       verify={
         <Facts items={[
           { label: "Part No.", value: part.part_no, strong: true },

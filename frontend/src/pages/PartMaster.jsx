@@ -77,7 +77,8 @@ export default function PartMaster() {
   const photoFor = useRef(null);
   // A camera shot being checked before Save: { part, file }.
   const [capture, setCapture] = useState(null);
-  const canEdit = useCan("part_master", "edit");
+  const canEdit = useCan("part_master", "update");     // E: edit a part, its photo
+  const canCreate = useCan("part_master", "create");   // C: Add Part
   const [counts, setCounts] = useState(null);
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
@@ -492,7 +493,7 @@ export default function PartMaster() {
               <Pencil size={16} />
             </button>
           </Can>
-          <Can mod="part_master" edit>
+          <Can mod="part_master" action="delete">
             <button onClick={() => handleDelete(r)} className="text-rose-500 hover:text-rose-700">
               <Trash2 size={16} />
             </button>
@@ -532,7 +533,7 @@ export default function PartMaster() {
           </Link>
           <ExcelActions
             addLabel="Add Part"
-            canEdit={canEdit}
+            canEdit={canCreate}
             onAddNew={openCreate}
             onExport={handleExport}
           />
