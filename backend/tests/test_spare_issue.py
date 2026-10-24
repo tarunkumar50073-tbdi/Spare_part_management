@@ -53,9 +53,11 @@ def client(app):
 @pytest.fixture()
 def owned():
     """A store of its own (IS<tag>) with one section, owned by the department
-    named like it — the consumer of its parts. Issues are typed "Store", the
-    store's own people, who only hand parts out. The department is removed and
-    the store switched off afterwards, so no other test's lists see them."""
+    named like it — the consumer of its parts. Issues are typed "Maintenance",
+    a department that owns no section here — the taker, not the consumer (the
+    store itself can no longer take an issue: 18 Oct 2026). The department is
+    removed and the store switched off afterwards, so no other test's lists see
+    them."""
     from app.models.department import Department
     from app.models.store import Section, Store
     tag = uuid.uuid4().hex[:6].upper()
@@ -141,10 +143,10 @@ def test_consumption_by_department_counts_the_consuming_department(owned):
     svc = SpareStockService()
     p = owned.part(); _set_physical(p.id, 50)
     loose = owned.part(in_section=False); _set_physical(loose.id, 10)
-    svc.issue(p.id, 7, "Store")
+    svc.issue(p.id, 7, "Maintenance")
     svc.issue(p.id, 2.5, "Tool Room")
-    svc.issue(loose.id, 3, "Store")
-    cancelled = svc.issue(p.id, 5, "Store")["issue"]["id"]
+    svc.issue(loose.id, 3, "Maintenance")
+    cancelled = svc.issue(p.id, 5, "Maintenance")["issue"]["id"]
     SpareStockLedger.query.filter_by(id=cancelled).update({"status": "CANCELLED"})
     db.session.commit()
 
@@ -152,7 +154,7 @@ def test_consumption_by_department_counts_the_consuming_department(owned):
     assert svc.consumption_by_department(owned.code) == split
     consumption = SpareDashboardService()._consumption(owned.code, None)
     assert consumption["by_department"] == split
-    assert not {"Store", "Tool Room"} & {d["name"] for d in consumption["this_month_by_department"]}
+    assert not {"Maintenance", "Tool Room"} & {d["name"] for d in consumption["this_month_by_department"]}
     sheet = load_workbook(svc.consumption_report_excel(owned.code))["By Department"]
     assert [tuple(r) for r in sheet.iter_rows(values_only=True)] == [
         ("Department", "Issued Qty"), (owned.dept, 9.5), ("No section", 3)]
@@ -530,8 +532,8 @@ def test_consumption_window_scopes_breakdowns_to_recent_days(owned):
     svc = SpareStockService()
     p = owned.part(); _set_physical(p.id, 50)
 
-    svc.issue(p.id, 3, "Store")   # recent — inside every window
-    svc.issue(p.id, 9, "Store")   # backdated below to fall outside a short window
+    svc.issue(p.id, 3, "Maintenance")   # recent — inside every window
+    svc.issue(p.id, 9, "Maintenance")   # backdated below to fall outside a short window
     old = (SpareStockLedger.query
            .filter_by(part_id=p.id, txn_type="ISSUE")
            .filter(SpareStockLedger.qty_delta == -9)
@@ -552,8 +554,8 @@ def test_consumption_date_range_scopes_to_the_calendar_window(owned):
     p = owned.part(); _set_physical(p.id, 100)
 
     window = ("2000-01-01", "2000-01-31")
-    svc.issue(p.id, 5, "Store")   # dated today — outside the Jan-2000 window
-    svc.issue(p.id, 8, "Store")   # backdated into the window below
+    svc.issue(p.id, 5, "Maintenance")   # dated today — outside the Jan-2000 window
+    svc.issue(p.id, 8, "Maintenance")   # backdated into the window below
     old = (SpareStockLedger.query
            .filter_by(part_id=p.id, txn_type="ISSUE")
            .filter(SpareStockLedger.qty_delta == -8)

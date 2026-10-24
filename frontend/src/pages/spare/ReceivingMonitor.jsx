@@ -376,7 +376,10 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
   const qc = useQueryClient();
   const confirm = useConfirm();
   const { openPart } = usePartDrawer();
-  const canAdd = useCan("store_stock", "edit");
+  // POST /erp-grn/post takes the Store Stock or the Receiving & GRN edit right.
+  const canAddStock = useCan("store_stock", "edit");
+  const canAddReceiving = useCan("receiving", "edit");
+  const canAdd = canAddStock || canAddReceiving;
   const { data, isPending, isError, error, refetch, isFetching } = useErpGrnPreview(code);
   const [posting, setPosting] = useState(false);
   const [result, setResult] = useState(null);

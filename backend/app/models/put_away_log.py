@@ -1,9 +1,11 @@
 """Put-away confirmation log for the spare store.
 
-On the Put-away Check screen a store supervisor scans a part's lot tag and then
-the bin's location QR; when the two match, "Confirm Put Away" records — here —
-that the material was physically shelved at that location: one row per
-confirmation, with the lot quantity, who did it, and when.
+On the Put-away Check screen a storeman types / searches the part no. and then
+scans the bin's location QR; when the two match, "Confirm Put Away" records —
+here — that the material was physically shelved at that location: one row per
+confirmation, with the lot quantity, who did it, and when. (Until 17 Oct 2026
+the part was scanned from its lot tag; the store had the lot tags taken out —
+paper waste — and older rows keep the gate entry no. their tag carried.)
 
 This is a record of the physical placement only. It does NOT move stock (the
 part already carries its location), and the ERP update follows later.
@@ -22,8 +24,9 @@ class PutAwayLog(BaseModel):
     # a confirmed put-away they match (the screen only offers Confirm on a match).
     assigned_location = db.Column(db.String(40), nullable=True)
     scanned_location = db.Column(db.String(40), nullable=True)
-    # From the scanned lot tag, when it was a lot tag: the gate entry no and the
-    # lot quantity summed for this part on that gate entry.
+    # The gate entry the lot came on — the part's latest ERP gate entry as the
+    # screen showed it (before 17 Oct 2026: the scanned lot tag's) — and the lot
+    # qty as confirmed: that entry's qty for the part, or what the storeman typed.
     gate_entry_no = db.Column(db.String(60), nullable=True)
     qty = db.Column(db.Numeric(14, 2), nullable=True)
     # Store scope the part belongs to (denormalised like other spare rows).

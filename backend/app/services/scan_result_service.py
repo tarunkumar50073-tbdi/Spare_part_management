@@ -19,7 +19,7 @@ and the quality clearance are done in ERP and only READ here
 what was added to stock, each carrying the mirror's freshness. The app records
 no receipt by hand any more. The part's barcodes (internal QR + mapped supplier
 codes) and the label count its newest ERP GRN suggests ride along, so Scan Part
-also covers supplier-barcode mapping and receive-and-label.
+also covers supplier-barcode mapping and the part's own QR label.
 
 Honest by construction: a bucket no document feeds is 0, an unknown is None,
 and a step the supervisor RECORDED here (the RGP GRN) is worded as recorded —
@@ -635,7 +635,7 @@ class ScanResultService:
             "primary_action": self._primary_action(actions),
             "label": label,
             # The part's internal QR and mapped supplier codes, and the label
-            # count the newest ERP GRN suggests (Receive & Label mode).
+            # count the newest ERP GRN suggests (Print Label for material in hand).
             "barcodes": self._barcodes(part),
             "label_qty_hint": self._label_qty_hint(erp_lines),
             "timeline": {"rows": history[:SCAN_TIMELINE_ROWS],
@@ -1052,9 +1052,9 @@ class ScanResultService:
 
     @staticmethod
     def _label_row(p):
-        """A label print. One printed for an ERP gate entry names the entry
-        (reference) and always gives its copies — the gate quantity they were
-        printed for."""
+        """A label print. One printed for an ERP gate entry (a lot tag, printed
+        until 17 Oct 2026) names the entry (reference) and always gives its
+        copies — the gate quantity they were printed for."""
         copies = int(p.copies or 1)
         title = "Label reprinted" if p.is_reprint else "Label printed"
         if p.reference:

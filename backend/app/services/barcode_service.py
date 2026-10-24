@@ -25,6 +25,7 @@ from app.repositories.part_repository import PartRepository
 from app.repositories.spare_stock_repository import SpareStockRepository
 from app.repositories.supplier_repository import SupplierRepository
 from app.services.spare_stock_service import SpareStockService
+from app.utils.bin_location import strip_scan_description
 from app.utils.db_tx import atomic
 from app.utils.exceptions import (
     BadRequestError, ConflictError, NotFoundError, ValidationError,
@@ -33,6 +34,19 @@ from app.utils.exceptions import (
 # An ERP stock snapshot older than this reads as STALE rather than SYNCED.
 # 24h suits the hourly ERP poller; a missed sync then shows honestly as stale.
 STALE_AFTER_HOURS = 24
+
+def scan_fields(code):
+    """The fields of a multi-field read, in order and without repeats: split on
+    | , ; # tab / newline and spaces; a field under 3 characters (a qty, a
+    unit) is dropped. A read with no separator is its one field. A supplier QR "CNTR3200|LOT-77|10" -> ["CNTR3200", "LOT-77"]."""
+    import re
+    out = []
+    for f in re.split(r"[|,;#\t\r\n ]+", code or ""):
+        f = f.strip()
+        if len(f) >= 3 and f not in out:
+            out.append(f)
+    return out
+
 
 # The longest code that can identify a part: the width of part_barcodes.code
 # (a mapped supplier barcode or the internal Part No.) and of
@@ -57,11 +71,10 @@ LABEL_DEFAULTS = {
     "show_description": True,
     "show_location": True,
     "description_max_chars": 48,
-    # Lot tag (the paper tag for an arrived lot): one tag per part per gate
-    # entry, showing the lot qty. Printed on its own larger paper (150 x 100 mm)
-    # rather than the small stock label above.
-    "lot_width_mm": 150,
-    "lot_height_mm": 100,
+    # (No lot tag size any more: the 150 x 100 mm gate-entry lot tag was taken
+    # out on 17 Oct 2026 — management said it wastes paper. A saved template
+    # that still holds lot_width_mm / lot_height_mm has them ignored, as any
+    # key not listed here.)
     # Bin location sheet (the permanent, laminated rack tag): one sheet per bin,
     # a row per part, printed at this face size. The default is the store's bin
     # face (130 x 90 mm); the frontend groups parts by rack location and
@@ -154,7 +167,8 @@ class BarcodeService:
 
         A failure raises with ``errors = {"result", "code"}``; result is one of
         UNKNOWN_BARCODE, INACTIVE_BARCODE, OTHER_STORE, INACTIVE_PART,
-        CODE_TOO_LONG, FAILED. ``code`` is the value as scanned (trimmed).
+        CODE_TOO_LONG, FAILED. ``code`` is the value as scanned (trimmed; a bin
+        sheet QR's " | description" cut off).
         """
         if scan_source not in SCAN_SOURCES:
             scan_source = "MANUAL_ENTRY"
@@ -167,6 +181,27 @@ class BarcodeService:
             self._audit("", "FAILED", scan_source, scan_mode, user, store_code)
             raise self._scan_failure(BadRequestError, "No code scanned", "FAILED", "")
 
+        # A bin sheet QR ends in " | description" since 17 Oct 2026 (the store: a
+        # scan should say what the part is); only the text before it names the
+        # part (utils/bin_location.strip_scan_description). It is cut off before
+        # the length check — the description can take a long Part No. + location
+        # past SCAN_CODE_MAX — unless the whole read is itself a mapped supplier
+        # code, which is used exactly as scanned, as always.
+        core = strip_scan_description(code)
+        if core != code and (len(code) > SCAN_CODE_MAX or self.pb_repo.get_by_code(code) is None):
+            code = core
+
+        # A supplier's QR usually carries its item code AMONG other fields — lot,
+        # qty, date — so the whole read differs lot to lot and a mapping of it
+        # would never match again (the store, 22 Oct 2026: "supplier k bar tag
+        # and qr tag bhi aaten h to unko bhi map karenge"). When the whole read
+        # names nothing, each of its fields is tried: an active mapping of the
+        # field, then a Part No. / Part.barcode equal to it.
+        if self.pb_repo.get_active_by_code(code) is None and self.part_repo.get_by_scan_code(code) is None:
+            hit = self._field_match(code)
+            if hit is not None:
+                code = hit
+
         if len(code) > SCAN_CODE_MAX:
             # Nothing this long can name a part: a Part No. or mapped barcode is
             # at most SCAN_CODE_MAX characters — typically this is a vendor QR
@@ -176,6 +211,14 @@ class BarcodeService:
             # has that width too, so the audit row keeps the first
             # SCAN_CODE_MAX characters; the answer echoes the whole read.
             self._audit(code[:SCAN_CODE_MAX], "UNKNOWN_BARCODE", scan_source, scan_mode, user, store_code)
+            fields = scan_fields(code)
+            if fields and fields != [code] and any(len(f) <= SCAN_CODE_MAX for f in fields):
+                # A multi-field supplier QR: its ITEM field can be mapped (Map to
+                # Part picks the field), and then every lot's QR resolves.
+                raise self._scan_failure(
+                    NotFoundError,
+                    "No part found for this supplier QR — map its item code to the part (Map to Part)",
+                    "UNKNOWN_BARCODE", code)
             raise self._scan_failure(
                 NotFoundError,
                 f"This code is {len(code)} characters long — a Part No. or mapped barcode is at "
@@ -216,6 +259,23 @@ class BarcodeService:
         payload["scan_id"] = audit.id
         payload.update(self._data_status(part))
         return payload
+
+    def _field_match(self, code):
+        """The one field of a multi-field read (a supplier QR: "ITEM|LOT|QTY",
+        "ITEM,QTY", tab- or space-separated) that names a part — an active
+        mapping first, then a Part No. / Part.barcode — or None. Two fields
+        naming DIFFERENT parts is no answer: guessing between them could pick
+        the wrong part."""
+        fields = scan_fields(code)
+        if not fields or fields == [code.strip()]:
+            return None                       # one field only: the whole read, already tried
+        found = {}
+        for f in fields:
+            mapping = self.pb_repo.get_active_by_code(f)
+            part = mapping.part if mapping else self.part_repo.get_by_scan_code(f)
+            if part is not None:
+                found.setdefault(part.id, f)
+        return next(iter(found.values())) if len(found) == 1 else None
 
     def _data_status(self, part):
         """Honest freshness of the stock figure shown — never fakes ERP data:

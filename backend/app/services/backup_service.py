@@ -25,6 +25,9 @@ its own, once a day.
   test copy); a second AUTOMATIC backup on the same day replaces that day's file.
   BACKUP_DIR names another folder instead: another drive, or a network share
   (\\\\server\\share\\... — opened in the form SQLite accepts, see _ro_uri).
+- The part photos (a folder of files, not rows — part_image_service) are
+  copied into <backup folder>/<database>_part_images after every good backup: new and
+  changed files only, and nothing there is ever deleted (mirror_part_images).
 - "Back up now" (Settings > System status) writes a file of its own,
   <database>_YYYY-MM-DD_HHMMSS_manual.db. It is the copy taken on the spot
   before a big change, so it must still be there after that night's automatic
@@ -441,6 +444,33 @@ def make_backup(db_path, folder=None, keep_days=DEFAULT_KEEP_DAYS, now=None,
     return result
 
 
+def mirror_part_images(source, folder):
+    """Copy the part photos (part_image_service) into <backup folder>/<their folder name>:
+    a file that is new or has changed size is copied, nothing is ever deleted
+    there, so a photo removed or replaced in the app still has its copy. Runs
+    after every good database backup. Never raises."""
+    out = {"copied": 0, "folder": None, "error": None}
+    try:
+        if not source or not os.path.isdir(source):
+            return out
+        dest = os.path.join(folder, os.path.basename(os.path.normpath(source)))
+        out["folder"] = dest
+        os.makedirs(dest, exist_ok=True)
+        for name in os.listdir(source):
+            src = os.path.join(source, name)
+            if not os.path.isfile(src) or name.endswith(".partial"):
+                continue
+            dst = os.path.join(dest, name)
+            if os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(src):
+                continue
+            shutil.copy2(src, dst)
+            out["copied"] += 1
+    except Exception as exc:  # noqa: BLE001 — the database backup is already good
+        out["error"] = f"{type(exc).__name__}: {exc}"
+        logger.exception("backup: copying the part photos failed")
+    return out
+
+
 def _folder_error(folder, exc):
     return f"Cannot read the backup folder {folder} ({type(exc).__name__}: {exc})"
 
@@ -488,6 +518,13 @@ class BackupService:
         finally:
             BackupService._lock.release()
         result.update(trigger=trigger, by=user)
+        if result["ok"]:
+            # The part photos are files, not rows: copied beside the database copy.
+            try:
+                from app.services.part_image_service import image_folder
+                result["photos"] = mirror_part_images(image_folder(), folder)
+            except Exception as exc:  # noqa: BLE001
+                result["photos"] = {"copied": 0, "folder": None, "error": f"{type(exc).__name__}: {exc}"}
         BackupService._last = result
         if result["ok"]:
             logger.info("backup (%s) saved %s, %s bytes, %ss; pruned %s", trigger, result["file"],

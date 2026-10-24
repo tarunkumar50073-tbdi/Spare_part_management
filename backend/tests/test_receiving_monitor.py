@@ -350,18 +350,21 @@ def _login(client, perms=None, stores=(STORE,)):
 URL = "/api/v1/receiving-monitor"
 
 
-def test_endpoint_needs_spare_store_view(client):
+def test_endpoint_needs_receiving_view(client):
     c = _login(client)
+    assert c.get(f"{URL}?store_code={STORE}").status_code == 403
+    # The dashboard's right no longer opens it: Receiving & GRN has its own (23 Oct 2026).
+    c = _login(client, perms={"spare_store": {"view": True}})
     assert c.get(f"{URL}?store_code={STORE}").status_code == 403
 
 
 def test_endpoint_refuses_a_foreign_store(client):
-    c = _login(client, perms={"spare_store": {"view": True}})
+    c = _login(client, perms={"receiving": {"view": True}})
     assert c.get(f"{URL}?store_code=CHILD_PART").status_code == 403
 
 
 def test_endpoint_ok_and_validates_input(client):
-    c = _login(client, perms={"spare_store": {"view": True}})
+    c = _login(client, perms={"receiving": {"view": True}})
     assert c.get(URL).status_code == 400
     assert c.get(f"{URL}?store_code={STORE}&days=0").status_code == 400
     assert c.get(f"{URL}?store_code={STORE}&days=abc").status_code == 400

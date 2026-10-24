@@ -163,6 +163,12 @@ def test_part_buckets_hold_exactly_the_parts_each_band_counts():
     aging = SpareManagementService().management(STORE, section_id=sec.id)["excess_aging"]
     pb = aging["part_buckets"]
     assert pb == {fresh.id: "0-30", mid.id: "31-90", unrated.id: "31-90", old.id: "91+", never.id: "none"}
+    # Each part's own wait since its last inward — the days the board's list shows.
+    ages = aging["part_ages"]
+    assert {pid: a["days"] for pid, a in ages.items()} == {
+        fresh.id: 5, mid.id: 60, unrated.id: 60, old.id: 120, never.id: None}
+    assert ages[old.id]["last_inward"] == (today - timedelta(days=120)).isoformat()
+    assert ages[old.id]["source"] == "GRN" and ages[never.id]["source"] is None
     # The board lists a band as these parts: the count and the rupees tie out.
     by = Counter(pb.values())
     rows = {r["part_id"]: r for r in SpareStockService().list_stock(STORE, sec.id)}
@@ -273,6 +279,8 @@ def test_scan_issue_and_put_away_lists_tie_out_to_the_scan_tiles():
 
     stock = SpareStockService()
     stock.set_quantity(part.id, 20, txn_type="OPENING")
+    # "kiosk_request": an issue made from a kiosk request before the kiosk went
+    # (17 Oct 2026) — bin-scanned, so it still lists as BY SCAN.
     for source in ("QR_SCAN", "kiosk_request", "ERP_SEARCH", None):
         stock.issue(part.id, 1, "Maintenance", user="tester", scan_source=source)
     _ledger(part, -1, "ISSUE", department="Maintenance", status="INSTALLED")         # no journal row

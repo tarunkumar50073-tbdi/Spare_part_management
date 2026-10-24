@@ -1,5 +1,12 @@
 """Kiosk part-request + its issuance link (QR-based issuance flow).
 
+NOTHING USES THIS TABLE ANY MORE. The kiosk and its Part Requisition queue were
+taken out on 17 Oct 2026 ("management k according manual detail fill karke
+issuance karna time waste h" — the store); parts are issued on Scan Part. The
+model stays so the part_requests table and the requests already in it are left
+exactly as they are (no schema change, no rows removed); no screen, report,
+alert or endpoint reads or writes them.
+
 The spare store is locked; a requester uses the kiosk OUTSIDE the store to ask
 for a part (employee + department + part + qty). The request lands here as
 PENDING and shows on the supervisor's screen. The supervisor scans the bin's

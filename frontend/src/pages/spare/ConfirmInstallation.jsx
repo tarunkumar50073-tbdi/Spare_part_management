@@ -28,8 +28,8 @@ import { fmtStamp, num } from "../../lib/format.js";
 // It is the one screen the install_confirm right opens — the user never sees
 // issue / receive / return.
 //
-// There is no per-part QR to re-scan (the store prints lot tags and bin sheets,
-// not a label per part), so both tabs are searchable LISTS, not a scanner: the
+// There is no per-part QR to re-scan (the store prints bin sheets, not a label
+// per part), so both tabs are searchable LISTS, not a scanner: the
 // fitter finds their part by part no / department / who it was issued to /
 // mobile (and, once installed, line / machine).
 //

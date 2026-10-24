@@ -16,12 +16,14 @@ from app.utils.response import error_response
 # Paths reachable without being signed in: the health probe (for monitoring),
 # and the auth endpoints themselves — you cannot require a session to create
 # one. /auth/me is here too because the SPA asks it on boot precisely to find
-# out whether it has a session.
+# out whether it has a session, and /auth/captcha draws the sign-in page's
+# Security Check code before anyone is signed in.
 _AUTH_EXEMPT_PATHS = {
     "/api/v1/health",
     "/api/v1/auth/login",
     "/api/v1/auth/logout",
     "/api/v1/auth/me",
+    "/api/v1/auth/captcha",
 }
 
 
@@ -131,7 +133,7 @@ def _register_gzip(app):
 
 def _register_security_headers(app):
     """Baseline hardening headers on every response: block cross-origin framing
-    (clickjacking of the kiosk / supervisor queue), stop MIME sniffing, and drop
+    (clickjacking of Scan Part / the Work Queue), stop MIME sniffing, and drop
     the referrer. These are framing/sniffing controls only, so they do not change
     how the SPA loads its own scripts/styles. A full script/style CSP is a
     separate, test-gated step and is intentionally NOT set here."""
@@ -228,6 +230,7 @@ def create_app(env_name=None):
         with app.app_context():
             db.create_all()
             _patch_schema()
+            _split_rights()
             # Portable (ORM + a plain UPDATE), so it runs on every dialect — not
             # from inside _patch_schema, which returns early on non-SQLite and so
             # would leave a fresh Postgres DB with no stores at all (audit
@@ -350,6 +353,19 @@ def _patch_schema():
     # Free-text specification (part-master Specification column) — searchable.
     if "specification" not in part_cols:
         db.session.execute(text("ALTER TABLE parts ADD COLUMN specification VARCHAR(255)"))
+        db.session.commit()
+
+    # The part's model no. and its one photo (file name in the part-images
+    # folder) — Part Master, 21 Oct 2026.
+    for col, kind in (("model_no", "VARCHAR(60)"), ("image_file", "VARCHAR(80)")):
+        if col not in part_cols:
+            db.session.execute(text(f"ALTER TABLE parts ADD COLUMN {col} {kind}"))
+            db.session.commit()
+
+    # Discontinued / not required any more (22 Oct 2026): kept with its stock,
+    # out of every to-order and missing-level figure.
+    if "discontinued" not in part_cols:
+        db.session.execute(text("ALTER TABLE parts ADD COLUMN discontinued BOOLEAN NOT NULL DEFAULT 0"))
         db.session.commit()
 
     # Reorder-mail recipient role: To / Cc / Bcc (older rows default to To).
@@ -572,6 +588,36 @@ def _rebuild_spare_ledger_if_check_stale(engine):
         return True
     finally:
         raw.close()
+
+
+def _split_rights():
+    """Hand every login saved before 23 Oct 2026 the rights of the screens that
+    got their own Rights Matrix column that day (models.user.SPLIT_RIGHTS): each
+    new right copies the view / edit of the right its screen used to open on, and
+    Notification Center — which had no right — becomes viewable by every login
+    of the Spare Parts Store. Once per database (an app setting marks it), so a
+    right an administrator later takes away is never handed back."""
+    from app.models.app_setting import AppSetting
+    from app.models.user import SPLIT_RIGHTS, User
+
+    mark = "rights_split_2026_10_23"
+    if AppSetting.get_value(mark):
+        return
+    for user in User.query.all():
+        if user.is_admin:
+            continue
+        perms = user.get_permissions()
+        spare_login = any(a.store_code == "MAINTENANCE" for a in user.store_access)
+        for new, old in SPLIT_RIGHTS.items():
+            if new in perms:
+                continue
+            if old is None:
+                if spare_login:
+                    perms[new] = {"view": True, "edit": False}
+            elif old in perms:
+                perms[new] = dict(perms[old])
+        user.set_permissions(perms)
+    AppSetting.set_value(mark, True)   # commits the users too
 
 
 def _seed_stores():

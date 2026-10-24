@@ -3,8 +3,10 @@ import TEMPLATES from "./roleTemplates.json";
 // Role templates for User Management (store's request of 17 Oct 2026: "template
 // bana de"). Making a login used to mean ticking a dozen View / Edit boxes and
 // the store access by hand; now the admin picks a type — Store Staff, Store
-// Supervisor, Line User, Kiosk device, Manager, Live Board — and its rights and
-// store access fall into place, and can still be changed box by box after.
+// Supervisor, Line User, Manager, Live Board — and its rights and store access
+// fall into place, and can still be changed box by box after. (A sixth, Kiosk
+// device, went with the kiosk on 17 Oct 2026; an old kiosk login now reads
+// "Custom".)
 //
 // A front-end convenience only: the user is saved exactly as before (role,
 // stores, per-module permissions), nothing records which template was used. The

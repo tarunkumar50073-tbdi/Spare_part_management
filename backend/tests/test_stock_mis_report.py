@@ -233,14 +233,17 @@ def test_caption_figures_round_like_the_cells():
 def test_summary_status_table_reconciles(wb):
     rows = _table(wb["Summary"], "Stock by status")
     assert list(rows) == ["Critical", "of which zero stock", "of which below minimum", "Reorder",
-                          "Excess (above maximum)", "Healthy", "Not counted", "Total"]
+                          "Excess (above maximum)", "Healthy", "Discontinued (not required)", "Not counted",
+                          "Total"]
     parts = {label: row["Parts"] for label, row in rows.items()}
     value = {label: row["Stock Value (₹)"] for label, row in rows.items()}
     assert parts == {"Critical": 3, "of which zero stock": 2, "of which below minimum": 1, "Reorder": 1,
-                     "Excess (above maximum)": 3, "Healthy": 3, "Not counted": 1, "Total": 11}
+                     "Excess (above maximum)": 3, "Healthy": 3, "Discontinued (not required)": 0,
+                     "Not counted": 1, "Total": 11}
     # MISA05 (no rate) and MISA07 (never counted) add parts but no value.
     assert value == {"Critical": 10, "of which zero stock": 0, "of which below minimum": 10, "Reorder": 30,
-                     "Excess (above maximum)": 3900, "Healthy": 142.5, "Not counted": 0, "Total": 4082.5}
+                     "Excess (above maximum)": 3900, "Healthy": 142.5, "Discontinued (not required)": 0,
+                     "Not counted": 0, "Total": 4082.5}
 
     # The total is the whole store; the two indented lines are inside Critical,
     # not on top of it.

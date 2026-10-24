@@ -406,11 +406,14 @@ function QueueSkeleton() {
 export default function WorkQueue() {
   const { openPart } = usePartDrawer();
   const canAct = useCan("scan_part", "edit");
-  const canViewReceiving = useCan("spare_store", "view");
-  // GET /erp-grn/preview is any-of (spare_store, store_stock) view. Each hook
-  // is called on every render, never inside a short-circuit.
+  const canViewReceiving = useCan("receiving", "view");
+  // GET /erp-grn/preview is any-of (spare_store, store_stock, receiving,
+  // work_queue) view. Each hook is called on every render, never inside a
+  // short-circuit.
   const canViewStock = useCan("store_stock", "view");
-  const canReadErpGrn = canViewReceiving || canViewStock;
+  // This page is the Work Queue right's own, which GET /erp-grn/preview takes too.
+  const canWorkQueue = useCan("work_queue", "view");
+  const canReadErpGrn = canViewReceiving || canViewStock || canWorkQueue;
   const now = useMinuteClock();
   const [params, setParams] = useSearchParams();
 

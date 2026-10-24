@@ -224,7 +224,7 @@ def _login(client, role="STORE_USER", perms=None, stores=(STORE,)):
 
 def test_endpoints_ok_bad_check_and_store_required(client, seeded):
     sec, p = seeded
-    _login(client, perms={"part_master": {"view": True}})
+    _login(client, perms={"data_quality": {"view": True}})
     r = client.get(f"/api/v1/data-quality?store_code={STORE}&section_id={sec.id}")
     assert r.status_code == 200
     body = r.get_json()["data"]
@@ -239,12 +239,12 @@ def test_endpoints_ok_bad_check_and_store_required(client, seeded):
     assert client.get("/api/v1/data-quality").status_code == 400
 
 
-def test_endpoints_need_part_master_and_store_access(client):
-    _login(client, perms={"spare_store": {"view": True}})          # no part_master right
+def test_endpoints_need_data_quality_and_store_access(client):
+    _login(client, perms={"part_master": {"view": True}})          # Part Master alone: Data Quality has its own right
     assert client.get(f"/api/v1/data-quality?store_code={STORE}").status_code == 403
     assert client.get(f"/api/v1/data-quality/parts?store_code={STORE}&check=missing_max").status_code == 403
 
-    _login(client, perms={"part_master": {"view": True}}, stores=())  # right, but not this store
+    _login(client, perms={"data_quality": {"view": True}}, stores=())  # right, but not this store
     assert client.get(f"/api/v1/data-quality?store_code={STORE}").status_code == 403
 
 

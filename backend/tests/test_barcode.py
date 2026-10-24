@@ -189,14 +189,14 @@ def test_blank_scan_is_failed_and_audited(client, blank):
 
 
 def test_over_long_code_is_audited_and_never_offered_for_mapping(client):
-    """A vendor QR that carries lot and qty is longer than any Part No. or mapped
-    barcode (80). It is a normal scan: audited (its first 80 characters, the
-    column's width) and answered as {result, code} with the whole read — as
-    CODE_TOO_LONG, not UNKNOWN_BARCODE, because "Map to Part" could never
-    store a code that long."""
+    """One unbroken read longer than any Part No. or mapped barcode (80) — two
+    labels in one burst — is a normal scan: audited (its first 80 characters,
+    the column's width) and answered as {result, code} with the whole read, as
+    CODE_TOO_LONG, not UNKNOWN_BARCODE, because "Map to Part" could never store
+    it."""
     user = _store_user()
     _login(client, user.id)
-    code = f"VQR{_next():05d}|LOT=L2609|QTY=1|".ljust(81, "9")
+    code = f"VQR{_next():05d}".ljust(81, "9")
     assert len(code) == 81
     r = _resolve(client, code, source="USB_SCANNER")
     assert r.status_code == 404
@@ -206,6 +206,32 @@ def test_over_long_code_is_audited_and_never_offered_for_mapping(client):
     row = ScanAudit.query.filter_by(user=user.username).one()
     assert (row.scanned_code, row.result, row.part_id, row.scan_source) == (
         code[:80], "UNKNOWN_BARCODE", None, "USB_SCANNER")
+
+
+def test_a_supplier_qr_with_lot_and_qty_is_mapped_by_its_item_code(client):
+    """A supplier QR carries its item code among lot / qty / date, so the whole
+    read differs lot to lot (the store, 22 Oct 2026: "supplier k bar tag and qr
+    tag bhi aaten h to unko bhi map karenge"). Unknown, even past 80
+    characters, it is offered for mapping; once its ITEM field is mapped, every
+    lot's QR resolves to the part. A field equal to a Part No. resolves too."""
+    _login(client, _admin().id)
+    part = _part()
+    item = f"VQR{_next():05d}"
+    lot1 = f"{item}|LOT=L2609|QTY=1|".ljust(81, "9")
+    r = _resolve(client, lot1, source="USB_SCANNER")
+    assert r.status_code == 404 and r.get_json()["errors"] == {"result": "UNKNOWN_BARCODE", "code": lot1}
+    assert client.post("/api/v1/barcode/mapping", json={"part_id": part.id, "code": item,
+                                                        "symbology": "OTHER"}).status_code in (200, 201)
+    for read in (lot1, f"{item}|LOT=L2702|QTY=40", f"{item},55,2026-10-22", f"{item}\tL9\t3"):
+        r = _resolve(client, read, source="USB_SCANNER")
+        assert r.status_code == 200, read
+        assert r.get_json()["data"]["part_no"] == part.part_no
+    other = _part()
+    r = _resolve(client, f"{other.part_no}|LOT=9|QTY=2")
+    assert r.status_code == 200 and r.get_json()["data"]["part_no"] == other.part_no
+    # Two fields naming two different parts: no guess.
+    r = _resolve(client, f"{item}|{other.part_no}")
+    assert r.status_code == 404
 
 
 def test_code_of_exactly_80_characters_still_resolves(client):

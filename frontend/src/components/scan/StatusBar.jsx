@@ -10,9 +10,11 @@ import { scanIcon } from "./scanIcons.js";
 // each keeps its OWN state here — a tick re-renders the few characters of the
 // clock, never the Scan Part page or a half-filled action form beneath it.
 
-// Issue | Receive & Lot Tag | Put-away Check — what the page does with a scan
-// (lib/scanStatus SCAN_MODE). `modes` are the ones this user may use. The page
-// owns the mode; `modes` and `onMode` must be stable (this strip is memoised).
+// Issue | Put-away Check — what the page does with a scan (lib/scanStatus
+// SCAN_MODE). `modes` are the ones this user may use. The page owns the mode;
+// `modes` and `onMode` must be stable (this strip is memoised). With the lot
+// tags gone (17 Oct 2026) a user without the Store Stock right has Issue only,
+// and a switch with one button is left out.
 function ModeSwitch({ mode, modes, onMode }) {
   return (
     <div role="group" aria-label="Scan mode — what a scan opens"
@@ -83,7 +85,7 @@ function StatusBar({ storeName, operator, mode, modes, onMode }) {
         <span className="truncate rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-navy-800 dark:text-slate-300">
           {storeName || "Spare Parts Store"}
         </span>
-        {onMode && <ModeSwitch mode={mode} modes={modes} onMode={onMode} />}
+        {onMode && modes?.length > 1 && <ModeSwitch mode={mode} modes={modes} onMode={onMode} />}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <NetworkChip />

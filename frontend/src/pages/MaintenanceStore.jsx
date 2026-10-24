@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { NO_ROWS, stockKeys, useSpareManagement, useStockList, useStockOverview } from "../lib/stockQueries.js";
-import { AttentionBoard, CRITICAL_STATUSES, ErpStatusStrip, HealthBar, ValuePanel } from "../components/spare/OverviewPanels.jsx";
+import { AttentionBoard, CRITICAL_STATUSES, HealthBar, ValuePanel } from "../components/spare/OverviewPanels.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { usePartDrawer } from "../context/PartDrawerContext.jsx";
 import { compactMoney, fmtDate, fmtStamp, money, num, parseServerTime } from "../lib/format.js";
@@ -270,6 +270,7 @@ const STOCK_STATUS_TONE = {
   "Above Maximum": "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
   "Healthy": "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
   "Not Counted": "bg-slate-100 text-slate-500 dark:bg-navy-800 dark:text-slate-400",
+  Discontinued: "bg-slate-200 text-slate-700 dark:bg-slate-600/40 dark:text-slate-200",
 };
 
 function StockStatus({ status }) {
@@ -557,7 +558,10 @@ function DrillDown({ drill, onClose }) {
   // under the chart on a phone otherwise). Only those drills — the short /
   // reorder / critical lists keep the layout they had before the Top 10 work.
   const stacked = Boolean(top10);
-  const openRow = (row) => { onClose(); if (drill.onRowClick) drill.onRowClick(row); };
+  // A part opens OVER this drill, which stays open underneath: closing the part
+  // (or its "← <list>" arrow) comes back here, Top 10 and search as they were
+  // (the store, 23 Oct 2026: "back button se wapis usi screen par aani chahiye").
+  const openRow = (row) => { if (drill.onRowClick) drill.onRowClick(row, { back: drill.title }); };
   const topKey = drill.exportName || drill.title;
   return createPortal(
     <div className={`fixed inset-0 z-50 flex flex-col gap-4 p-4 lg:p-6 bg-slate-50 dark:bg-navy-950 animate-[fadeIn_0.15s_ease-out] ${stacked ? "overflow-y-auto overflow-x-hidden xl:overflow-hidden" : "overflow-hidden"}`}>
@@ -618,8 +622,7 @@ function DrillDown({ drill, onClose }) {
               // (table-fixed with per-column widths; Description wraps, never clips).
               fill
               noScroll
-              // Opening a part closes this drill rather than stacking a dialog over it.
-              onRowClick={drill.onRowClick && ((row) => { onClose(); drill.onRowClick(row); })}
+              onRowClick={drill.onRowClick && openRow}
               searchable={rows.length > 10 ? "Search this list…" : false}
               pageSize={0}
               // A drill can be the whole store (4.8k rows) — window the long ones
@@ -893,6 +896,10 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   parts = [], stockRows = [], reorderPlanned = true, onReorderExport, sectionId, loading = false,
   sections = [], listLoading = false, sectionIds = null }) {
   const navigate = useNavigate();
+  // Receiving & GRN, the Work Queue and the Action Tracker each have a right of
+  // their own (23 Oct 2026): a tile or button opens them only for a login that
+  // holds it.
+  const { user } = useAuth();
   const kpi = overview?.kpis || null;
   // Store-wide figures (consumption, receiving) are quoted only on the true
   // whole-store view — not a single section, and not a section group either.
@@ -1325,8 +1332,9 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
                 .toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} shift · click any card to open its parts
             </p>
           </div>
-          <ErpStatusStrip erp={overview?.erp} quality={overview?.data_quality}
-            generatedAt={overview?.generated_at} onQuality={() => navigate("/parts")} />
+          {/* No ERP snapshot / write-back / master-data status strip here — the
+              store does not need that kind of information on its dashboard (23
+              Oct 2026: "is tarah ki information ki jarurat nhi"). */}
         </div>
         {/* Grouped like the reference board — Overview then Today / flow — so the
             eye reads a story, not a flat strip. These are SUMMARY + flow figures
@@ -1379,10 +1387,10 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
           <KpiCard featured tone="violet" label="GRN / Quality Pending" icon={ShieldCheck} loading={loading}
             value={receiving?.quality_pending ?? receiving?.total ?? 0}
             hint="Awaiting ERP quality clearance"
-            onClick={() => navigate("/receiving")} />
+            onClick={can(user, "receiving") ? () => navigate("/receiving") : undefined} />
           <KpiCard featured tone="amber" label="Pending Returns" icon={Repeat2}
             value={returnsTotal} loading={loading} hint="Sent back, not yet verified"
-            onClick={() => navigate("/work-queue")} />
+            onClick={can(user, "work_queue") ? () => navigate("/work-queue") : undefined} />
         </div>
       </section>
 
@@ -1459,10 +1467,12 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               <h3 className="section-title">Action Tracker</h3>
               <p className="section-hint">Each opens the parts behind it</p>
             </div>
+            {can(user, "action_tracker") && (
             <button type="button" onClick={() => navigate("/action-tracker")}
               className="inline-flex items-center gap-1 text-xs font-semibold text-toyotared hover:underline">
               Open full tracker <ArrowRight size={13} aria-hidden="true" />
             </button>
+            )}
           </div>
           {/* With nothing counted, every line that compares a quantity against
               Min/Max is empty by definition — four zeros beside "4,816 never
@@ -2025,8 +2035,8 @@ function GroupDetail({ groupName, sections }) {
       </div>
       <SpareDashboard
         stats={stats}
-        onPartClick={(p) => openPart(p.id)}
-        onStockClick={(row) => openPart(row.part_id)}
+        onPartClick={(p, how) => openPart(p.id, how)}
+        onStockClick={(row, how) => openPart(row.part_id, how)}
         overview={overview}
         parts={parts}
         stockRows={stockRows}
@@ -2066,8 +2076,8 @@ function SectionDetail({ section }) {
           section. */}
       <SpareDashboard
         stats={stats}
-        onPartClick={(p) => openPart(p.id)}
-        onStockClick={(row) => openPart(row.part_id)}
+        onPartClick={(p, how) => openPart(p.id, how)}
+        onStockClick={(row, how) => openPart(row.part_id, how)}
         overview={overview}
         parts={parts}
         stockRows={stockRows}
@@ -2143,8 +2153,8 @@ export default function MaintenanceStore() {
     <div className="space-y-8">
       <SpareDashboard
         stats={stats}
-        onPartClick={(p) => openPart(p.id)}
-        onStockClick={(row) => openPart(row.part_id)}
+        onPartClick={(p, how) => openPart(p.id, how)}
+        onStockClick={(row, how) => openPart(row.part_id, how)}
         overview={overview}
         parts={parts}
         stockRows={stockRows}

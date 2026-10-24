@@ -16,7 +16,8 @@ export const managementService = {
   // The rows behind one Live Board figure, read by that figure's own rule:
   // kind in | out (key = "YYYY-MM"), dept (key = the consuming department),
   // scans (all | scanned | scanned_ok | typed_ok | not_found), issues (all |
-  // scan | search | unrecorded), put_away (all | lot_tag). data = { rows,
+  // scan | search | unrecorded), put_away (all | lot_tag — the old name for
+  // "with an ERP gate entry"; no lot tags since 17 Oct 2026). data = { rows,
   // count, qty, value }.
   list: (storeCode, kind, key, sectionId, opts = {}) =>
     api.get("/dashboard/spare/management/list", { params: { store_code: storeCode, kind, key, section_id: sectionId ?? undefined }, ...opts }),

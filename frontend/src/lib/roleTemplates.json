@@ -1,11 +1,11 @@
 {
-  "about": "Ready-made rights for a new login, picked at the top of the User Management form (store's request of 17 Oct 2026: \"template bana de\" — one pick of a type and all its rights fall into place). The store approved the six types and their screens on 17 Oct 2026. Each right was checked against the screens the person uses and the endpoints those screens call; `why` says which. This one file is read by the User Management screen (lib/roleTemplates.js) and by the backend test (backend/tests/test_role_templates.py), which signs in as each template and calls those endpoints. Keys are backend/app/models/user.py PERMISSION_MODULES; edit always carries view (edit implies view).",
+  "about": "Ready-made rights for a new login, picked at the top of the User Management form (store's request of 17 Oct 2026: \"template bana de\" — one pick of a type and all its rights fall into place). The store approved the six types and their screens on 17 Oct 2026; the Kiosk device type went the same day with the kiosk itself (\"management k according manual detail fill karke issuance karna time waste h\"), leaving five. Each right was checked against the screens the person uses and the endpoints those screens call; `why` says which. This one file is read by the User Management screen (lib/roleTemplates.js) and by the backend test (backend/tests/test_role_templates.py), which signs in as each template and calls those endpoints. Keys are backend/app/models/user.py PERMISSION_MODULES; edit always carries view (edit implies view).",
   "templates": [
     {
       "key": "store_staff",
       "label": "Store Staff",
       "short": "Store Staff",
-      "description": "Issue, return and receive on Scan Part, stock count, put-away, Part Requisition, reports.",
+      "description": "Issue, return and receive on Scan Part, stock count, put-away, reports.",
       "role": "STORE_USER",
       "stores": ["MAINTENANCE"],
       "permissions": {
@@ -14,16 +14,32 @@
         "store_stock": { "view": true, "edit": true },
         "part_ledger": { "view": true, "edit": false },
         "employees": { "view": true, "edit": false },
-        "equipment": { "view": true, "edit": false },
-        "reports": { "view": true, "edit": false }
+        "reports": { "view": true, "edit": false },
+        "rejection_request": { "view": true, "edit": true },
+        "action_tracker": { "view": true, "edit": false },
+        "notifications": { "view": true, "edit": false },
+        "consumption": { "view": true, "edit": false },
+        "receiving": { "view": true, "edit": false },
+        "short_rejection": { "view": true, "edit": false },
+        "inventory_control": { "view": true, "edit": false },
+        "put_away_check": { "view": true, "edit": true },
+        "work_queue": { "view": true, "edit": true }
       },
       "why": {
-        "spare_store": "Spare Parts Store dashboard + sections, Receiving & GRN, Issuance Report, Consumption Report, Action Tracker (GET /dashboard/spare/overview + /management, /receiving-monitor, /consumption-analytics)",
-        "scan_part": "Scan Part (issue / return / move / lot tag), Part Requisition, Work Queue (POST /spare-stock/parts/:id/issue, /issues/:id/return, /gate-labels/print, GET + issue /part-requests)",
-        "store_stock": "Store Stock count + upload, Put-away Check, Critical · Reorder · Excess (PUT /spare-stock/parts/:id, POST /spare-stock/put-away/record, GET /inventory-control)",
+        "spare_store": "Spare Parts Store dashboard + sections (GET /dashboard/spare/overview + /management)",
+        "rejection_request": "Rejection Mail: the mail to RQC to punch an SRV / line rejection, as an Outlook draft (POST /rejection-requests, GET /:id/mail) — added 22 Oct 2026",
+        "scan_part": "Scan Part (issue / return / move / part QR label) (POST /spare-stock/parts/:id/issue, /issues/:id/return, /barcode/print); the Work Queue's actions",
+        "store_stock": "Store Stock count + upload (PUT /spare-stock/parts/:id)",
+        "action_tracker": "Action Tracker (GET /dashboard/spare/management) — its own right since 23 Oct 2026, like the seven below",
+        "notifications": "Notification Center: the store's live alerts, read only (GET /spare-alerts)",
+        "consumption": "Issuance & Consumption Report (GET /consumption-analytics)",
+        "receiving": "Receiving & GRN (GET /receiving-monitor, /erp-grn/preview); posting a GRN line to stock needs an edit right",
+        "short_rejection": "Short & Rejection (GET /short-rejection)",
+        "inventory_control": "Critical · Reorder · Excess (GET /inventory-control)",
+        "put_away_check": "Put-away Check, on its own and as Scan Part's mode (POST /spare-stock/put-away/record)",
+        "work_queue": "Work Queue (GET /spare-flow/queues, /erp-grn/preview)",
         "part_ledger": "Part Ledger screen (/spare-part-history)",
         "employees": "Employee Master, read only (GET /employees)",
-        "equipment": "Line / Machine / Die master, read only (GET /equipment)",
         "reports": "Reports (GET /reports/catalog, /reports/:key/:format)"
       }
     },
@@ -31,7 +47,7 @@
       "key": "store_supervisor",
       "label": "Store Supervisor",
       "short": "Store Supervisor",
-      "description": "Everything Store Staff does, plus Part Master, Department Emails, Scan Audit, Audit Trail, ERP vs Physical.",
+      "description": "Everything Store Staff does, plus Part Master, Department Emails, Scan Audit, Audit Trail, ERP vs Physical, Urgent Challan Register.",
       "role": "STORE_USER",
       "stores": ["MAINTENANCE"],
       "permissions": {
@@ -47,22 +63,44 @@
         "audit_trail": { "view": true, "edit": false },
         "erp_gap": { "view": true, "edit": false },
         "employees": { "view": true, "edit": true },
-        "equipment": { "view": true, "edit": true }
+        "challan_register": { "view": true, "edit": true },
+        "rejection_request": { "view": true, "edit": true },
+        "action_tracker": { "view": true, "edit": false },
+        "notifications": { "view": true, "edit": false },
+        "consumption": { "view": true, "edit": false },
+        "receiving": { "view": true, "edit": false },
+        "short_rejection": { "view": true, "edit": false },
+        "inventory_control": { "view": true, "edit": false },
+        "put_away_check": { "view": true, "edit": true },
+        "work_queue": { "view": true, "edit": true },
+        "data_quality": { "view": true, "edit": true },
+        "erp_control": { "view": true, "edit": false }
       },
       "why": {
         "spare_store": "as Store Staff",
+        "action_tracker": "as Store Staff",
+        "notifications": "as Store Staff",
+        "consumption": "as Store Staff",
+        "receiving": "as Store Staff",
+        "short_rejection": "as Store Staff",
+        "inventory_control": "as Store Staff",
+        "put_away_check": "as Store Staff",
+        "work_queue": "as Store Staff",
+        "data_quality": "Data Quality: the missing Max / Min / Rate / Location list and its quick fixes (GET /data-quality, PUT /parts/:id)",
+        "erp_control": "ERP Control Center (GET /erp-control/status); its ERP push needs the Store Stock edit right",
         "scan_part": "as Store Staff",
         "store_stock": "as Store Staff (also the ERP push on ERP Control Center and the ERP stock upload on ERP vs Physical)",
         "part_ledger": "as Store Staff",
         "reports": "as Store Staff",
-        "part_master": "Part Master + Data Quality (POST / PUT /parts, GET /data-quality)",
+        "part_master": "Part Master (POST / PUT /parts) with its Photo Mode (POST / DELETE /parts/:id/image), and the Line / Machine / Die master it keeps since 23 Oct 2026 (PUT /equipment/:id, POST /equipment/import)",
         "supplier_barcodes": "Scan Part's Barcodes panel and its unknown-code prompt: map a supplier's barcode to a part, e.g. one Scan Audit shows as unknown (POST /barcode/mapping)",
         "departments": "Department Emails (POST / PUT /departments, GET /departments/reorder-mail/status)",
         "scan_audit": "Scan Audit screen, open to this right since 17 Oct 2026 (was administrators only) (GET /barcode/scan-audit)",
         "audit_trail": "Audit Trail (GET /audit-logs)",
-        "erp_gap": "ERP vs Physical + ERP Control Center (GET /erp-control/status)",
+        "erp_gap": "ERP vs Physical (GET /spare-stock/erp-gap)",
         "employees": "Employee Master edit + Excel import (PUT /employees/:id, POST /employees/import)",
-        "equipment": "Line / Machine / Die master edit + import (PUT /equipment/:id, POST /equipment/import)"
+        "challan_register": "Urgent Challan Register: enter an urgent challan, link its invoice and GRN, cancel (GET / POST /challans, /challans/:id/invoices, /grn) — added 22 Oct 2026",
+        "rejection_request": "as Store Staff"
       }
     },
     {
@@ -80,20 +118,6 @@
       }
     },
     {
-      "key": "kiosk",
-      "label": "Kiosk device (outside the store)",
-      "short": "Kiosk",
-      "description": "Only the part request at the kiosk outside the store: find the part, pick the person, send.",
-      "role": "STORE_USER",
-      "stores": ["MAINTENANCE"],
-      "permissions": {
-        "kiosk": { "view": true, "edit": true }
-      },
-      "why": {
-        "kiosk": "Part Request kiosk (POST /part-requests); the person look-up on it (GET /employees/lookup, GET /employees) accepts this right too, so the kiosk is not given Employee Master or its Excel. With only this right, GET /employees answers just the active people whose mobile starts with the digits typed (at most 20), never the whole list. The part search (GET /spare-stock) needs only the store."
-      }
-    },
-    {
       "key": "manager",
       "label": "Manager",
       "short": "Manager",
@@ -107,16 +131,36 @@
         "erp_gap": { "view": true, "edit": false },
         "reports": { "view": true, "edit": false },
         "audit_trail": { "view": true, "edit": false },
-        "live_dashboard": { "view": true, "edit": false }
+        "live_dashboard": { "view": true, "edit": false },
+        "challan_register": { "view": true, "edit": false },
+        "rejection_request": { "view": true, "edit": false },
+        "action_tracker": { "view": true, "edit": false },
+        "notifications": { "view": true, "edit": false },
+        "consumption": { "view": true, "edit": false },
+        "receiving": { "view": true, "edit": false },
+        "short_rejection": { "view": true, "edit": false },
+        "inventory_control": { "view": true, "edit": false },
+        "put_away_check": { "view": true, "edit": false },
+        "erp_control": { "view": true, "edit": false }
       },
       "why": {
-        "spare_store": "Spare Parts Store dashboard + sections, Receiving & GRN, Issuance Report, Consumption Report, Action Tracker (read)",
-        "store_stock": "Store Stock list + Critical · Reorder · Excess (GET /inventory-control); view only, so no count, upload, put-away or ERP push",
+        "spare_store": "Spare Parts Store dashboard + sections (read)",
+        "store_stock": "Store Stock list; view only, so no count, upload or ERP push",
         "part_ledger": "Part Ledger screen",
-        "erp_gap": "ERP vs Physical + ERP Control Center (GET /erp-control/status)",
+        "erp_gap": "ERP vs Physical (GET /spare-stock/erp-gap)",
+        "action_tracker": "Action Tracker, read",
+        "notifications": "Notification Center, read",
+        "consumption": "Issuance & Consumption Report",
+        "receiving": "Receiving & GRN, read (no posting)",
+        "short_rejection": "Short & Rejection",
+        "inventory_control": "Critical · Reorder · Excess (GET /inventory-control)",
+        "put_away_check": "Put-away Check, view only: no put-away is recorded",
+        "erp_control": "ERP Control Center (GET /erp-control/status), no push",
         "reports": "Reports + their Excel / PDF downloads",
         "audit_trail": "Audit Trail (GET /audit-logs)",
-        "live_dashboard": "Live Board link in the sidebar (/live-dashboard)"
+        "live_dashboard": "Live Board link in the sidebar (/live-dashboard)",
+        "challan_register": "Urgent Challan Register, read only: tiles, ageing, list, history, Excel (GET /challans, /challans/dashboard)",
+        "rejection_request": "Rejection Mail, read only: the mails made (GET /rejection-requests)"
       }
     },
     {

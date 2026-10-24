@@ -1,15 +1,17 @@
 """Role templates for User Management (store's request of 17 Oct 2026:
 "template bana de" — one pick of a type and all its rights fall into place).
 
-The six types — Store Staff, Store Supervisor, Line User, Kiosk device, Manager,
-Live Board — are defined once, in frontend/src/lib/roleTemplates.json, which the
-User Management screen imports. This test reads the SAME file, so a template
-cannot drift away from what is proven here:
+The five types — Store Staff, Store Supervisor, Line User, Manager, Live Board —
+are defined once, in frontend/src/lib/roleTemplates.json, which the User
+Management screen imports. (A sixth, Kiosk device, went with the kiosk itself on
+17 Oct 2026: "management k according manual detail fill karke issuance karna
+time waste h" — the store.) This test reads the SAME file, so a template cannot
+drift away from what is proven here:
 
 * every right is a real module, edit carries view, and every template is a
   Store User of the Spare Parts Store; the narrow ones hold their one screen's
   right and nothing else (no scan_part / store_stock on the line user or the
-  kiosk), and the manager and the board hold no edit anywhere;
+  board), and the manager and the board hold no edit anywhere;
 * the screens each one opens — App.jsx's RequirePermission routes, judged the
   way the SPA's can() does — are the ones it is meant for, and none of them
   turns it away inside the page (an administrators-only check of its own, as
@@ -20,11 +22,11 @@ cannot drift away from what is proven here:
   call answer while those of screens it must not use are refused (403).
 
 "== 403" pins a refusal. An allowed write is either done for real on this file's
-own part (issue, count, put-away, kiosk request, install confirm) or — for a
+own part (issue, count, put-away, install confirm) or — for a
 master-data write — sent with an empty body, where anything but 401 / 403 (a 422 /
 400 for the missing fields) shows the right let it through without writing a thing.
-All of it runs on conftest's throwaway DB; the parts, people, requests and users
-made here are switched off afterwards.
+All of it runs on conftest's throwaway DB; the parts, people and users made
+here are switched off afterwards.
 """
 import json
 import pathlib
@@ -36,10 +38,8 @@ import pytest
 from app.extensions import db
 from app.models.employee import Employee
 from app.models.part import Part
-from app.models.part_request import PartRequest
 from app.models.spare_stock import SpareStockLedger
 from app.models.user import PERMISSION_MODULES, ROLES, User
-from app.services.part_request_service import PartRequestService
 from app.services.spare_stock_service import SpareStockService
 
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -69,8 +69,8 @@ def _can(perms, mod, action="view"):
 
 # ---- the definitions themselves ----------------------------------------------------------
 
-def test_the_six_templates_the_store_approved():
-    assert KEYS == ["store_staff", "store_supervisor", "line_user", "kiosk", "manager", "live_board"]
+def test_the_five_templates_the_store_keeps():
+    assert KEYS == ["store_staff", "store_supervisor", "line_user", "manager", "live_board"]
     for t in TEMPLATES.values():
         assert t["label"] and t["short"] and t["description"], t["key"]
 
@@ -94,9 +94,8 @@ def test_template_is_well_formed(key):
 
 def test_narrow_templates_hold_only_their_one_screen():
     assert set(TEMPLATES["line_user"]["permissions"]) == {"install_confirm"}
-    assert set(TEMPLATES["kiosk"]["permissions"]) == {"kiosk"}
     assert set(TEMPLATES["live_board"]["permissions"]) == {"live_dashboard"}
-    for key in ("line_user", "kiosk", "live_board"):
+    for key in ("line_user", "live_board"):
         perms = TEMPLATES[key]["permissions"]
         assert not _can(perms, "scan_part") and not _can(perms, "store_stock"), key
 
@@ -131,38 +130,37 @@ def _opens(key):
     return {path for path, mod, action in _gated_routes() if _can(perms, mod, action or "view")}
 
 
-WRITE_SCREENS = {"/scan-part", "/part-requests", "/work-queue", "/confirm-installation", "/kiosk",
+WRITE_SCREENS = {"/scan-part", "/work-queue", "/confirm-installation",
                  "/parts", "/data-quality", "/departments"}
 
 
-def test_line_user_kiosk_and_board_open_only_their_screen():
+def test_line_user_and_board_open_only_their_screen():
     assert _opens("line_user") == {"/confirm-installation"}
-    assert _opens("kiosk") == {"/kiosk"}
     assert _opens("live_board") == {"/live-dashboard"}
 
 
 def test_staff_screens():
     opens = _opens("store_staff")
-    assert {"/store/MAINTENANCE", "/scan-part", "/part-requests", "/work-queue", "/store-stock-spare",
+    assert {"/store/MAINTENANCE", "/scan-part", "/work-queue", "/store-stock-spare",
             "/put-away-check", "/inventory-control", "/spare-part-history", "/reports", "/employees",
-            "/equipment", "/receiving", "/consumption", "/action-tracker"} <= opens
-    assert not opens & {"/parts", "/data-quality", "/departments", "/scan-audit", "/audit-trail",
-                        "/spare-erp-gap", "/erp-control", "/kiosk", "/confirm-installation",
+            "/receiving", "/consumption", "/action-tracker", "/rejection-requests"} <= opens
+    assert not opens & {"/parts", "/equipment", "/data-quality", "/departments", "/scan-audit", "/audit-trail",
+                        "/spare-erp-gap", "/erp-control", "/confirm-installation",
                         "/live-dashboard"}
 
 
 def test_supervisor_screens():
     opens = _opens("store_supervisor")
-    assert _opens("store_staff") | {"/parts", "/data-quality", "/departments", "/scan-audit",
-                                    "/audit-trail", "/spare-erp-gap", "/erp-control"} == opens
-    assert not opens & {"/kiosk", "/confirm-installation", "/live-dashboard"}
+    assert _opens("store_staff") | {"/parts", "/equipment", "/part-photos", "/data-quality", "/departments", "/scan-audit",
+                                    "/audit-trail", "/spare-erp-gap", "/erp-control", "/challans"} == opens
+    assert not opens & {"/confirm-installation", "/live-dashboard"}
 
 
 def test_manager_sees_the_store_but_no_work_screen():
     opens = _opens("manager")
     assert {"/store/MAINTENANCE", "/store-stock-spare", "/inventory-control", "/spare-part-history",
             "/spare-erp-gap", "/erp-control", "/reports", "/audit-trail", "/live-dashboard",
-            "/receiving", "/consumption", "/action-tracker"} <= opens
+            "/receiving", "/consumption", "/action-tracker", "/challans", "/rejection-requests"} <= opens
     assert not opens & WRITE_SCREENS
 
 
@@ -204,19 +202,20 @@ def test_no_screen_a_template_opens_refuses_it_inside(key):
             assert not _ADMIN_GATE.search(src), f"{key}: {path} ({rel}) is administrators only inside the page"
 
 
-def test_the_only_ungated_store_menu_item_is_the_alert_list():
+def test_every_store_menu_item_names_a_right():
     """Every Spare Parts Store menu item and every Email & Notifications item
-    names a right or is administrators only — except Notification Center, which
-    every store login sees (the Line User too): the store's live alerts, read
-    only, the same list the top-bar bell shows, each "open" button offered only
-    when the login may open that screen (canOpenAction)."""
+    names a right or is administrators only. Notification Center used to be the
+    one exception — every store login saw it — until it got a right of its own
+    with the other newer screens (23 Oct 2026: "jo naye module bne h wo bhi add
+    kar right matrix me"). Its alerts still offer an "open" button only when the
+    login may open that screen (canOpenAction)."""
     side = _SIDEBAR.read_text(encoding="utf-8")
     block = (side[side.index("  MAINTENANCE: ["):side.index("const SYSTEM_GROUP")]
              + side[side.index("const EMAIL_GROUP"):side.index("const navFor")])
     items = re.findall(r'\{ to: "([^"]+)",([^}]*)\}', block)
     assert len(items) > 20, "Sidebar.jsx item pattern not found — update the test"
     ungated = {to for to, rest in items if "mod:" not in rest and "admin: true" not in rest}
-    assert ungated == {"/notifications"}
+    assert ungated == set()
     page = (_SRC / "pages" / "spare" / "NotificationCenter.jsx").read_text(encoding="utf-8")
     assert "canOpen={canOpenAction(user, a.action)}" in page
 
@@ -257,8 +256,6 @@ def world():
     yield {"part": part.id, "location": part.location, "person": person.id, "mobile": person.mobile,
            "issue": issue.id, "admin": admin.id, "made": made}
 
-    for r in PartRequest.query.filter_by(part_id=part.id, status="PENDING").all():
-        r.status = "CANCELLED"
     db.session.get(Part, part.id).is_active = False
     db.session.get(Employee, person.id).is_active = False
     for uid in made["users"]:
@@ -321,15 +318,17 @@ def _staff_allowed(w):
     return DASHBOARD + [
         ("get", _q("/api/v1/receiving-monitor"), None, "ok"),
         ("get", _q("/api/v1/consumption-analytics"), None, "ok"),
-        # Scan Part / Part Requisition / Work Queue
-        ("get", _q("/api/v1/part-requests"), None, "ok"),
+        # Scan Part / Work Queue
         ("get", f"/api/v1/spare-flow/parts/{w['part']}/scan-result", None, "ok"),
         ("get", f"/api/v1/employees/lookup?mobile={w['mobile']}", None, "ok"),
         ("get", "/api/v1/equipment?kind=LINE&active=1", None, "ok"),
         ("post", f"/api/v1/spare-stock/parts/{w['part']}/issue",
          {"qty": 1, "department": DEPT, "employee_id": w["person"]}, "ok"),
-        # Store Stock count, Put-away Check, Critical · Reorder · Excess
+        # Store Stock count, Put-away Check (the part picked, its latest gate
+        # entry's lot qty, the record), Critical · Reorder · Excess
         ("put", f"/api/v1/spare-stock/parts/{w['part']}", {"qty_on_hand": 12, "txn_type": "ADJUSTMENT"}, "ok"),
+        ("get", f"/api/v1/spare-stock/parts/{w['part']}", None, "ok"),
+        ("get", f"/api/v1/spare-stock/parts/{w['part']}/latest-lot", None, "ok"),
         ("post", "/api/v1/spare-stock/put-away/record",
          {"part_id": w["part"], "scanned_location": w["location"]}, "ok"),
         ("get", _q("/api/v1/inventory-control"), None, "ok"),
@@ -369,26 +368,14 @@ def _supervisor_extra(w, allowed):
 def test_store_staff_reaches_its_screens(client, world):
     c = _login_from_template(client, world, "store_staff")
     assert [s["code"] for s in c.get("/api/v1/stores").get_json()["data"]] == [STORE]
-    # A kiosk request waiting in Part Requisition, for the staff to issue.
-    req = PartRequestService().create(STORE, {"part_id": world["part"], "requested_qty": 1, "department": DEPT})
     _check(c, _staff_allowed(world) + [
-        # Scan Part: a return against the issue; Receive & Label's gate-entry
-        # labels (listed; a print with an empty body passes the right, stops at 422)
+        # Scan Part: a return against the issue; a part's own QR label (a print
+        # with an empty body passes the right, stops at 422). The gate-entry lot
+        # tags are gone since 17 Oct 2026 (test_lot_tag_removed).
         ("post", f"/api/v1/spare-stock/issues/{world['issue']}/return", {"qty": 1, "reason": "Not used"}, "ok"),
-        ("get", _q("/api/v1/gate-labels"), None, "ok"),
-        ("post", "/api/v1/gate-labels/print", {"store_code": STORE}, "passes"),
-        # Part Requisition: issue the kiosk's request from its bin
-        ("post", f"/api/v1/part-requests/{req['id']}/issue",
-         {"scanned_location": world["location"], "issued_qty": 1}, "ok"),
-    ], _supervisor_extra(world, allowed=False) + ADMIN_ONLY + [
-        ("post", "/api/v1/part-requests", {"store_code": STORE, "part_id": world["part"],
-                                           "requested_qty": 1, "department": DEPT}),   # the kiosk's
-    ])
-    row = db.session.get(PartRequest, req["id"])
-    db.session.refresh(row)
-    assert row.status == "ISSUED"
-    # Scan Part's people list (the issue / return forms) still reads the whole
-    # master — only a kiosk-only login is held to a number's first digits.
+        ("post", "/api/v1/barcode/print", {}, "passes"),
+    ], _supervisor_extra(world, allowed=False) + ADMIN_ONLY)
+    # Scan Part's people list (the issue / return forms) reads the whole master.
     people = c.get("/api/v1/employees?active=1").get_json()["data"]
     assert any(p["id"] == world["person"] for p in people)
 
@@ -397,9 +384,9 @@ def test_store_supervisor_reaches_its_screens(client, world):
     c = _login_from_template(client, world, "store_supervisor")
     _check(c, _staff_allowed(world) + _supervisor_extra(world, allowed=True) + [
         ("get", _q("/api/v1/barcode/scan-audit"), None, "ok"),        # as the Scan Audit page asks
+        ("get", _q("/api/v1/challans"), None, "ok"),                   # Urgent Challan Register
+        ("post", "/api/v1/challans", {"store_code": STORE}, "passes"),
     ], ADMIN_ONLY + [
-        ("post", "/api/v1/part-requests", {"store_code": STORE, "part_id": world["part"],
-                                           "requested_qty": 1, "department": DEPT}),
         ("get", "/api/v1/barcode/scan-audit?store_code=CHILD_PART", None),   # not one of its stores
     ])
 
@@ -415,7 +402,6 @@ def test_line_user_only_confirms_installation(client, world):
         ("post", f"/api/v1/spare-stock/issues/{world['issue']}/confirm",
          {"line_name": "Seat Track", "line_no": "L2", "machine": "MC-9"}, "ok"),
     ], [
-        ("get", _q("/api/v1/part-requests"), None),                          # Part Requisition
         ("post", f"/api/v1/spare-stock/parts/{world['part']}/issue", {"qty": 1, "department": DEPT}),
         ("post", f"/api/v1/spare-stock/issues/{world['issue']}/return", {}),
         ("put", f"/api/v1/spare-stock/parts/{world['part']}", {"qty_on_hand": 1}),   # stock count
@@ -431,45 +417,6 @@ def test_line_user_only_confirms_installation(client, world):
     assert row.machine == "MC-9" and row.confirmed_at is not None
 
 
-def test_kiosk_only_sends_a_request(client, world):
-    c = _login_from_template(client, world, "kiosk")
-    _check(c, [
-        ("get", _q("/api/v1/spare-stock"), None, "ok"),                       # the part search
-        ("get", "/api/v1/departments", None, "ok"),
-        ("get", f"/api/v1/employees/lookup?mobile={world['mobile']}", None, "ok"),
-        ("get", f"/api/v1/employees?q={world['mobile'][:4]}&active=1&limit=50", None, "ok"),
-        ("post", "/api/v1/part-requests", {"store_code": STORE, "part_id": world["part"], "requested_qty": 2,
-                                           "employee_id": world["person"], "department": DEPT}, "ok"),
-    ], [
-        ("get", _q("/api/v1/part-requests"), None),                           # the supervisor's queue
-        ("post", "/api/v1/employees", {"mobile": "6000000001", "name": "X", "department": DEPT}),
-        ("get", "/api/v1/employees/export", None),                           # Employee Master's Excel
-        ("post", f"/api/v1/spare-stock/parts/{world['part']}/issue", {"qty": 1, "department": DEPT}),
-        ("put", f"/api/v1/spare-stock/parts/{world['part']}", {"qty_on_hand": 1}),
-        ("get", _q("/api/v1/inventory-control"), None),
-        *[(m, u, b) for m, u, b, _ in DASHBOARD],
-        *ADMIN_ONLY,
-    ])
-    req = PartRequest.query.filter_by(part_id=world["part"]).one()
-    assert req.status == "PENDING" and float(req.requested_qty) == 2.0
-    assert _call(c, "post", f"/api/v1/part-requests/{req.id}/issue", {}).status_code == 403
-
-    # The person list answers the kiosk's type-ahead and no more: active people
-    # whose number STARTS with the digits typed, at most 20 — no digits, no one,
-    # so the device cannot read the Employee Master in one call.
-    def people(query):
-        resp = c.get(f"/api/v1/employees{query}")
-        assert resp.status_code == 200, resp.get_json()
-        return resp.get_json()["data"]
-
-    prefix = world["mobile"][:4]
-    found = people(f"?q={prefix}&active=1&limit=50")
-    assert any(p["id"] == world["person"] for p in found)
-    assert len(found) <= 20 and all(p["mobile"].startswith(prefix) and p["is_active"] for p in found)
-    assert people("?active=1") == [] and people("?q=&limit=500") == [] and people("?q=RT%20Person") == []
-    assert len(people("?q=6&limit=500")) <= 20
-
-
 def test_manager_sees_everything_and_changes_nothing(client, world):
     c = _login_from_template(client, world, "manager")
     _check(c, DASHBOARD + [
@@ -477,20 +424,23 @@ def test_manager_sees_everything_and_changes_nothing(client, world):
         ("get", _q("/api/v1/consumption-analytics"), None, "ok"),
         ("get", _q("/api/v1/inventory-control"), None, "ok"),
         ("get", _q("/api/v1/spare-stock"), None, "ok"),
+        # Put-away Check, view only: the part and its latest gate entry's lot qty
+        ("get", f"/api/v1/spare-stock/parts/{world['part']}/latest-lot", None, "ok"),
         ("get", f"/api/v1/spare-stock/parts/{world['part']}/history", None, "ok"),   # Part Ledger
         ("get", _q("/api/v1/erp-control/status"), None, "ok"),
         ("get", _q("/api/v1/spare-stock/erp-gap"), None, "ok"),
         ("get", _q("/api/v1/reports/catalog"), None, "ok"),
         ("get", "/api/v1/audit-logs", None, "ok"),
+        ("get", _q("/api/v1/challans"), None, "ok"),                   # Urgent Challan Register, read
     ], [
         ("put", f"/api/v1/spare-stock/parts/{world['part']}", {"qty_on_hand": 1}),
+        ("post", "/api/v1/challans", {"store_code": STORE}),
         ("post", "/api/v1/spare-stock/put-away/record", {"part_id": world["part"],
                                                          "scanned_location": world["location"]}),
         ("post", _q("/api/v1/spare-stock/erp-sync"), None),
         ("post", _q("/api/v1/spare-stock/import"), None),
         ("post", _q("/api/v1/erp-grn/post"), None),
         ("post", f"/api/v1/spare-stock/parts/{world['part']}/issue", {"qty": 1, "department": DEPT}),
-        ("get", _q("/api/v1/part-requests"), None),
         ("post", f"/api/v1/spare-stock/issues/{world['issue']}/confirm", {"machine": "MC-1"}),
         ("post", "/api/v1/parts", {}),
         ("post", "/api/v1/departments", {}),

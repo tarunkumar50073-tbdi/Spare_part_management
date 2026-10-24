@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import {
-  Check, ClipboardCheck, Eye, EyeOff, KeyRound, Pencil, ScanBarcode, ShieldCheck, Tablet, Trash2, Tv,
+  Check, ClipboardCheck, Eye, EyeOff, KeyRound, Pencil, ScanBarcode, ShieldCheck, Trash2, Tv,
   UserPlus, Wrench,
 } from "lucide-react";
 import Modal from "../components/Modal.jsx";
@@ -21,7 +21,6 @@ const TEMPLATE_ICONS = {
   store_staff: ScanBarcode,
   store_supervisor: ClipboardCheck,
   line_user: Wrench,
-  kiosk: Tablet,
   manager: Eye,
   live_board: Tv,
 };
@@ -212,12 +211,24 @@ export default function Admin() {
     }
   };
 
+  // Only rights for modules that still exist count. The server hands back the
+  // stored map as saved, so a login made before the kiosk went (17 Oct 2026:
+  // "management k according manual detail fill karke issuance karna time waste
+  // h") can still carry a "kiosk" key that opens nothing — counted, it showed one
+  // module too many and stopped the login matching its template. The key drops
+  // off on the server the next time the login is saved. Until the module list
+  // has loaded, the map is read as it is.
+  const moduleKeys = useMemo(() => new Set(modules.map((m) => m.key)), [modules]);
+  const liveRights = (perms) => (moduleKeys.size
+    ? Object.fromEntries(Object.entries(perms || {}).filter(([key]) => moduleKeys.has(key)))
+    : perms || {});
+
   const editUser = (u) => setForm({
     id: u.id, username: u.username, full_name: u.full_name || "", password: "",
-    role: u.role, is_active: u.is_active, stores: u.stores || [], permissions: u.permissions || {},
+    role: u.role, is_active: u.is_active, stores: u.stores || [], permissions: liveRights(u.permissions),
   });
 
-  const grantedCount = (perms) => Object.values(perms || {}).filter((p) => p.view || p.edit).length;
+  const grantedCount = (perms) => Object.values(liveRights(perms)).filter((p) => p.view || p.edit).length;
 
   if (!user?.is_admin) {
     return (
@@ -273,7 +284,7 @@ export default function Admin() {
                       </span>
                       {/* Which template the saved rights match (store, 17 Oct 2026). */}
                       {!u.is_admin && (() => {
-                        const t = matchTemplate(u);
+                        const t = matchTemplate({ ...u, permissions: liveRights(u.permissions) });
                         return (
                           <span className={`badge ${t ? "badge-info" : "badge-warning"}`}
                             title={t ? `Rights match the ${t.label} template` : "Rights differ from every template"}>

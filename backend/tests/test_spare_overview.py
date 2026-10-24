@@ -68,7 +68,8 @@ def test_overview_figures_for_a_section(seeded):
 
     health = {h["status"]: h for h in ov["health"]}
     assert [h["status"] for h in ov["health"]][:2] == ["Out of Stock", "Below Minimum"]
-    assert all(health[s]["count"] == 1 for s in health)
+    # One part in each status — none marked Discontinued (22 Oct 2026) here.
+    assert all(health[s]["count"] == (0 if s == "Discontinued" else 1) for s in health)
     assert health["Above Maximum"]["value"] == 1500.0
 
     att = {a["key"]: a for a in ov["attention"]}

@@ -23,15 +23,18 @@ import { compactMoney, money, num } from "../../lib/format.js";
 import { downloadXlsx } from "../../utils/excel.js";
 import { consumptionAnalyticsService } from "../../services/consumptionAnalyticsService.js";
 
-// The Consumption Report: what each department really used — counted for the
-// department that owns the part's section, returns netted against their issue.
-// Its own screen since 17 Oct 2026, when the store split the combined
-// Issuance & Consumption screen in two ("issuance and consumption ki report
-// alag alag chahiye") and asked for it simple ("ye thoda complicated ho gya,
-// thoda simple ho jisme dropdown me date wise, month wise, year wise etc.").
-// The layout, filters, table and downloads are the two reports' shared
-// ReportScreen; what only this report has is below the table: the comparison
-// charts, top 10, breakdowns and usage spikes, closed until asked for.
+// The Issuance & Consumption Report (/consumption): every issue from the
+// store, what came back and what each department really used — counted for
+// the department that owns the part's section, never the store, which only
+// hands parts out, returns netted against their issue. Split in two on 17 Oct
+// 2026 ("issuance and consumption ki report alag alag chahiye"), one report
+// again on 18 Oct 2026 when the store saw the two side by side ("issuance and
+// consumption report same dikh rhi h dono me differance nhi to ye kaam merge
+// me bhi ho sakta h" — the store); the old /issuance address lands here. Kept
+// simple ("ye thoda complicated ho gya, thoda simple ho jisme dropdown me date
+// wise, month wise, year wise etc."): the layout, filters, table and downloads
+// are ReportScreen's; below the table are the comparison charts, top 10,
+// breakdowns and usage spikes, closed until asked for.
 
 // Whether the charts are open, remembered on this browser: closed by default,
 // so the screen opens on the table the store comes for.
@@ -61,7 +64,7 @@ const span = (a, b) => (a === b ? day(a) : `${day(a, false)} – ${day(b)}`);
 
 export default function ConsumptionAnalytics() {
   return (
-    <ReportScreen report="consumption">
+    <ReportScreen>
       {(filters) => <Charts {...filters} />}
     </ReportScreen>
   );

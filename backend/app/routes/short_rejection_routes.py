@@ -1,18 +1,25 @@
 """Short & Rejection REST API (/api/v1/short-rejection).
 
-Read-only and store-scoped: what suppliers sent short and what quality rejected
+Read-only and store-scoped: what suppliers sent short, and what was rejected,
 on the ERP GRN lines of a store's parts, supplier-wise and line by line, with
 the days each has been pending (ShortRejectionService; the store, 17 Oct 2026:
 "taaki pta chale kis supplier ki rejection padi h kitne dino se and kis lot k
 against me reject hui"). The right is the Receiving & GRN screen's own
 (spare_store view): this is the same ERP GRN register, cut another way.
 
-GET ""          {summary, lines, totals, data_as_of, basis, window, filters, title}
-                store_code, from / to (the GRN date, YYYY-MM-DD; default the
-                last 90 days), supplier (code, or text in the code / name),
-                part_id
-GET /export     the same as ONE file: format=excel (sheets "Supplier-wise" and
-                "Lines") | pdf
+ONE kind per call, never mixed ("rejection and short mix nhi rhega na" — the
+store, 17 Oct 2026): kind = short | srv (SRV Rejection) | line (Line
+Rejection, not readable yet: available = false).
+
+GET ""          {kind, label, available, summary, lines, totals, data_as_of,
+                closures_known, basis, window, filters, title}
+                store_code, kind, period (30d | 90d | month | last_month |
+                this_fy | last_fy | custom, cut on the plant clock; default
+                90d), from / to (custom: the GRN date, YYYY-MM-DD), supplier
+                (code, or text in the code / name), part (text in the Part No /
+                description) or part_id
+GET /export     the same kind as ONE file: format=excel (sheets "Supplier-wise"
+                and "Lines") | pdf
 """
 from flask import Blueprint, request, send_file
 
@@ -35,21 +42,24 @@ def _store_code():
 
 def _filters():
     return {
+        "kind": request.args.get("kind"),
+        "period": request.args.get("period"),
         "date_from": request.args.get("from"),
         "date_to": request.args.get("to"),
         "supplier": request.args.get("supplier"),
+        "part": request.args.get("part"),
         "part_id": (request.args.get("part_id") or "").strip() or None,
     }
 
 
 @bp.route("", methods=["GET"])
-@permission_required("spare_store", "view")
+@permission_required("short_rejection", "view")
 def report():
     return success_response(service.report(_store_code(), **_filters()))
 
 
 @bp.route("/export", methods=["GET"])
-@permission_required("spare_store", "view")
+@permission_required("short_rejection", "view")
 def export():
     code = _store_code()
     buf, name, mimetype = service.export(code, request.args.get("format"), **_filters())

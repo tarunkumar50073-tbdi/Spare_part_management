@@ -42,6 +42,8 @@ def register_routes(app):
     from app.routes.erp_control_routes import bp as erp_control_bp
     from app.routes.receiving_monitor_routes import bp as receiving_monitor_bp
     from app.routes.short_rejection_routes import bp as short_rejection_bp
+    from app.routes.challan_register_routes import bp as challan_register_bp
+    from app.routes.rejection_request_routes import bp as rejection_request_bp
     from app.routes.inventory_control_routes import bp as inventory_control_bp
     from app.routes.consumption_analytics_routes import bp as consumption_analytics_bp
     from app.routes.data_quality_routes import bp as data_quality_bp
@@ -53,8 +55,6 @@ def register_routes(app):
     from app.routes.erp_grn_routes import bp as erp_grn_bp
     from app.routes.employee_routes import bp as employee_bp
     from app.routes.equipment_routes import bp as equipment_bp
-    from app.routes.gate_label_routes import bp as gate_label_bp
-    from app.routes.part_request_routes import bp as part_request_bp
     from app.routes.mail_engine_routes import bp as mail_engine_bp
 
     app.register_blueprint(supplier_bp)
@@ -97,6 +97,8 @@ def register_routes(app):
     app.register_blueprint(erp_control_bp)
     app.register_blueprint(receiving_monitor_bp)
     app.register_blueprint(short_rejection_bp)
+    app.register_blueprint(challan_register_bp)
+    app.register_blueprint(rejection_request_bp)
     app.register_blueprint(inventory_control_bp)
     app.register_blueprint(consumption_analytics_bp)
     app.register_blueprint(data_quality_bp)
@@ -108,8 +110,16 @@ def register_routes(app):
     app.register_blueprint(erp_grn_bp)
     app.register_blueprint(employee_bp)
     app.register_blueprint(equipment_bp)
-    app.register_blueprint(gate_label_bp)
-    app.register_blueprint(part_request_bp)
+    # No gate-label blueprint any more: the gate-entry lot tags were taken out on
+    # 17 Oct 2026 — management said they waste paper ("lot tag bhi kah rhe h ki
+    # paper wastage h use hta do") — so /api/v1/gate-labels answers 404. The
+    # label print history (label_print_audit, source GATE_ENTRY) and its rows
+    # stay as they are; single part labels still print through /barcode/print.
+    # No part-request blueprint any more: the kiosk request and the Part
+    # Requisition queue were taken out on 17 Oct 2026 ("management k according
+    # manual detail fill karke issuance karna time waste h" — the store), so
+    # /api/v1/part-requests answers 404. The part_requests table and its rows
+    # stay as they are; nothing reads or writes them.
     app.register_blueprint(mail_engine_bp)
 
     @app.route("/api/v1/health", methods=["GET"])

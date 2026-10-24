@@ -132,17 +132,18 @@ def test_unknown_store_is_404(client):
 
 
 def test_foreign_store_user_is_refused(client):
-    user = _user(stores=["CHILD_PART"], perms={"erp_gap": {"view": True, "edit": False}})
+    user = _user(stores=["CHILD_PART"], perms={"erp_control": {"view": True, "edit": False}})
     _login(client, user)
     assert client.get("/api/v1/erp-control/status?store_code=MAINTENANCE").status_code == 403
 
 
-def test_needs_erp_gap_permission(client, quiet_erp):
-    without = _user(stores=["MAINTENANCE"], perms={"store_stock": {"view": True, "edit": True}})
+def test_needs_erp_control_permission(client, quiet_erp):
+    # ERP vs Physical's right alone no longer opens it: it has its own (23 Oct 2026).
+    without = _user(stores=["MAINTENANCE"], perms={"erp_gap": {"view": True, "edit": True}})
     _login(client, without)
     assert client.get("/api/v1/erp-control/status?store_code=MAINTENANCE").status_code == 403
 
-    with_view = _user(stores=["MAINTENANCE"], perms={"erp_gap": {"view": True, "edit": False}})
+    with_view = _user(stores=["MAINTENANCE"], perms={"erp_control": {"view": True, "edit": False}})
     _login(client, with_view)
     assert client.get("/api/v1/erp-control/status?store_code=MAINTENANCE").status_code == 200
 

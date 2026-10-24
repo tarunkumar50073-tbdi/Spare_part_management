@@ -31,7 +31,8 @@ export const matchesGap = (row, gap) => {
 
 // Worst first — the order a status column sorts in.
 export const STATUS_RANK = {
-  "Out of Stock": 0, "Below Minimum": 1, "Reorder": 2, "Above Maximum": 3, "Healthy": 4, "Not Counted": 5,
+  "Out of Stock": 0, "Below Minimum": 1, "Reorder": 2, "Above Maximum": 3, "Healthy": 4, "Discontinued": 5,
+  "Not Counted": 6,
 };
 
 // A server timestamp's date in the plant's clock (the stamp is UTC — see

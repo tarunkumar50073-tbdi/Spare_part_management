@@ -24,8 +24,9 @@ service = EquipmentService()
 @bp.route("", methods=["GET"])
 # A line user confirming an installation picks the Line / Machine / Die here, so
 # install_confirm may read the list too (it still cannot add — that stays
-# scan_part / equipment edit; the floor can type a missing one as free text).
-@permission_required(("scan_part", "equipment", "install_confirm"), "view")
+# scan_part / part_master edit; the floor can type a missing one as free text).
+# The master itself is the Part Master right's since 23 Oct 2026.
+@permission_required(("scan_part", "part_master", "install_confirm"), "view")
 def list_equipment():
     """The install form loads its dropdowns from here (?kind=LINE/MACHINE/DIE)."""
     active = request.args.get("active")
@@ -38,7 +39,7 @@ def list_equipment():
 
 
 @bp.route("", methods=["POST"])
-@permission_required(("equipment", "scan_part"), "edit")
+@permission_required(("part_master", "scan_part"), "edit")
 def create_equipment():
     """Also the install form's quick-add for a line/machine/die not on the master."""
     data = validate_payload(EquipmentCreateSchema(), request.get_json(force=True) or {})
@@ -46,14 +47,14 @@ def create_equipment():
 
 
 @bp.route("/<int:eq_id>", methods=["PUT"])
-@permission_required("equipment", "edit")
+@permission_required("part_master", "edit")
 def update_equipment(eq_id):
     data = validate_payload(EquipmentUpdateSchema(), request.get_json(force=True) or {})
     return success_response(service.update(eq_id, data, user=username()), "Updated")
 
 
 @bp.route("/seed", methods=["POST"])
-@permission_required("equipment", "edit")
+@permission_required("part_master", "edit")
 def seed_equipment():
     """Populate the master from the distinct line/machine/die values already
     recorded on past installations. Idempotent — safe to run again later."""
@@ -62,21 +63,21 @@ def seed_equipment():
 
 
 @bp.route("/template", methods=["GET"])
-@permission_required("equipment", "view")
+@permission_required("part_master", "view")
 def template():
     return send_file(service.template(), mimetype=XLSX_MIME, as_attachment=True,
                      download_name="line_machine_die_template.xlsx")
 
 
 @bp.route("/export", methods=["GET"])
-@permission_required("equipment", "view")
+@permission_required("part_master", "view")
 def export():
     return send_file(service.export(), mimetype=XLSX_MIME, as_attachment=True,
                      download_name="line_machine_die_master.xlsx")
 
 
 @bp.route("/import", methods=["POST"])
-@permission_required("equipment", "edit")
+@permission_required("part_master", "edit")
 def import_equipment():
     file = request.files.get("file")
     if not file:

@@ -163,10 +163,10 @@ def test_alert_set_on_seeded_state(seeded):
 
 # The module right each screen's route asks for (App.jsx RequirePermission).
 ROUTE_MODULE = {
-    "/store-stock-spare": "store_stock", "/inventory-control": "store_stock",
-    "/scan-part": "scan_part", "/erp-control": "erp_gap",
-    "/data-quality": "part_master", "/receiving": "spare_store",
-    "/work-queue": "scan_part",
+    "/store-stock-spare": "store_stock", "/inventory-control": "inventory_control",
+    "/scan-part": "scan_part", "/erp-control": "erp_control",
+    "/data-quality": "data_quality", "/receiving": "receiving",
+    "/work-queue": "work_queue",
 }
 
 
@@ -216,7 +216,7 @@ def test_state_alerts_stale_snapshot_and_sync_error(store, monkeypatch):
     # Any store user reads this list: the driver error (ERP host / user) stays
     # on ERP Control.
     assert "10.1.2.3" not in str(err) and "erp_reader" not in str(err)
-    assert err["action"]["to"] == "/erp-control" and err["action"]["module"] == "erp_gap"
+    assert err["action"]["to"] == "/erp-control" and err["action"]["module"] == "erp_control"
 
     st = a["erp_snapshot_stale"]
     assert (st["severity"], st["count"], st["state"]) == ("warning", 1, "STALE")
@@ -351,7 +351,7 @@ def test_return_and_rgp_alerts(store):
 
     res = SpareAlertsService().alerts(s.code)
     a = _by_id(res)
-    work_queue = {"label": "Open Work Queue", "to": "/work-queue", "module": "scan_part"}
+    work_queue = {"label": "Open Work Queue", "to": "/work-queue", "module": "work_queue"}
 
     assert "receipts_pending" not in a and "erp_grn_quality_pending" not in a
 

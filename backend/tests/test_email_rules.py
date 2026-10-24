@@ -2555,7 +2555,7 @@ def test_a_target_date_moved_out_starts_the_chase_over(engine, tracker):
 def test_scheduled_reminder_run_happens_once_a_day_at_its_time(engine, tracker, monkeypatch):
     key, day = _line_key(), _day()
     _remind(key, hour=9, minute=30, repeat_every_days=1)
-    tracker(_item(key, "Kiosk requests open", target=(day - timedelta(days=1)).isoformat()))
+    tracker(_item(key, "Returns awaiting inspection", target=(day - timedelta(days=1)).isoformat()))
     assert rules.reminders_are_due(_at(day, 9, 29)) is False
     assert rules.run_due_reminders(engine, _at(day, 9, 29)) is None
     first = rules.run_due_reminders(engine, _at(day, 9, 30))
@@ -2836,7 +2836,10 @@ def test_short_rejection_rule_ships_off_with_no_one_to_mail(engine, grn_lines, s
     assert send.calls == []
 
 
-def test_short_rejection_mail_is_one_line_of_totals_with_the_workbook_attached(engine, grn_lines, send, monkeypatch):
+def test_short_rejection_mail_is_a_line_per_kind_with_each_kinds_workbook_attached(engine, grn_lines, send, monkeypatch):
+    """Short and SRV Rejection are never mixed ("rejection and short mix nhi
+    rhega na" — the store, 17 Oct 2026): a totals line each and a workbook
+    each, as the screen's two tabs download them."""
     day = _day()
     keyence, short, unrated = grn_lines(
         day,
@@ -2852,7 +2855,7 @@ def test_short_rejection_mail_is_one_line_of_totals_with_the_workbook_attached(e
                  "sent short or quality rejected, supplier-wise and line by line with the days pending.",
         "footer": ""}
 
-    # The preview is the same mail — without building the workbook.
+    # The preview is the same mail — without building the workbooks.
     with monkeypatch.context() as patch:
         patch.setattr(short_rejection_service, "workbook", lambda out: pytest.fail("a preview built the workbook"))
         preview = rules.preview_rule("short_rejection", _at(day, 10))
@@ -2867,34 +2870,44 @@ def test_short_rejection_mail_is_one_line_of_totals_with_the_workbook_attached(e
     html, text = row.body_html, row.body_text
     assert (html, text) == (preview["html"], preview["text"])
     synced = short_rejection_service.ShortRejectionService().report(
-        "MAINTENANCE", today=day)["data_as_of"]["synced_day"]
-    totals = ("3 GRN lines · 1 short (₹ 300) · 2 rejected (₹ 50,000) · 2 suppliers · oldest 40 days pending"
-              " · 1 without a rate, not valued")
+        "MAINTENANCE", "srv", today=day)["data_as_of"]["synced_day"]
+    short_line = "Short: 1 GRN line · 3 qty (₹ 300) · 1 supplier · oldest 5 days pending"
+    srv_line = ("SRV Rejection: 2 GRN lines · 3 qty (₹ 50,000) · 2 suppliers · oldest 40 days pending"
+                " · 1 without a rate, not valued")
     assert text == "\n\n".join([
         f"Dear Sir,\n\nPlease find attached the GRN lines of {store} of the last 90 days that a supplier sent "
         "short or quality rejected, supplier-wise and line by line with the days pending.",
-        totals,
-        f"ERP data up to {date.fromisoformat(synced):%d.%m.%Y}. Days pending are counted from the GRN date until "
-        "ERP tells the app the item is closed (a replacement or a debit note). ERP gives no closure yet, so every "
-        "line here counts as open.",
+        short_line,
+        srv_line,
+        f"ERP data up to {date.fromisoformat(synced):%d.%m.%Y}. Short: Days pending count from the GRN date until "
+        "ERP reports how the short is settled. SRV Rejection: Days pending count from the GRN date until "
+        "ERP reports the rejection invoice.",
         _SIGNATURE,                                       # the dashed line and the system note, once
     ])
-    assert f"<strong>{totals}</strong>" in html
+    assert f"<strong>{short_line}</strong>" in html and f"<strong>{srv_line}</strong>" in html
     _no_list_in(html, text, [keyence.part_no, short.part_no, unrated.part_no])
     assert html.endswith(f"{_SIGNATURE_HTML}</p></body></html>") and html.count(_SIGNATURE_HTML) == 1
 
-    # The attachment is the screen's own workbook, for the last 90 days.
-    stored = row.attachments[0]
+    # The attachments are the screen's own workbooks, one per kind, for the last 90 days.
     first = day - timedelta(days=89)
-    assert (stored.filename, stored.mime) == (f"Short & Rejection {first:%d.%m.%Y} to {day:%d.%m.%Y}.xlsx", _XLSX)
-    assert message["attachments"] == [{"filename": stored.filename, "size": len(stored.content)}]
-    book = load_workbook(io.BytesIO(stored.content))
-    assert book.sheetnames == ["Supplier-wise", "Lines"]
-    suppliers = [line[:2] for line in book["Supplier-wise"].iter_rows(min_row=2, max_row=4, values_only=True)]
+    dates = f"{first:%d.%m.%Y} to {day:%d.%m.%Y}"
+    stored = {a.filename: a for a in row.attachments}
+    assert sorted(stored) == [f"SRV Rejection {dates}.xlsx", f"Short {dates}.xlsx"]
+    assert all(a.mime == _XLSX for a in row.attachments)
+    assert sorted(message["attachments"], key=lambda a: a["filename"]) == [
+        {"filename": name, "size": len(stored[name].content)} for name in sorted(stored)]
+    short_book = load_workbook(io.BytesIO(stored[f"Short {dates}.xlsx"].content))
+    srv_book = load_workbook(io.BytesIO(stored[f"SRV Rejection {dates}.xlsx"].content))
+    assert short_book.sheetnames == srv_book.sheetnames == ["Supplier-wise", "Lines"]
+    suppliers = [line[:2] for line in srv_book["Supplier-wise"].iter_rows(min_row=2, max_row=4, values_only=True)]
     assert suppliers == [("VK-0016", "Keyence India"), ("VS-0013", "Sar Coating"), ("Total", "2 suppliers")]
-    head = [c.value for c in book["Lines"][1]]
-    listed = [line[head.index("Part No")] for line in book["Lines"].iter_rows(min_row=2, max_row=4, values_only=True)]
-    assert listed == [keyence.part_no, unrated.part_no, short.part_no]       # the longest pending first
+    head = [c.value for c in srv_book["Lines"][1]]
+    listed = [line[head.index("Part No")] for line in srv_book["Lines"].iter_rows(min_row=2, max_row=3, values_only=True)]
+    assert listed == [keyence.part_no, unrated.part_no]                      # the longest pending first
+    head = [c.value for c in short_book["Lines"][1]]
+    assert "Short Qty" in head and "Rejected Qty" not in head
+    shorts = [line[head.index("Part No")] for line in short_book["Lines"].iter_rows(min_row=2, max_row=2, values_only=True)]
+    assert shorts == [short.part_no]
     assert send.calls == []                                                  # queued, never sent by a test
 
 

@@ -267,19 +267,21 @@ def _login(client, perms=None, stores=(STORE,)):
     return client
 
 
-def test_endpoint_needs_store_stock_right(client):
-    c = _login(client)                                     # no store_stock right
+def test_endpoint_needs_inventory_control_right(client):
+    c = _login(client)                                     # no inventory_control right
+    assert c.get(f"/api/v1/inventory-control?store_code={STORE}").status_code == 403
+    c = _login(client, perms={"store_stock": {"view": True}})   # Store Stock alone: it has its own right now
     assert c.get(f"/api/v1/inventory-control?store_code={STORE}").status_code == 403
 
 
 def test_endpoint_refuses_a_foreign_store(client):
-    c = _login(client, perms={"store_stock": {"view": True}})
+    c = _login(client, perms={"inventory_control": {"view": True}})
     assert c.get("/api/v1/inventory-control?store_code=CHILD_PART").status_code == 403
 
 
 def test_endpoint_ok_and_needs_store(client, seeded):
     sec, p = seeded
-    c = _login(client, perms={"store_stock": {"view": True}})
+    c = _login(client, perms={"inventory_control": {"view": True}})
     assert c.get("/api/v1/inventory-control").status_code == 400
     r = c.get(f"/api/v1/inventory-control?store_code={STORE}&section_id={sec.id}")
     assert r.status_code == 200

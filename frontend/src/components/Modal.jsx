@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef } from "react";
-import { X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 
 // `full` is for a list you are meant to read rather than glance at — a drill
 // -down of 481 parts across eight columns has nowhere to go in 768px.
@@ -18,14 +18,25 @@ export default function Modal({
   open, onClose, title, children, footer, size = "md",
   // "dialog" (centred, the default) or "drawer" (right-hand slide-over).
   variant = "dialog",
+  // A Back arrow before the title, for a dialog opened over a list it came
+  // from (the part drawer over a dashboard drill): `backLabel` names that list.
+  onBack, backLabel,
 }) {
   const panelRef = useRef(null);
   const titleId = useId();
   const drawer = variant === "drawer";
+  // The latest onClose, read when Escape is pressed. Callers pass a new
+  // arrow every render (onClose={() => setForm(null)}); with onClose in the
+  // effect's dependencies, every keystroke in a form re-ran the effect — focus
+  // jumped back to the panel and the cursor left the field after each letter
+  // (Add user, 21 Oct 2026: "1-1 word likhna pad rha h cursor hat jaata h").
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // Accessibility: on open, move focus into the dialog and remember where it
   // was so it can be restored on close; trap Tab within the panel; close on
   // Escape; and lock background scroll. (Audit: Modal had none of these.)
+  // Runs once per opening — never again while the dialog stays open.
   useEffect(() => {
     if (!open) return undefined;
     const prevActive = document.activeElement;
@@ -35,7 +46,7 @@ export default function Modal({
 
     const onKey = (e) => {
       if (openStack[openStack.length - 1] !== titleId) return;   // not the top dialog
-      if (e.key === "Escape") { onClose?.(); return; }
+      if (e.key === "Escape") { onCloseRef.current?.(); return; }
       if (e.key === "Tab" && panel) {
         const items = Array.from(panel.querySelectorAll(FOCUSABLE)).filter((el) => el.offsetParent !== null);
         if (!items.length) { e.preventDefault(); panel.focus(); return; }
@@ -58,12 +69,24 @@ export default function Modal({
       document.body.style.overflow = prevOverflow;
       if (prevActive && prevActive.focus) prevActive.focus();
     };
-  }, [open, onClose, titleId]);
+  }, [open, titleId]);
 
   if (!open) return null;
   const header = (
     <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-navy-800 sticky top-0 z-10 bg-white dark:bg-navy-900">
-      <h3 id={titleId} className="min-w-0 truncate font-semibold text-slate-800 dark:text-white">{title}</h3>
+      <div className="flex min-w-0 items-center gap-2">
+        {onBack && (
+          <button type="button" onClick={onBack} title={backLabel ? `Back to ${backLabel}` : "Back"}
+            aria-label={backLabel ? `Back to ${backLabel}` : "Back"}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[13px] font-semibold text-slate-600
+              hover:bg-slate-200 hover:text-toyotared focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/40
+              dark:bg-navy-800 dark:text-slate-200 dark:hover:bg-navy-700">
+            <ArrowLeft size={16} aria-hidden="true" className="shrink-0" />
+            {backLabel && <span className="hidden max-w-[10rem] truncate sm:inline">{backLabel}</span>}
+          </button>
+        )}
+        <h3 id={titleId} className="min-w-0 truncate font-semibold text-slate-800 dark:text-white">{title}</h3>
+      </div>
       <button
         onClick={onClose}
         aria-label="Close"

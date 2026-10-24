@@ -55,7 +55,7 @@ def overview():
 
 @bp.route("/management", methods=["GET"])
 # Read by the store dashboard and the wallboard alike, so gated like the overview.
-@permission_required(("spare_store", "live_dashboard"), "view")
+@permission_required(("spare_store", "live_dashboard", "action_tracker"), "view")
 def management():
     code = request.args.get("store_code")
     if not code:
@@ -68,7 +68,7 @@ def management():
 
 @bp.route("/management/list", methods=["GET"])
 # The Live Board's drill behind a figure — read by the wallboard login too.
-@permission_required(("spare_store", "live_dashboard"), "view")
+@permission_required(("spare_store", "live_dashboard", "action_tracker"), "view")
 def management_list():
     """The rows behind one figure of the Live Board (In / Out bar of a month,
     a department's issues this month, the scan-discipline tiles), read by the

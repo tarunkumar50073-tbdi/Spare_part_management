@@ -6,8 +6,13 @@ import { num } from "../../lib/format.js";
 // Type-ahead over the store's parts — Part No., description, reference code or
 // rack location. It reads the shared cached stock list (lib/stockQueries), the
 // same copy the dashboard and Ctrl+K use, so searching costs no request once the
-// app has loaded it. Used by the Scan Part "Search Part No." tab and by "Map to
-// Part" (choosing the part a supplier barcode belongs to).
+// app has loaded it. Used by the Scan Part "Search Part No." tab, by "Map to
+// Part" (choosing the part a supplier barcode belongs to) and by Put-away Check.
+//
+// onSubmitText(text) — optional: Enter on a text that lists no part hands the
+// text over instead of doing nothing. Put-away Check uses it so a gun read in
+// the box (a bin sheet QR "PART LOCATION | description", an old lot tag "GATE
+// PART") is still resolved by the server. Resolve false to keep the text.
 const MAX_RESULTS = 20;
 
 // Best match first: the exact Part No., then Part Nos. that start with the text,
@@ -21,7 +26,7 @@ function rank(p, q) {
 }
 
 export default function PartSearch({
-  storeCode, onPick, busy = false, autoFocus = true, clearOnPick = true,
+  storeCode, onPick, onSubmitText, busy = false, autoFocus = true, clearOnPick = true,
   placeholder = "Part No., description, spec or location…", label = "Search part",
 }) {
   const [query, setQuery] = useState("");
@@ -63,10 +68,20 @@ export default function PartSearch({
     if (clearOnPick && went !== false) setQuery("");
   };
 
+  const submitText = async (text) => {
+    if (!text || busy) return;
+    const went = await onSubmitText(text);
+    if (clearOnPick && went !== false) setQuery("");
+  };
+
   const onKeyDown = (e) => {
     if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => Math.min(i + 1, Math.max(results.length - 1, 0))); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)); }
-    else if (e.key === "Enter") { e.preventDefault(); pick(results[active]); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      if (results.length || !onSubmitText) pick(results[active]);
+      else submitText(query.trim());
+    }
     else if (e.key === "Escape") { setQuery(""); }
   };
 

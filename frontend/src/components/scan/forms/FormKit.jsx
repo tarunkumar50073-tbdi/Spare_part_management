@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useRef } from "react";
 import { ArrowRight, CircleAlert, Info, Lock, TriangleAlert } from "lucide-react";
 import ActionConfirm, { StepLabel } from "../ActionConfirm.jsx";
 import { useCan } from "../../Can.jsx";
-import { FlowStepContext, inputCls, useDepartments } from "./flow.js";
+import { FlowStepContext, inputCls, isStoreDepartment, useDepartments } from "./flow.js";
 
 // The visual building blocks shared by every Scan Part action form
 // (components/scan/forms; the state machine and helpers are in flow.js).
@@ -237,9 +237,12 @@ export function GoneNote() {
 
 // ---- masters ------------------------------------------------------------------
 
-/** Department <select> fed by the master — never a free-typed department. */
-export function DepartmentSelect({ id, value, onChange, error }) {
+/** Department <select> fed by the master — never a free-typed department.
+ *  `noStore` leaves the store's own department out: an issue is for the
+ *  department the part goes to, never the store that hands it out. */
+export function DepartmentSelect({ id, value, onChange, error, noStore = false }) {
   const { data, isPending, isError, refetch } = useDepartments();
+  const shown = (data || []).filter((d) => !noStore || !isStoreDepartment(d.name));
   if (isError) {
     return (
       <p className="text-xs text-rose-600 dark:text-rose-400" role="alert">
@@ -252,7 +255,7 @@ export function DepartmentSelect({ id, value, onChange, error }) {
     <select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={isPending}
       className={inputCls(error, "text-base")}>
       <option value="">{isPending ? "Loading departments…" : "Select department…"}</option>
-      {(data || []).map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+      {shown.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
     </select>
   );
 }

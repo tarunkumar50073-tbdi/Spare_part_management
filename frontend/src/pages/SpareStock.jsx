@@ -19,6 +19,7 @@ import { useStores } from "../context/StoreContext.jsx";
 import { downloadFile } from "../utils/download.js";
 import { downloadXlsx } from "../utils/excel.js";
 import BinSheetPrintModal from "../components/label/BinSheetPrintModal.jsx";
+import BinPickerModal from "../components/label/BinPickerModal.jsx";
 import { storeService } from "../services/storeService.js";
 import { barcodeService } from "../services/barcodeService.js";
 import { GAP_FILTERS, STATUS_RANK, fmtDay, matchesGap, splitLocation, typeOf } from "../lib/inventory.js";
@@ -36,6 +37,7 @@ const STATUS_TONE = {
   "Above Maximum": "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
   "Healthy": "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
   "Not Counted": "bg-slate-100 text-slate-500 dark:bg-navy-800 dark:text-slate-400",
+  Discontinued: "bg-slate-200 text-slate-700 dark:bg-slate-600/40 dark:text-slate-200",
 };
 
 // A chip filters to its own status. "Critical" is the exception: it is not a
@@ -46,6 +48,8 @@ const FILTERS = [
   { key: "", label: "All" },
   { key: "Critical", label: "Critical", statuses: ["Out of Stock", "Below Minimum"] },
   { key: "Not Counted", label: "Never Counted" },
+  // Not required any more: kept with its stock, never ordered (22 Oct 2026).
+  { key: "Discontinued", label: "Discontinued" },
   { key: "Out of Stock", label: "Zero Stock" },
   { key: "Below Minimum", label: "Below Min" },
   { key: "Reorder", label: "Reorder" },
@@ -173,6 +177,8 @@ export default function SpareStock() {
   const [selected, setSelected] = useState(() => new Set());
   // The selected parts whose labels are being printed (the bulk print dialog).
   const [binParts, setBinParts] = useState(null);
+  // The whole store's parts while the bin picker ("print by bin / rack") is open.
+  const [pickParts, setPickParts] = useState(null);
   const [report, setReport] = useState(null);
   // Rows of the last upload skipped as an old template's figures: { rows, madeAt } or null.
   const [stale, setStale] = useState(null);
@@ -395,6 +401,16 @@ export default function SpareStock() {
     if (!visible.length) return;
     setBinParts(visible.map(toPrintPart));
   };
+  // Pick the bins (or whole racks) to print, from every bin of the store — the
+  // store asked (17 Oct 2026) for bin-wise tags: "location qr me bin wise bhi tag
+  // nikalne ka option add kar de", picked rack first, then the bin: "rack k ander
+  // se bin chunna h jaise R4 me B5". The whole store's list, not the filtered
+  // view, so any bin can be added; the page's section / rack filter is only
+  // where the picker starts.
+  const openBinPicker = () => {
+    if (!enriched.length) return;
+    setPickParts(enriched.map(toPrintPart));
+  };
 
   const dash = <span className="text-slate-300 dark:text-slate-600">—</span>;
   const columns = [
@@ -596,6 +612,13 @@ export default function SpareStock() {
             sections={sections} types={types} racks={racks} section={section} type={type} rack={rack} gap={gap}
             onChange={setParam} active={filtersActive} onClear={() => applyView({})} />
           <div className="flex flex-wrap items-center gap-2">
+            {canEditStock && (
+              <button type="button" onClick={openBinPicker} disabled={Boolean(binParts || pickParts) || !enriched.length}
+                title="Pick a section, a rack and its bins (e.g. R4 → B5) to print their 130×90 mm location sheets"
+                className="btn-secondary py-1 text-[13px] disabled:opacity-40">
+                <LayoutGrid size={14} aria-hidden="true" /> Bin sheets by rack / bin
+              </button>
+            )}
             {(section || rack) && canEditStock && (
               <button type="button" onClick={printSectionBins} disabled={Boolean(binParts) || !visible.length}
                 title="Print one 130×90 mm location sheet per bin for the current filter (whole section or rack) — grouped by rack location"
@@ -695,6 +718,10 @@ export default function SpareStock() {
       {binParts && (
         <BinSheetPrintModal parts={binParts} config={labelConfig}
           onClose={() => setBinParts(null)} />
+      )}
+      {pickParts && (
+        <BinPickerModal parts={pickParts} initialSection={section} initialRack={rack} config={labelConfig}
+          onClose={() => setPickParts(null)} />
       )}
     </div>
   );

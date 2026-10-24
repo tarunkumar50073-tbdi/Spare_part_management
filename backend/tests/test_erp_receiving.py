@@ -370,7 +370,7 @@ def test_alerts_come_from_erp_lines_with_their_freshness(store):
     s, sec = store
     _mixed(s, sec)
     a = {x["id"]: x for x in SpareAlertsService().alerts(s.code)["alerts"]}
-    receiving = {"label": "Open Receiving & GRN", "to": "/receiving", "module": "spare_store"}
+    receiving = {"label": "Open Receiving & GRN", "to": "/receiving", "module": "receiving"}
     assert "receipts_pending" not in a
 
     qp = a["erp_grn_quality_pending"]

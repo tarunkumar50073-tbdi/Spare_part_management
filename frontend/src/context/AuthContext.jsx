@@ -9,6 +9,16 @@ const AuthContext = createContext(null);
 // then shows why (see logoutReason).
 const IDLE_LIMIT_MS = 30 * 60 * 1000;
 
+// A login that can open only the Live Board — the HMI / TV screen on the shop
+// floor, where nobody touches a mouse. The idle sign-out would leave the plant
+// TV on the login screen every half hour, so it is spared (the store, 22 Oct
+// 2026: "ok"). Any other right, or an administrator, keeps the timer.
+const boardOnly = (u) => {
+  if (!u || u.is_admin) return false;
+  const granted = Object.entries(u.permissions || {}).filter(([, p]) => p && (p.view || p.edit));
+  return granted.length > 0 && granted.every(([mod]) => mod === "live_dashboard");
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   // Why the session ended, shown on the login screen ("inactivity" after an idle
@@ -42,8 +52,8 @@ export function AuthProvider({ children }) {
     return () => setUnauthorizedHandler(null);
   }, [refresh]);
 
-  const login = useCallback(async (username, password) => {
-    const res = await authService.login(username, password);
+  const login = useCallback(async (username, password, captcha) => {
+    const res = await authService.login(username, password, captcha);
     setUser(res.data.data);
     setLogoutReason(null);
     setFreshLogin(true);
@@ -67,7 +77,7 @@ export function AuthProvider({ children }) {
   // Idle auto-logout: only while signed in. Any real activity reschedules the
   // timer; IDLE_LIMIT_MS of none signs the user out with an "inactivity" reason.
   useEffect(() => {
-    if (!user) return undefined;
+    if (!user || boardOnly(user)) return undefined;
     let timer;
     let last = 0;
     const reset = () => {

@@ -14,9 +14,9 @@ A row is written only after the operator confirms the label actually came out
 of the printer (the browser cannot know), so the history is what was printed,
 not what was attempted.
 
-Labels printed for material that arrived on an ERP gate entry carry that gate
-entry no. in ``reference``, so the entry's list can say which of its parts are
-labelled already and how many copies were printed for it.
+Labels printed for material that arrived on an ERP gate entry (the lot tags,
+until they were taken out on 17 Oct 2026) carry that gate entry no. in
+``reference``; the part's timeline still names it.
 """
 from app.extensions import db
 from app.models.base import BaseModel
@@ -24,7 +24,9 @@ from app.models.base import BaseModel
 # How the part was identified when its label was printed (spec 8). REPRINT is
 # the explicit reprint action (needs a reason); PART_MASTER / STORE_STOCK are
 # the master-data screens that print outside the scan flow; GATE_ENTRY is a
-# batch printed for an ERP gate entry's items (reference = the gate entry no.).
+# batch printed for an ERP gate entry's items (reference = the gate entry no.) —
+# the lot tags, printed until the store had them taken out on 17 Oct 2026
+# (paper waste); nothing writes it now, and its rows stay as history.
 PRINT_SOURCES = (
     "SUPPLIER_BARCODE", "ERP_SEARCH", "MANUAL_ENTRY", "QR_SCAN", "REPRINT",
     "PART_MASTER", "STORE_STOCK", "GATE_ENTRY",

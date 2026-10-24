@@ -1,6 +1,7 @@
 """Part Master REST API (/api/v1/parts)."""
 from flask import Blueprint, request, send_file
 from app.services.part_service import PartService
+from app.services.part_image_service import PartImageService
 from app.schemas.part_schema import PartCreateSchema, PartUpdateSchema
 from app.utils.validators import validate_payload
 from app.utils.pagination import get_pagination_params, paginate_query
@@ -20,6 +21,7 @@ def _parts_changed(**data):
 
 bp = Blueprint("parts", __name__, url_prefix="/api/v1/parts")
 service = PartService()
+images = PartImageService()
 
 
 @bp.route("", methods=["GET"])
@@ -35,6 +37,11 @@ def list_parts():
         # in. Anything else is ignored rather than rejected, so a stale
         # bookmark degrades to the unfiltered list.
         missing=request.args.get("missing"),
+        # The Part Master's filters (21 Oct 2026): rack (from the location),
+        # category and sub category, as /filter-options lists them.
+        category=request.args.get("category") or None,
+        sub_category=request.args.get("sub_category") or None,
+        rack=request.args.get("rack") or None,
     )
     page, per_page = get_pagination_params()
     items, pagination = paginate_query(query, page, per_page)
@@ -50,6 +57,44 @@ def missing_counts():
         store_code=request.args.get("store_code"),
         is_active={"true": True, "false": False}.get((is_active or "").lower()),
     ))
+
+
+@bp.route("/filter-options", methods=["GET"])
+def filter_options():
+    """Racks, categories and sub categories of the store (and section), each
+    with its part count — what the Part Master's filter dropdowns offer.
+    ?is_active=true counts active parts only (the Photo Mode's list)."""
+    is_active = request.args.get("is_active")
+    return success_response(service.repo.filter_options(
+        store_code=request.args.get("store_code") or None,
+        section_id=request.args.get("section_id", type=int),
+        is_active={"true": True, "false": False}.get((is_active or "").lower())))
+
+
+@bp.route("/<int:part_id>/image", methods=["GET"])
+def part_image(part_id):
+    """The part's photo (?size=thumb for the small copy). The URL carries the
+    file name (?v=...), which changes with every new photo, so it may be cached."""
+    path = images.path(part_id, thumb=request.args.get("size") == "thumb")
+    return send_file(path, mimetype="image/jpeg", max_age=30 * 24 * 3600)
+
+
+@bp.route("/<int:part_id>/image", methods=["POST"])
+@permission_required("part_master", "edit")
+def upload_part_image(part_id):
+    """A new photo for the part (multipart "file"), replacing its old one."""
+    file = request.files.get("file")
+    if not file or file.filename == "":
+        raise BadRequestError("No photo uploaded")
+    part = images.save(part_id, file.stream, user=current_user())
+    return success_response(part.to_dict(), "Photo saved")
+
+
+@bp.route("/<int:part_id>/image", methods=["DELETE"])
+@permission_required("part_master", "edit")
+def delete_part_image(part_id):
+    part = images.delete(part_id, user=current_user())
+    return success_response(part.to_dict(), "Photo removed")
 
 
 @bp.route("/<int:part_id>", methods=["GET"])
@@ -68,7 +113,7 @@ def create_part():
 
 
 @bp.route("/<int:part_id>", methods=["PUT"])
-@permission_required("part_master", "edit")
+@permission_required(("part_master", "data_quality"), "edit")
 def update_part(part_id):
     data = validate_payload(PartUpdateSchema(), request.get_json(force=True) or {})
     part = service.update(part_id, data)

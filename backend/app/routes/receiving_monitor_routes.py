@@ -15,7 +15,7 @@ service = ReceivingMonitorService()
 
 
 @bp.route("", methods=["GET"])
-@permission_required("spare_store", "view")
+@permission_required("receiving", "view")
 def monitor():
     code = request.args.get("store_code")
     if not code:

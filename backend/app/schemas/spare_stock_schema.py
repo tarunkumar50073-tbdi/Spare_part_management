@@ -98,22 +98,30 @@ class SpareLocationSchema(Schema):
     class Meta:
         unknown = EXCLUDE
 
-    new_location = fields.String(required=True, validate=validate.Length(min=1, max=40))
+    new_location = fields.String(required=True, validate=validate.Length(min=1, max=60))
     reason = fields.String(required=True, validate=validate.Length(min=1, max=255))
     qty = fields.Decimal(allow_none=True, places=2, validate=validate.Range(min=0))
 
 
 class PutAwayRecordSchema(Schema):
     """Confirm a put-away (Put-away Check → Confirm Put Away): the part, the
-    location that was scanned, and optionally the lot tag's gate entry no (used to
-    look up and record the lot quantity). The service re-checks that the scanned
-    location matches the part's assigned location."""
+    location that was scanned, the gate entry no. the lot came on (the part's
+    latest ERP gate entry, which the screen shows; null on a rework-bin put-away
+    unless the storeman takes it, and when he empties Lot Qty) and the Lot Qty as
+    confirmed — the gate entry's, or what the storeman typed over it; null when
+    left empty. Lot Qty keeps 2 decimals (the screen refuses more).
+    The lot tag that used to carry both was taken out on 17 Oct 2026 (paper
+    waste). A body without `qty` (an older screen) has the gate entry's qty
+    looked up. The service re-checks that the scanned location matches the
+    part's assigned location."""
     class Meta:
         unknown = EXCLUDE
 
     part_id = fields.Integer(required=True, validate=validate.Range(min=1))
-    scanned_location = fields.String(required=True, validate=validate.Length(min=1, max=40))
+    scanned_location = fields.String(required=True, validate=validate.Length(min=1, max=60))
     gate_entry_no = fields.String(allow_none=True, validate=validate.Length(max=60))
+    qty = fields.Decimal(allow_none=True, places=2,
+                         validate=validate.Range(min=0, min_inclusive=False, max=1_000_000_000))
 
 
 class SpareReturnSchema(Schema):

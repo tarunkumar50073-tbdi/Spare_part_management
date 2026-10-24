@@ -1,55 +1,50 @@
-"""The Issuance Report and the Consumption Report: what left the store and what
-each department really used, cut the way the store asks, on screen and as Excel
-/ PDF — the one place for both ("wahi mil jaaye app me, wahan select kare kis
-part ki kab se kab tak consumption ya month wise ya year wise consumption mil
-jaaye, alag se report me aane ki jarurat nhi, wahi se excel / pdf download ho
-jaaye" — the store, 14 Oct 2026). The six consumption downloads the Reports
-page had moved here. Issuance joined on 17 Oct 2026 as downloads only, never a
-mail ("issuance and consumption ka bna de but mail nhi karenge bas excel/pdf
-download ka option"), and the same day the two became two reports on two
-screens ("issuance and consumption ki report alag alag chahiye").
+"""The Issuance & Consumption Report: every issue from the store, what came
+back and what each department really used, cut the way the store asks, on
+screen and as Excel / PDF — the one place for it ("wahi mil jaaye app me,
+wahan select kare kis part ki kab se kab tak consumption ya month wise ya year
+wise consumption mil jaaye, alag se report me aane ki jarurat nhi, wahi se
+excel / pdf download ho jaaye" — the store, 14 Oct 2026). The six consumption
+downloads the Reports page had moved here; issuance joined on 17 Oct 2026 as
+downloads only, never a mail ("issuance and consumption ka bna de but mail nhi
+karenge bas excel/pdf download ka option"). The same day it became two reports
+("alag alag chahiye"), and on 18 Oct one again, when the store saw the two side
+by side: "issuance and consumption report same dikh rhi h dono me differance
+nhi to ye kaam merge me bhi ho sakta h" — the issuance one even named the
+store as the taker: "issuance me store dikha rha h jabki store to issue karta
+h".
 
-Each report (ConsumptionTableService.REPORTS) names its views, their columns,
-whose department it counts an issue under and its Full pack. The reading, the
-builders, the notes and the files are shared, so the two add up the same way:
-the Issuance Report's Qty Issued and Value over a range are the Consumption
-Report's.
-
-ISSUANCE REPORT — what left the store, when, to whom:
-  * every ISSUE ledger row in the range, cancelled ones aside, GROSS: what came
-    back later is not netted off here (what was really used is the
-    Consumption Report's);
-  * Department = the department written on the issue — who took it out, often
-    the store's own people —, "Not recorded" when none was written;
-  * figures: Issues, Parts, Qty Issued, Value.
-  Views: list (every issue line, oldest first, a subtotal after each day,
-  month or year — picked from the range's length, auto_group() — and
-  cancelled issues listed, never counted), day, week, month, year, fy, part,
-  department (taken by), person (issued to: the person, code and mobile).
-
-CONSUMPTION REPORT — what each department really used:
-  * an ISSUE ledger row in the range, cancelled ones aside;
-  * counted for the department that owns the part's section (consumers()),
-    never the one typed on the issue ("consumption maintenance and tool room
-    karega store nhi", "store to material issue karta h" — the store, 14 Oct
-    2026);
-  * what came back against an issue counts against the issue — its day, week,
-    month, year, part, machine — whenever it came back (_returned_qty_map), so
-    Net Qty is what was really used;
+What it counts:
+  * every ISSUE ledger row in the range, cancelled ones aside (the Issue list
+    shows them grey and no figure counts them);
+  * Qty Issued / Value = what left the store; what came back against an issue
+    counts against the issue — its day, week, month, year, part, machine —
+    whenever it came back (_returned_qty_map), so Net Qty / Net Value is what
+    was really used;
+  * Department = the department that owns the part's section (consumers():
+    Maintenance, Tool Room) in every view, column, filter and title — never
+    the department typed on the issue, so never the store, which only hands
+    parts out ("consumption maintenance and tool room karega store nhi",
+    "store to material issue karta h" — the store, 14 Oct 2026). Who took the
+    part is Issued To;
   * figures: Issues, Parts, Qty Issued, Value, Qty Returned, Net Qty, Net Value.
-  Views: day, week, month, year, fy, part, department (each consuming
-  department, one with nothing consumed too unless the table is narrowed to a
-  part, a section or a type), machine (the line and machine recorded at
-  installation, named as the By machine chart names them, place_of), category
-  (sub_category).
+
+Views (REPORTS, in the View dropdown's order): list (every issue line, oldest
+first, a subtotal after each day, month or year — picked from the range's
+length, auto_group() — the screen's first view: "kis date ko kitna part and kon
+kon sa issue hua" — 14 Oct 2026), day, week, month, year, fy, part, department
+(each consuming department, one with nothing used too unless the table is
+narrowed to a part, a section or a type), person (issued to: the person, code
+and mobile), machine (the line and machine recorded at installation, named as
+the By machine chart names them, place_of), category (sub_category).
 
 The period views: Date ("10.03.2026", only days with issues), Week (Monday to
 Sunday, cut at the range's ends), Month ("Oct 2026"), Year (the calendar year)
 and Financial Year ("FY 2026-27": 1 April to 31 March), one row per period
-(the report's Department split is Department-wise's). Money is at each part's
-CURRENT rate: the ledger keeps no rate per issue. Every view ends with a Total
-row over every counted issue in it. The Full pack (pack()) is one workbook of the range: a Summary and the
-report's sheets, all from one read, so every sheet's Total is the same.
+(the Department split is Department-wise's). Money is at each part's CURRENT
+rate: the ledger keeps no rate per issue. Every view ends with a Total row over
+every counted issue in it. The Full pack (pack()) is one workbook of the range:
+a Summary and the report's sheets, all from one read, so every sheet's Total is
+the same.
 
 What the figures cannot say is said beside them — on screen (`window`,
 `unrated_issues`) and as note lines in the Excel / PDF:
@@ -59,17 +54,15 @@ What the figures cannot say is said beside them — on screen (`window`,
     money covers rated issues only, and how many are not is counted;
   * a cancelled issue on the Issue list is listed, not counted.
 
-The filters are the screen's — part, section, the report's department, part
+The filters are the screen's — part, section, the consuming department, part
 type — and the range is the screen's too (ConsumptionAnalyticsService._window:
 the last 30 days by default, the end cut at today, at most MAX_DAYS = 5 years
 so a year-wise table has room), counted in plant-clock days (window()). The
 screen's Yesterday / Last month / financial-year presets are cut here, on the
 plant clock (preset_window()), and handed to it with the filter lists.
 
-Callers from before the split name no report: they get the Consumption Report,
-except for the Issue list, which was issuance all along (_report()) — and
-whose Department filter meant the consuming department then, so it still does
-for them (Filters.by_consumer).
+Links from before the merge name report=issuance, or no report at all: they
+get this report (_report()).
 """
 import io
 from collections import namedtuple
@@ -82,11 +75,9 @@ from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
-from sqlalchemy import func, or_
 
 from app.extensions import db
 from app.models.base import utcnow
-from app.models.department import Department
 from app.models.part import Part
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Store
@@ -105,11 +96,9 @@ from app.utils.excel_io import _append_safe_row, format_table
 from app.utils.exceptions import BadRequestError
 
 # One issue as the views read it: its ledger row (ISSUE_COLUMNS), its part, the
-# department the report counts it under (the Consumption Report: the one that
-# consumes it; the Issuance Report: the one written on it), the part's section,
-# its plant day, qty issued, qty returned (always 0 on the Issuance Report,
-# which does not net returns), and whether it was cancelled (listed on the
-# Issue list only).
+# department that consumes it (the owner of the part's section), the part's
+# section, its plant day, qty issued, qty returned against it, and whether it
+# was cancelled (listed on the Issue list only).
 Use = namedtuple("Use", "issue part dept section day qty back cancelled")
 # What the views read of an ISSUE row. Columns, not ORM rows: five years of
 # issues (40,000 in the timing run) are read in half a second instead of three.
@@ -120,18 +109,15 @@ ISSUE_COLUMNS = (_L.id, _L.part_id, _L.qty_delta, _L.created_at, _L.line_name, _
                  _L.die_no, _L.confirmed_at.isnot(None).label("installed"),
                  _L.status, _L.actual_qty, _L.reference, _L.department, _L.issued_to, _L.issued_to_mobile,
                  _L.issued_to_code, _L.employee_id)
-# The screen's filters: the Part and Section rows picked, the report's
-# department and the part type typed (None = all). `by_consumer`: the
-# department is the CONSUMING one though the report is Issuance — an Issue list
-# asked for as before the split (17 Oct 2026), when the one screen's Department
-# meant who consumed it in every view, the list too.
-Filters = namedtuple("Filters", "part section department type by_consumer", defaults=(False,))
+# The screen's filters: the Part and Section rows picked, the consuming
+# department and the part type typed (None = all).
+Filters = namedtuple("Filters", "part section department type")
 View = namedtuple("View", "key label columns build")
 # A view built: its rows (the Total last), the Total's _Tally, and on the Issue
 # list the rows that are a group's subtotal and the cancelled issues.
 Built = namedtuple("Built", "rows total subtotals cancelled", defaults=((), ()))
 # Everything one read of the range gives every view: the report, the counted
-# issues, every issue listed (cancelled ones too), the report's departments in
+# issues, every issue listed (cancelled ones too), the consuming departments in
 # master order and the sort key they give, the range, whether its end was cut
 # at today, the filters, the Issue list's grouping and the app ledger's first
 # day.
@@ -144,16 +130,16 @@ Group = namedtuple("Group", "key label period")
 # the Full pack's Summary.
 Report = namedtuple("Report", "key title views pack basis department")
 
-# The figures: the Issuance Report's are gross; the Consumption Report's net
-# what came back.
+# The figures: what left the store, then what came back and so what was really
+# used.
 ISSUED = ("Issues", "Parts", "Qty Issued", "Value")
 CONSUMED = ISSUED + ("Qty Returned", "Net Qty", "Net Value")
 
-# The period views' own cells, both reports: one row per period, its figures
-# beside it — the department split is Department-wise's (_by_period).
+# The period views' own cells: one row per period, its figures beside it — the
+# department split is Department-wise's (_by_period).
 DATE, WEEK, MONTH, YEAR, FY = ("Date", "Day"), ("Week",), ("Month",), ("Year",), ("Financial Year",)
 
-# The Consumption Report's columns. Department = the consuming department.
+# Every view's columns. Department = the consuming department.
 BY_DEPARTMENT_COLUMNS = ("Department", "Section") + CONSUMED
 BY_DATE_COLUMNS = DATE + CONSUMED
 BY_WEEK_COLUMNS = WEEK + CONSUMED
@@ -166,24 +152,15 @@ BY_PART_COLUMNS = ("Part No", "Description", "Section", "Department", "UOM", "Is
 BY_MACHINE_COLUMNS = ("Department", "Line", "Machine") + CONSUMED
 BY_CATEGORY_COLUMNS = ("Department", "Category") + CONSUMED
 
-# The Issuance Report's. Department = the one written on the issue (who took
-# it); a part is taken by many, so Part-wise has none.
-ISSUED_BY_DATE_COLUMNS = DATE + ISSUED
-ISSUED_BY_WEEK_COLUMNS = WEEK + ISSUED
-ISSUED_BY_MONTH_COLUMNS = MONTH + ISSUED
-ISSUED_BY_YEAR_COLUMNS = YEAR + ISSUED
-ISSUED_BY_FY_COLUMNS = FY + ISSUED
-ISSUED_BY_PART_COLUMNS = ("Part No", "Description", "Section", "UOM", "Issues", "Qty Issued", "Rate", "Value",
-                          "First Issued", "Last Issued")
-ISSUED_BY_DEPARTMENT_COLUMNS = ("Department",) + ISSUED
-BY_PERSON_COLUMNS = ("Issued To", "Code", "Mobile", "Department") + ISSUED
-# The Issue list, in the Issue Register's words: Department = the one written
-# on the issue, Issued To = the person and the mobile.
+BY_PERSON_COLUMNS = ("Issued To", "Code", "Mobile", "Department") + CONSUMED
+# The Issue list, in the Issue Register's words — Issued To = the person and the
+# mobile — with what came back against each issue beside what went out.
 LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Description", "Section", "Department",
-                "Issued To", "Qty Issued", "Rate", "Value", "Line / Machine / Die", "Status")
+                "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
+                "Line / Machine / Die", "Status")
 
 UNCATEGORISED = "Uncategorised"
-# An issue with no department, or no person, written on it.
+# An issue with no person written on it.
 NOT_WRITTEN = "Not recorded"
 # The last row of every view, named in its first column.
 TOTAL = "Total"
@@ -198,15 +175,12 @@ TABLE_FORMATS = {fmt: FORMATS[fmt] for fmt in ("excel", "pdf")}
 LIST_BY_DAY_DAYS = 62
 LIST_BY_MONTH_DAYS = 731
 
-# "How it is counted": each report carries its own lines (Report.basis).
+# "How it is counted": the lines the report carries (Report.basis).
 BASIS = {
-    "issuance": "Every issue in the range as it left the store, cancelled ones aside. Returns are not "
-                "netted off: what came back, and so what was really used, is the Consumption Report's. "
-                f"Department = the department written on the issue (who took it out); '{NOT_WRITTEN}' = "
-                "none written.",
-    "consumption": "Issues in the range, cancelled ones aside, each counted for the department that "
-                   "owns the part's section, never the department written on the issue (the store only "
-                   "hands parts out).",
+    "consumption": "Every issue in the range, cancelled ones aside. Qty Issued / Value = what left the "
+                   "store; Net Qty / Net Value = what was really used after returns. Department = the "
+                   "department that owns the part's section, never the department written on the issue "
+                   "(the store only hands parts out); who took the part is Issued To.",
     "returns": "What came back against an issue counts against that issue (its day, week, month, year, "
                "part and machine) whenever it came back. Net Qty = Qty Issued - Qty Returned: what was "
                "really consumed.",
@@ -243,14 +217,12 @@ PDF_MUTED = colors.HexColor("#94a3b8")
 # The screen's ranges cut on the plant clock (the store, 17 Oct 2026: daily =
 # yesterday, monthly = last month, yearly = the financial year, April - March).
 PRESETS = ("yesterday", "last_month", "this_fy", "last_fy")
-# Each report's Full pack sheets, in order: (sheet name, view); Year-wise is
-# decided by the range (_year_view). A sheet name cannot hold "/", so the Line
-# / Machine view's sheet says "&".
-ISSUANCE_PACK = (("Date-wise", "day"), ("Month-wise", "month"), ("Year-wise", None), ("Part-wise", "part"),
-                 ("Department-wise", "department"), ("Person-wise", "person"), ("Issue list", "list"))
-CONSUMPTION_PACK = (("Date-wise", "day"), ("Month-wise", "month"), ("Year-wise", None), ("Part-wise", "part"),
-                    ("Department-wise", "department"), ("Line & Machine-wise", "machine"),
-                    ("Category-wise", "category"))
+# The Full pack's sheets after its Summary, in order: (sheet name, view);
+# Year-wise is decided by the range (_year_view). A sheet name cannot hold "/",
+# so the Line / Machine view's sheet says "&".
+PACK_SHEETS = (("Issue list", "list"), ("Date-wise", "day"), ("Month-wise", "month"), ("Year-wise", None),
+               ("Part-wise", "part"), ("Department-wise", "department"), ("Person-wise", "person"),
+               ("Line & Machine-wise", "machine"), ("Category-wise", "category"))
 PACK = "Full pack"
 
 
@@ -328,46 +300,6 @@ def _dept_order(names, last=()):
     end = {name.lower() for name in last}
     return lambda name: (len(rank) + 1 if name.lower() in end else rank.get(name.lower(), len(rank)),
                          name.lower())
-
-
-def _master_departments():
-    """The active departments' names in master order."""
-    return [d.name.strip() for d in Department.query.filter_by(is_active=True)
-            .order_by(Department.sort_order, Department.name)]
-
-
-def _written(i):
-    """The department written on an issue — who took it out — or NOT_WRITTEN."""
-    return (i.department or "").strip() or NOT_WRITTEN
-
-
-def taker_clause(department):
-    """SQL for "the issue was written to `department`" (case and spaces aside);
-    NOT_WRITTEN also matches an issue with none."""
-    name = department.strip().lower()
-    match = func.lower(func.trim(SpareStockLedger.department)) == name
-    if name == NOT_WRITTEN.lower():
-        match = or_(match, SpareStockLedger.department.is_(None), func.trim(SpareStockLedger.department) == "")
-    return match
-
-
-def issue_departments(store_code):
-    """The Issuance Report's Department choices: every department written on
-    this store's issues — in master order, then any other name (an old or a
-    switched-off one) by name, then NOT_WRITTEN when an issue carries none."""
-    L = SpareStockLedger
-    written = (db.session.query(func.trim(L.department)).join(Part, Part.id == L.part_id)
-               .filter(Part.store_code == store_code, L.txn_type == "ISSUE").distinct())
-    names, blank = {}, False
-    for (name,) in written:
-        if name:
-            names.setdefault(name.lower(), name)
-        else:
-            blank = True
-    master = _master_departments()
-    spelt = {n.lower(): n for n in master}           # the master's spelling of a name typed otherwise
-    out = sorted((spelt.get(key, name) for key, name in names.items()), key=_dept_order(master))
-    return out + ([NOT_WRITTEN] if blank else [])
 
 
 def _window(date_from, date_to):
@@ -530,8 +462,7 @@ class _Tally:
     rate has Value / Net Value unknown (None), never 0; a group with no issue at
     all has 0. What came back against an issue is counted against the issue —
     its day, month, part, machine — whenever it came back, so Net Qty is what
-    it really used (on the Issuance Report nothing is read as back: it is
-    gross)."""
+    it really used."""
 
     def __init__(self, cells):
         self.cells, self.issues, self.parts = cells, 0, set()
@@ -584,8 +515,8 @@ def _with_total(tallies, total, columns):
 
 
 def _by_money(t):
-    """Where the money went: Value first (Net Value on the Consumption Report),
-    unrated groups after every rated one by quantity."""
+    """Where the money went: Net Value first, unrated groups after every rated
+    one by quantity."""
     return t.net_value is None, -(t.net_value or 0), -t.net
 
 
@@ -593,9 +524,9 @@ class ConsumptionTableService:
 
     def table(self, store_code, view, date_from=None, date_to=None, part_id=None, section_id=None,
               department=None, part_type=None, group=None, report=None):
-        """One view of one report over the range, rows keyed by column
-        heading, the Total last. `report`: issuance or consumption (none: as
-        before the split, _report()).
+        """One view of the report over the range, rows keyed by column
+        heading, the Total last. `report`: consumption, or issuance / none from
+        a link made before the merge (_report()) — the same report.
 
         `window` also says how much of the range the app's ledger covers: its
         first day (ledger_since, the charts' own figure) and the coverage —
@@ -607,13 +538,9 @@ class ConsumptionTableService:
         none = from the range's length, auto_group()), `subtotal_rows` and
         `cancelled_rows` index the rows that are a group's subtotal and the
         cancelled issues it lists but does not count."""
-        rep = self._report(report, view)
+        rep = self._report(report)
         chosen = self._view(rep, view)
-        # No report named: a caller from before the split, whose Department
-        # was the consuming one on the Issue list too — so it stays that.
-        by_consumer = not (report or "").strip()
-        c = self._read(store_code, rep, date_from, date_to, part_id, section_id, department, part_type, group,
-                       by_consumer)
+        c = self._read(store_code, rep, date_from, date_to, part_id, section_id, department, part_type, group)
         return self._out(chosen, c, chosen.build(self, c, chosen.columns))
 
     def export(self, store_code, fmt, view, **filters):
@@ -635,13 +562,13 @@ class ConsumptionTableService:
 
     def pack(self, store_code, date_from=None, date_to=None, part_id=None, section_id=None, department=None,
              part_type=None, report=None):
-        """(file, download name, mimetype) of a report's Full pack: ONE
+        """(file, download name, mimetype) of the report's Full pack: ONE
         workbook of the range and filters — a Summary, then the report's sheets
         (Report.pack; Year-wise in financial years when the range holds a 1
         April, _year_view; the Issue list subtotalled as on screen) — every
         sheet from the same read, so their Totals agree. Named like "Issuance
-        Report Full pack 01.04.2026 to 31.03.2027.xlsx", with the filters
-        before the dates as the other files are."""
+        & Consumption Report Full pack 01.04.2026 to 31.03.2027.xlsx", with the
+        filters before the dates as the other files are."""
         rep = self._report(report)
         c = self._read(store_code, rep, date_from, date_to, part_id, section_id, department, part_type, None)
         year = _year_view(c.win)
@@ -659,13 +586,11 @@ class ConsumptionTableService:
     # ---- what the screen picked ----
 
     @classmethod
-    def _report(cls, key, view=None):
-        """The report asked for. Callers from before the split (17 Oct 2026)
-        name none: the Issue list was issuance all along, every other view
-        consumption."""
-        key = (key or "").strip()
-        if not key:
-            return cls.REPORTS["issuance" if (view or "").strip() == "list" else "consumption"]
+    def _report(cls, key):
+        """The report. Links from the two-report days (17 - 18 Oct 2026) name
+        report=issuance, older ones none: both are this report now."""
+        key = (key or "").strip() or "consumption"
+        key = cls.MERGED.get(key, key)
         if key not in cls.REPORTS:
             raise BadRequestError(f"report must be one of {', '.join(cls.REPORTS)}")
         return cls.REPORTS[key]
@@ -688,31 +613,25 @@ class ConsumptionTableService:
         return chosen
 
     @staticmethod
-    def _filters(store_code, rep, part_id, section_id, department, part_type, by_consumer=False):
+    def _filters(store_code, part_id, section_id, department, part_type):
         # A part or section of another store is a 404, as on the charts.
-        department = (department or "").strip() or None
         return Filters(
             ConsumptionAnalyticsService._part(store_code, part_id) if part_id is not None else None,
             ConsumptionAnalyticsService._section(store_code, section_id) if section_id is not None else None,
-            department,
+            (department or "").strip() or None,
             (part_type or "").strip() or None,
-            # Only the Issuance Report counts a department other than the consumer.
-            bool(by_consumer and department and rep.key == "issuance"),
         )
 
     @staticmethod
     def _named(head, f, win):
         """A title, also a file's name: its head, then every filter that narrows
-        it — so a file never passes for more than it holds — and the dates. An
-        Issuance Report narrowed to a consuming department says so: its
-        Department column is still who took the parts out."""
-        dept = f"consumed by {f.department}" if f.by_consumer else f.department
-        picked = [f.part.part_no if f.part else None, f.section.name if f.section else None, dept, f.type]
+        it — so a file never passes for more than it holds — and the dates."""
+        picked = [f.part.part_no if f.part else None, f.section.name if f.section else None, f.department, f.type]
         return " ".join([head, *(p for p in picked if p), _dates(win)])
 
     def _title(self, view, c):
-        """E.g. Consumption Report Month-wise CNTR3200 01.04.2026 to 14.10.2026;
-        Issuance Report Issue list 16.10.2026."""
+        """E.g. Issuance & Consumption Report Month-wise CNTR3200 01.04.2026 to
+        14.10.2026; Issuance & Consumption Report Issue list 16.10.2026."""
         return self._named(f"{c.report.title} {view.label}", c.f, c.win)
 
     def _out(self, chosen, c, built):
@@ -758,15 +677,13 @@ class ConsumptionTableService:
         Year-wise is cut in, when it was prepared; then the notes and how it is
         counted."""
         f, win, rep = c.f, c.win, c.report
-        first = sheets[0][1]
-        total = first["rows"][-1]
+        total = sheets[0][1]["rows"][-1]
         # The Issue list's notes say the cancelled issues it lists, too.
-        listed = dict(sheets).get("Issue list", first)
+        listed = dict(sheets).get("Issue list", sheets[0][1])
         store = Store.query.filter_by(code=store_code).first()
         days = (win.last - win.first).days + 1
         part = f"{f.part.part_no} - {f.part.part_name}" if f.part and f.part.part_name else (
             f.part.part_no if f.part else "All parts")
-        issuance = rep.key == "issuance"
         rows = [
             ("Store", f"{store.name} ({store_code})" if store else store_code),
             ("Report", rep.title),
@@ -776,80 +693,66 @@ class ConsumptionTableService:
             (rep.department, f.department or "All departments"),
             ("Part type", f.type or "All part types"),
             ("Issues", len(c.uses)),
-            ("Cancelled issues (listed, not counted)" if issuance else "Cancelled issues (not counted)",
-             len(c.listed) - len(c.uses)),
+            ("Cancelled issues (listed, not counted)", len(c.listed) - len(c.uses)),
             ("Parts", len({u.part.id for u in c.uses})),
             ("Qty Issued", total["Qty Issued"]),
             ("Value (today's rate)", total["Value"]),
+            ("Qty Returned", total["Qty Returned"]), ("Net Qty", total["Net Qty"]),
+            ("Net Value (today's rate)", total["Net Value"]),
+            ("Year-wise sheet", "Financial years, 1 April to 31 March" if year == "fy"
+             else "Calendar years, January to December"),
+            ("Issue list subtotals", f"By {c.group.label.lower()}"),
+            ("Prepared", _stamp(utcnow())),
         ]
-        if not issuance:
-            rows += [("Qty Returned", total["Qty Returned"]), ("Net Qty", total["Net Qty"]),
-                     ("Net Value (today's rate)", total["Net Value"])]
-        rows.append(("Year-wise sheet", "Financial years, 1 April to 31 March" if year == "fy"
-                     else "Calendar years, January to December"))
-        if issuance:
-            rows.append(("Issue list subtotals", f"By {c.group.label.lower()}"))
-        rows.append(("Prepared", _stamp(utcnow())))
         notes = _notes(listed) + ["How it is counted:"] + [BASIS[k] for k in rep.basis]
         _sheet(ws, ("Item", "Value"), [{"Item": k, "Value": v} for k, v in rows], notes)
         ws.title = "Summary"
 
     # ---- one read, every view ----
 
-    def _read(self, store_code, rep, date_from, date_to, part_id, section_id, department, part_type, group,
-              by_consumer=False):
-        """The range read once for every view of a report (Ctx): its issues
+    def _read(self, store_code, rep, date_from, date_to, part_id, section_id, department, part_type, group):
+        """The range read once for every view of the report (Ctx): its issues
         under the filters — cancelled ones listed, only the others counted —,
-        the report's departments, the ledger's first day."""
+        the consuming departments, the ledger's first day."""
         win, clamped = _window(date_from, date_to)
         grouping = self._group(group, win)
-        f = self._filters(store_code, rep, part_id, section_id, department, part_type, by_consumer)
-        listed, depts = self._issues(store_code, rep, win, f)
+        f = self._filters(store_code, part_id, section_id, department, part_type)
+        listed, depts = self._issues(store_code, win, f)
         since = ConsumptionAnalyticsService._ledger_since(store_code, _offset(win))
-        order = _dept_order(depts, (NOT_WRITTEN,) if rep.key == "issuance" else ())
+        order = _dept_order(depts)
         return Ctx(rep, [u for u in listed if not u.cancelled], listed, depts, order, win, clamped, f, grouping,
                    since)
 
     @staticmethod
-    def _issues(store_code, rep, win, f):
+    def _issues(store_code, win, f):
         """(the range's issues under the filters, oldest first, each marked
-        cancelled or not; the report's departments in master order). The
-        Consumption Report counts each issue for the department that owns its
-        part's section, and what came back is every return raised against the
-        issue (_returned_qty_map), whenever; the Issuance Report for the
-        department written on it, gross. A cancelled issue was neither issued
-        nor consumed: the Issue list shows it, no figure counts it."""
+        cancelled or not; the consuming departments in master order). Each
+        issue counts for the department that owns its part's section, and what
+        came back is every return raised against the issue
+        (_returned_qty_map), whenever. A cancelled issue was neither issued nor
+        consumed: the Issue list shows it, no figure counts it."""
         L = SpareStockLedger
-        issuance = rep.key == "issuance"
         where = [Part.store_code == store_code, L.txn_type == "ISSUE", *_in(L.created_at, win)]
         if f.part is not None:
             where.append(L.part_id == f.part.id)
         if f.section is not None:
             where.append(Part.section_id == f.section.id)
-        if issuance:
-            owner, depts = None, _master_departments()
-            if f.by_consumer:                         # an old caller's consuming department
-                where.append(consumer_clause(consumers(store_code)[0], f.department))
-            elif f.department:
-                where.append(taker_clause(f.department))
-        else:
-            owner, depts = consumers(store_code)
-            if f.department:
-                where.append(consumer_clause(owner, f.department))
+        owner, depts = consumers(store_code)
+        if f.department:
+            where.append(consumer_clause(owner, f.department))
         if f.type:
             where.append(type_clause(f.type))
         rows = (db.session.query(*ISSUE_COLUMNS).join(Part, Part.id == L.part_id)
                 .filter(*where).order_by(L.created_at, L.id).all())
         parts = _parts({r.part_id for r in rows})
         sections = SpareReportService._sections(store_code)
-        # Issuance is gross: what came back is the Consumption Report's, so it is not read.
-        returned = {} if issuance else SpareStockService._returned_qty_map([r.id for r in rows])
+        returned = SpareStockService._returned_qty_map([r.id for r in rows])
         # The plant clock the range was cut on, read once rather than per issue.
         offset = _offset(win)
         uses = []
         for r in rows:
             part = parts[r.part_id]
-            uses.append(Use(r, part, _written(r) if issuance else consumer_of(owner, part.section_id),
+            uses.append(Use(r, part, consumer_of(owner, part.section_id),
                             sections.get(part.section_id), (_utc_naive(r.created_at) + offset).date(),
                             abs(float(r.qty_delta)), returned.get(r.id, 0.0), r.status == "CANCELLED"))
         return uses, depts
@@ -915,8 +818,7 @@ class ConsumptionTableService:
         return _with_total(ordered, total, columns)
 
     def _by_department(self, c, columns):
-        """The Consumption Report's Department-wise: per consuming department
-        and section."""
+        """Department-wise: per consuming department and section."""
         f = c.f
         groups, total = self._groups(c, lambda u: (
             (u.dept.lower(), (u.section or "").lower()), {"Department": u.dept, "Section": u.section}))
@@ -933,19 +835,12 @@ class ConsumptionTableService:
         ordered = sorted(groups.items(), key=lambda kv: (c.order(kv[1].cells["Department"]), kv[0][1]))
         return _with_total([t for _, t in ordered], total, columns)
 
-    def _by_taker(self, c, columns):
-        """The Issuance Report's Department-wise: per department written on the
-        issue (who took it out), in master order, "Not recorded" last."""
-        groups, total = self._groups(c, lambda u: (u.dept.lower(), {"Department": u.dept}))
-        ordered = sorted(groups.values(), key=lambda t: c.order(t.cells["Department"]))
-        return _with_total(ordered, total, columns)
-
     def _by_person(self, c, columns):
         """Who the issues were handed to: one row per employee (one person
         picked from the Employee master is one row, whatever was typed), else
         per name and mobile as written, case and spaces aside. The latest
-        name, code and mobile are shown, and every department the person took
-        parts out for. Most money first; "Not recorded" (no person written)
+        name, code and mobile are shown, and every department the parts went
+        to (the consuming one). Most money first; "Not recorded" (no person written)
         last."""
         groups, total = {}, _Tally({})
         for u in c.uses:
@@ -1038,7 +933,7 @@ class ConsumptionTableService:
         on, at = _stamp(i.created_at).split(" ")
         cells = {
             "Date": on, "Time": at, "Issue No": i.id, "Reference": i.reference, "Part No": part.part_no,
-            "Description": part.part_name, "Section": u.section, "Department": _clean(i.department),
+            "Description": part.part_name, "Section": u.section, "Department": u.dept,
             "Issued To": _issued_to(i), "Rate": part.unit_price or None,   # a rate of 0 is a missing rate
             "Line / Machine / Die": None if u.cancelled else _place(i), "Status": _issue_status(i),
         }
@@ -1048,21 +943,13 @@ class ConsumptionTableService:
         one.add(u)
         return one.row(columns)
 
-    # The two reports (the store, 17 Oct 2026: "issuance and consumption ki
-    # report alag alag chahiye"), each with its View dropdown in its order.
+    # The one report (merged back on 18 Oct 2026: "issuance and consumption
+    # report same dikh rhi h ... ye kaam merge me bhi ho sakta h"), its View
+    # dropdown in order: the Issue list first — "kis date ko kitna part and kon
+    # kon sa issue hua" (14 Oct 2026).
     REPORTS = {
-        "issuance": Report("issuance", "Issuance Report", (
+        "consumption": Report("consumption", "Issuance & Consumption Report", (
             View("list", "Issue list", LIST_COLUMNS, _issue_list),
-            View("day", "Date-wise", ISSUED_BY_DATE_COLUMNS, _by_date),
-            View("week", "Week-wise", ISSUED_BY_WEEK_COLUMNS, _by_week),
-            View("month", "Month-wise", ISSUED_BY_MONTH_COLUMNS, _by_month),
-            View("year", "Year-wise", ISSUED_BY_YEAR_COLUMNS, _by_year),
-            View("fy", "Financial year-wise", ISSUED_BY_FY_COLUMNS, _by_fy),
-            View("part", "Part-wise", ISSUED_BY_PART_COLUMNS, _by_part),
-            View("department", "Department-wise", ISSUED_BY_DEPARTMENT_COLUMNS, _by_taker),
-            View("person", "Person-wise", BY_PERSON_COLUMNS, _by_person),
-        ), ISSUANCE_PACK, ("issuance", "value", "period", "list", "person"), "Department (taken by)"),
-        "consumption": Report("consumption", "Consumption Report", (
             View("day", "Date-wise", BY_DATE_COLUMNS, _by_date),
             View("week", "Week-wise", BY_WEEK_COLUMNS, _by_week),
             View("month", "Month-wise", BY_MONTH_COLUMNS, _by_month),
@@ -1070,7 +957,11 @@ class ConsumptionTableService:
             View("fy", "Financial year-wise", BY_FY_COLUMNS, _by_fy),
             View("part", "Part-wise", BY_PART_COLUMNS, _by_part),
             View("department", "Department-wise", BY_DEPARTMENT_COLUMNS, _by_department),
+            View("person", "Person-wise", BY_PERSON_COLUMNS, _by_person),
             View("machine", "Line / Machine-wise", BY_MACHINE_COLUMNS, _by_machine),
             View("category", "Category-wise", BY_CATEGORY_COLUMNS, _by_category),
-        ), CONSUMPTION_PACK, ("consumption", "returns", "value", "period", "place"), "Consuming department"),
+        ), PACK_SHEETS, ("consumption", "returns", "value", "period", "list", "person", "place"),
+            "Consuming department"),
     }
+    # The report's name in links made while there were two (17 - 18 Oct 2026).
+    MERGED = {"issuance": "consumption"}

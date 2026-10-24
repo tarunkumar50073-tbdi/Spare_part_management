@@ -19,7 +19,9 @@ def list_suppliers():
     vehicle_tracking = request.args.get("vehicle_tracking")
     if vehicle_tracking is not None:
         vehicle_tracking = vehicle_tracking.lower() in ("1", "true", "yes")
-    query = service.list_suppliers(keyword=keyword, status=status, vehicle_tracking=vehicle_tracking)
+    # store_code: only the suppliers that store's parts are linked to.
+    query = service.list_suppliers(keyword=keyword, status=status, vehicle_tracking=vehicle_tracking,
+                                   store_code=request.args.get("store_code") or None)
     page, per_page = get_pagination_params()
     items, pagination = paginate_query(query, page, per_page)
     return paginated_response([s.to_dict() for s in items], pagination)

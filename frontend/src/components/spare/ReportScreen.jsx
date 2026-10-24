@@ -1,5 +1,5 @@
 import React, { useId, useMemo, useRef, useState } from "react";
-import { Navigate, useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Package, Search, X } from "lucide-react";
 import ErrorState from "../ErrorState.jsx";
@@ -7,17 +7,17 @@ import ConsumptionTable, { TableDownloads } from "./ConsumptionTable.jsx";
 import { useStores } from "../../context/StoreContext.jsx";
 import { NO_ROWS, useStockList } from "../../lib/stockQueries.js";
 import { num } from "../../lib/format.js";
-import { REPORTS, consumptionAnalyticsService } from "../../services/consumptionAnalyticsService.js";
+import { REPORT, consumptionAnalyticsService } from "../../services/consumptionAnalyticsService.js";
 
-// The one layout of the Issuance Report and the Consumption Report — the two
-// the combined Issuance & Consumption screen became ("issuance and consumption
-// ki report alag alag chahiye" — the store, 17 Oct 2026), kept as simple as
-// the store asked the same day ("ye thoda complicated ho gya, thoda simple ho
-// jisme dropdown me date wise, month wise, year wise etc."): a title, ONE
-// filter bar of dropdowns with the downloads at its end, and the table card.
-// No view tabs, no subtotal toggle: the Issue list's subtotals follow the
-// period's length (the server's auto_group). `children(state)` adds what one
-// report has beyond the table — the Consumption Report's charts.
+// The layout of the Issuance & Consumption Report — two reports for a day
+// (17 Oct 2026), one again since 18 Oct 2026 ("issuance and consumption report
+// same dikh rhi h dono me differance nhi to ye kaam merge me bhi ho sakta h" —
+// the store) — kept as simple as the store asked on 17 Oct ("ye thoda
+// complicated ho gya, thoda simple ho jisme dropdown me date wise, month wise,
+// year wise etc."): a title, ONE filter bar of dropdowns with the downloads at
+// its end, and the table card. No view tabs, no subtotal toggle: the Issue
+// list's subtotals follow the period's length (the server's auto_group).
+// `children(state)` adds what the screen has beyond the table — the charts.
 //
 // The Period dropdown. `served`: the range is cut by the server on the plant
 // clock and arrives with the filter lists (options.presets) — yesterday, last
@@ -39,7 +39,10 @@ const PRESETS = [
 ];
 const presetOf = (key) => PRESETS.find((p) => p.key === key);
 const DEFAULT_PRESET = "month";
-const DEFAULT_VIEW = "day";
+// The Issue list first: every issue a line, a subtotal per day — the store's
+// first ask ("kis date ko kitna part and kon kon sa issue hua to dikh jaayega"
+// — 14 Oct 2026).
+const DEFAULT_VIEW = "list";
 // Links made before 17 Oct 2026 named the period `range` and could carry
 // `gran` (the chart's grouping) and `group` (the Issue list's subtotals). The
 // period is read from `range` when there is no `period`; the other two are
@@ -98,8 +101,7 @@ const select = "input-field py-1.5 text-[13px] sm:w-auto sm:min-w-[9rem] sm:max-
 // The Period box may run wider: "Last financial year (Apr–Mar)" is read whole.
 const periodSelect = select.replace("sm:max-w-[14rem]", "sm:max-w-[16rem]");
 
-export default function ReportScreen({ report: reportKey, children }) {
-  const report = REPORTS[reportKey];
+export default function ReportScreen({ children }) {
   const { activeCode } = useStores();
   const location = useLocation();
 
@@ -153,14 +155,10 @@ export default function ReportScreen({ report: reportKey, children }) {
   const days = badRange ? 0 : spanDays(from, to);
   const tooLong = days > MAX_DAYS;
   const blocked = badRange || tooLong || waiting;
+  // Every view of the two reports of 17 Oct 2026 is a view of this one, so an
+  // old link opens on the view it named; an unknown one on the Issue list.
   const askedView = params.get("view");
-  const view = report.views.some((v) => v.key === askedView) ? askedView : DEFAULT_VIEW;
-  // A view the other report holds — an old Issuance & Consumption link to the
-  // Issue list is now the Issuance Report's — opens there, with its period and
-  // filters, the Department aside (below).
-  const elsewhere = askedView && !report.views.some((v) => v.key === askedView)
-    ? Object.values(REPORTS).find((r) => r.views.some((v) => v.key === askedView))
-    : null;
+  const view = REPORT.views.some((v) => v.key === askedView) ? askedView : DEFAULT_VIEW;
 
   const update = (changes) => {
     const next = new URLSearchParams(params);
@@ -189,24 +187,15 @@ export default function ReportScreen({ report: reportKey, children }) {
     type: type || undefined,
   };
   const tq = useQuery({
-    queryKey: ["stock", "report-table", report.key, activeCode, view, from, to, part, section, dept, type],
+    queryKey: ["stock", "report-table", REPORT.key, activeCode, view, from, to, part, section, dept, type],
     // Silent: the table card shows its own error and Retry (api.js).
-    queryFn: () => consumptionAnalyticsService.table({ ...tableParams, report: report.key, view }, { silent: true })
+    queryFn: () => consumptionAnalyticsService.table({ ...tableParams, report: REPORT.key, view }, { silent: true })
       .then((r) => r.data.data),
-    enabled: Boolean(activeCode) && !blocked && !elsewhere,
+    enabled: Boolean(activeCode) && !blocked,
     placeholderData: keepPreviousData,
   });
   const t = tq.data;
 
-  if (elsewhere) {
-    // The Department is not carried over: it means another thing there — on
-    // the old screen and the Consumption Report who consumed it, on the
-    // Issuance Report who took it out — so the same name would pick other
-    // issues under the same words. The box opens on "All departments".
-    const moved = new URLSearchParams(urlParams);
-    moved.delete("dept");
-    return <Navigate to={`${elsewhere.path}?${moved.toString()}`} replace />;
-  }
   if (!activeCode) {
     return (
       <div className="card text-sm text-slate-500 dark:text-slate-400">
@@ -219,14 +208,14 @@ export default function ReportScreen({ report: reportKey, children }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-lg font-bold text-slate-800 dark:text-white">{report.title}</h2>
-          <p className="text-xs text-slate-400 mt-0.5">{report.subtitle}</p>
+          <h2 className="text-lg font-bold text-slate-800 dark:text-white">{REPORT.title}</h2>
+          <p className="text-xs text-slate-400 mt-0.5">{REPORT.subtitle}</p>
         </div>
         {tq.isFetching && t && <span className="text-[11px] text-slate-400">Updating…</span>}
       </div>
 
       <FilterBar
-        report={report} range={range} from={from} to={to} view={view} badRange={badRange || tooLong}
+        range={range} from={from} to={to} view={view} badRange={badRange || tooLong}
         section={section} dept={dept} type={type} part={part}
         partLabel={partNo || t?.filters?.part_no || (part ? `Part #${part}` : "")}
         partName={t?.filters?.part_name}
@@ -238,7 +227,7 @@ export default function ReportScreen({ report: reportKey, children }) {
         onChange={update}
         active={filtersActive}
         onClear={() => update({ section: "", dept: "", type: "", part: "", pno: "" })}
-        downloads={<TableDownloads tq={tq} params={tableParams} view={view} report={report.key} blocked={blocked} />}
+        downloads={<TableDownloads tq={tq} params={tableParams} view={view} blocked={blocked} />}
       />
 
       {waiting ? (
@@ -267,7 +256,7 @@ export default function ReportScreen({ report: reportKey, children }) {
       ) : (
         <>
           <ConsumptionTable
-            tq={tq} view={view} report={report.key} filtered={filtersActive}
+            tq={tq} view={view} filtered={filtersActive}
             longer={{ month: longerThan(7), year: longerThan(4) }} onPreset={choosePreset}
           />
           {children?.({ from, to, section, dept, type, part, onFilter: update })}
@@ -298,14 +287,15 @@ function Field({ label, as: Tag = "label", className = "", children }) {
 // grid packs densely, so the Part no. box moves up beside the Section rather
 // than leave a hole there.
 function FilterBar({
-  report, range, from, to, view, badRange, section, dept, type, part, partLabel, partName, sectionLabel,
+  range, from, to, view, badRange, section, dept, type, part, partLabel, partName, sectionLabel,
   options, optionsError, onRetryOptions, code, onPreset, onDates, onChange, active, onClear, downloads,
 }) {
   const sections = options?.sections || NO_ROWS;
   const types = options?.types || NO_ROWS;
-  // The report's own departments: who took the parts out (Issuance), or who
-  // consumed them (Consumption).
-  const departments = options?.[report.departments] || NO_ROWS;
+  // The consuming departments — the one owning the part's section, never the
+  // store, which only hands parts out ("store to issue karta h" — the store,
+  // 18 Oct 2026).
+  const departments = options?.departments || NO_ROWS;
   const custom = range === "custom";
   const date = `input-field py-1.5 text-[13px] min-w-0 sm:w-auto ${badRange ? "border-toyotared" : ""}`;
   return (
@@ -331,7 +321,7 @@ function FilterBar({
       <Field label="View">
         <select className={`${select} font-medium text-slate-800 dark:text-white`} value={view}
           onChange={(e) => onChange({ view: e.target.value })}>
-          {report.views.map((v) => <option key={v.key} value={v.key}>{v.option || v.label}</option>)}
+          {REPORT.views.map((v) => <option key={v.key} value={v.key}>{v.option || v.label}</option>)}
         </select>
       </Field>
       <Field label="Section">
@@ -346,7 +336,7 @@ function FilterBar({
         </select>
       </Field>
       <Field label="Department" className="col-span-2">
-        <select className={select} value={dept} title={report.departmentHint}
+        <select className={select} value={dept} title={REPORT.departmentHint}
           onChange={(e) => onChange({ dept: e.target.value })}>
           <option value="">All departments</option>
           {/* One the list does not offer (an older link, or a department no

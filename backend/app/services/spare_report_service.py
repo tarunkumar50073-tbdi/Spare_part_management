@@ -1,5 +1,5 @@
 """The Reports page of a spare store (the Spare Parts Store, MAINTENANCE): the
-ten downloads it offers, each built from what the store records today.
+nine downloads it offers, each built from what the store records today.
 
 One small function per report returns plain rows keyed by column heading;
 ReportService renders them as the app's formatted Excel table
@@ -14,10 +14,15 @@ lists' Excel coloured like the reorder / excess mail sheets. Nothing here writes
                                the owner of the part's section, consumers());
     installations             the INSTALLATION journal rows (spare_transactions);
     returns                    spare_returns, plus older direct RETURN ledger rows;
-    kiosk requests             part_requests;
     put-away                   put_away_log;
     receipts                   spare_stock_ledger RECEIPT rows (reference = GRN no.);
     ERP vs physical            SpareStockService.erp_gap.
+
+There is no Kiosk Part Requests report any more: the kiosk and its Part
+Requisition queue were taken out on 17 Oct 2026 ("management k according manual
+detail fill karke issuance karna time waste h" — the store). The part_requests
+rows stay in the database; the Issue Register lists every issue, those made
+from a kiosk request included.
 
 Consumption is not here: it is on the Consumption screen, where a part, a From
 - To range and a view (date, week, month, year, part, department, line /
@@ -42,7 +47,6 @@ from sqlalchemy import func, or_, select
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.part import Part
-from app.models.part_request import PartRequest
 from app.models.put_away_log import PutAwayLog
 from app.models.spare_flow import SpareReturn, SpareTransaction
 from app.models.spare_stock import LEGACY_RETURN_REASONS, RETURN_ROW_INSPECTED, SpareStockLedger
@@ -55,7 +59,6 @@ from app.services.inventory_control_service import InventoryControlService, _q
 from app.services.reorder_mail_service import _ORDER, REORDER_LEGEND, REORDER_STATUSES, part_cells, reorder_paint
 from app.services.spare_dashboard_service import SpareDashboardService
 from app.services.spare_stock_service import SpareStockService
-from app.utils.bin_location import bins_text, match_bin, part_bins
 from app.utils.exceptions import BadRequestError, NotFoundError
 
 # `paint` / `legend` colour a report's Excel download as a mail colours its
@@ -81,9 +84,6 @@ INSTALLATION_COLUMNS = ("Date & Time", "Issue No", "Part No", "Description", "De
                         "Recorded By", "Entry")
 RETURN_COLUMNS = ("Date & Time", "Return No", "Issue No", "Part No", "Description", "Qty", "Reason",
                   "Returned By", "Department", "Recorded By", "Result")
-REQUEST_COLUMNS = ("Request No", "Date & Time", "Part No", "Description", "Requested Qty",
-                   "Issued Qty", "Requester", "Emp Code", "Department", "Status", "Supervisor",
-                   "Issued At", "Location Check")
 PUT_AWAY_COLUMNS = ("Date & Time", "Part No", "Description", "Location", "Lot Qty",
                     "Gate Entry No", "Put By")
 RECEIPT_COLUMNS = ("Date", "GRN No", "Part No", "Description", "Section", "Qty", "Supplier",
@@ -104,10 +104,6 @@ ISSUE_WORDS = {
 }
 # A confirmation with 0 used is stored as PARTIALLY_USED: nothing was fitted.
 NOT_USED = "Not used yet"
-REQUEST_WORDS = {
-    "PENDING": "Pending", "PROCESSING": "Processing", "PARTIALLY_ISSUED": "Partially Issued",
-    "ISSUED": "Issued", "CANCELLED": "Cancelled",
-}
 ERP_WORDS = {
     "MATCH": "Match", "SHORT": "Short", "EXCESS": "Excess",
     "NOT_SYNCED": "Awaiting ERP", "NO_PHYSICAL": "Not counted yet",
@@ -191,18 +187,6 @@ def _return_result(ret):
     if len(split) == 1:
         return split[0][0]
     return ", ".join(f"{label} {_q(qty)}" for label, qty in split) or None
-
-
-def _location_check(req):
-    if not req.scanned_location:
-        return "Not scanned"
-    assigned = req.assigned_location or (req.part.location if req.part else None)
-    # Either of the part's bins is right: its new location or its rework one.
-    bins = part_bins(assigned, req.part.rework_location if req.part else None)
-    hit = match_bin(req.scanned_location, bins)
-    if hit:
-        return "Right - rework bin" if hit[0] == "rework" else "Right"
-    return f"Wrong - scanned {req.scanned_location}, assigned {bins_text(bins) or 'none'}"
 
 
 def _in(column, win):
@@ -347,21 +331,6 @@ class SpareReportService:
         lines.sort(key=lambda line: line[:2])
         return [row for _, _, row in lines]
 
-    def _part_requests(self, store_code, win):
-        rows = (PartRequest.query
-                .filter(PartRequest.store_code == store_code, *_in(PartRequest.created_at, win))
-                .order_by(PartRequest.created_at, PartRequest.id).all())
-        return [{
-            "Request No": r.reference_no, "Date & Time": _stamp(r.created_at),
-            "Part No": r.part_no or (r.part.part_no if r.part else None),
-            "Description": r.part_name or (r.part.part_name if r.part else None),
-            "Requested Qty": r.requested_qty, "Issued Qty": r.issued_qty,
-            "Requester": r.requester_name, "Emp Code": r.requester_code,
-            "Department": r.department, "Status": REQUEST_WORDS.get(r.status, r.status),
-            "Supervisor": r.supervisor, "Issued At": _stamp(r.issued_at),
-            "Location Check": _location_check(r),
-        } for r in rows]
-
     def _put_away_register(self, store_code, win):
         rows = (db.session.query(PutAwayLog, Part).outerjoin(Part, Part.id == PutAwayLog.part_id)
                 .filter(PutAwayLog.store_code == store_code, *_in(PutAwayLog.created_at, win))
@@ -425,9 +394,6 @@ class SpareReportService:
         Report("return_register", "Return Register",
                "Every part returned to the store in the period, against its issue, and where the qty went.",
                True, RETURN_COLUMNS, _return_register),
-        Report("part_requests", "Kiosk Part Requests",
-               "Part requests raised at the kiosk in the period and how the store answered them.",
-               True, REQUEST_COLUMNS, _part_requests),
         Report("put_away_register", "Put-away Register",
                "Put-away confirmations in the period: part, location, lot quantity and who put it away.",
                True, PUT_AWAY_COLUMNS, _put_away_register),

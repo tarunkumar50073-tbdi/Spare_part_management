@@ -29,6 +29,8 @@ FIELD_ALIASES = {
     "category": {"category"},
     "sub_category": {"subcategory"},
     "specification": {"specification", "spec", "specs", "specdetails"},
+    "model_no": {"modelno", "model", "modelnumber", "partmodel", "partmodelno"},
+    "discontinued": {"discontinued", "notrequired", "discontinue"},
     "new_part_no": {"newpartno", "newpartnumber"},
     "old_part_no": {"oldpartno", "oldpartnumber", "referencecode"},
     "package_standard": {"packagestandard", "packgstnd", "packingstandard"},
@@ -46,7 +48,7 @@ REQUIRED_FIELDS = ["part_no", "part_name"]
 
 TEMPLATE_COLUMNS = [
     "Part No", "Part Name", "UOM", "Barcode", "Part Type (DOL/OTHER)", "Min Stock Level", "Reorder Level", "Max Stock Level",
-    "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "Specification", "New Part No", "Old Part No", "Package Standard",
+    "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "Specification", "Model No", "New Part No", "Old Part No", "Package Standard",
     "Supplier Code", "Daily Consumption", "Unit Price", "Location", "Rework Location",
 ]
 
@@ -54,10 +56,11 @@ EXPORT_COLUMNS = [
     ("Part No", "part_no"), ("Part Name", "part_name"), ("UOM", "uom"), ("Barcode", "barcode"),
     ("Part Type", "part_type"), ("Min Stock Level", "min_stock_level"),
     ("Reorder Level", "reorder_level"), ("Max Stock Level", "max_stock_level"), ("Status", "status_label"),
-    ("Category", "category"), ("Sub Category", "sub_category"), ("Specification", "specification"),
+    ("Category", "category"), ("Sub Category", "sub_category"), ("Specification", "specification"), ("Model No", "model_no"),
     ("New Part No", "new_part_no"), ("Old Part No", "old_part_no"), ("Package Standard", "package_standard"),
     ("Supplier Code", "supplier_code"), ("Daily Consumption", "daily_consumption"), ("Unit Price", "unit_price"),
     ("Location", "location"), ("Rework Location", "rework_location"), ("Store", "store_code"),
+    ("Discontinued", "discontinued_label"),
 ]
 
 
@@ -72,6 +75,12 @@ def _actor():
         if getattr(g, "is_machine", False):
             return "ERP", "SYSTEM"
     return "system", "SYSTEM"
+
+
+def _yes_no(v):
+    """An Excel Yes / No cell as True / False; blank or anything else = None."""
+    text = str(v or "").strip().lower()
+    return True if text in ("yes", "y", "1", "true") else False if text in ("no", "n", "0", "false") else None
 
 
 def _blank(v):
@@ -129,10 +138,12 @@ class PartService:
         self.audit.log(action=action, entity_type="PART", entity_id=entity_id, user=user,
                        remarks=f"{subject} by {name}: {detail}"[:255])
 
-    def list_parts(self, keyword=None, is_active=None, store_code=None, section_id=None, missing=None):
+    def list_parts(self, keyword=None, is_active=None, store_code=None, section_id=None, missing=None,
+                   category=None, sub_category=None, rack=None):
         return self.repo.search(
             keyword=keyword, is_active=is_active,
             store_code=store_code, section_id=section_id, missing=missing,
+            category=category, sub_category=sub_category, rack=rack,
         )
 
     def count_missing(self, store_code=None, is_active=None):
@@ -215,10 +226,14 @@ class PartService:
 
     def delete(self, part_id):
         part = self.get(part_id)
+        photo = part.image_file
         with atomic():
             self._audit("PART_DELETED", part.id, part.part_no, f"deleted ({part.part_name})")
             self.repo.delete(part)
         LiveStockService.invalidate_rows_cache()
+        if photo:
+            from app.services.part_image_service import PartImageService
+            PartImageService.forget(photo)
 
     def bulk_import_excel(self, file_stream, store_code=None, section_id=None,
                           user=None, filename=None, sheet_name=None):
@@ -263,6 +278,7 @@ class PartService:
                 "category": category,
                 "sub_category": to_text(raw_row.get("sub_category"), "") or None,
                 "specification": to_text(raw_row.get("specification"), "") or None,
+                "model_no": to_text(raw_row.get("model_no"), "") or None,
                 "new_part_no": to_text(raw_row.get("new_part_no"), "") or None,
                 "old_part_no": to_text(raw_row.get("old_part_no"), "") or None,
                 "package_standard": to_number(raw_row.get("package_standard"), None),
@@ -271,6 +287,8 @@ class PartService:
                 "unit_price": to_number(raw_row.get("unit_price"), None),
                 "location": to_text(raw_row.get("location"), "") or None,
                 "rework_location": to_text(raw_row.get("rework_location"), "") or None,
+                # Yes / No; blank leaves it as it is (the importer's rule).
+                "discontinued": _yes_no(raw_row.get("discontinued")),
             }
 
             if existing:
@@ -409,7 +427,7 @@ class PartService:
                 "max_stock_level": float(part.max_stock_level) if part.max_stock_level is not None else "",
                 "status_label": "Active" if part.is_active else "Inactive",
                 "category": part.category or "", "sub_category": part.sub_category or "",
-                "specification": part.specification or "",
+                "specification": part.specification or "", "model_no": part.model_no or "",
                 "new_part_no": part.new_part_no or "", "old_part_no": part.old_part_no or "",
                 "package_standard": float(part.package_standard) if part.package_standard is not None else "",
                 "supplier_code": part.supplier.vendor_code if part.supplier else "",
@@ -418,5 +436,6 @@ class PartService:
                 "location": part.location or "",
                 "rework_location": part.rework_location or "",
                 "store_code": part.store_code or "",
+                "discontinued_label": "Yes" if part.discontinued else "",
             })
         return build_export(EXPORT_COLUMNS, rows)

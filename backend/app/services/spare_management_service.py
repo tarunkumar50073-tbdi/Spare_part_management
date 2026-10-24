@@ -9,6 +9,7 @@ in one response (GET /dashboard/spare/management):
     excess_aging  HOW LONG the money above max has sat: days since the part
                   last came in, per ERP.
     movement      material IN against OUT in rupees, month by month.
+    value_trend   what the stock was worth, day / week / month / year.
     scan          is the store scanning its parts, or typing them.
 
 It stands beside SpareDashboardService instead of growing overview(): that call
@@ -21,8 +22,10 @@ could not be read (its query failed) is None as well, and its tracker line reads
 UNKNOWN — the rest of the payload still arrives.
 """
 import time
+from bisect import bisect_right
 from collections import Counter
 from datetime import date, datetime, timedelta
+from itertools import accumulate
 
 from flask import current_app
 from sqlalchemy import and_, case, func
@@ -32,17 +35,15 @@ from app.models.app_setting import AppSetting
 from app.models.base import utcnow
 from app.models.gate_entry import GateEntry
 from app.models.part import Part
-from app.models.part_request import PartRequest
 from app.models.put_away_log import PutAwayLog
 from app.models.receiving_register import ReceivingRegister
 from app.models.scan_audit import ScanAudit
 from app.models.spare_flow import SpareTransaction
-from app.models.spare_stock import SpareStockLedger
+from app.models.spare_stock import SpareStock, SpareStockLedger
 from app.models.store import Store
 from app.services.consumption_analytics_service import _local_offset, _utc_naive
 from app.services.erp_gap_service import ERPGapService
 from app.services.erp_grn_posting_service import _plant_date
-from app.services.part_request_service import OPEN_STATUSES
 from app.services.spare_dashboard_service import SpareDashboardService, _as_date, _money
 from app.services.spare_stock_service import _sec_tuple
 from app.utils.exceptions import BadRequestError
@@ -52,16 +53,19 @@ OWNER_MAX = 60
 REMARKS_MAX = 200
 
 # The Action Tracker's lines, in the order they are listed, each with what has
-# to be done and who does it unless an administrator names someone else. A
+# to be done and who does it unless an administrator names someone else. The
+# plant's buying is two steps: the user department raises the INDENT for what
+# it needs, and Purchase makes the PO from it (the store, 22 Oct 2026: "user
+# indent deta h requierment k liye and purchase po banata h"). A
 # `store_only` line is a whole-store figure (the ERP queues are not split by
 # section), so it is left out of a section / group call — exactly like the
 # overview's srv_pending and erp_pending.
 TRACKER_ITEMS = (
     {"key": "critical", "label": "Critical parts", "severity": "critical",
-     "action": "Raise / expedite PO", "owner": "Purchase",
+     "action": "Raise indent · expedite PO", "owner": "User dept + Purchase",
      "link": {"label": "Open list", "to": "/store-stock-spare", "status": "Critical"}},
     {"key": "reorder", "label": "At reorder level", "severity": "warning",
-     "action": "Raise PO", "owner": "Purchase",
+     "action": "Raise indent", "owner": "User dept",
      "link": {"label": "Open list", "to": "/store-stock-spare", "status": "Reorder"}},
     {"key": "excess", "label": "Excess above max", "severity": "warning",
      "action": "Stop ordering · review max level", "owner": "Store + Planning",
@@ -70,19 +74,25 @@ TRACKER_ITEMS = (
      "action": "Clear quality in ERP", "owner": "Quality / user dept.",
      "link": {"label": "Open Receiving & GRN", "to": "/receiving"}, "store_only": True},
     {"key": "erp_gap", "label": "ERP vs physical gap", "severity": "warning",
-     "action": "Reconcile stock with ERP", "owner": "Store + ERP team",
+     # The store reconciles ("RECONSILE STORE karega" — 22 Oct 2026).
+     "action": "Reconcile stock with ERP", "owner": "Store",
      "link": {"label": "Open ERP vs Physical", "to": "/spare-erp-gap"}, "store_only": True},
+    # No "kiosk part requests open" line: the kiosk and its Part Requisition
+    # queue were taken out on 17 Oct 2026 ("management k according manual detail
+    # fill karke issuance karna time waste h" — the store). Parts are issued on
+    # Scan Part; the part_requests rows stay in the database, unread.
     {"key": "confirm_pending", "label": "Issues awaiting confirmation", "severity": "warning",
      "action": "Confirm installation", "owner": "User department",
      "link": {"label": "Confirm installation", "to": "/confirm-installation"}},
-    {"key": "kiosk_open", "label": "Kiosk part requests open", "severity": "warning",
-     "action": "Issue the requested part", "owner": "Store supervisor",
-     "link": {"label": "Open Part Requisition", "to": "/part-requests"}},
     {"key": "returns_pending", "label": "Returns awaiting inspection", "severity": "warning",
      "action": "Inspect returned parts", "owner": "Store",
      "link": {"label": "Open Work Queue", "to": "/work-queue"}},
     {"key": "rgp_overdue", "label": "Repair (RGP) overdue", "severity": "warning",
-     "action": "Follow up with the supplier", "owner": "Purchase",
+     # The store mails the user department which RGPs are pending and for how
+     # many days; the user department follows them up with the supplier
+     # ("repair me user follow up lega store mail karega", "store user ko mail
+     # karega ki itni rgp itne din se pending h" — 22 Oct 2026).
+     "action": "Store mails the user dept (pending RGPs, days) · user follows up", "owner": "Store + User dept",
      "link": {"label": "Open Work Queue", "to": "/work-queue"}},
     {"key": "no_rate", "label": "Parts without a rate", "severity": "info",
      "action": "Enter the rate in Part Master", "owner": "Store + Accounts",
@@ -106,10 +116,18 @@ _TOP_EXCESS = 5
 
 MOVEMENT_MONTHS = 6
 
+# The stock value trend: how many points each of its views keeps.
+TREND_DAYS = 30
+TREND_WEEKS = 12
+TREND_MONTHS = 24
+
 SCAN_WINDOW_DAYS = 30
 # scan_audit.scan_source: a gun or camera read, against a typed / searched code.
 SCANNED_SOURCES = ("USB_SCANNER", "BLUETOOTH_SCANNER", "TABLET_CAMERA")
 # spare_transactions.scan_source on an ISSUE: how the operator reached the part.
+# "kiosk_request" is no longer written (the kiosk went on 17 Oct 2026), but the
+# issues made from a kiosk request before then were verified by a bin scan and
+# still count as scanned.
 ISSUE_BY_SCAN = ("QR_SCAN", "SUPPLIER_BARCODE", "kiosk_request")
 ISSUE_BY_SEARCH = ("ERP_SEARCH", "MANUAL_ENTRY")
 
@@ -194,15 +212,6 @@ def _rupees(value):
     return f"₹ {value:,.0f}"
 
 
-def _waiting(age):
-    """How long the oldest request has waited: hours for the first two days,
-    whole days after that."""
-    hours = int(age.total_seconds() // 3600)
-    if hours < 1:
-        return "under 1 h"
-    return f"{hours} h" if hours < 48 else f"{hours // 24} d"
-
-
 def _month_starts(as_of, count):
     """The first day of each of the last `count` plant months, oldest first."""
     year, month = as_of.year, as_of.month
@@ -211,6 +220,30 @@ def _month_starts(as_of, count):
         out.append(date(year, month, 1))
         year, month = (year, month - 1) if month > 1 else (year - 1, 12)
     return out[::-1]
+
+
+def _trend_periods(as_of, start):
+    """The periods of the stock value trend, oldest first, per view: (key,
+    label, first day, last day). The current period ends today. A period that
+    ended before the first stock on record is left out — its value is not
+    known, not zero. Weeks run Monday to Sunday."""
+    def keep(periods):
+        return [p for p in periods if p[3] >= start]
+
+    def month_end(m):
+        nxt = date(m.year + (m.month == 12), m.month % 12 + 1, 1)
+        return min(nxt - timedelta(days=1), as_of)
+
+    days = [as_of - timedelta(days=i) for i in range(TREND_DAYS - 1, -1, -1)]
+    monday = as_of - timedelta(days=as_of.weekday())
+    weeks = [monday - timedelta(weeks=i) for i in range(TREND_WEEKS - 1, -1, -1)]
+    return {
+        "day": keep([(d.isoformat(), f"{d.day} {d:%b}", d, d) for d in days]),
+        "week": keep([(w.isoformat(), f"{w.day} {w:%b}", w, min(w + timedelta(days=6), as_of)) for w in weeks]),
+        "month": keep([(f"{m:%Y-%m}", f"{m:%b} '{m:%y}", m, month_end(m)) for m in _month_starts(as_of, TREND_MONTHS)]),
+        "year": keep([(str(y), str(y), date(y, 1, 1), min(date(y, 12, 31), as_of))
+                      for y in range(start.year, as_of.year + 1)]),
+    }
 
 
 def _aging_bucket(days):
@@ -233,6 +266,7 @@ def _aging_unknown(as_of, erp):
         "idle": {"parts": None, "value": None},
         "top": [],
         "part_buckets": None,
+        "part_ages": None,
     }
 
 
@@ -310,18 +344,18 @@ class SpareManagementService:
                     {"synced_at": None, "newest_grn_date": None})
         aging = _safe("excess aging", lambda: self._excess_aging(store_code, rows, names, as_of, erp),
                       _aging_unknown(as_of, erp))
-        kiosk = _safe("the kiosk requests", lambda: self._kiosk(*scope, since),
-                      dict.fromkeys(("open", "issued", "oldest_open_at")))
         return {
             "store_code": store_code,
             "section_id": section_id,
             "section_ids": sorted(section_ids) if section_ids else None,
             "generated_at": utcnow().isoformat(),
             "as_of": as_of.isoformat(),
-            "tracker": self._tracker(*scope, store_level, rows, names, agg, aging, kiosk, now, as_of, can_edit),
+            "tracker": self._tracker(*scope, store_level, rows, names, agg, aging, as_of, can_edit),
             "excess_aging": aging,
             "movement": self._movement(*scope, as_of, offset, erp, agg["quality"]["missing_rate"]),
-            "scan": self._scan(*scope, store_level, since, kiosk),
+            "scan": self._scan(*scope, store_level, since),
+            "value_trend": _safe("the stock value trend",
+                                 lambda: self._value_trend(*scope, rows, as_of, offset)),
         }
 
     def set_tracker_item(self, store_code, key, data, user=None):
@@ -358,7 +392,7 @@ class SpareManagementService:
     # ---------------------------------------------------------- action tracker
 
     def _tracker(self, store_code, section_id, section_ids, store_level, rows, names, agg, aging,
-                 kiosk, now, as_of, can_edit):
+                 as_of, can_edit):
         """Each line's live figures — the stock lines off the list, every queue
         from the overview's own helper and guarded on its own — under the note
         an administrator saved on it."""
@@ -366,7 +400,6 @@ class SpareManagementService:
         readers = {
             "confirm_pending": lambda: _line(
                 self.dashboard._pending_confirmations(store_code, section_id, section_ids)),
-            "kiosk_open": lambda: self._kiosk_line(kiosk, now),
             "returns_pending": lambda: self._returns_line(store_code, section_id, section_ids),
             "rgp_overdue": lambda: _line(
                 self.dashboard._rgp(store_code, section_id, section_ids)["overdue"]),
@@ -490,12 +523,6 @@ class SpareManagementService:
         pending = self.dashboard._returns_pending(store_code, section_id, section_ids)
         return _line(pending["inspection"] + pending["hold"] + pending["damaged"])
 
-    @staticmethod
-    def _kiosk_line(kiosk, now):
-        oldest = kiosk["oldest_open_at"]
-        return _line(kiosk["open"],
-                     detail=f"Oldest waiting {_waiting(now - datetime.fromisoformat(oldest))}" if oldest else "")
-
     # ------------------------------------------------------------ excess aging
 
     @staticmethod
@@ -540,6 +567,9 @@ class SpareManagementService:
         # Every excess part's band, rated or not — the Live Board lists the
         # parts behind a band from it, so the list is the band's own parts.
         part_buckets = {}
+        # ...and how long each has waited since its last inward, so the board's
+        # list says "kitne din se pending" per part (the store, 22 Oct 2026).
+        part_ages = {}
         for r in rows:
             if r["status"] != "Above Maximum" or not r["max_stock_level"]:
                 continue
@@ -556,6 +586,8 @@ class SpareManagementService:
             bucket = buckets[_aging_bucket(days)]
             bucket["parts"] += 1
             part_buckets[r["part_id"]] = bucket["key"]
+            part_ages[r["part_id"]] = {"days": days, "last_inward": last.isoformat() if last else None,
+                                       "source": source}
             # A part with no rate is counted, never valued.
             if not r["unit_price"]:
                 bucket["unrated"] += 1
@@ -589,6 +621,7 @@ class SpareManagementService:
                      "value": _money(sum(b["value"] for b in idle))},
             "top": rated[:_TOP_EXCESS],
             "part_buckets": part_buckets,
+            "part_ages": part_ages,
         }
 
     # ---------------------------------------------------------------- movement
@@ -617,6 +650,92 @@ class SpareManagementService:
              .group_by(month))
         return {period: (int(lines), float(qty or 0), float(value or 0), float(accepted or 0), int(pending))
                 for period, lines, qty, value, accepted, pending in q}
+
+    @staticmethod
+    def _value_trend(store_code, section_id, section_ids, rows, as_of, offset):
+        """What the scope's stock was worth at the end of each day / week /
+        month / year — the Live Board's Stock Value Trend (the store, 24 Oct
+        2026: "graph me dikhe ki inventory ka trand kya chal rha h month wise
+        year wise"). The app keeps no daily value, so it is worked BACK from
+        today's stock through the ledger: a part's quantity on a past day is
+        today's less every movement since, and every day is valued at TODAY's
+        rate. A stock row that came in with no ledger row (an Excel load) holds
+        today's quantity from the day the row was made; those days are listed
+        under `loads`, biggest first, so a step in the line is read as a load,
+        not as buying (₹3.15 Cr came in that way on 18 Sep 2026). A part with
+        stock but no rate is left out and counted in `unrated_parts`. The last
+        point is today's value, the same Σ stock × rate as the Stock Value tile.
+        None when nothing in the scope has both a stock figure and a rate."""
+        held, unrated = {}, 0
+        for r in rows:
+            qty, rate = r.get("qty_on_hand"), r.get("unit_price")
+            if qty is None:
+                continue
+            if rate is None:
+                if qty > 0:
+                    unrated += 1
+                continue
+            held[r["part_id"]] = (float(qty), float(rate))
+        if not held:
+            return None
+
+        def plant_day(at):
+            return (_utc_naive(at) + offset).date()
+
+        scope = _sec_tuple(section_id, section_ids)
+        moves = {}
+        L = SpareStockLedger
+        for pid, delta, at in (db.session.query(L.part_id, L.qty_delta, L.created_at)
+                               .join(Part, Part.id == L.part_id)
+                               .filter(Part.store_code == store_code, *scope)):
+            if pid in held and at is not None:
+                moves.setdefault(pid, []).append((plant_day(at), float(delta or 0)))
+        made = {pid: plant_day(at)
+                for pid, at in (db.session.query(SpareStock.part_id, SpareStock.created_at)
+                                .join(Part, Part.id == SpareStock.part_id)
+                                .filter(Part.store_code == store_code, *scope))
+                if pid in held and at is not None}
+
+        # A part that never moved adds its whole value on the day it came in,
+        # so those are summed per day once; a part that moved is rebuilt per point.
+        loaded, loaded_parts, moving = Counter(), Counter(), []
+        for pid, (qty, rate) in held.items():
+            mv = moves.get(pid)
+            first = min([made.get(pid, as_of)] + [day for day, _ in mv or ()])
+            if mv:
+                moving.append((qty, rate, first, mv))
+            elif qty > 0:
+                loaded[first] += qty * rate
+                loaded_parts[first] += 1
+        firsts = list(loaded) + [m[2] for m in moving]
+        if not firsts:
+            return None
+        start = min(firsts)
+        load_days = sorted(loaded)
+        load_sums = list(accumulate(loaded[d] for d in load_days))
+
+        def value_at(end):
+            i = bisect_right(load_days, end)
+            total = load_sums[i - 1] if i else 0.0
+            for qty, rate, first, mv in moving:
+                if end >= first:
+                    then = qty - sum(delta for day, delta in mv if day > end)
+                    if then > 0:
+                        total += then * rate
+            return round(total, 2)
+
+        return {
+            "as_of": as_of.isoformat(),
+            "since": start.isoformat(),
+            "rate": "today",
+            "value": value_at(as_of),
+            "unrated_parts": unrated,
+            "series": {view: [{"key": key, "label": label, "from": lo.isoformat(), "to": hi.isoformat(),
+                               "value": value_at(hi)} for key, label, lo, hi in periods]
+                       for view, periods in _trend_periods(as_of, start).items()},
+            "loads": sorted(({"date": d.isoformat(), "parts": loaded_parts[d], "value": round(loaded[d], 2)}
+                             for d in load_days if d > start), key=lambda x: -x["value"])[:3],
+        }
 
     @staticmethod
     def _ledger_movement(store_code, section_id, section_ids, first, offset):
@@ -712,9 +831,9 @@ class SpareManagementService:
 
     # -------------------------------------------------------------------- scan
 
-    def _scan(self, store_code, section_id, section_ids, store_level, since, kiosk):
+    def _scan(self, store_code, section_id, section_ids, store_level, since):
         """Scan discipline over a rolling 30 days. `scans` covers the Scan Part
-        page only (the one screen that audits every read); the other three say
+        page only (the one screen that audits every read); the other two say
         how the scan-first flows around it are being used."""
         scope = (store_code, section_id, section_ids)
         scan_keys = ("total", "scanned", "typed", "not_found", "scanned_ok", "typed_ok",
@@ -732,7 +851,6 @@ class SpareManagementService:
                             dict.fromkeys(("total", "by_scan", "by_search", "unrecorded", "by_scan_pct"))),
             "put_away": _safe("the put-away confirmations", lambda: self._put_aways(*scope, since),
                               dict.fromkeys(("count", "with_lot_tag", "users", "last_at", "ever"))),
-            "kiosk": kiosk,
             # A code that was not found has no part, so no section: in a
             # section's figures those scans are simply absent.
             "not_found_scope": "store" if store_level else "section",
@@ -789,9 +907,11 @@ class SpareManagementService:
     @staticmethod
     def _put_aways(store_code, section_id, section_ids, since):
         """Put-aways confirmed on the Put-away Check screen. Every row is a bin
-        scan the server verified; one with a gate entry no. came from a lot tag
-        rather than a plain part QR. `ever` tells "not started yet" from "none
-        in the window"."""
+        scan the server verified; one with a gate entry no. has its lot from an
+        ERP gate entry — the part's latest one since the lot tags went (17 Oct
+        2026), the scanned lot tag's before. The key keeps its old name
+        (with_lot_tag, list key "lot_tag") so the board and its readers are
+        unchanged. `ever` tells "not started yet" from "none in the window"."""
         P = PutAwayLog
         recent = P.created_at >= since
         q = db.session.query(
@@ -807,22 +927,6 @@ class SpareManagementService:
         count, with_lot_tag, users, last_at, ever = q.one()
         return {"count": int(count), "with_lot_tag": int(with_lot_tag), "users": users,
                 "last_at": _stamp(last_at), "ever": ever > 0}
-
-    @staticmethod
-    def _kiosk(store_code, section_id, section_ids, since):
-        """Kiosk part requests: still open (whenever raised), issued in the
-        window, and since when the oldest open one has been waiting."""
-        K = PartRequest
-        is_open = K.status.in_(OPEN_STATUSES)
-        q = db.session.query(
-            _count(is_open), _count(and_(K.status == "ISSUED", K.issued_at >= since)),
-            func.min(case((is_open, K.created_at))),
-        ).filter(K.store_code == store_code)
-        scope = _sec_tuple(section_id, section_ids)
-        if scope:
-            q = q.join(Part, Part.id == K.part_id).filter(*scope)
-        n_open, issued, oldest = q.one()
-        return {"open": int(n_open), "issued": int(issued), "oldest_open_at": _stamp(oldest)}
 
     # ------------------------------------------------------ Live Board lists
 

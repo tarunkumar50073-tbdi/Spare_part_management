@@ -156,6 +156,16 @@ export function useDocChoice(docs, target) {
 
 // ---- masters ------------------------------------------------------------------
 
+/** Is this department the store itself — "Store", or a name ending in " Store"
+ *  (case and spaces aside)? The store hands parts out and never receives an
+ *  issue ("store to issue karta h" — the store, 18 Oct 2026); the server
+ *  refuses one too (SpareStockService.issue). Store stays in the master: it is
+ *  a mail-recipient department. */
+export const isStoreDepartment = (name) => {
+  const n = String(name ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+  return n === "store" || n.endsWith(" store");
+};
+
 /** Active departments from the department master (global, not store-scoped). */
 export function useDepartments() {
   return useQuery({

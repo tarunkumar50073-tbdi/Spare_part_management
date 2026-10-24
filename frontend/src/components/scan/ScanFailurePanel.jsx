@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Ban, Link2, RotateCcw, Search, TriangleAlert, WifiOff, X, XCircle } from "lucide-react";
 import PartSearch from "./PartSearch.jsx";
@@ -87,6 +87,18 @@ const TONES = {
  * onMapped  called once a mapping is saved — the workstation re-resolves the
  *           same code, which now identifies the part (spec 6)
  */
+// The fields of a supplier QR, as the server splits them (barcode_service
+// scan_fields): on | , ; # tab / newline and spaces, fields under 3 characters
+// (a qty, a unit) dropped. Only one that fits a mapping (80) is offered.
+const fieldsOf = (code) => {
+  const out = [];
+  for (const piece of String(code || "").split(/[|,;#\t\r\n ]+/)) {
+    const f = piece.trim();
+    if (f.length >= 3 && f.length <= 80 && !out.includes(f)) out.push(f);
+  }
+  return out;
+};
+
 export default function ScanFailurePanel({ failure, canMap, storeCode, onSearch, onCancel, onRetry, onMapped }) {
   const confirm = useConfirm();
   const [mapping, setMapping] = useState(false);
@@ -94,11 +106,18 @@ export default function ScanFailurePanel({ failure, canMap, storeCode, onSearch,
   const copy = COPY[failure.result] || COPY.NOT_FOUND;
   const tone = TONES[copy.tone];
   const unknown = failure.result === "UNKNOWN_BARCODE";
+  // A supplier QR carries its item code among lot / qty / date, which change
+  // every lot: mapping the whole read would never match the next lot, so the
+  // ITEM field is mapped (the store, 22 Oct 2026). A one-field code maps whole.
+  const fields = fieldsOf(failure.code);
+  const multi = fields.length > 1 || (fields.length === 1 && fields[0] !== String(failure.code || "").trim());
+  const [mapCode, setMapCode] = useState(multi ? fields[0] : failure.code);
+  useEffect(() => { setMapCode(multi ? fields[0] : failure.code); }, [failure.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const mapTo = async (p) => {
     const ok = await confirm({
       title: "Map supplier barcode",
-      message: `Map ${failure.code} → ${p.part_no}${p.part_name ? ` (${p.part_name})` : ""}? After this, scanning ${failure.code} identifies ${p.part_no} straight away.`,
+      message: `Map ${mapCode} → ${p.part_no}${p.part_name ? ` (${p.part_name})` : ""}? After this, scanning ${multi ? "any of this supplier's labels with this item code" : mapCode} identifies ${p.part_no} straight away.`,
       confirmText: "Map to Part",
       danger: false,
     });
@@ -107,8 +126,8 @@ export default function ScanFailurePanel({ failure, canMap, storeCode, onSearch,
     try {
       // The label's symbology is not known from a keyboard-wedge read, so it
       // is recorded as OTHER rather than guessed.
-      await barcodeService.createMapping({ part_id: p.part_id, code: failure.code, symbology: "OTHER" });
-      toast.success(`${failure.code} mapped to ${p.part_no}`);
+      await barcodeService.createMapping({ part_id: p.part_id, code: mapCode, symbology: "OTHER" });
+      toast.success(`${mapCode} mapped to ${p.part_no}`);
       setMapping(false);
       await onMapped?.();
     } catch {
@@ -147,8 +166,28 @@ export default function ScanFailurePanel({ failure, canMap, storeCode, onSearch,
 
       {mapping ? (
         <div className="mt-4 rounded-lg border border-amber-200 bg-white p-3 dark:border-amber-500/30 dark:bg-navy-900">
+          {multi && (
+            <div className="mb-3">
+              <p className="mb-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                This label has several codes — tap the supplier's <b>item code</b>:
+              </p>
+              <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">
+                Lot no., qty and date change every delivery; only the item code stays the same.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {fields.map((f) => (
+                  <button key={f} type="button" onClick={() => setMapCode(f)}
+                    className={`rounded-lg border px-2.5 py-1 font-mono text-sm ${mapCode === f
+                      ? "border-toyotared bg-toyotared/10 font-bold text-toyotared"
+                      : "border-slate-200 text-slate-600 hover:border-slate-300 dark:border-navy-700 dark:text-slate-300"}`}>
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <p className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Which part of this store is <span className="font-mono">{failure.code}</span>?
+            Which part of this store is <span className="font-mono">{mapCode}</span>?
           </p>
           <PartSearch storeCode={storeCode} onPick={mapTo} busy={saving} clearOnPick={false}
             label="Part to map this barcode to" placeholder="Search the Part No. this barcode belongs to…" />

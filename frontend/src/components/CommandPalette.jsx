@@ -12,22 +12,22 @@ import { can } from "../utils/permissions.js";
 const NAV = [
   { label: "Dashboard", to: "/", keywords: "home overview store status" },
   { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr issue receive return rgp supplier barcode mapping label print put away putaway bin location check" },
-  { label: "Work Queue", to: "/work-queue", mod: "scan_part", keywords: "grn quality inspection return rgp rework supplier pending" },
+  { label: "Work Queue", to: "/work-queue", mod: "work_queue", keywords: "grn quality inspection return rgp rework supplier pending" },
   { label: "Employee Master", to: "/employees", mod: "employees", keywords: "employee person mobile phone issued to code department" },
-  { label: "Line / Machine / Die Master", to: "/equipment", mod: "equipment", keywords: "line machine die equipment press install master dropdown" },
   { label: "Store Stock", to: "/store-stock-spare", mod: "store_stock", keywords: "inventory on hand count upload" },
   { label: "Part Ledger — Stock Ledger", to: "/spare-part-history", mod: "part_ledger", keywords: "valuation history opening closing movement" },
   { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },
   { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data" },
-  { label: "Critical · Reorder · Excess", to: "/inventory-control", mod: "store_stock", keywords: "short critical zero reorder excess aging order qty" },
-  { label: "Issuance Report", to: "/issuance", mod: "spare_store", keywords: "issuance issue list issued issue report who took taken by issued to person department yesterday last month financial year fy full pack excel pdf" },
-  { label: "Consumption Report", to: "/consumption", mod: "spare_store", keywords: "consumption consumed usage net returned trend top parts department machine category yesterday last month financial year fy full pack excel pdf charts" },
-  { label: "Receiving & GRN", to: "/receiving", mod: "spare_store", keywords: "grn srv receipt receiving inward aging" },
-  { label: "Short & Rejection", to: "/short-rejection", mod: "spare_store", keywords: "short receipt supply rejection rejected reject supplier lot debit note days pending kam aaya" },
-  { label: "ERP Control Center", to: "/erp-control", mod: "erp_gap", keywords: "erp sync status reconciliation error pending" },
-  { label: "Data Quality", to: "/data-quality", mod: "part_master", keywords: "missing min max rate location barcode completeness" },
-  { label: "Action Tracker", to: "/action-tracker", mod: "spare_store", keywords: "issues owner action by target date overdue open points management summary" },
-  { label: "Notification Center", to: "/notifications", keywords: "alerts notification critical warning bell" },
+  { label: "Critical · Reorder · Excess", to: "/inventory-control", mod: "inventory_control", keywords: "short critical zero reorder excess aging order qty" },
+  { label: "Issuance & Consumption Report", to: "/consumption", mod: "consumption", keywords: "issuance issue list issued issue report who took taken by issued to person kisko diya kitna diya consumption consumed usage net returned trend top parts department machine category yesterday last month financial year fy full pack excel pdf charts" },
+  { label: "Receiving & GRN", to: "/receiving", mod: "receiving", keywords: "grn srv receipt receiving inward aging" },
+  { label: "Short & Rejection", to: "/short-rejection", mod: "short_rejection", keywords: "short receipt supply rejection rejected reject srv rejection line rejection supplier lot rejection invoice days pending kam aaya" },
+  { label: "Urgent Challan Register", to: "/challans", mod: "challan_register", keywords: "urgent challan delivery challan dc without invoice po pending approval invoice later link invoice grn pending breakdown production critical gate register" },
+  { label: "Rejection Mail", to: "/rejection-requests", mod: "rejection_request", keywords: "rejection reject srv rejection line rejection rqc punch mail rejection mail outlook" },
+  { label: "ERP Control Center", to: "/erp-control", mod: "erp_control", keywords: "erp sync status reconciliation error pending" },
+  { label: "Data Quality", to: "/data-quality", mod: "data_quality", keywords: "missing min max rate location barcode completeness" },
+  { label: "Action Tracker", to: "/action-tracker", mod: "action_tracker", keywords: "issues owner action by target date overdue open points management summary" },
+  { label: "Notification Center", to: "/notifications", mod: "notifications", keywords: "alerts notification critical warning bell" },
   { label: "Suppliers", to: "/suppliers", keywords: "vendor supplier master" },
   { label: "Reports", to: "/reports", mod: "reports", keywords: "excel pdf export daily monthly consumption" },
   { label: "Live Dashboard (HMI)", to: "/live-dashboard", mod: "live_dashboard", keywords: "wallboard tv hmi big screen" },
@@ -120,7 +120,7 @@ export default function CommandPalette() {
     // A part opens the part drawer (stock, location, consumption, ERP, ledger).
     else openPart(item.p.part_id);
     close();
-  }, [navigate, close]);
+  }, [navigate, close, openPart]);
 
   const onKeyDown = (e) => {
     if (e.key === "Escape") { close(); return; }

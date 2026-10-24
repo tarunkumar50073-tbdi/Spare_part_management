@@ -1,5 +1,5 @@
-import React, { Suspense, useEffect } from "react";
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import React, { Suspense, useEffect, useRef } from "react";
+import { Routes, Route, Navigate, useLocation, useNavigationType } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/queryClient.js";
@@ -27,6 +27,7 @@ const AuditTrail = React.lazy(() => import("./pages/AuditTrail.jsx"));
 const Reports = React.lazy(() => import("./pages/Reports.jsx"));
 const NotFound = React.lazy(() => import("./pages/NotFound.jsx"));
 const PartMaster = React.lazy(() => import("./pages/PartMaster.jsx"));
+const PartPhotos = React.lazy(() => import("./pages/spare/PartPhotos.jsx"));
 const SpareStock = React.lazy(() => import("./pages/SpareStock.jsx"));
 const ScanPart = React.lazy(() => import("./pages/ScanPart.jsx"));
 const ScanAudit = React.lazy(() => import("./pages/ScanAudit.jsx"));
@@ -58,9 +59,10 @@ const AllServices = React.lazy(() => import("./pages/AllServices.jsx"));
 const ErpControlCenter = React.lazy(() => import("./pages/spare/ErpControlCenter.jsx"));
 const ReceivingMonitor = React.lazy(() => import("./pages/spare/ReceivingMonitor.jsx"));
 const ShortRejection = React.lazy(() => import("./pages/spare/ShortRejection.jsx"));
+const ChallanRegister = React.lazy(() => import("./pages/spare/ChallanRegister.jsx"));
+const RejectionRequests = React.lazy(() => import("./pages/spare/RejectionRequests.jsx"));
 const InventoryControl = React.lazy(() => import("./pages/spare/InventoryControl.jsx"));
 const ConsumptionAnalytics = React.lazy(() => import("./pages/spare/ConsumptionAnalytics.jsx"));
-const IssuanceReport = React.lazy(() => import("./pages/spare/IssuanceReport.jsx"));
 const DataQuality = React.lazy(() => import("./pages/spare/DataQuality.jsx"));
 const NotificationCenter = React.lazy(() => import("./pages/spare/NotificationCenter.jsx"));
 const WorkQueue = React.lazy(() => import("./pages/spare/WorkQueue.jsx"));
@@ -68,8 +70,6 @@ const ConfirmInstallation = React.lazy(() => import("./pages/spare/ConfirmInstal
 const PutAwayCheck = React.lazy(() => import("./pages/spare/PutAwayCheck.jsx"));
 const EmployeeMaster = React.lazy(() => import("./pages/EmployeeMaster.jsx"));
 const EquipmentMaster = React.lazy(() => import("./pages/EquipmentMaster.jsx"));
-const KioskRequest = React.lazy(() => import("./pages/spare/KioskRequest.jsx"));
-const PartRequests = React.lazy(() => import("./pages/spare/PartRequests.jsx"));
 const ActionTracker = React.lazy(() => import("./pages/spare/ActionTracker.jsx"));
 const EmailControlCenter = React.lazy(() => import("./pages/email/ControlCenter.jsx"));
 const EmailWorkflowCenter = React.lazy(() => import("./pages/email/WorkflowCenter.jsx"));
@@ -86,14 +86,65 @@ const ReminderEscalation = React.lazy(() => import("./pages/email/ReminderEscala
 // halfway down a long page (wherever it was last scrolled). Reset to the top on
 // every route change, and turn off the browser's own scroll restoration so a
 // reload starts at the top too.
-function ScrollToTop() {
-  const { pathname } = useLocation();
+//
+// Except going BACK (22 Oct 2026: "jab click karke kholte h ... back karne par
+// wahi aaye jahan khola tha upar na jaaye"): each page's scroll position is
+// remembered while it is on screen, and Back / Forward return to it. The page
+// fills in as its data arrives, so the position is retried for a moment until
+// the page is tall enough — and given up the moment the user scrolls himself.
+export function ScrollToTop() {
+  const location = useLocation();
+  const navType = useNavigationType();
+  const positions = useRef({});          // location.key -> scrollY when last seen
+  const lastPath = useRef(location.pathname);
   useEffect(() => {
     if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
   }, []);
+  // Remember where this page is scrolled to, as the user scrolls it.
   useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [pathname]);
+    const key = location.key;
+    let frame = 0;
+    const note = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => { positions.current[key] = window.scrollY; });
+    };
+    window.addEventListener("scroll", note, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", note);
+    };
+  }, [location.key]);
+  useEffect(() => {
+    const pathChanged = lastPath.current !== location.pathname;
+    lastPath.current = location.pathname;
+    if (navType !== "POP") {
+      // A new page starts at the top; a filter change on the same page stays put.
+      if (pathChanged) window.scrollTo(0, 0);
+      return undefined;
+    }
+    const target = positions.current[location.key];
+    if (!target) {
+      window.scrollTo(0, 0);
+      return undefined;
+    }
+    let tries = 0;
+    let timer = 0;
+    let stopped = false;
+    const stop = () => { stopped = true; clearTimeout(timer); };
+    const attempt = () => {
+      if (stopped) return;
+      window.scrollTo(0, target);
+      if (Math.abs(window.scrollY - target) > 2 && tries++ < 40) timer = setTimeout(attempt, 60);
+    };
+    attempt();
+    // The user taking over ends the restore.
+    const events = ["wheel", "touchstart", "keydown", "mousedown"];
+    events.forEach((e) => window.addEventListener(e, stop, { passive: true, once: true }));
+    return () => {
+      stop();
+      events.forEach((e) => window.removeEventListener(e, stop));
+    };
+  }, [location.key, location.pathname, navType]);
   return null;
 }
 
@@ -103,6 +154,20 @@ function ScrollToTop() {
 function PutAwayCheckRoute() {
   const { user } = useAuth();
   return can(user, "scan_part") ? <Navigate to="/scan-part?mode=putaway" replace /> : <PutAwayCheck />;
+}
+
+// The Issuance Report was its own screen for a day (17 Oct 2026); it is one
+// report with Consumption again since 18 Oct 2026 ("issuance and consumption
+// report same dikh rhi h dono me differance nhi to ye kaam merge me bhi ho
+// sakta h" — the store). An old /issuance link or bookmark lands there with
+// its period, view and filters — all but its Department, which there meant who
+// TOOK the parts (often "Store"); here it is who used them, so it is dropped.
+function IssuanceRedirect() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  params.delete("dept");
+  const search = params.toString();
+  return <Navigate to={`/consumption${search ? `?${search}` : ""}`} replace />;
 }
 
 // Shown while a route's chunk loads — brief, since chunks are small and cached.
@@ -138,9 +203,11 @@ function AuthenticatedApp() {
         {/* The 53" LED "Live Dashboard": behind login, but deliberately OUTSIDE
             MainLayout — no sidebar, no top bar, it owns the whole screen. */}
         <Route path="/live-dashboard" element={<RequirePermission mod="live_dashboard"><TvDashboard /></RequirePermission>} />
-        {/* Kiosk (outside the locked store): a touchscreen request screen — like
-            the Live Dashboard it owns the whole screen, no sidebar/top bar. */}
-        <Route path="/kiosk" element={<RequirePermission mod="kiosk"><KioskRequest /></RequirePermission>} />
+        {/* No /kiosk and no /part-requests any more: the store dropped the kiosk
+            request and its Part Requisition queue on 17 Oct 2026 ("management k
+            according manual detail fill karke issuance karna time waste h") —
+            parts are issued on Scan Part -> Issue. An old bookmark of either
+            falls through to "page not found" below. */}
         <Route element={<MainLayout />}>
           {/* Stores are navigated from the sidebar, so / opens whichever one is
               in scope rather than putting a chooser in the way. */}
@@ -166,9 +233,13 @@ function AuthenticatedApp() {
           <Route path="/audit-trail" element={<RequirePermission mod="audit_trail"><AuditTrail /></RequirePermission>} />
           <Route path="/reports" element={<RequirePermission mod="reports"><Reports /></RequirePermission>} />
           <Route path="/parts" element={<RequirePermission mod="part_master"><PartMaster /></RequirePermission>} />
+          {/* Photo Mode: part photos rack by rack on a tablet (21 Oct 2026),
+              opened from the Part Master's button — it has no menu item or
+              right of its own (23 Oct 2026). */}
+          <Route path="/part-photos" element={<RequirePermission mod="part_master"><PartPhotos /></RequirePermission>} />
           <Route path="/departments" element={<RequirePermission mod="departments"><DepartmentMaster /></RequirePermission>} />
           <Route path="/employees" element={<RequirePermission mod="employees"><EmployeeMaster /></RequirePermission>} />
-          <Route path="/equipment" element={<RequirePermission mod="equipment"><EquipmentMaster /></RequirePermission>} />
+          <Route path="/equipment" element={<RequirePermission mod="part_master"><EquipmentMaster /></RequirePermission>} />
           <Route path="/report-recipients" element={<ReportRecipientMaster />} />
           <Route path="/part-history" element={<StoreRoute store="CHILD_PART"><PartHistory /></StoreRoute>} />
           <Route path="/vehicle-in-out" element={<RequirePermission mod="vehicle_in_out"><VehicleInOut /></RequirePermission>} />
@@ -179,9 +250,12 @@ function AuthenticatedApp() {
           <Route path="/store-stock-spare" element={<RequirePermission mod="store_stock"><SpareStock /></RequirePermission>} />
           <Route path="/scan-part" element={<RequirePermission mod="scan_part"><ScanPart /></RequirePermission>} />
           {/* Supplier barcodes are seen and mapped on Scan Part now (each
-              part's Barcodes panel, and Receive & Label for material just in) —
-              redirect so existing links/bookmarks keep working. */}
-          <Route path="/supplier-barcodes" element={<Navigate to="/scan-part?mode=label" replace />} />
+              part's Barcodes panel, which Issue mode shows) — redirect so
+              existing links/bookmarks keep working. (It went to the Receive &
+              Lot Tag mode, removed on 17 Oct 2026 with the lot tags.) Issue is
+              named, so a terminal last left in Put-away Check — which has no
+              Barcodes panel — still lands where the barcodes are. */}
+          <Route path="/supplier-barcodes" element={<Navigate to="/scan-part?mode=issue" replace />} />
           <Route path="/scan-audit" element={<RequirePermission mod="scan_audit"><ScanAudit /></RequirePermission>} />
           <Route path="/spare-part-history" element={<RequirePermission mod="part_ledger"><SparePartHistory /></RequirePermission>} />
           <Route path="/spare-erp-gap" element={<RequirePermission mod="erp_gap"><SpareErpGap /></RequirePermission>} />
@@ -200,24 +274,28 @@ function AuthenticatedApp() {
               redirect so existing links/bookmarks keep working. */}
           <Route path="/supplier-window-schedule" element={<Navigate to="/supplier-vehicles" replace />} />
           {/* Spare Parts Store control screens (enterprise spec, phases 7-12). */}
-          <Route path="/erp-control" element={<RequirePermission mod="erp_gap"><ErpControlCenter /></RequirePermission>} />
-          <Route path="/receiving" element={<RequirePermission mod="spare_store"><ReceivingMonitor /></RequirePermission>} />
+          <Route path="/erp-control" element={<RequirePermission mod="erp_control"><ErpControlCenter /></RequirePermission>} />
+          <Route path="/receiving" element={<RequirePermission mod="receiving"><ReceivingMonitor /></RequirePermission>} />
           {/* What suppliers sent short and quality rejected — the Receiving & GRN right (17 Oct 2026). */}
-          <Route path="/short-rejection" element={<RequirePermission mod="spare_store"><ShortRejection /></RequirePermission>} />
-          <Route path="/inventory-control" element={<RequirePermission mod="store_stock"><InventoryControl /></RequirePermission>} />
-          {/* Two reports since 17 Oct 2026 ("issuance and consumption ki report alag alag chahiye"),
-              behind the spare_store right the one Issuance & Consumption screen had. */}
-          <Route path="/issuance" element={<RequirePermission mod="spare_store"><IssuanceReport /></RequirePermission>} />
-          <Route path="/consumption" element={<RequirePermission mod="spare_store"><ConsumptionAnalytics /></RequirePermission>} />
-          <Route path="/data-quality" element={<RequirePermission mod="part_master"><DataQuality /></RequirePermission>} />
-          <Route path="/notifications" element={<NotificationCenter />} />
+          <Route path="/short-rejection" element={<RequirePermission mod="short_rejection"><ShortRejection /></RequirePermission>} />
+          {/* Urgent spares in on a supplier challan before the PO / invoice — a register only, never stock (21 Oct 2026). */}
+          <Route path="/challans" element={<RequirePermission mod="challan_register"><ChallanRegister /></RequirePermission>} />
+          {/* The one mail to RQC to punch an SRV / line rejection (22 Oct 2026). */}
+          <Route path="/rejection-requests" element={<RequirePermission mod="rejection_request"><RejectionRequests /></RequirePermission>} />
+          <Route path="/inventory-control" element={<RequirePermission mod="inventory_control"><InventoryControl /></RequirePermission>} />
+          {/* The Issuance & Consumption Report — one report again since 18 Oct 2026
+              ("ye kaam merge me bhi ho sakta h"), behind the spare_store right;
+              /issuance, its own screen for a day, lands on it. */}
+          <Route path="/consumption" element={<RequirePermission mod="consumption"><ConsumptionAnalytics /></RequirePermission>} />
+          <Route path="/issuance" element={<IssuanceRedirect />} />
+          <Route path="/data-quality" element={<RequirePermission mod="data_quality"><DataQuality /></RequirePermission>} />
+          <Route path="/notifications" element={<RequirePermission mod="notifications"><NotificationCenter /></RequirePermission>} />
           {/* QR traceability: every open receipt / return / RGP / issue awaiting a step. */}
-          <Route path="/work-queue" element={<RequirePermission mod="scan_part"><WorkQueue /></RequirePermission>} />
+          <Route path="/work-queue" element={<RequirePermission mod="work_queue"><WorkQueue /></RequirePermission>} />
           <Route path="/confirm-installation" element={<RequirePermission mod="install_confirm"><ConfirmInstallation /></RequirePermission>} />
-          <Route path="/put-away-check" element={<RequirePermission mod="store_stock"><PutAwayCheckRoute /></RequirePermission>} />
-          <Route path="/part-requests" element={<RequirePermission mod="scan_part"><PartRequests /></RequirePermission>} />
+          <Route path="/put-away-check" element={<RequirePermission mod="put_away_check"><PutAwayCheckRoute /></RequirePermission>} />
           {/* Summary of issues · owner · target — the management view of the store. */}
-          <Route path="/action-tracker" element={<RequirePermission mod="spare_store"><ActionTracker /></RequirePermission>} />
+          <Route path="/action-tracker" element={<RequirePermission mod="action_tracker"><ActionTracker /></RequirePermission>} />
           {/* Email & Notifications — administrators only; each page gates itself
               (AdminOnly), like Settings does. */}
           <Route path="/email/control-center" element={<EmailControlCenter />} />
@@ -245,14 +323,15 @@ function AuthenticatedApp() {
 // the store was hidden. Waits for the store list rather than guessing, because
 // the active store is only known once it has loaded.
 //
-// A login without the Spare Parts Store dashboard right — the Line User, Kiosk
-// device and Live Board templates (store's role templates, 17 Oct 2026) — would
-// land on "Access restricted" there. It goes to the first screen it may open
-// instead, in this order, and to All Services when it may open none of them.
+// A login without the Spare Parts Store dashboard right — the Line User and
+// Live Board templates (store's role templates, 17 Oct 2026) — would land on
+// "Access restricted" there. It goes to the first screen it may open instead,
+// in this order, and to All Services when it may open none of them. That is
+// also where an old Kiosk device login (the kiosk was taken out on 17 Oct 2026)
+// now lands: its only right opens no screen any more.
 const FIRST_SCREENS = [
   { to: "/scan-part", mod: "scan_part" },
   { to: "/confirm-installation", mod: "install_confirm" },
-  { to: "/kiosk", mod: "kiosk" },
   { to: "/live-dashboard", mod: "live_dashboard" },
   { to: "/store-stock-spare", mod: "store_stock" },
   { to: "/reports", mod: "reports" },

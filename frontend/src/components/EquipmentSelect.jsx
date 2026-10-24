@@ -21,7 +21,7 @@ export default function EquipmentSelect({
   const qc = useQueryClient();
   // Rules of hooks: call both, then combine — never `useCan(a) || useCan(b)`.
   const canScan = useCan("scan_part", "edit");
-  const canMaster = useCan("equipment", "edit");
+  const canMaster = useCan("part_master", "edit");
   const canAdd = canScan || canMaster;
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);

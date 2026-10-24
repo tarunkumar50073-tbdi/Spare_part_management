@@ -1,13 +1,35 @@
-"""A spare's bins and the bin-scan check (Part Requisition issue, Put-away).
+"""A spare's bins, the bin-scan check (Put-away) and the scanned bin sheet QR.
 
 A part has a FRESH location (Part.location — where new material is kept) and,
 for some parts, a REWORK location (Part.rework_location — where material that
 came back from rework goes). Stock stays ONE number per part; the two bins only
 say where the material may sit, so a scanned bin is RIGHT when it is either.
+
+A bin sheet row's QR reads "PART_NO LOCATION | DESCRIPTION", e.g.
+"CNTR2238 R6-S6-B36(1) | BENDING INSERT": the store asked (17 Oct 2026) for the
+description in the QR so a scan also says what the part is. It sits at the END,
+after " | ", and is never matched — strip_scan_description cuts it off, so the
+part no. and the location read exactly as before, and a sheet printed earlier
+(no " | ") scans unchanged.
 """
 import re
 
 _SLOT = re.compile(r"\s*\(\d+\)\s*$")
+# The description separator: the first "|" with whitespace before it (the sheet
+# prints " | "). A "|" with none before it is part of the code — supplier QRs
+# pack fields as "PART|LOT=…|QTY=…" and must reach the resolver whole.
+_DESC_SEP = re.compile(r"\s\|")
+
+
+def strip_scan_description(code):
+    """The part of a scanned code that is matched: the text before a bin sheet
+    QR's " | description", trimmed. A read without one (an older sheet, a lot
+    tag, a typed part no., a supplier QR) comes back as it is, trimmed. Same rule
+    as the screens (frontend utils/binLocation.stripScanDescription) — change
+    both together."""
+    s = (code or "").strip()
+    m = _DESC_SEP.search(s)
+    return s[:m.start()].strip() if m else s
 
 
 def _norm(s):
@@ -37,7 +59,9 @@ def match_bin(scanned, bins):
     """The (kind, location) of `bins` that `scanned` is, or None (wrong bin).
     The screens' rule (frontend utils/binLocation.matchBinScan): a slot "(n)"
     scanned must be that EXACT slot, so a part can't go into the wrong slot of
-    the right bin; a bare bin QR matches at bin level. Case and spaces ignored."""
+    the right bin; a bare bin QR matches at bin level. Case and spaces ignored.
+    A " | description" on the scan is ignored (strip_scan_description)."""
+    scanned = strip_scan_description(scanned)
     if not loc_base(scanned):
         return None
     if _SLOT.search(scanned):

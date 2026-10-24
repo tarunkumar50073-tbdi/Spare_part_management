@@ -193,12 +193,14 @@ class SparePartOverviewService:
         elif st == "Below Minimum":
             add("critical", "Below minimum", f"{row['qty_on_hand']:g} on hand against a minimum of {row['min_stock_level']:g}")
         elif st == "Reorder":
-            add("warning", "At reorder level", "At or below the reorder point — raise the PO")
+            add("warning", "At reorder level", "At or below the reorder point — raise the indent (Purchase makes the PO)")
         elif st == "Above Maximum":
             over = row["qty_on_hand"] - (row["max_stock_level"] or 0)
             add("warning", "Excess", f"{over:g} above the maximum of {row['max_stock_level']:g}")
         elif st == "Not Counted":
             add("info", "Never counted", "No physical count recorded — its status is unknown")
+        elif st == "Discontinued":
+            add("info", "Discontinued", "Marked not required any more — never reordered; its stock stays listed")
         if pending_confirm:
             add("warning", "Awaiting confirmation",
                 f"{pending_confirm} issue(s) not yet confirmed by the user (machine / line)")

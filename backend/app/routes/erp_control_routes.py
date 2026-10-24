@@ -15,7 +15,7 @@ service = ERPControlService()
 
 
 @bp.route("/status", methods=["GET"])
-@permission_required("erp_gap", "view")
+@permission_required("erp_control", "view")
 def status():
     code = request.args.get("store_code")
     if not code:

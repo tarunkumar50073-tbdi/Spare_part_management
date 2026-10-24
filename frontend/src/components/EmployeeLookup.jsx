@@ -24,7 +24,7 @@ import { employeeService, normaliseMobile } from "../services/employeeService.js
 //   required     shows the red asterisk (the parent decides what it blocks)
 //   error        the parent's message while no one is picked (e.g. after Review)
 //   suggest      list saved numbers while typing (default on — the store asked for
-//                it on the kiosk too, 14 Oct 2026)
+//                it, 14 Oct 2026)
 //   disabled, label
 // The typed text is this component's own once mounted — key it to start over.
 const INPUT = "input-field text-base"; // 16px: a tablet does not zoom into the box

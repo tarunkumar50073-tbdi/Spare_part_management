@@ -17,7 +17,7 @@ service = ErpGrnPostingService()
 
 
 @bp.route("/preview", methods=["GET"])
-@permission_required(("spare_store", "store_stock"), "view")
+@permission_required(("spare_store", "store_stock", "receiving", "work_queue"), "view")
 def preview():
     """Every ERP GRN line of the store's parts and its state: quality pending,
     rejected, already in stock, will be added, or skipped (with the reason)."""
@@ -25,7 +25,7 @@ def preview():
 
 
 @bp.route("/post", methods=["POST"])
-@permission_required("store_stock", "edit")
+@permission_required(("store_stock", "receiving"), "edit")
 def post_now():
     """Add the accepted, not-yet-added ERP GRN lines to store stock now (the ERP
     sync does the same after every run)."""
@@ -37,7 +37,7 @@ def post_now():
 
 
 @bp.route("/settings", methods=["GET"])
-@permission_required(("spare_store", "store_stock"), "view")
+@permission_required(("spare_store", "store_stock", "receiving", "work_queue"), "view")
 def get_settings():
     return success_response(service.settings())
 

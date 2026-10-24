@@ -17,7 +17,7 @@ const num = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN"));
 
 const ICON = {
   critical: "🚨", reorder: "🛒", excess: "📦", srv_pending: "🧪", erp_gap: "⚖️", confirm_pending: "✅",
-  kiosk_open: "📲", returns_pending: "↩️", rgp_overdue: "🔧", no_rate: "💰", erp_pending: "🔄",
+  returns_pending: "↩️", rgp_overdue: "🔧", no_rate: "💰", erp_pending: "🔄",
 };
 
 // Three bands, the way a to-do reads: what is late or critical, what is pending,
@@ -129,7 +129,7 @@ export default function AttentionPopup() {
         </div>
 
         <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-4 py-3 dark:border-navy-800">
-          {can(user, "spare_store") ? (
+          {can(user, "action_tracker") ? (
             <button type="button" onClick={() => go("/action-tracker")}
               className="text-sm font-semibold text-toyotared hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/40">
               Open Action Tracker →

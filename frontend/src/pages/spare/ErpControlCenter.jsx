@@ -598,7 +598,10 @@ function Skeleton() {
 export default function ErpControlCenter() {
   const { activeCode: code, loading: storesLoading } = useStores();
   const { openPart } = usePartDrawer();
-  const canPush = useCan("store_stock", "edit");
+  // POST /spare-stock/erp-sync takes the Store Stock or the ERP Control Center edit right.
+  const canPushStock = useCan("store_stock", "edit");
+  const canPushErp = useCan("erp_control", "edit");
+  const canPush = canPushStock || canPushErp;
   const confirm = useConfirm();
   const qc = useQueryClient();
   const [pushResult, setPushResult] = useState(null);

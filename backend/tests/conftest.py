@@ -72,6 +72,11 @@ def app():
     # would trip and fail unrelated cases. The dedicated limiter test re-enables
     # it locally.
     app.config["RATE_LIMIT_ENABLED"] = False
+    # Likewise the sign-in Security Check and account block: tests sign in
+    # without a code and with wrong passwords on purpose. test_login_security
+    # switches them back on.
+    app.config["LOGIN_CAPTCHA_ENABLED"] = False
+    app.config["LOGIN_LOCK_ENABLED"] = False
     return app
 
 

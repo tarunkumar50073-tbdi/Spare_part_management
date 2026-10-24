@@ -191,7 +191,7 @@ def test_counter_can_add_but_only_the_master_right_edits(app):
     assert counter.post("/api/v1/equipment/import").status_code == 403
     assert counter.post("/api/v1/equipment/seed").status_code == 403
 
-    master = _client(app, {"equipment": {"view": True, "edit": True}})
+    master = _client(app, {"part_master": {"view": True, "edit": True}})
     assert master.put(f"/api/v1/equipment/{eq_id}", json={"name": f"Quick {tok} Fixed"}).status_code == 200
     r = master.get(f"/api/v1/equipment?q=Quick+{tok}")
     assert any(e["name"] == f"Quick {tok} Fixed" for e in r.get_json()["data"])

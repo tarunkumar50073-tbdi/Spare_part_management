@@ -2,13 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  Activity, AlarmClock, Archive, ArrowUpFromLine, BellRing, BookOpen, Bolt, Boxes, Calculator, CalendarRange, ClipboardCheck,
+  Activity, AlarmClock, Archive, BellRing, BookOpen, Bolt, Boxes, Calculator, CalendarRange, ClipboardCheck,
   ClipboardList, Clock3, Container, Factory, FileChartColumn, FileText, Grid3x3, History, LayoutDashboard,
   Mail, Mails, Send, Settings2, Workflow, Package, PanelLeftClose, PanelLeftOpen, Scale,
-  Bell, Inbox, PackageCheck, PackageX, ScanBarcode, ScanSearch, ScrollText, Search, ServerCog, Settings, ShieldCheck, Siren, Tablet,
-  Store, TrafficCone, TrendingUp, Truck, UserCog, Users, Warehouse, Wrench,
+  Bell, Inbox, PackageCheck, PackageX, ScanBarcode, ScanSearch, ScrollText, Search, ServerCog, Settings, ShieldCheck, Siren,
+  Store, TrafficCone, TrendingUp, Truck, UserCog, Users, Warehouse, Wrench, FileClock, Undo2,
 } from "lucide-react";
 import Glyph, { sectionIcon } from "./Glyph.jsx";
+import IconTile from "./IconTile.jsx";
 import { storeHome, useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { can } from "../utils/permissions.js";
@@ -51,7 +52,7 @@ const SHARED_GROUPS = [
 // list you have to read rather than scan, most of it irrelevant to whichever
 // store you are actually working in.
 // `short` is the word an item contributes to its module's one-line summary
-// ("Scan · Kiosk · Work Queue …"); without it the full label is used.
+// ("Scan · Work Queue · Install …"); without it the full label is used.
 const NAV_BY_STORE = {
   CHILD_PART: [
     {
@@ -111,34 +112,40 @@ const NAV_BY_STORE = {
     {
       label: "Operations",
       items: [
+        // Issuing is Scan Part -> Issue. The kiosk request and the Part
+        // Requisition queue that fulfilled it were taken out on 17 Oct 2026:
+        // "management k according manual detail fill karke issuance karna time
+        // waste h" (the store).
         { to: "/scan-part", label: "Scan Part", short: "Scan", icon: ScanBarcode, mod: "scan_part" },
-        { to: "/kiosk", label: "Part Request (Kiosk)", short: "Kiosk", icon: Tablet, mod: "kiosk" },
-        { to: "/part-requests", label: "Part Requisition", short: "Requisition", icon: Inbox, mod: "scan_part" },
-        { to: "/work-queue", label: "Work Queue", icon: ClipboardList, mod: "scan_part" },
+        { to: "/work-queue", label: "Work Queue", icon: ClipboardList, mod: "work_queue" },
         { to: "/confirm-installation", label: "Confirm Installation", short: "Install", icon: Wrench, mod: "install_confirm" },
         // Inside Scan Part's header for whoever can open Scan Part; this row is
         // only for a user who cannot (`unless`).
-        { to: "/put-away-check", label: "Put-away Check", short: "Put-away", icon: PackageCheck, mod: "store_stock", unless: "scan_part" },
+        { to: "/put-away-check", label: "Put-away Check", short: "Put-away", icon: PackageCheck, mod: "put_away_check", unless: "scan_part" },
         { to: "/store-stock-spare", label: "Store Stock", short: "Stock", icon: Package, mod: "store_stock" },
       ],
     },
     {
       label: "Inventory",
       items: [
-        { to: "/inventory-control", label: "Critical · Reorder · Excess", icon: Siren, mod: "store_stock" },
-        // Two reports since 17 Oct 2026 ("issuance and consumption ki report alag
-        // alag chahiye"): what left the store, then what was really used.
-        { to: "/issuance", label: "Issuance Report", short: "Issuance", icon: ArrowUpFromLine, mod: "spare_store" },
-        { to: "/consumption", label: "Consumption Report", short: "Consumption", icon: TrendingUp, mod: "spare_store" },
+        { to: "/inventory-control", label: "Critical · Reorder · Excess", icon: Siren, mod: "inventory_control" },
+        // One report again since 18 Oct 2026 ("issuance and consumption report
+        // same dikh rhi h ... ye kaam merge me bhi ho sakta h" — the store): what
+        // left the store, what came back and what was really used.
+        { to: "/consumption", label: "Issuance & Consumption", short: "Issue & Consumption", icon: TrendingUp, mod: "consumption" },
         { to: "/spare-part-history", label: "Part Ledger", short: "Ledger", icon: ScrollText, mod: "part_ledger" },
       ],
     },
     {
       label: "Receiving",
       items: [
-        { to: "/receiving", label: "Receiving & GRN", short: "GRN", icon: PackageCheck, mod: "spare_store" },
+        { to: "/receiving", label: "Receiving & GRN", short: "GRN", icon: PackageCheck, mod: "receiving" },
         // Which supplier sent short / had a rejection, since how many days (17 Oct 2026).
-        { to: "/short-rejection", label: "Short & Rejection", short: "Short / Reject", icon: PackageX, mod: "spare_store" },
+        { to: "/short-rejection", label: "Short & Rejection", short: "Short / Reject", icon: PackageX, mod: "short_rejection" },
+        // Urgent spares in on a supplier challan before the PO / invoice (21 Oct 2026).
+        { to: "/challans", label: "Urgent Challan Register", short: "Urgent Challan", icon: FileClock, mod: "challan_register" },
+        // The one mail to RQC to punch an SRV / line rejection (22 Oct 2026).
+        { to: "/rejection-requests", label: "Rejection Mail", short: "Rejection Mail", icon: Undo2, mod: "rejection_request" },
         { to: "/gate-entry", label: "Gate Entry", icon: Truck, mod: "gate_entry" },
         { to: "/vehicle-in-out", label: "Vehicle In / Out", icon: TrafficCone, mod: "vehicle_in_out" },
       ],
@@ -146,7 +153,7 @@ const NAV_BY_STORE = {
     {
       label: "ERP",
       items: [
-        { to: "/erp-control", label: "ERP Control Center", icon: ServerCog, mod: "erp_gap" },
+        { to: "/erp-control", label: "ERP Control Center", icon: ServerCog, mod: "erp_control" },
         { to: "/spare-erp-gap", label: "ERP vs Physical", icon: Scale, mod: "erp_gap" },
       ],
     },
@@ -154,11 +161,11 @@ const NAV_BY_STORE = {
       label: "Master Data",
       items: [
         { to: "/parts", label: "Part Master", short: "Parts", icon: Bolt, mod: "part_master" },
-        { to: "/data-quality", label: "Data Quality", icon: ShieldCheck, mod: "part_master" },
+        // Part photos rack by rack on a tablet (21 Oct 2026).
+        { to: "/data-quality", label: "Data Quality", icon: ShieldCheck, mod: "data_quality" },
         // Supplier barcodes: no screen of their own — Scan Part's Barcodes panel.
         { to: "/scan-audit", label: "Scan Audit", icon: ScanSearch, mod: "scan_audit" },
         { to: "/employees", label: "Employee Master", short: "Employees", icon: Users, mod: "employees" },
-        { to: "/equipment", label: "Line / Machine / Die", short: "Machines", icon: Factory, mod: "equipment" },
       ],
     },
     {
@@ -193,7 +200,7 @@ const EMAIL_GROUP = {
   label: "Email & Notifications",
   summary: "Notification Engine",
   items: [
-    { to: "/notifications", label: "Notification Center", icon: Bell, store: "MAINTENANCE" },
+    { to: "/notifications", label: "Notification Center", icon: Bell, store: "MAINTENANCE", mod: "notifications" },
     { to: "/email/control-center", label: "Control Center", icon: LayoutDashboard, admin: true },
     { to: "/email/workflows", label: "Workflow Center", icon: Workflow, admin: true },
     { to: "/email/configuration", label: "Email Configuration", icon: Settings2, admin: true },
@@ -279,24 +286,6 @@ const readOpen = () => {
     return v && typeof v === "object" ? v : {};
   } catch { return {}; }
 };
-
-// The app-icon tile itself.
-function IconTile({ emoji, color, size = 40, lit = false }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="grid shrink-0 place-items-center rounded-[11px] leading-none select-none"
-      style={{
-        width: size, height: size, fontSize: Math.round(size * 0.5),
-        background: `linear-gradient(150deg, ${color}3d, rgba(8,18,38,0.9) 64%)`,
-        border: `1.5px solid ${color}${lit ? "" : "b3"}`,
-        boxShadow: `0 4px 12px ${color}${lit ? "59" : "26"}, inset 0 1px 0 rgba(255,255,255,0.16)`,
-      }}
-    >
-      {emoji}
-    </span>
-  );
-}
 
 // A hover flyout for the squeezed rail — the label shown to the right of an
 // icon so a collapsed menu still says what each thing is.
@@ -532,7 +521,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           hides / shows this menu — the control lives on the menu bar itself. */}
       <div className={`border-b border-white/10 ${collapsed ? "px-2 py-3" : "px-4 py-4"}`}>
         <div className={`flex gap-2 ${collapsed ? "flex-col items-center" : "items-center justify-between"}`}>
-          {/* A login that may not open the store dashboard (Line User, Kiosk,
+          {/* A login that may not open the store dashboard (Line User and
               Live Board templates, 17 Oct 2026) goes Home to "/", which lands it
               on its own first screen (App.jsx StoreHome), not "Access restricted". */}
           <NavLink
@@ -582,7 +571,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
 
         {/* The Spare Store's action tracker leads the modules: what is wrong,
             who must act and by when. */}
-        {activeCode === "MAINTENANCE" && can(user, "spare_store") && (
+        {activeCode === "MAINTENANCE" && can(user, "action_tracker") && (
           <NavModuleLink to="/action-tracker" label="Action Tracker" summary="Summary issues · owner · target"
             emoji="📋" color="#fb923c" collapsed={collapsed} />
         )}

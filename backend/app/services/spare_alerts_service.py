@@ -71,19 +71,19 @@ def _stock_list(status):
 
 
 def _erp_control():
-    return _go("Open ERP Control", "/erp-control", "erp_gap")
+    return _go("Open ERP Control", "/erp-control", "erp_control")
 
 
 def _work_queue():
     # Returns and RGPs are worked from the Work Queue (the Scan Part right),
     # which deep-links each document into Scan Part.
-    return _go("Open Work Queue", "/work-queue", "scan_part")
+    return _go("Open Work Queue", "/work-queue", "work_queue")
 
 
 def _receiving():
     # Receiving is read from ERP; Receiving & GRN shows every ERP GRN line and
     # what the app did with it.
-    return _go("Open Receiving & GRN", "/receiving", "spare_store")
+    return _go("Open Receiving & GRN", "/receiving", "receiving")
 
 
 def _naive_utc(value):
@@ -272,7 +272,7 @@ class SpareAlertsService:
         return [_alert(
             "reorder", "warning", "reorder",
             f"{_count(n, 'part')} at reorder level",
-            "At or below the reorder point, still above minimum: raise the PO." + _where(item["sections"]),
+            "At or below the reorder point, still above minimum: the user department raises the indent (Purchase makes the PO)." + _where(item["sections"]),
             n, action=_stock_list("Reorder"),
         )]
 
@@ -296,7 +296,7 @@ class SpareAlertsService:
             "excess", "warning", "excess",
             f"{_count(n, 'part')} above maximum", money, n,
             value=value or None,
-            action=_go("Review excess", "/inventory-control?tab=excess", "store_stock"),
+            action=_go("Review excess", "/inventory-control?tab=excess", "inventory_control"),
         )]
 
     @staticmethod
@@ -320,14 +320,14 @@ class SpareAlertsService:
                 "missing_max", "info", "missing_max",
                 f"{_count(dq['missing_max'], 'part')} with no maximum level",
                 "Without a max, excess cannot be flagged and the order quantity cannot be worked out.",
-                dq["missing_max"], action=_go("Open Data Quality", "/data-quality", "part_master"),
+                dq["missing_max"], action=_go("Open Data Quality", "/data-quality", "data_quality"),
             ))
         if dq["missing_rate"]:
             out.append(_alert(
                 "missing_rate", "info", "missing_rate",
                 f"{_count(dq['missing_rate'], 'part')} with no std rate",
                 "Their stock cannot be valued, so every value total leaves them out.",
-                dq["missing_rate"], action=_go("Open Data Quality", "/data-quality", "part_master"),
+                dq["missing_rate"], action=_go("Open Data Quality", "/data-quality", "data_quality"),
             ))
         return out
 

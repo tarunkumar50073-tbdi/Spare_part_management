@@ -72,8 +72,8 @@ function ManualEntry({ onSubmit, busy }) {
  *                            closes, so the gun field is ready for the next scan
  * compact                    a part is on screen — the scan box drops its how-to
  *                            text so the part and its actions fit on screen
- * narrow                     the bar sits in a side column (Receive & Label):
- *                            the tabs keep their short names at every width
+ * narrow                     the bar sits in a narrow side column: the tabs
+ *                            keep their short names at every width
  */
 export default function IdentifyBar({
   tab, onTab, onScan, onPick, onManual, busy, storeCode, focusSignal, compact = false, narrow = false,

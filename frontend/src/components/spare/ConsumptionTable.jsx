@@ -2,23 +2,24 @@ import React, { useEffect, useRef, useState } from "react";
 import { FileDown, FileSpreadsheet, FileText, Inbox, Lightbulb } from "lucide-react";
 import ErrorState from "../ErrorState.jsx";
 import { num } from "../../lib/format.js";
-import { LIST_GROUPS, REPORTS, consumptionAnalyticsService } from "../../services/consumptionAnalyticsService.js";
+import { LIST_GROUPS, REPORT, consumptionAnalyticsService } from "../../services/consumptionAnalyticsService.js";
 
-// The table card of the Issuance Report and the Consumption Report: pick a
-// part (or all), a period and a view, read it here and take the same view away
-// as Excel or PDF — no trip to the Reports page ("wahi mil jaaye app me, wahan
-// select kare kis part ki kab se kab tak consumption ya month wise ya year wise
-// consumption mil jaaye, alag se report me aane ki jarurat nhi, wahi se excel
-// / pdf download ho jaaye" — the store, 14 Oct 2026). Issuance joined on 17 Oct
-// 2026 — downloads only, never a mail ("issuance and consumption ka bna de but
-// mail nhi karenge bas excel/pdf download ka option") — and the same day the
-// one screen became two reports ("issuance and consumption ki report alag
-// alag chahiye") with one simple filter bar ("ye thoda complicated ho gya
-// thoda simple ho jisme dropdown me date wise, month wise, year wise etc.").
-// The server builds every view (ConsumptionTableService): the Issuance Report
-// gross, under the department written on the issue; the Consumption Report
-// under the department owning the part's section, returns netted against their
-// issue; a Total row last. The screen (ReportScreen) fetches the table once and
+// The table card of the Issuance & Consumption Report: pick a part (or all), a
+// period and a view, read it here and take the same view away as Excel or PDF
+// — no trip to the Reports page ("wahi mil jaaye app me, wahan select kare kis
+// part ki kab se kab tak consumption ya month wise ya year wise consumption
+// mil jaaye, alag se report me aane ki jarurat nhi, wahi se excel / pdf
+// download ho jaaye" — the store, 14 Oct 2026). Issuance joined on 17 Oct 2026
+// — downloads only, never a mail ("issuance and consumption ka bna de but mail
+// nhi karenge bas excel/pdf download ka option") — with one simple filter bar
+// ("ye thoda complicated ho gya thoda simple ho jisme dropdown me date wise,
+// month wise, year wise etc."). Split in two that day, one report again on
+// 18 Oct 2026 ("issuance and consumption report same dikh rhi h dono me
+// differance nhi to ye kaam merge me bhi ho sakta h"). The server builds every
+// view (ConsumptionTableService): what was issued, what came back (netted
+// against its issue) and the net, under the department owning the part's
+// section — never the store, which only hands parts out ("store to issue karta
+// h"); a Total row last. The screen (ReportScreen) fetches the table once and
 // hands the same query to the card and to the downloads in its filter bar, so
 // what is downloaded is what is on screen.
 
@@ -31,8 +32,11 @@ const MONEY = new Set(["Rate", "Value", "Net Value"]);
 // text is on hover.
 const LONG_TEXT = new Set(["Description", "Issued To", "Line / Machine / Die"]);
 // The order the "How this table is counted" lines are read in (JSON hands the
-// server's keys back sorted); each report carries only its own.
-const BASIS_KEYS = ["issuance", "consumption", "list", "returns", "value", "period", "person", "place"];
+// server's keys back sorted). Some are about one view only (BASIS_VIEWS).
+const BASIS_KEYS = ["consumption", "list", "returns", "value", "period", "person", "place"];
+// The Issue list's line on the Issue list, Person-wise's on Person-wise, and
+// how a line / machine is named where one is shown.
+const BASIS_VIEWS = { list: ["list"], person: ["person"], place: ["list", "machine"] };
 
 // Rows drawn at first. Five years Date-wise runs to thousands of rows and the
 // line-side browser stalls drawing them all; the Total row and the files
@@ -87,11 +91,7 @@ const fyOf = (s) => Number(s.slice(0, 4)) - (Number(s.slice(5, 7)) < 4 ? 1 : 0);
 
 // Nothing to show: no issue counted — though a list of cancelled ones alone still shows.
 const isEmpty = (t) => Boolean(t) && !(t.issues > 0) && !(t.cancelled_rows?.length > 0);
-const reportOf = (key) => REPORTS[key] || REPORTS.consumption;
-const viewOf = (report, key) => {
-  const views = reportOf(report).views;
-  return views.find((v) => v.key === key) || views[0];
-};
+const viewOf = (key) => REPORT.views.find((v) => v.key === key) || REPORT.views[0];
 
 const FILES = [
   { key: "excel", label: "Excel", ext: "xlsx", icon: FileDown },
@@ -102,29 +102,29 @@ const FILES = [
 const PERIOD = { month: "month", year: "year", fy: "financial year" };
 
 // Excel, PDF and the Full pack, on the right of the screen's filter bar. `tq`
-// is the screen's table query and `params` the report, store, range and
-// filters it was asked with; `blocked` while the screen has no range to fetch
+// is the screen's table query and `params` the store, range and filters it was
+// asked with; `blocked` while the screen has no range to fetch
 // (From after To, too long, or a served period whose dates are still on their
 // way).
-export function TableDownloads({ tq, params, view, report = "consumption", blocked }) {
+export function TableDownloads({ tq, params, view, blocked }) {
   const [busy, setBusy] = useState(null);
   const t = tq.data;
   const empty = isEmpty(t);
   // A table still showing the previous choice must not be downloaded under the new one's name.
   const off = blocked || !t || tq.isPlaceholderData || empty || busy != null;
-  const shownView = viewOf(report, view);
+  const shownView = viewOf(view);
 
   const download = (file) => {
     setBusy(file.key);
-    // The same report, view, range and filters as on screen, named as the server names it.
-    consumptionAnalyticsService.exportTable({ ...params, report, view }, file.key, `${fileSafe(t.title)}.${file.ext}`)
+    // The same view, range and filters as on screen, named as the server names it.
+    consumptionAnalyticsService.exportTable({ ...params, report: REPORT.key, view }, file.key, `${fileSafe(t.title)}.${file.ext}`)
       // A failure is already on screen as the API client's toast.
       .catch(() => {})
       .finally(() => setBusy(null));
   };
   const downloadPack = () => {
     setBusy("pack");
-    consumptionAnalyticsService.exportPack({ ...params, report }, `${fileSafe(t.pack_title)}.xlsx`)
+    consumptionAnalyticsService.exportPack({ ...params, report: REPORT.key }, `${fileSafe(t.pack_title)}.xlsx`)
       .catch(() => {})
       .finally(() => setBusy(null));
   };
@@ -146,13 +146,13 @@ export function TableDownloads({ tq, params, view, report = "consumption", block
           {busy === file.key ? "Preparing…" : file.label}
         </button>
       ))}
-      {/* Every cut of this report and range in one workbook, whatever view is on screen. */}
+      {/* Every cut of the report over this range in one workbook, whatever view is on screen. */}
       <button
         type="button"
         onClick={downloadPack}
         disabled={off}
         title={empty ? "Nothing to download — no issues in this period"
-          : `One Excel workbook of this period and filters: ${reportOf(report).pack}`}
+          : `One Excel workbook of this period and filters: ${REPORT.pack}`}
         className={btn}
       >
         <FileSpreadsheet size={14} aria-hidden="true" />
@@ -162,7 +162,7 @@ export function TableDownloads({ tq, params, view, report = "consumption", block
   );
 }
 
-export default function ConsumptionTable({ tq, view, report = "consumption", filtered, longer, onPreset }) {
+export default function ConsumptionTable({ tq, view, filtered, longer, onPreset }) {
   const t = tq.data;
   // "Show every row" holds for the table it was asked on; a new table starts short again.
   const [allFor, setAllFor] = useState(null);
@@ -180,7 +180,7 @@ export default function ConsumptionTable({ tq, view, report = "consumption", fil
   const cancelled = new Set(t?.cancelled_rows || []);
   const empty = isEmpty(t);
   const stale = tq.isPlaceholderData;
-  const shownView = viewOf(report, view);
+  const shownView = viewOf(view);
   // The Issue list's subtotals are the server's pick, from the range's length.
   const shownGroup = LIST_GROUPS.find((g) => g.key === t?.group) || LIST_GROUPS[0];
   const win = t?.window;
@@ -250,7 +250,7 @@ export default function ConsumptionTable({ tq, view, report = "consumption", fil
       {tq.isError && !t ? (
         <ErrorState
           title="Could not load the table"
-          message={tq.error?.response?.data?.message || `The ${reportOf(report).title.toLowerCase()} did not load.`}
+          message={tq.error?.response?.data?.message || `The ${REPORT.title.toLowerCase()} did not load.`}
           onRetry={() => tq.refetch()}
         />
       ) : !t ? (
@@ -409,7 +409,7 @@ export default function ConsumptionTable({ tq, view, report = "consumption", fil
                 How this table is counted
               </summary>
               <ul className="mt-1.5 list-disc space-y-0.5 pl-5 leading-relaxed">
-                {BASIS_KEYS.filter((k) => t.basis[k] && (k !== "list" || isList) && (k !== "person" || view === "person"))
+                {BASIS_KEYS.filter((k) => t.basis[k] && (!BASIS_VIEWS[k] || BASIS_VIEWS[k].includes(view)))
                   .map((k) => <li key={k}>{t.basis[k]}</li>)}
               </ul>
             </details>

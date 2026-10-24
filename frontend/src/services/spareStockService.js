@@ -95,18 +95,19 @@ export const spareStockService = {
       { params: { store_code: storeCode, section_id: sectionId, top, section_ids: csvIds(sectionIds) } }),
   topConsumed: (storeCode, limit = 5, days = 30, from, to) =>
     api.get("/spare-stock/top-consumed", { params: { store_code: storeCode, limit, days, from, to } }),
-  // `silent: true` suppresses the global error toast on a 404 — for probe scans
-  // (e.g. put-away tries several tokens of a lot-tag QR before one resolves).
+  // `silent: true` suppresses the global error toast on a 404 — for a screen
+  // that says "not found" in its own words (e.g. Put-away Check).
   scan: (storeCode, code, { silent = false } = {}) =>
     api.get("/spare-stock/scan", { params: { store_code: storeCode, code }, silent }),
-  // Lot qty for a scanned lot tag (gate entry no + part no) — Put-away Check.
-  // silent: not every scan is a lot tag, so a miss must not toast.
-  lotQty: (storeCode, gateEntryNo, partNo) =>
-    api.get("/spare-stock/lot-qty",
-      { params: { store_code: storeCode, gate_entry_no: gateEntryNo, part_no: partNo }, silent: true }),
+  // The part's latest ERP gate entry and its lot qty — Put-away Check fills Lot
+  // Qty with it since the lot tags went (17 Oct 2026). data = { gate_entry_no,
+  // gate_entry_dt, gate_entry_time, qty, uom }, all null when ERP has no gate
+  // entry for the part. silent: the screen says so itself.
+  latestLot: (partId) => api.get(`/spare-stock/parts/${partId}/latest-lot`, { silent: true }),
   // Record a confirmed put-away (Confirm Put Away). payload: { part_id,
-  // scanned_location, gate_entry_no? }. Returns the saved record (location, qty,
-  // put_by, confirmed_at) for the "Put Away Successful" screen.
+  // scanned_location, gate_entry_no?, qty } — qty null when Lot Qty was left
+  // empty. Returns the saved record (location, gate_entry_no, qty, put_by,
+  // confirmed_at) for the "Put Away Successful" screen.
   putAwayRecord: (payload) => api.post("/spare-stock/put-away/record", payload),
   returnables: (storeCode) => api.get("/spare-stock/returnables", { params: { store_code: storeCode } }),
   reorder: (storeCode) => api.get("/spare-stock/reorder", { params: { store_code: storeCode } }),

@@ -10,7 +10,8 @@ import { binBaseLocation, buildBinSheetsHtml, groupIntoBins } from "../../utils/
 // part's section (QR of the Part No., description, location, Min / Max). It is
 // drawn by the same code that prints it, so the card shows the label exactly as
 // it is on the rack. (The card used to show a part-by-part QR label, which the
-// store no longer prints — it prints bin sheets and lot tags.)
+// store no longer prints — it prints bin sheets; the gate-entry lot tags went
+// on 17 Oct 2026.)
 
 const PX_PER_MM = 96 / 25.4;      // CSS px per mm at 96 dpi — the preview's scale
 

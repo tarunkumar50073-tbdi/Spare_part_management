@@ -110,7 +110,7 @@ function Tile({ label, value, tone = "", sub }) {
   );
 }
 
-export default function PartDrawer({ partId, onClose }) {
+export default function PartDrawer({ partId, onClose, back = null }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const canCount = useCan("store_stock", "edit");
@@ -176,6 +176,7 @@ export default function PartDrawer({ partId, onClose }) {
   return (
     <>
       <Modal open={partId != null} onClose={onClose} variant="drawer" size="xl"
+        onBack={back ? onClose : undefined} backLabel={back}
         title={p ? `${p.part_no} — ${p.part_name || ""}` : "Part"}
         footer={p && (
           <>

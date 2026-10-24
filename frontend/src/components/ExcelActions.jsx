@@ -6,7 +6,8 @@ import { Plus, Upload, FileDown, Download } from "lucide-react";
  * page — Excel is the ingestion path today; onUpload is the only piece
  * that changes once ERP API sync replaces it (see redesign spec).
  * Omit onAddNew for sheet-style pages (e.g. Daily Stock Count) that have
- * no "create new row" concept. */
+ * no "create new row" concept. Omit onUpload / onDownloadTemplate for a page
+ * that takes no Excel in (the Part Master since 21 Oct 2026). */
 export default function ExcelActions({ onAddNew, addLabel = "Add New", onUpload, onDownloadTemplate, onExport, canEdit = true }) {
   const fileInputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
@@ -32,7 +33,7 @@ export default function ExcelActions({ onAddNew, addLabel = "Add New", onUpload,
           <Plus size={16} /> {addLabel}
         </button>
       )}
-      {canEdit && (
+      {onUpload && canEdit && (
         <>
           <input
             ref={fileInputRef}
@@ -50,9 +51,11 @@ export default function ExcelActions({ onAddNew, addLabel = "Add New", onUpload,
           </label>
         </>
       )}
-      <button className="btn-secondary" onClick={onDownloadTemplate}>
-        <FileDown size={16} /> Download Template
-      </button>
+      {onDownloadTemplate && (
+        <button className="btn-secondary" onClick={onDownloadTemplate}>
+          <FileDown size={16} /> Download Template
+        </button>
+      )}
       <button className="btn-secondary" onClick={onExport}>
         <Download size={16} /> Export Excel
       </button>

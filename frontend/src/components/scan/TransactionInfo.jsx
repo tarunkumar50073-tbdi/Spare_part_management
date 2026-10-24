@@ -109,7 +109,7 @@ function ErpLine({ l }) {
 // scan.erp_receiving — { lines, erp: { synced_at, newest_grn_date } }. Always
 // shown with the mirror's freshness, and a way to the Receiving & GRN page.
 function ErpReceiving({ block }) {
-  const mayOpen = useCan("spare_store");
+  const mayOpen = useCan("receiving");
   const lines = [...(block.lines || [])]
     .sort((a, b) => Number(ERP_OPEN.has(b.state)) - Number(ERP_OPEN.has(a.state)));
   const title = "Receiving — ERP GRN (read-only)";

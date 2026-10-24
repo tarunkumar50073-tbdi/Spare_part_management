@@ -13,15 +13,24 @@
 import JsBarcode from "jsbarcode";
 import { QRCodeDecoderErrorCorrectionLevel, QRCodeEncoder } from "@zxing/library";
 import { TB_LOGO } from "./tbLogo.js";
-import { binBaseLocation } from "./binLocation.js";
+import { BIN_QR_DESC_MAX, binBaseLocation, binQrPayload } from "./binLocation.js";
 
-// Render a QR code as an SVG string. The payload is the Part No only (the QR is
+const QR_QUIET = 4;   // modules of white margin around every QR
+
+// Render a QR code as an SVG string. The payload identifies the part (the QR is
 // the part's permanent identity; everything dynamic is read from the database
 // when it is scanned). Error correction M; 4-module quiet zone; vector, so it
 // stays sharp on thermal paper. `size` is only the default display size — the
 // label CSS scales it.
-export function qrSvgString(value, { size = 160, quiet = 4 } = {}) {
-  const matrix = QRCodeEncoder.encode(String(value), QRCodeDecoderErrorCorrectionLevel.M).getMatrix();
+export function qrSvgString(value, opts) {
+  return qrSvgFromMatrix(qrMatrix(value), value, opts);
+}
+
+function qrMatrix(value) {
+  return QRCodeEncoder.encode(String(value), QRCodeDecoderErrorCorrectionLevel.M).getMatrix();
+}
+
+function qrSvgFromMatrix(matrix, value, { size = 160, quiet = QR_QUIET } = {}) {
   const n = matrix.getWidth();
   let d = "";
   for (let y = 0; y < n; y += 1) {
@@ -75,13 +84,11 @@ export function labelSymbology(config) {
   return s === "CODE39" ? "CODE39" : s === "QR" ? "QR" : "CODE128";
 }
 
-// The physical face size (mm) a tag kind prints at. The lot tag has its own
-// paper (default 150 x 100 mm); every other kind uses the configured label size
-// (default 100 x 50 mm). The bin sheet has its own builder and size.
-export function labelFaceSize(config, kind = "plain") {
-  if (kind === "lot") {
-    return { w: Number(config?.lot_width_mm) || 150, h: Number(config?.lot_height_mm) || 100 };
-  }
+// The physical face size (mm) a label prints at: the configured label size
+// (default 100 x 50 mm) for every kind. The bin sheet has its own builder and
+// size. (The 150 x 100 mm gate-entry lot tag is gone: the store had it taken
+// out on 17 Oct 2026 — "lot tag bhi kah rhe h ki paper wastage h use hta do".)
+export function labelFaceSize(config) {
   return { w: Number(config?.width_mm) || 100, h: Number(config?.height_mm) || 50 };
 }
 
@@ -97,12 +104,10 @@ export function labelFaceSize(config, kind = "plain") {
 //   "plain"    — the rack location only (the original label; spec 3 / 29).
 //   "location" — location + Min / Max stock levels (the permanent rack tag
 //                that is laminated and fixed to the bin).
-//   "lot"      — the lot quantity that came in on a gate entry, plus a small
-//                gate-entry / date line (the paper tag for an arrived lot).
-// A tag kind shows one line more than the plain label, so its description is
-// given one fewer line to keep the text inside the same label height.
+// The location tag shows one line more than the plain label, so its
+// description is given one fewer line to keep the text inside the same height.
 export function labelLayout(config, partNo = "", kind = "plain") {
-  const { w, h } = labelFaceSize(config, kind);
+  const { w, h } = labelFaceSize(config);
   const symbology = labelSymbology(config);
   const qr = symbology === "QR";
   const pad = clamp(h * 0.05, 1.5, 3);
@@ -111,9 +116,7 @@ export function labelLayout(config, partNo = "", kind = "plain") {
 
   let codeMm = null;      // QR edge (square)
   let barMaxMm = null;    // 1D barcode max height
-  // On a big landscape tag (the lot tag) a full-height QR would swallow the
-  // tag, so it is capped; the small labels keep their full-height QR.
-  if (qr) codeMm = side ? Math.min(h - pad * 2, kind === "lot" ? h * 0.62 : Infinity) : Math.min(w - pad * 2, h * 0.5);
+  if (qr) codeMm = side ? h - pad * 2 : Math.min(w - pad * 2, h * 0.5);
   else barMaxMm = h * (showLocation ? 0.4 : 0.48);
 
   const textW = side ? w - codeMm - pad * 3 : w - pad * 2;
@@ -125,12 +128,10 @@ export function labelLayout(config, partNo = "", kind = "plain") {
   const locPt = Math.round(clamp(side ? h * 0.2 : h * 0.14, 6, 14));
   const capPt = Math.round(clamp(dsPt * 0.7, 5, 9));
   const mmPt = Math.round(clamp(side ? h * 0.17 : h * 0.13, 6, 13));    // Min / Max line
-  const lotPt = Math.round(clamp(side ? h * 0.24 : h * 0.17, 8, 20));   // Lot Qty line
-  const metaPt = capPt;                                                 // gate-entry / date line
   const descLines = kind === "plain" ? (side ? 3 : 2) : (side ? 2 : 1);
   return {
     w, h, pad, symbology, qr, side, codeMm, barMaxMm, textW,
-    pnPt, dsPt, locPt, capPt, mmPt, lotPt, metaPt, descLines, showLocation, kind,
+    pnPt, dsPt, locPt, capPt, mmPt, descLines, showLocation, kind,
   };
 }
 
@@ -163,29 +164,20 @@ export function binDescription(partName) {
 
 // ---- print document --------------------------------------------------------
 
-// The text column's lines below the description — what sets a "location" or
-// "lot" tag apart from the plain label (see labelLayout for the kinds).
-function labelExtra(L, { location, minLevel, maxLevel, lotQty, uom, gateRef, gateDate }) {
+// The text column's lines below the description — what sets a "location" tag
+// apart from the plain label (see labelLayout for the kinds).
+function labelExtra(L, { location, minLevel, maxLevel }) {
   if (L.kind === "location") {
     return `<div class="loc" style="font-size:${L.locPt}pt">Location: ${escapeHtml(location || "—")}</div>`
       + `<div class="mm" style="font-size:${L.mmPt}pt">Min: <b>${escapeHtml(labelLevel(minLevel))}</b>`
       + `<span class="mmsep">Max: <b>${escapeHtml(labelLevel(maxLevel))}</b></span></div>`;
-  }
-  if (L.kind === "lot") {
-    const u = uom ? ` ${escapeHtml(String(uom))}` : "";
-    let out = `<div class="lot" style="font-size:${L.lotPt}pt">Lot Qty: <b>${escapeHtml(labelLevel(lotQty))}${u}</b></div>`;
-    const meta = [gateRef ? `Gate ${escapeHtml(String(gateRef))}` : "", gateDate ? escapeHtml(String(gateDate)) : ""]
-      .filter(Boolean).join(" · ");
-    if (meta) out += `<div class="meta" style="font-size:${L.metaPt}pt">${meta}</div>`;
-    return out;
   }
   return L.showLocation
     ? `<div class="loc" style="font-size:${L.locPt}pt">Location: ${escapeHtml(location || "—")}</div>` : "";
 }
 
 // One label's markup: code + Part No + short description, then the kind's extra
-// line(s) — location only (plain), location + Min / Max (location tag), or the
-// lot quantity (lot tag).
+// line(s) — location only (plain) or location + Min / Max (location tag).
 function labelMarkup(fields, config) {
   const { barcodeValue, partNo, description, kind = "plain" } = fields;
   const L = labelLayout(config, partNo, kind);
@@ -209,44 +201,41 @@ function labelMarkup(fields, config) {
     </div>`;
 }
 
-// Many different parts' labels in ONE print job (the stock list's bulk action
-// and the gate-entry lot tags): `labels` = [{ barcode_value, part_no,
-// part_name, location, copies, ... }], each exactly width_mm x height_mm, one
-// per page. `kind` (and any per-label `kind`) picks the tag layout; a label
-// may also carry min_stock_level / max_stock_level (location tag) or lot_qty /
-// uom / gate_ref / gate_date (lot tag).
+// Many different parts' labels in ONE print job (the stock list's bulk
+// action): `labels` = [{ barcode_value, part_no, part_name, location, copies,
+// ... }], each exactly width_mm x height_mm, one per page. `kind` (and any
+// per-label `kind`) picks the tag layout; a label may also carry
+// min_stock_level / max_stock_level (location tag).
 export function buildLabelsHtml(labels, config, kind = "plain") {
   const body = labels.map((l) => Array.from({ length: Math.max(1, l.copies || 1) },
     () => labelMarkup({
       barcodeValue: l.barcode_value || l.part_no, partNo: l.part_no,
       description: l.part_name, location: l.location,
       minLevel: l.min_stock_level, maxLevel: l.max_stock_level,
-      lotQty: l.lot_qty, uom: l.uom, gateRef: l.gate_ref, gateDate: l.gate_date,
       kind: l.kind || kind,
     }, config))
     .join("")).join("");
-  return labelDocument(body, config, kind);
+  return labelDocument(body, config);
 }
 
 // Build a self-contained print document: `copies` labels, each exactly
 // width_mm x height_mm. The default plain label shows code + Part No +
-// description + location; `kind` "location" adds Min / Max and "lot" shows the
-// lot quantity instead (see labelLayout).
+// description + location; `kind` "location" adds Min / Max (see labelLayout).
 export function buildLabelHtml({
   barcodeValue, partNo, description, location,
-  minLevel, maxLevel, lotQty, uom, gateRef, gateDate, kind = "plain",
+  minLevel, maxLevel, kind = "plain",
   config, copies = 1,
 }) {
   const one = labelMarkup({
     barcodeValue, partNo, description, location,
-    minLevel, maxLevel, lotQty, uom, gateRef, gateDate, kind,
+    minLevel, maxLevel, kind,
   }, config);
   const body = Array.from({ length: Math.max(1, copies) }, () => one).join("");
-  return labelDocument(body, config, kind);
+  return labelDocument(body, config);
 }
 
-function labelDocument(body, config, kind = "plain") {
-  const { w, h } = labelFaceSize(config, kind);
+function labelDocument(body, config) {
+  const { w, h } = labelFaceSize(config);
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     @page { size: ${w}mm ${h}mm; margin: 0; }
     /* Force backgrounds / colours (e.g. a logo, a solid name bar) to PRINT even
@@ -272,8 +261,6 @@ function labelDocument(body, config, kind = "plain") {
     .loc { font-weight: 700; line-height: 1.1; margin-top: 1.2mm; overflow-wrap: anywhere; }
     .mm { line-height: 1.1; margin-top: 1mm; overflow-wrap: anywhere; }
     .mm .mmsep { margin-left: 4mm; }
-    .lot { font-weight: 700; line-height: 1.1; margin-top: 1.2mm; overflow-wrap: anywhere; }
-    .meta { line-height: 1.1; margin-top: 0.8mm; color: #333; overflow-wrap: anywhere; }
   </style></head><body>${body}</body></html>`;
 }
 
@@ -358,11 +345,18 @@ function wrapLineCount(text, perLine) {
   if (!words.length) return 1;
   let lines = 1, cur = 0;
   for (const word of words) {
-    const len = word.length;
-    if (cur === 0) cur = len;
-    else if (cur + 1 + len <= perLine) cur += 1 + len;
-    else { lines += 1; cur = len; }
-    while (cur > perLine) { lines += 1; cur -= perLine; }     // a word wider than one line
+    // A browser may also break a line just after a hyphen, as it does in a long
+    // Spec (RCP5-SA7C-WA-56P-4-600-P3-M-CJB-IND); the pieces of one word join
+    // with no space. Counted as one unbroken word, such a Spec read a line taller
+    // than it prints and pushed an 8-part bin onto two pages (23 Oct 2026).
+    word.split(/(?<=-)/).forEach((piece, i) => {
+      const len = piece.length;
+      const sep = i === 0 ? 1 : 0;
+      if (cur === 0) cur = len;
+      else if (cur + sep + len <= perLine) cur += sep + len;
+      else { lines += 1; cur = len; }
+      while (cur > perLine) { lines += 1; cur -= perLine; }   // a piece wider than one line
+    });
   }
   return lines;
 }
@@ -376,12 +370,28 @@ function charsPerLine(textW, pt, bold) {
   return Math.max(3, Math.floor((textW * 0.97) / (pt * em * 0.3528)));
 }
 
+// The line that tells parts of one name apart (a bin holds many AIR CYLINDERs):
+// the Spec. The Model is to take its place once the store's Excel brings the
+// models — on the store's say, not before ("model abhi excel milegi tab aayega
+// abhi spec hi rhega", 23 Oct 2026). null when there is no Spec.
+function binIdent(row) {
+  const spec = String(row.specification || "").trim();
+  return spec ? { label: "Spec", value: spec } : null;
+}
+
 // Layout for ONE column of `rows` at width `colW`, `k` rows tall. The DESCRIPTION
 // is sized to its FULL text: the LARGEST font (down to a floor) at which every
-// row's whole description fits on its wrapped lines. Min/Max is added next while
-// there is room, then the Spec — but the Spec shows only if it ALSO fits whole
-// (otherwise it is dropped, never cut). Returns null if even the floor font
-// can't fit the description + part-no line, so the caller uses fewer rows/page.
+// row's whole description, the part-no line AND the Min / Max line fit. Min /
+// Max is never dropped: the bin tag always carried it, and when it was made
+// optional ("while there is room") a crowded bin lost it — the store, 18 Oct
+// 2026: "qr par min/max nhi aa rha jabki phle aa rha tha". The Spec went the
+// same way and is held the same way since 23 Oct 2026 ("jo 1-2-3 bar code h unme
+// spec h but jyada me spec nhi aa rha"): many parts in one bin share a name (AIR
+// CYLINDER) and only the Spec tells them apart, so a part that has one always
+// prints it, whole, its value in bold ("bas bold kar de spec ko"). Since then
+// every line of a row is ONE size — the description too ("description bhi chota
+// hi rhne de") — the description and the Spec's value in bold. Returns null if
+// even the floor font can't fit them all, so the caller uses fewer rows/page.
 function binColLayout(config, rows, colW, k) {
   const w = Number(config?.bin_width_mm) || 130;
   const h = Number(config?.bin_height_mm) || 90;
@@ -396,35 +406,71 @@ function binColLayout(config, rows, colW, k) {
   const textW = Math.max(6, colW - pad * 2 - qrMm - pad * 1.6);
   const H = LINE_MM_PER_PT, GAP = FIELD_GAP_MM;
   for (let descPt = BIN_DESC_MAX_PT; descPt >= BIN_DESC_MIN_PT; descPt--) {
-    const linePt = Math.max(5, descPt - 1);
+    const linePt = descPt;                                       // one size for every line
     const dPerLine = charsPerLine(textW, descPt, true);
-    const sPerLine = charsPerLine(textW, linePt, false);
+    const sPerLine = charsPerLine(textW, linePt, true);          // the Spec's value is bold
     let maxDesc = 1, maxSpec = 0, anySpec = false;
     for (const r of rows) {
       maxDesc = Math.max(maxDesc, wrapLineCount(binDescription(r.part_name), dPerLine));
-      if (r.specification) { anySpec = true; maxSpec = Math.max(maxSpec, wrapLineCount("Spec: " + r.specification, sPerLine)); }
+      const id = binIdent(r);
+      if (id) { anySpec = true; maxSpec = Math.max(maxSpec, wrapLineCount(`${id.label}: ${id.value}`, sPerLine)); }
     }
-    let used = maxDesc * descPt * H + GAP + linePt * H;        // full description + part-no/location
+    // Full description + Spec (when a part has one) + part-no/location + Min / Max.
+    const specLines = anySpec ? maxSpec : 0;
+    const used = maxDesc * descPt * H + 2 * (GAP + linePt * H) + (specLines ? GAP + specLines * linePt * H : 0);
     if (used > avail) continue;                                // too tall at this font — shrink
-    let showMinMax = false, specLines = 0;
-    if (used + GAP + linePt * H <= avail) { showMinMax = true; used += GAP + linePt * H; }
-    if (anySpec && used + GAP + maxSpec * linePt * H <= avail) { specLines = maxSpec; used += GAP + maxSpec * linePt * H; }
     return { w, h, pad, headMm, headPt, logoMm, rowMm, qrMm, descPt, linePt,
-             descLines: maxDesc, specLines, showSpec: specLines > 0, showMinMax };
+             descLines: maxDesc, specLines, showSpec: specLines > 0, showMinMax: true };
   }
   return null;
+}
+
+// The smallest QR module a bin sheet prints. The description makes a row's QR
+// denser in the same box, so on a crowded sheet (7–8 rows a column: a 7–8.5 mm
+// QR) it is cut shorter — or left out — rather than shrink a module below this.
+// Part no. + location always stay.
+//
+// 0.25 mm (10 mil), not the 0.21 mm of the densest QR already on the racks: the
+// description is only shown, never matched, so it must not be what makes a QR
+// hard to read. At 0.2 mm ~360 rows (of ~4,900 on the mock stock list) fell
+// under 0.25 mm and the densest went below anything printed before; at 0.25 mm
+// the only QRs under it are rows that were already that dense with part no. +
+// location alone, printed exactly as before. Lower it only after the densest
+// rows (7–8-row bins) have been printed, laminated and read with the store's
+// Symcode MJ-6706 gun.
+const BIN_QR_MIN_MODULE_MM = 0.25;
+const BIN_QR_DESC_STEPS = [BIN_QR_DESC_MAX, 30, 20, 12, 0];
+
+// A row's QR: "PART_NO LOCATION | DESCRIPTION" (binLocation.binQrPayload) with
+// the longest description that keeps every module >= BIN_QR_MIN_MODULE_MM in a
+// `qrMm` box.
+function binRowQrSvg(row, loc, qrMm) {
+  let payload = null, matrix = null;
+  for (const max of BIN_QR_DESC_STEPS) {
+    const next = binQrPayload(row.part_no, loc, row.part_name, max);
+    if (next === payload) continue;                        // a short description: the same text again
+    payload = next;
+    matrix = qrMatrix(payload);
+    if (qrMm / (matrix.getWidth() + QR_QUIET * 2) >= BIN_QR_MIN_MODULE_MM) break;
+  }
+  // The last text tried is the one printed: the longest that fits — or, when even
+  // part no. + location alone is denser than that (as such a row always was),
+  // part no. + location, exactly as before.
+  return qrSvgFromMatrix(matrix, payload);
 }
 
 function binRowMarkup(row, L, config) {
   const desc = binDescription(row.part_name);
   const loc = String(row.location || "");
-  const spec = String(row.specification || "").trim();
+  const ident = binIdent(row);
   // ONE QR per row carrying BOTH the part no and its exact partition location,
   // space-separated (e.g. "CNTR2238 R6-S6-B36(1)"): the part resolves from the
-  // part-no token, the location from the slot token — one scan has it all.
-  const payload = [row.part_no, loc].filter(Boolean).join(" ");
-  const specLine = (spec && L.showSpec)
-    ? `<div class="bspec" style="font-size:${L.linePt}pt">Spec: ${escapeHtml(spec)}</div>` : "";
+  // part-no token, the location from the slot token — one scan has it all. Since
+  // 17 Oct 2026 the description follows after " | " (the store: a scan should
+  // say what the part is too) — only shown, never matched (binRowQrSvg).
+  const qrSvg = binRowQrSvg(row, loc, L.qrMm);
+  const specLine = (ident && L.showSpec)
+    ? `<div class="bspec" style="font-size:${L.linePt}pt">${ident.label}: <b>${escapeHtml(ident.value)}</b></div>` : "";
   // For a part that has both a fresh and a rework location, mark which one THIS
   // row is (NEW / REWORK — the store says "new", not "fresh") and show the other
   // location too, so both are visible.
@@ -435,7 +481,7 @@ function binRowMarkup(row, L, config) {
   const mmLine = L.showMinMax === false ? ""
     : `<div class="bmm" style="font-size:${L.linePt}pt">Min Qty: <b>${escapeHtml(labelLevel(row.min_stock_level))}</b><span class="bmmsep">Max Qty: <b>${escapeHtml(labelLevel(row.max_stock_level))}</b></span></div>`;
   return `<div class="brow" style="height:${L.rowMm}mm;padding:${L.pad}mm;gap:${L.pad * 1.6}mm">
-      <div class="bqr" style="width:${L.qrMm}mm;height:${L.qrMm}mm">${qrSvgString(payload)}</div>
+      <div class="bqr" style="width:${L.qrMm}mm;height:${L.qrMm}mm">${qrSvg}</div>
       <div class="btxt">
         <div class="bdesc" style="font-size:${L.descPt}pt">${escapeHtml(desc)}</div>
         ${specLine}
@@ -596,110 +642,13 @@ function binSheetDocument(body, w, h) {
   </script></body></html>`;
 }
 
-// ---- lot tag (QC receiving form) -------------------------------------------
+// ---- lot tag -----------------------------------------------------------------
 //
-// The store's incoming-material lot tag (format TBDI/STORE/F/004), ONE per part
-// per gate entry, on its own paper (default 150 x 100 mm). The title runs across
-// the top on one line; below it the fields the app fills from the gate entry and
-// the part — Part Name, Part No, Gate Entry No, Lot Qty, GE Date,
-// Supplier/Customer, Location — sit beside the QR (which carries the
-// Gate Entry No + Part No), and the format footer is at the bottom. A 1 mm
-// border is inset 2 mm from the paper edge so it always prints. No blank QC /
-// SRV / TIL / Shift / Lot Status / Reason fields.
-
-// A gate date as the form prints it: an ISO "2025-07-22" becomes "22/07/2025";
-// anything else is shown as given.
-function lotDate(value) {
-  const m = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(value || "");
-}
-
-function lotPair(leftLabel, leftVal, rightLabel, rightVal) {
-  const cell = (lbl, val) => lbl
-    ? `<div class="lt-cell"><b>${escapeHtml(lbl)} :</b> ${escapeHtml(val == null ? "" : String(val))}</div>`
-    : `<div class="lt-cell"></div>`;
-  return `<div class="lt-row">${cell(leftLabel, leftVal)}${cell(rightLabel, rightVal)}</div>`;
-}
-
-function lotTagMarkup(t, qrMm) {
-  const uom = t.uom ? ` ${escapeHtml(String(t.uom))}` : "";
-  const lotQty = t.lot_qty == null || t.lot_qty === "" ? "" : `${escapeHtml(labelLevel(t.lot_qty))}${uom}`;
-  const qrPayload = [t.gate_no, t.part_no].filter(Boolean).join(" ");
-  const spec = String(t.specification || "").trim();
-  const specLine = spec
-    ? `<div class="lt-full"><b>Specification :</b> ${escapeHtml(spec)}</div>` : "";
-  return `<div class="ltag"><div class="lt-inner">
-      <div class="lt-title">TOYOTA BOSHOKU DEVICE INDIA PRIVATE LIMITED MFG</div>
-      <div class="lt-body">
-        <div class="lt-top">
-          <div class="lt-fields">
-            <div class="lt-full"><b>Part Name :</b> ${escapeHtml(t.part_name || "")}</div>
-            ${lotPair("Part No", t.part_no, "Gate Entry No", t.gate_no)}
-            ${lotPair("Lot Qty", lotQty, "GE Date", lotDate(t.gate_date))}
-          </div>
-          <div class="lt-qr" style="width:${qrMm}mm;height:${qrMm}mm">${qrSvgString(qrPayload || t.part_no || "")}</div>
-        </div>
-        <!-- Specification, Supplier + Location get their OWN full-width lines
-             below the QR (the tag has the room), so a long value uses the whole
-             line instead of wrapping early in the narrow column beside the QR. -->
-        ${specLine}
-        <div class="lt-full"><b>Supplier/Customer :</b> ${escapeHtml(t.supplier || "")}</div>
-        ${lotPair("Location", t.location, "", "")}
-      </div>
-    </div></div>`;
-}
-
-// One print document, one lot-tag form per `tags` entry. Each tag =
-// { part_no, part_name, lot_qty, uom, supplier, bill_no, gate_no, gate_date }.
-export function buildLotTagsHtml(tags, config) {
-  const { w, h } = labelFaceSize(config, "lot");
-  const qrMm = clamp(h * 0.3, 24, 36);
-  // The physical sheet holds THREE 150x100 tags stacked (the paper is folded
-  // into three equal bands), so group three tags onto ONE page: one print =
-  // one sheet = three tags, each landing in its own band. A last page with 1-2
-  // tags just leaves the remaining band(s) blank.
-  const PER_SHEET = 3;
-  const sheetH = h * PER_SHEET;
-  const all = tags || [];
-  const sheets = [];
-  for (let i = 0; i < all.length; i += PER_SHEET) sheets.push(all.slice(i, i + PER_SHEET));
-  const body = sheets.map((group) =>
-    `<div class="lsheet">${group.map((t) => lotTagMarkup(t, qrMm)).join("")}</div>`).join("");
-  // Empty title so the browser's print header (when the operator leaves headers
-  // / footers on) does not show the app name; the date / URL it may still add
-  // are a print-dialog setting, not part of the tag.
-  return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>
-    @page { size: ${w}mm ${sheetH}mm; margin: 0; }
-    /* Force backgrounds / colours (e.g. a logo, a solid name bar) to PRINT even
-       when the browser's "Background graphics" option is off — otherwise they
-       vanish on the printout and in print preview. */
-    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    html, body { margin: 0; padding: 0; background: #fff; }
-    /* One sheet = three stacked tags; the page break is per SHEET, not per tag. */
-    .lsheet { width: ${w}mm; height: ${sheetH}mm; page-break-after: always; break-after: page;
-      display: flex; flex-direction: column; background: #fff; }
-    .lsheet:last-child { page-break-after: auto; break-after: auto; }
-    /* padding = the clear margin on all four sides between the band edge and the
-       tag's border, so nothing sits on a cut / fold line. */
-    .ltag { width: ${w}mm; height: ${h}mm; overflow: hidden;
-      display: flex; font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; padding: 4mm; }
-    .lt-inner { flex: 1; display: flex; flex-direction: column; border: 1mm solid #000; padding: 3mm 4mm; overflow: hidden; }
-    .lt-title { text-align: center; font-weight: 700; font-size: 13pt; line-height: 1.2; white-space: nowrap; }
-    .lt-body { flex: 1; display: flex; flex-direction: column; justify-content: space-evenly;
-      padding: 2mm 0; font-size: 13pt; line-height: 1.3; }
-    /* Top block: the first three field rows beside the QR. Supplier + Location
-       live below this, full width, so they never wrap in the QR's narrow column. */
-    .lt-top { display: flex; align-items: flex-start; gap: 5mm; }
-    .lt-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2mm; }
-    .lt-full { overflow-wrap: anywhere; }
-    .lt-row { display: flex; gap: 6mm; }
-    .lt-cell { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-    .lt-qr { flex: none; border: 0.3mm solid #000; }
-    .lt-qr svg { display: block; width: 100%; height: 100%; }
-    .lt-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 4mm;
-      border-top: 0.4mm solid #000; padding-top: 2mm; font-size: 10pt; }
-  </style></head><body>${body}</body></html>`;
-}
+// The 150 x 100 mm gate-entry lot tag (QR = gate entry no. + Part No.) is no
+// longer printed: management said it wastes paper and the store had it taken
+// out on 17 Oct 2026 ("lot tag bhi kah rhe h ki paper wastage h use hta do").
+// A tag already on material still scans — the Part No. in it identifies the
+// part (PartRepository.get_by_scan_code).
 
 // Print an HTML document via a hidden iframe, then clean up. The browser can
 // not tell the page whether the label actually came out, so callers ask the

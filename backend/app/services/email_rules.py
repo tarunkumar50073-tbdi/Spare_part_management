@@ -88,13 +88,14 @@ RULES = (
     # The store's request of 17 Oct 2026 — "short ki mail banani padegi agar kisi
     # supplier se short receive hua to mail jaayegi", "rejection ka bhi banana
     # padega": what suppliers sent short and what quality rejected, as the Short
-    # & Rejection screen's own workbook. Like every rule it starts switched off,
-    # with no one in its audience: nothing is mailed until the store says so.
+    # & Rejection screen's own workbooks — one per kind, never mixed. Like every
+    # rule it starts switched off, with no one in its audience: nothing is mailed
+    # until the store says so (all mail on hold since 17 Oct 2026).
     {"key": "short_rejection", "title": "Short & Rejection list", "mail_type": "short_rejection",
      "audience": "custom", "label": "GRN lines short or rejected",
-     "description": "The GRN lines of the last 90 days that a supplier sent short or quality rejected, "
-                    "supplier-wise and line by line with the days pending, as an attached Excel workbook — "
-                    "with one line of totals in the mail."},
+     "description": "The GRN lines of the last 90 days that a supplier sent short, and those with an SRV "
+                    "rejection, supplier-wise and line by line with the days pending — two attached Excel "
+                    "workbooks, never mixed — with one line of totals for each in the mail."},
 )
 _RULE = {spec["key"]: spec for spec in RULES}
 RULE_FIELDS = ("enabled", "hour", "minute", "days", "department_ids", "emails")
@@ -720,50 +721,69 @@ def _short_rejection():
     return short_rejection_service
 
 
+# The kinds this mail carries, each as its own totals line and its own
+# workbook — never one mixed list ("rejection and short mix nhi rhega na" — the
+# store, 17 Oct 2026, when the screen was split into its Short and Rejection
+# tabs). Line Rejection is not readable yet (short_rejection_service.
+# erp_line_rejections), so it is not in the mail. The rule itself stays as the
+# store left it — off, no one to mail ("ye mail wale kaam baad me kar dena").
+SHORT_REJECTION_KINDS = ("short", "srv")
+
+
 def _short_rejection_report(now):
-    """(the service module, its report) over the screen's default window: the
-    90 days to the plant day of `now`."""
+    """(the service module, its reports — one per SHORT_REJECTION_KINDS) over
+    the screen's default window: the 90 days to the plant day of `now`."""
     sr = _short_rejection()
-    return sr, sr.ShortRejectionService().report(STORE_CODE, today=_plant(now).date())
+    service, today = sr.ShortRejectionService(), _plant(now).date()
+    return sr, [service.report(STORE_CODE, kind, today=today) for kind in SHORT_REJECTION_KINDS]
 
 
-def _short_rejection_block(sr, out):
-    """The totals over every line — the lines themselves are in the attached
-    workbook — and how the days pending are counted. The money is that of the
-    parts with a rate, so the line says how many have none."""
-    t = out["totals"]
+def _short_rejection_count(outs):
+    return sum(out["totals"]["lines"] for out in outs)
 
-    def kind(lines, value, word):
-        return f"{_grouped(lines)} {word}" + (f" ({_rupees(value)})" if lines and value else "")
 
-    line = " · ".join([
-        f"{_grouped(t['lines'])} GRN lines", kind(t["short_lines"], t["short_value"], "short"),
-        kind(t["rejected_lines"], t["rejected_value"], "rejected"),
-        f"{_grouped(t['suppliers'])} supplier{'' if t['suppliers'] == 1 else 's'}",
-        f"oldest {_grouped(t['oldest_days'] or 0)} days pending"])
-    if t["unrated_lines"]:
-        line += f" · {_grouped(t['unrated_lines'])} without a rate, not valued"
-    as_of = out["data_as_of"]
-    known = (f"ERP data up to {date.fromisoformat(as_of['synced_day']):%d.%m.%Y}. " if as_of["synced_day"]
-             else "No ERP GRN data has been read yet. ")
-    return {"line": line, "note": known + sr.BASIS["days"]}
+def _short_rejection_blocks(outs):
+    """One totals line per kind — its lines are in that kind's attached
+    workbook — then how current the ERP data is and how each kind's days
+    pending are counted. The money is that of the parts with a rate, so a line
+    says how many have none."""
+    blocks = []
+    for out in outs:
+        t = out["totals"]
+        if not t["lines"]:
+            blocks.append({"line": f"{out['label']}: none"})
+            continue
+        line = " · ".join([
+            f"{out['label']}: {_grouped(t['lines'])} GRN line{'' if t['lines'] == 1 else 's'}",
+            f"{_n(t['qty'])} qty" + (f" ({_rupees(t['value'])})" if t["value"] else ""),
+            f"{_grouped(t['suppliers'])} supplier{'' if t['suppliers'] == 1 else 's'}",
+            f"oldest {_grouped(t['oldest_days'] or 0)} days pending"])
+        if t["unrated_lines"]:
+            line += f" · {_grouped(t['unrated_lines'])} without a rate, not valued"
+        blocks.append({"line": line})
+    as_of = outs[0]["data_as_of"]
+    known = (f"ERP data up to {date.fromisoformat(as_of['synced_day']):%d.%m.%Y}." if as_of["synced_day"]
+             else "No ERP GRN data has been read yet.")
+    blocks[-1]["note"] = " ".join([known, *(f"{out['label']}: {out['basis']['days']}" for out in outs)])
+    return blocks
 
 
 def _short_rejection_mail(now):
-    """One line of totals and how the days are counted, with the Short &
-    Rejection workbook attached — the one the screen downloads, for the last
-    90 days. Nothing short or rejected: no mail."""
+    """A totals line per kind and how the days are counted, with each kind's
+    workbook attached — the one the screen's tab downloads, for the last 90
+    days; a kind with nothing in it has no file. Nothing short or rejected at
+    all: no mail."""
     try:
-        sr, out = _short_rejection_report(now)
+        sr, outs = _short_rejection_report(now)
     except Exception:  # noqa: BLE001 — the caller says "could not be read"; it never 500s a mail run
         db.session.rollback()
         logger.exception("the short & rejection list could not be read")
         return None, SHORT_UNREADABLE
-    count = out["totals"]["lines"]
+    count = _short_rejection_count(outs)
     if not count:
         return None, NOTHING_SHORT
-    return _digest("short_rejection", count, [_short_rejection_block(sr, out)], now,
-                   lambda: [sr.attachment(out)]), None
+    return _digest("short_rejection", count, _short_rejection_blocks(outs), now,
+                   lambda: [sr.attachment(out) for out in outs if out["totals"]["lines"]]), None
 
 
 # ---- content: the action tracker ----
@@ -1226,7 +1246,7 @@ def _tracker_count():
 # How many items a rule's mail would carry right now. The window-time sheet has
 # no such number.
 _COUNTERS = {"reorder_daily": _reorder_count, "excess_list": _excess_count,
-             "short_rejection": lambda: _short_rejection_report(_now())[1]["totals"]["lines"],
+             "short_rejection": lambda: _short_rejection_count(_short_rejection_report(_now())[1]),
              "stock_report": lambda: len(SpareStockService().list_stock(STORE_CODE, None)),
              "tracker_digest": _tracker_count}
 
@@ -1438,8 +1458,13 @@ def _owners(value, current):
     if not isinstance(value, dict):
         raise BadRequestError("'owners' must be an object keyed by Action Tracker line")
     known = {spec["key"] for spec in _management().TRACKER_ITEMS}
-    merged = dict(current)
+    # A line taken off the tracker (the kiosk requests line, 17 Oct 2026) may
+    # still have owners saved, and the screen sends the whole map back: such a
+    # line is dropped here instead of refusing every later save.
+    merged = {key: line for key, line in current.items() if key in known}
     for key, entry in value.items():
+        if key not in known and key in current:
+            continue
         if key not in known:
             raise BadRequestError(f"'{key}' is not an Action Tracker line")
         if not isinstance(entry, dict):

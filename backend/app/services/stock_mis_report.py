@@ -64,7 +64,8 @@ LOGO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 
 OUT, BELOW, REORDER, EXCESS, HEALTHY, NOT_COUNTED = (
     "Out of Stock", "Below Minimum", "Reorder", "Above Maximum", "Healthy", "Not Counted")
-STATUSES = (OUT, BELOW, REORDER, EXCESS, HEALTHY, NOT_COUNTED)
+DISCONTINUED = "Discontinued"
+STATUSES = (OUT, BELOW, REORDER, EXCESS, HEALTHY, DISCONTINUED, NOT_COUNTED)
 # The order list, worst first.
 TO_ORDER = {OUT: 0, BELOW: 1, REORDER: 2}
 UNASSIGNED = "Unassigned"
@@ -102,6 +103,7 @@ TINTS = {
     EXCESS: ("DBEAFE", "1E40AF", "3B82F6"),
     HEALTHY: ("D1FAE5", "065F46", "10B981"),
     NOT_COUNTED: ("F1F5F9", "475569", "94A3B8"),
+    DISCONTINUED: ("E2E8F0", "334155", "64748B"),
     "Store": (TOTAL, NAVY, NAVY),
 }
 
@@ -482,6 +484,8 @@ def _status_table(ws, wb, row, total):
          _row_looks(wb, formats, label=chip(EXCESS, bold=True))),
         (line("Healthy", count[HEALTHY], value[HEALTHY]),
          _row_looks(wb, formats, label=chip(HEALTHY, bold=True))),
+        (line("Discontinued (not required)", count[DISCONTINUED], value[DISCONTINUED]),
+         _row_looks(wb, formats, label=chip(DISCONTINUED, bold=True))),
         (line("Not counted", count[NOT_COUNTED], value[NOT_COUNTED]),
          _row_looks(wb, formats, color=MUTED)),
     )

@@ -1,55 +1,84 @@
-import React, { useMemo, useState } from "react";
-import { LogIn, Eye, EyeOff, RefreshCw, Mail, Phone, Wrench, Clock, MapPin, ArrowUpRight, KeyRound } from "lucide-react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { LogIn, Eye, EyeOff, RotateCw, Mail, Phone, Wrench, Clock, MapPin, ArrowUpRight, KeyRound } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext.jsx";
+import { authService } from "../services/authService.js";
 // Support contacts shown at the foot of the sign-in card (and in the app's
 // Support / Help dialog) — kept in one place.
 import { SUPPORT } from "../lib/appInfo.js";
 
-// A small client-side security check (2 letters + 2 digits) — a light bot /
-// mis-type deterrent that mirrors the QMP portal's login. It is a UI gate, not
-// a replacement for the server's own auth.
-const LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I/O — they read as 1/0
-const DIGITS = "23456789";                  // no 0/1 — same reason
-const randOf = (s) => s[Math.floor(Math.random() * s.length)];
-const makeCode = () => `${randOf(LETTERS)}${randOf(LETTERS)}${randOf(DIGITS)}${randOf(DIGITS)}`;
+// The Security Check, the QMP portal's way (the store, 23 Oct 2026): the SERVER
+// draws a code of 2 letters + 2 numbers as a picture and checks what is typed —
+// one try per code, so every failed sign-in shows a new one. Five wrong
+// username / password tries block the account for 15 minutes; the server's
+// message says how many tries are left.
 
 export default function Login() {
   const { login, logoutReason } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [captcha, setCaptcha] = useState(makeCode);
+  const [captchaSvg, setCaptchaSvg] = useState("");
+  const [captchaFailed, setCaptchaFailed] = useState(false);
   const [captchaInput, setCaptchaInput] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const newCaptcha = () => { setCaptcha(makeCode()); setCaptchaInput(""); };
+  const newCaptcha = useCallback(() => {
+    setCaptchaInput("");
+    setCaptchaFailed(false);
+    authService.captcha()
+      .then((r) => setCaptchaSvg(r.data?.data?.svg || ""))
+      .catch(() => { setCaptchaSvg(""); setCaptchaFailed(true); });
+  }, []);
+  useEffect(() => { newCaptcha(); }, [newCaptcha]);
 
-  // Each glyph tilted and coloured so the code doesn't read as plain text.
-  const glyphs = useMemo(
-    () => captcha.split("").map((ch, i) => ({
-      ch,
-      style: {
-        transform: `rotate(${[-4, 3, -3, 4][i] || 0}deg)`,
-        color: i % 2 ? "#eb0a1e" : "#0f1f38",
-      },
-    })),
-    [captcha],
-  );
+  // Fit the card to the screen's height: on a screen shorter than the card
+  // (a 1366×768 laptop leaves ~657px), zoom the whole card down rather than
+  // make the page scroll. Its natural height is read back through the zoom in
+  // force, so re-fitting never compounds; never below 0.7, where a phone
+  // scrolls instead. Re-fitted when a message makes the card taller.
+  const cardRef = useRef(null);
+  const zoomRef = useRef(1);
+  const [zoom, setZoom] = useState(1);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const card = cardRef.current;
+      if (!card) return;
+      // Read through the zoom the card is drawn at NOW (not the one last asked
+      // for, which React may not have applied yet when this runs).
+      const drawn = parseFloat(card.style.zoom) || 1;
+      const natural = card.getBoundingClientRect().height / drawn;
+      // 24px of page padding (py-3) plus a little room for rounding.
+      const next = Math.min(1, Math.max(0.7, (window.innerHeight - 30) / natural));
+      if (Math.abs(next - zoomRef.current) > 0.005) {
+        zoomRef.current = next;
+        setZoom(next);
+      }
+    };
+    fit();
+    // The card grows after the first paint (the web font arrives, a message
+    // appears): watch its size as well as the window's. A zoom it set itself
+    // re-reads the same natural height, so this never loops.
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    if (ro && cardRef.current) ro.observe(cardRef.current);
+    document.fonts?.ready?.then(fit).catch(() => {});
+    window.addEventListener("resize", fit);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", fit);
+    };
+  }, [error, logoutReason]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (captchaInput.trim().toUpperCase() !== captcha) {
-      setError("Security check failed — please type the code exactly.");
-      newCaptcha();
-      return;
-    }
     setError("");
     setBusy(true);
     try {
-      await login(username, password);
+      await login(username, password, captchaInput.trim());
     } catch (err) {
+      // The server's own words: a wrong code, how many tries are left, or how
+      // long the account stays blocked.
       setError(err?.response?.data?.message || "Could not sign in. Please try again.");
       setPassword("");
       newCaptcha();
@@ -64,11 +93,15 @@ export default function Login() {
       { icon: <KeyRound size={18} className="text-amber-500 shrink-0" />, duration: 5000 });
   };
 
+  // One screen, no scrolling (the store, 22 Oct 2026: "login page scroll ho
+  // rha h" — the card was 770px tall on a 657px laptop screen). The same
+  // single card, a little tighter, and on a screen still too short for it the
+  // whole card is zoomed down to fit (see useLayoutEffect above).
   return (
-    <div className="min-h-screen bg-gradient-to-br from-navy-950 via-navy-900 to-navy-950 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+    <div className="min-h-screen bg-gradient-to-br from-navy-950 via-navy-900 to-navy-950 flex items-center justify-center px-4 py-3">
+      <div ref={cardRef} style={{ zoom }} className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
         {/* Branded header */}
-        <div className="flex items-center gap-4 px-8 pt-7 pb-6">
+        <div className="flex items-center gap-4 px-8 pt-5 pb-4">
           <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-14 w-auto shrink-0" draggable={false} />
           <div className="min-w-0">
             <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">TBDI Digital SMP</h1>
@@ -76,7 +109,7 @@ export default function Login() {
         </div>
         <div className="border-t border-slate-100" />
 
-        <form onSubmit={handleSubmit} className="px-8 py-7 space-y-4">
+        <form onSubmit={handleSubmit} className="px-8 py-5 space-y-3.5">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Sign in</h2>
             <p className="text-[13px] text-slate-500">Use the username and password given by your store admin.</p>
@@ -123,28 +156,33 @@ export default function Login() {
             </div>
           </label>
 
-          {/* Security check (client-side CAPTCHA) */}
+          {/* Security Check — the QMP portal's: the code's picture, the box to
+              type it in, and a button for a new code. */}
           <div>
             <span className="text-sm font-semibold text-slate-700">
-              Security Check <span className="font-normal text-slate-400">(type the 2 letters + 2 numbers)</span>
+              Security Check <span className="font-normal text-slate-500">(type the 2 letters + 2 numbers)</span>
             </span>
             <div className="mt-1 flex items-stretch gap-2">
               <div
-                aria-hidden="true"
-                className="flex w-32 shrink-0 select-none items-center justify-center rounded-lg border border-slate-300 bg-slate-100"
+                className="flex h-[52px] w-[38%] shrink-0 select-none items-center justify-center overflow-hidden rounded-xl border border-slate-300 bg-slate-200"
               >
-                <div className="flex items-center gap-1.5 px-2 py-2">
-                  {glyphs.map((g, i) => (
-                    <span key={i} className="inline-block font-mono text-3xl font-black leading-none" style={g.style}>{g.ch}</span>
-                  ))}
-                </div>
+                {captchaSvg ? (
+                  <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(captchaSvg)}`}
+                    alt="Security code — 2 letters and 2 numbers" draggable={false} className="h-full w-full object-contain" />
+                ) : (
+                  <span className="px-2 text-center text-[11px] leading-tight text-slate-500">
+                    {captchaFailed ? "Code did not load — tap ↻" : "Loading…"}
+                  </span>
+                )}
               </div>
               <input
-                className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-lg text-slate-900 caret-toyotared uppercase tracking-widest placeholder:text-[15px] placeholder:tracking-normal placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-navy-900/30 focus:border-navy-800"
+                className="min-w-0 flex-1 rounded-xl border-2 border-slate-600 bg-white px-3.5 text-lg font-semibold uppercase tracking-[0.25em] text-slate-900 caret-toyotared placeholder:text-[15px] placeholder:font-normal placeholder:tracking-[0.18em] placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-navy-900/25 focus:border-navy-800"
                 value={captchaInput}
                 onChange={(e) => setCaptchaInput(e.target.value)}
-                placeholder="Enter code"
+                placeholder="ENTER CODE"
+                aria-label="Security code"
                 autoComplete="off"
+                maxLength={6}
                 required
               />
               <button
@@ -152,15 +190,15 @@ export default function Login() {
                 onClick={newCaptcha}
                 aria-label="New code"
                 title="New code"
-                className="shrink-0 rounded-lg border border-slate-300 px-3 text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                className="shrink-0 rounded-xl border border-slate-300 px-3.5 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
               >
-                <RefreshCw size={16} />
+                <RotateCw size={18} />
               </button>
             </div>
           </div>
 
           {error && (
-            <p className="rounded-lg bg-rose-50 px-3 py-2 text-[13px] text-rose-600">{error}</p>
+            <p role="alert" className="text-[14px] leading-snug text-rose-700">{error}</p>
           )}
 
           <button
@@ -178,10 +216,11 @@ export default function Login() {
           </div>
         </form>
 
-        {/* Contact */}
-        <div className="border-t border-slate-100 bg-slate-50/70 px-8 py-5">
+        {/* Contact — one to a line, top to bottom (the store, 23 Oct 2026: "agal
+            bagal me nhi pura ek line me uper se niche"). */}
+        <div className="border-t border-slate-100 bg-slate-50/70 px-8 py-4">
           <p className="text-[13px] font-bold text-slate-700">Need help? Contact us</p>
-          <div className="mt-1.5 space-y-1 text-[13px]">
+          <div className="mt-1.5 grid gap-y-1 text-[13px]">
             <a href={`mailto:${SUPPORT.email}`} className="flex items-center gap-2 text-navy-800 hover:text-toyotared">
               <Mail size={14} /> {SUPPORT.email}
             </a>
@@ -189,10 +228,10 @@ export default function Login() {
               <Phone size={14} /> {SUPPORT.phone}
             </a>
             <p className="flex items-center gap-2 text-slate-500">
-              <Wrench size={14} /> {SUPPORT.team}
+              <Clock size={14} /> {SUPPORT.hours}
             </p>
             <p className="flex items-center gap-2 text-slate-500">
-              <Clock size={14} /> {SUPPORT.hours}
+              <Wrench size={14} /> {SUPPORT.team}
             </p>
             <p className="flex items-center gap-2 text-slate-500">
               <MapPin size={14} />

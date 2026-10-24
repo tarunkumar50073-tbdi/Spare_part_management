@@ -9,8 +9,16 @@ class SupplierRepository(BaseRepository):
     def get_by_vendor_code(self, vendor_code):
         return self.model.query.filter_by(vendor_code=vendor_code).first()
 
-    def search(self, keyword=None, status=None, vehicle_tracking=None):
+    def search(self, keyword=None, status=None, vehicle_tracking=None, store_code=None):
         query = self.model.query
+        if store_code:
+            # Only the suppliers this store's parts are linked to: the supplier
+            # master is the Child Part store's list, so the Spare Parts Part
+            # Master listed 26 child-part vendors as though they were its own
+            # (the store, 21 Oct 2026: "ye supplier to h hi nhi part store k").
+            from app.models.part import Part
+            query = query.filter(Part.query.filter(Part.supplier_id == self.model.id,
+                                                   Part.store_code == store_code).exists())
         if keyword:
             like = f"%{keyword}%"
             query = query.filter(

@@ -34,6 +34,17 @@ class Config:
     LOGIN_RATE_MAX = int(os.getenv("LOGIN_RATE_MAX", "10"))            # attempts...
     LOGIN_RATE_WINDOW = int(os.getenv("LOGIN_RATE_WINDOW", "60"))     # ...per this many seconds, per IP
 
+    # The sign-in page's Security Check and account block, the QMP portal's way
+    # (the store, 23 Oct 2026): a code of 2 letters + 2 numbers the SERVER draws
+    # and checks, and an account blocked for LOGIN_LOCK_MINUTES after
+    # LOGIN_LOCK_ATTEMPTS wrong username / password tries. Tests switch both off;
+    # their own test switches them back on.
+    LOGIN_CAPTCHA_ENABLED = _env_bool("LOGIN_CAPTCHA_ENABLED", "true")
+    LOGIN_CAPTCHA_TTL = int(os.getenv("LOGIN_CAPTCHA_TTL", "300"))     # seconds a code stays good
+    LOGIN_LOCK_ENABLED = _env_bool("LOGIN_LOCK_ENABLED", "true")
+    LOGIN_LOCK_ATTEMPTS = int(os.getenv("LOGIN_LOCK_ATTEMPTS", "5"))
+    LOGIN_LOCK_MINUTES = int(os.getenv("LOGIN_LOCK_MINUTES", "15"))
+
     # ERP SRV-submission API — outbound call that issues the official SRV
     # number (and short-note number, when short). Unset in dev: ERPClient
     # falls back to local mock generation until the real ERP endpoint is live.
@@ -57,6 +68,11 @@ class Config:
     # set it to 0 to disable the poller (the "Scan Now" button still works).
     ERP_LEDGER_INBOX = os.getenv("ERP_LEDGER_INBOX", os.path.join(basedir, "erp_ledger_inbox"))
     ERP_LEDGER_POLL_SECONDS = int(os.getenv("ERP_LEDGER_POLL_SECONDS", "300"))
+
+    # The part photos (Part Master, 21 Oct 2026) are files: unset keeps them in
+    # "<database name>_part_images" beside the database file
+    # (services/part_image_service.py); set it to keep them somewhere else.
+    PART_IMAGE_DIR = os.getenv("PART_IMAGE_DIR") or None
 
     # ERP source DB (plant PostgreSQL, schema termsdb) — the app mirrors the ERP
     # reports locally and this READ-ONLY connection refreshes them. The app never

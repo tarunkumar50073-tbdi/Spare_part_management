@@ -22,10 +22,14 @@ const OTHER = "OTHER";
 // index would silently point at a different vendor if the order moved.
 const keyOf = (o) => [o.source, o.ven_cd || "", o.supplier_id ?? "", o.ven_name || ""].join("|");
 
-export default function SupplierPicker({ partId, value, onChange, id, error }) {
+// `load` (optional) fetches the options another way, for a screen whose right is
+// not the receipt / RGP one — the Urgent Challan Register passes its own
+// /challans/parts/<id>/supplier-options (same list, same rules); `scope` keeps
+// its cache apart.
+export default function SupplierPicker({ partId, value, onChange, id, error, load, scope = "spare-flow" }) {
   const { data, isPending, isError, refetch } = useQuery({
-    queryKey: ["stock", "supplier-options", partId],
-    queryFn: () => spareFlowService.supplierOptions(partId).then((r) => r.data.data || []),
+    queryKey: ["stock", "supplier-options", scope, partId],
+    queryFn: () => (load ? load(partId) : spareFlowService.supplierOptions(partId)).then((r) => r.data.data || []),
     enabled: Boolean(partId),
     staleTime: 5 * 60_000,
   });

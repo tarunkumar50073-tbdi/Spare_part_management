@@ -78,7 +78,8 @@ function EditDialog({ open, initial, kind, onClose, onSaved }) {
 
 export default function EquipmentMaster() {
   const qc = useQueryClient();
-  const canEdit = useCan("equipment", "edit");
+  // The Line / Machine / Die master is the Part Master right's (23 Oct 2026).
+  const canEdit = useCan("part_master", "edit");
   const [kind, setKind] = useState("LINE");
   const [filter, setFilter] = useState("active");
   const [editing, setEditing] = useState(null);

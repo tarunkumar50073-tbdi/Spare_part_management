@@ -14,8 +14,8 @@ class SpareLocationHistory(BaseModel):
     __tablename__ = "spare_location_history"
 
     part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
-    old_location = db.Column(db.String(40), nullable=True)
-    new_location = db.Column(db.String(40), nullable=True)
+    old_location = db.Column(db.String(60), nullable=True)
+    new_location = db.Column(db.String(60), nullable=True)
     reason = db.Column(db.String(255), nullable=True)
     # Optional quantity moved, when a location is quantity-based.
     qty = db.Column(db.Numeric(12, 2), nullable=True)

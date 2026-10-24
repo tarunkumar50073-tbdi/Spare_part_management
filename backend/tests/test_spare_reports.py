@@ -1,7 +1,7 @@
 """The Reports page of a spare store (store complaint of 14 Oct 2026: "some
 reports showed old modules and old departments").
 
-GET /reports/catalog?store_code= lists the reports of THAT store: the ten
+GET /reports/catalog?store_code= lists the reports of THAT store: the nine
 spare-store reports for MAINTENANCE, the thirteen old ones for CHILD_PART. Every
 spare report downloads as Excel / CSV / PDF under "<Label> <DD.MM.YYYY>[ to
 <DD.MM.YYYY>]"; a report the store does not offer is a 404. Dated reports cover
@@ -32,7 +32,6 @@ from app.models.base import utcnow
 from app.models.department import Department
 from app.models.employee import Employee
 from app.models.part import Part
-from app.models.part_request import PartRequest
 from app.models.put_away_log import PutAwayLog
 from app.models.spare_flow import SpareReturn, SpareTransaction
 from app.models.spare_stock import RETURN_ROW_INSPECTED, SpareStock, SpareStockLedger
@@ -52,11 +51,12 @@ _TAG = uuid.uuid4().hex[:6].upper()
 _seq = {"n": 0}
 
 # The consumption cuts moved to the Consumption screen ("alag se report me aane
-# ki jarurat nhi" — the store, 14 Oct 2026).
+# ki jarurat nhi" — the store, 14 Oct 2026). The Kiosk Part Requests report went
+# with the kiosk on 17 Oct 2026.
 SPARE_KEYS = ["stock_current", "reorder_list", "excess_list", "issue_register",
-              "installation_register", "return_register", "part_requests", "put_away_register",
+              "installation_register", "return_register", "put_away_register",
               "receipt_register", "erp_vs_physical"]
-DATED = {"issue_register", "installation_register", "return_register", "part_requests",
+DATED = {"issue_register", "installation_register", "return_register",
          "put_away_register", "receipt_register"}
 
 
@@ -681,25 +681,16 @@ def test_every_other_report_excel_is_the_plain_table(client, make):
             assert all(_colour_of(cell) == PLAIN for cell in row), key
 
 
-# ---- kiosk requests, put-away, receipts ------------------------------------------------------
+# ---- put-away, receipts ----------------------------------------------------------------------
 
-def test_requests_put_away_and_receipts(make):
+def test_put_away_and_receipts(make):
     s = make.store()
     day = date(2025, 7, 1)
     p = _part(s, s.live, qty=5, location="R1-S1-B5(2)", unit_price=12)
-    base = {"store_code": s.code, "part_id": p.id, "part_no": p.part_no, "part_name": p.part_name,
-            "assigned_location": p.location, "requested_qty": 2, "requester_name": "Ankit",
-            "requester_code": "307", "department": "Store"}
-    db.session.add_all([
-        PartRequest(reference_no=f"REQ-{_TAG}-A", status="ISSUED", issued_qty=2, scanned_location="R1-S1-B5",
-                    supervisor="sup", issued_at=_utc(day, 11), created_at=_utc(day, 9), **base),
-        PartRequest(reference_no=f"REQ-{_TAG}-B", status="PENDING", created_at=_utc(day, 10), **base),
-        PartRequest(reference_no=f"REQ-{_TAG}-C", status="CANCELLED", scanned_location="R9-S9-B9",
-                    created_at=_utc(day, 12), **base),
+    db.session.add(
         PutAwayLog(part_id=p.id, part_no=p.part_no, assigned_location=p.location,
                    scanned_location="R1-S1-B5", gate_entry_no="GE-1", qty=4, store_code=s.code,
-                   put_by="putter", confirmed_at=_utc(day, 13), created_at=_utc(day, 13)),
-    ])
+                   put_by="putter", confirmed_at=_utc(day, 13), created_at=_utc(day, 13)))
     receipt = SpareStockLedger(part_id=p.id, qty_delta=3, balance_after=8, txn_type="RECEIPT",
                                status="ERP_GRN", reference=f"GRN-{_TAG}", created_at=_utc(day, 14))
     db.session.add(receipt)
@@ -707,12 +698,6 @@ def test_requests_put_away_and_receipts(make):
     db.session.add(SpareTransaction(part_id=p.id, store_code=s.code, txn_type="GRN", qty=3,
                                     ledger_id=receipt.id, supplier_name="G R TRADERS", grn_no=f"GRN-{_TAG}"))
     db.session.commit()
-
-    requests = _rows(s, "part_requests", "2025-07-01", "2025-07-01")
-    assert [(r["Request No"], r["Status"], r["Location Check"]) for r in requests] == [
-        (f"REQ-{_TAG}-A", "Issued", "Right"), (f"REQ-{_TAG}-B", "Pending", "Not scanned"),
-        (f"REQ-{_TAG}-C", "Cancelled", "Wrong - scanned R9-S9-B9, assigned R1-S1-B5(2)")]
-    assert requests[0]["Issued At"] == "01.07.2025 11:00" and requests[0]["Emp Code"] == "307"
 
     put = _rows(s, "put_away_register", "2025-07-01", "2025-07-01")
     assert [(r["Part No"], r["Location"], r["Lot Qty"], r["Gate Entry No"], r["Put By"]) for r in put] == [

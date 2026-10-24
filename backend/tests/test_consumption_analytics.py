@@ -353,7 +353,7 @@ def _login(client, role="STORE_USER", perms=None, store_access=True):
     return client
 
 
-VIEW = {"spare_store": {"view": True}}
+VIEW = {"consumption": {"view": True}}
 
 
 def test_endpoint_ok_and_filters(client, march_1998):
@@ -391,7 +391,7 @@ def test_endpoint_needs_store_code(client):
 
 
 def test_endpoint_permission_and_store_access(client):
-    assert _login(client).get(f"{URL}?store_code={STORE}").status_code == 403           # no spare_store right
+    assert _login(client).get(f"{URL}?store_code={STORE}").status_code == 403           # no consumption right
     no_store = _login(client, perms=VIEW, store_access=False)
     assert no_store.get(f"{URL}?store_code={STORE}").status_code == 403                  # not this store
     assert no_store.get(f"{URL}/options?store_code={STORE}").status_code == 403

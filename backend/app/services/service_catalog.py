@@ -28,8 +28,9 @@ SERVICES = [
                   "open points", "summary", "kaun karega", "kab tak"]},
 
     # --- Inventory ---
-    # Also the home of supplier barcodes (mapping) and receive-and-label — there
-    # is no separate Supplier Barcodes screen any more.
+    # Also the home of supplier barcodes (mapping) and a part's own QR label —
+    # there is no separate Supplier Barcodes screen any more. (Its Receive & Lot
+    # Tag mode went with the lot tags on 17 Oct 2026 — paper waste.)
     {"key": "scan_part", "title": "Scan Part", "route": "/scan-part",
      "category": "Inventory", "icon": "📷", "mod": "scan_part",
      "keywords": ["scan", "barcode", "qr", "gun", "camera", "issue", "receive", "return",
@@ -46,8 +47,9 @@ SERVICES = [
      "category": "Inventory", "icon": "🔧", "mod": "install_confirm",
      "keywords": ["confirm", "installation", "install", "line", "machine", "die", "fitted",
                   "fitter", "issued to me", "where used", "lagaya", "line machine bharo"]},
-    # Put-away check: scan the part/lot tag then the bin's location QR -> Right /
-    # Wrong Location, so a part is never shelved in the wrong bin (no mixing).
+    # Put-away check: type / search the part no. then scan the bin's location QR
+    # -> Right / Wrong Location, so a part is never shelved in the wrong bin (no
+    # mixing); the lot qty comes from the part's latest ERP gate entry.
     {"key": "put_away_check", "title": "Put-away Check", "route": "/put-away-check",
      "category": "Inventory", "icon": "📍", "mod": "store_stock",
      "keywords": ["put away", "putaway", "put-away", "location", "bin", "shelf", "rack",
@@ -91,19 +93,26 @@ SERVICES = [
     {"key": "inventory_control", "title": "Critical · Reorder · Excess", "route": "/inventory-control",
      "category": "Inventory", "icon": "🚨", "mod": "store_stock",
      "keywords": ["critical", "short", "zero", "reorder", "excess", "aging", "order qty"]},
-    # Two reports since 17 Oct 2026 ("issuance and consumption ki report alag
-    # alag chahiye"): what left the store and to whom, and what each department
-    # really used — the same right as the one screen they were.
-    {"key": "issuance", "title": "Issuance Report", "route": "/issuance",
-     "category": "Inventory", "icon": "📤", "mod": "spare_store",
-     "keywords": ["issuance", "issue list", "issued", "issue report", "kisko diya", "kitna diya",
-                  "issued to", "person", "department", "yesterday", "last month", "financial year",
-                  "full pack"]},
-    {"key": "consumption", "title": "Consumption Report", "route": "/consumption",
+    # One report since 18 Oct 2026 ("issuance and consumption report same dikh
+    # rhi h ... ye kaam merge me bhi ho sakta h"): what left the store, to whom,
+    # and what each department really used.
+    {"key": "consumption", "title": "Issuance & Consumption Report", "route": "/consumption",
      "category": "Inventory", "icon": "📈", "mod": "spare_store",
-     "keywords": ["consumption", "usage", "consumed", "net", "returned", "trend", "top parts",
-                  "department", "machine", "category", "yesterday", "last month", "financial year",
-                  "full pack"]},
+     "keywords": ["issuance", "issue list", "issued", "issue report", "kisko diya", "kitna diya",
+                  "issued to", "person", "consumption", "usage", "consumed", "net", "returned", "trend",
+                  "top parts", "department", "machine", "category", "yesterday", "last month",
+                  "financial year", "full pack"]},
+    # Urgent material on a supplier's delivery challan before its PO / invoice
+    # (21 Oct 2026): register it, link the invoice and the GRN when they come.
+    {"key": "challans", "title": "Urgent Challan Register", "route": "/challans",
+     "category": "Inventory", "icon": "🧾", "mod": "challan_register",
+     "keywords": ["urgent challan", "challan", "delivery challan", "dc", "challan register", "invoice pending",
+                  "po pending", "po approval", "link invoice", "grn pending", "gate register", "breakdown"]},
+    # The one mail to RQC to punch an SRV / line rejection (22 Oct 2026).
+    {"key": "rejection_requests", "title": "Rejection Mail", "route": "/rejection-requests",
+     "category": "Inventory", "icon": "↩️", "mod": "rejection_request",
+     "keywords": ["rejection", "reject", "srv rejection", "line rejection", "rqc", "punch rejection",
+                  "rejection mail", "outlook"]},
     {"key": "data_quality", "title": "Data Quality", "route": "/data-quality",
      "category": "Masters", "icon": "🛡️", "mod": "part_master",
      "keywords": ["data quality", "missing", "min", "max", "rate", "location", "completeness"]},
@@ -123,7 +132,8 @@ SERVICES = [
     {"key": "short_rejection", "title": "Short & Rejection", "route": "/short-rejection",
      "category": "Receiving", "icon": "⚠️", "mod": "spare_store",
      "keywords": ["rejection", "rejected", "reject", "short receipt", "short supply", "short received",
-                  "supplier rejection", "debit note", "replacement", "lot", "days pending",
+                  "supplier rejection", "srv rejection", "line rejection", "rejection invoice",
+                  "debit note", "replacement", "lot", "days pending",
                   "kam aaya", "maal kam", "rejection kitne din"]},
     {"key": "gate_entry", "title": "Gate Entry", "route": "/gate-entry",
      "category": "Receiving", "icon": "🚚", "mod": "gate_entry",

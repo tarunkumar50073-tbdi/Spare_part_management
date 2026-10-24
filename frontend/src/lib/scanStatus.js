@@ -113,16 +113,17 @@ export const LEGACY_REASON = {
 };
 export const reasonLabel = (r) => (r ? LEGACY_REASON[r] || r : "—");
 
-// Scan Part's ways of working (the switch at the top of the page). What a
-// scan opens once the part is identified: the Issue form (issuance first, the
-// default) or the part's internal QR label print, for material just received.
-// Put-away Check is a flow of its own — scan the part, then the bin it goes in —
-// and asks for the right (`mod`) its own page always asked for.
-// URL ?mode=issue|label|putaway picks one; the last one is remembered per terminal.
+// Scan Part's ways of working (the switch at the top of the page). Issue (the
+// default): a scan opens the Issue form once the part is identified. Put-away
+// Check is a flow of its own — type / search the part, then scan the bin it goes
+// in — and asks for the right (`mod`) its own page always asked for.
+// URL ?mode=issue|putaway picks one; the last one is remembered per terminal.
+// The Receive & Lot Tag mode (param "label") is gone: the store had the gate-entry
+// lot tags taken out on 17 Oct 2026 — management said they waste paper ("lot tag
+// bhi kah rhe h ki paper wastage h use hta do"). Scan Part opens Issue for it.
 export const SCAN_MODE = {
   ISSUE: { label: "Issue", icon: "ArrowUpFromLine", param: "issue" },
-  LABEL: { label: "Receive & Lot Tag", icon: "Tags", param: "label" },
-  PUTAWAY: { label: "Put-away Check", icon: "PackageCheck", param: "putaway", mod: "store_stock" },
+  PUTAWAY: { label: "Put-away Check", icon: "PackageCheck", param: "putaway", mod: "put_away_check" },
 };
 
 // A part's barcodes (BarcodeService.list_part_barcodes source): its own QR —
@@ -141,21 +142,10 @@ export const PRINT_SOURCE = {
   REPRINT: "Reprint",
   PART_MASTER: "Part Master",
   STORE_STOCK: "Store Stock",
+  // The gate-entry lot tags, printed until 17 Oct 2026 — kept so their print
+  // history still reads.
   GATE_ENTRY: "Gate Entry",
 };
-
-// Label state of one ERP gate entry's Spare Parts Store items
-// (GateLabelService entries[].printed_state).
-export const GATE_PRINT_STATE = {
-  NOT_PRINTED: { label: "Not printed", badge: "badge-warning" },
-  PARTLY: { label: "Partly printed", badge: "badge-info" },
-  PRINTED: { label: "Printed", badge: "badge-success" },
-};
-export const gatePrintMeta = (state) =>
-  GATE_PRINT_STATE[state] || { label: state ? state.replace(/_/g, " ").toLowerCase() : "—", badge: "badge-neutral" };
-// A gate entry no. as the server matches it (upper / trim) — so a gun read, a
-// link and the list compare the same.
-export const normGateNo = (v) => String(v ?? "").trim().toUpperCase();
 
 // Part timeline kinds (scan_result.timeline.rows[].kind) -> label + icon + tone.
 // The receiving history is read from ERP (ERP_GATE, ERP_GRN, and the quality

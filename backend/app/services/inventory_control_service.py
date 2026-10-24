@@ -173,6 +173,8 @@ class InventoryControlService:
             if q is None:
                 not_counted += 1
                 continue
+            if r.get("discontinued"):
+                continue                      # not required any more: nothing to order
             row = self._base(r, names, facts.get(str(r["part_id"]), {}), window)
             st, mn, rate = r["status"], r["min_stock_level"], r["unit_price"]
             need, basis = self._order_qty(r)

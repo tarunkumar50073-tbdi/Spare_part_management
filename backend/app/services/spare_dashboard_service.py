@@ -35,7 +35,8 @@ from app.services.erp_grn_posting_service import ErpGrnPostingService
 from app.services.spare_stock_service import SpareStockService, awaiting_confirmation_clause
 
 # Worst first — the order the health bar and the attention list read in.
-STATUS_ORDER = ("Out of Stock", "Below Minimum", "Reorder", "Above Maximum", "Healthy", "Not Counted")
+STATUS_ORDER = ("Out of Stock", "Below Minimum", "Reorder", "Above Maximum", "Healthy", "Discontinued",
+                "Not Counted")
 
 # An ERP stock snapshot older than this is reported STALE (same window the
 # scan screen's data-status badge uses).
@@ -229,11 +230,13 @@ class SpareDashboardService:
                 excess_value += (q - r["max_stock_level"]) * rate
 
             mx, mn, ro = r["max_stock_level"], r["min_stock_level"], r["reorder_level"]
-            if not mx:
+            # A discontinued part needs no levels: none is "missing".
+            levels_due = not r.get("discontinued")
+            if levels_due and not mx:
                 miss["max"] += 1
-            if not mn:
+            if levels_due and not mn:
                 miss["min"] += 1
-            if ro is None:
+            if levels_due and ro is None:
                 miss["reorder"] += 1
             if rate is None:
                 miss["rate"] += 1
@@ -293,7 +296,7 @@ class SpareDashboardService:
             stock_item("below_min", "Below minimum", "Below Minimum", "critical",
                        "Under the planned minimum — order now"),
             stock_item("reorder", "At reorder level", "Reorder", "warning",
-                       "At or below the reorder point — raise the PO"),
+                       "At or below the reorder point — raise the indent"),
             stock_item("excess", "Above maximum", "Above Maximum", "warning",
                        "Money tied up above the planned maximum",
                        value=agg["excess_value"], value_label="tied up above max"),
@@ -385,10 +388,68 @@ class SpareDashboardService:
                     section_ids=section_ids),
                 key=lambda d: -d["value"])[:5],
             "month_start": month_start,
+            "issue_month": self._issue_month(store_code, section_id, section_ids, month_start, today.isoformat()),
             # All-time splits behind the dashboard's three consumption donuts.
             "by_department": self.stock.consumption_by_department(store_code, section_id, section_ids=section_ids),
             "by_machine": self.stock.consumption_by_machine(store_code, section_id, section_ids=section_ids),
             "by_type": self.stock.consumption_by_type(store_code, section_id, section_ids=section_ids),
+        }
+
+    @staticmethod
+    def _issue_month(store_code, section_id, section_ids, month_start, today):
+        """This month's issues for the Live Board's Issue & Consumption panel
+        (the store, 22 Oct 2026: "kitna issue hua and kahan consume hua wo data
+        mile"): how much went out — issues, qty, ₹, what came back — per
+        consuming department, and where it was used: the line / machine the
+        fitter recorded on Confirm Installation ("Not recorded yet" until
+        then). Read through the Issuance & Consumption Report's own department
+        and machine views, so the board and the report never disagree. A
+        section group (Tool Room) is read as the department its sections
+        belong to."""
+        from app.services.consumption_analytics_service import consumer_of, consumers
+        from app.services.consumption_table_service import ConsumptionTableService
+        one, department = section_id, None
+        if section_ids:
+            owner, _ = consumers(store_code)
+            names = {consumer_of(owner, sid) for sid in section_ids}
+            one, department = None, (names.pop() if len(names) == 1 else None)
+        tables = ConsumptionTableService()
+        args = {"date_from": month_start, "date_to": today, "section_id": one, "department": department}
+        by_dept = tables.table(store_code, "department", **args)
+        by_place = tables.table(store_code, "machine", **args)
+
+        def figures(row):
+            return {"issues": row.get("Issues") or 0, "qty": row.get("Qty Issued") or 0,
+                    "value": row.get("Value"), "returned": row.get("Qty Returned") or 0,
+                    "net_qty": row.get("Net Qty") or 0, "net_value": row.get("Net Value")}
+
+        def add(a, b):
+            # A money figure unknown on both sides (no rate) stays unknown.
+            return None if a is None and b is None else round((a or 0) + (b or 0), 2)
+
+        # The department view is one row per department and section: the board
+        # wants the department alone.
+        depts = {}
+        for row in by_dept["rows"][:-1]:
+            f, name = figures(row), row.get("Department")
+            if name not in depts:
+                depts[name] = {"name": name, **f}
+                continue
+            d = depts[name]
+            for key in ("issues", "qty", "returned", "net_qty"):
+                d[key] = round(d[key] + f[key], 2)
+            for key in ("value", "net_value"):
+                d[key] = add(d[key], f[key])
+        places = [{"department": row.get("Department"), "line": row.get("Line"), "machine": row.get("Machine"),
+                   **figures(row)} for row in by_place["rows"][:-1]]
+        places.sort(key=lambda p: (-p["net_qty"], -p["qty"]))
+        return {
+            "from": month_start, "to": today,
+            "total": figures(by_dept["rows"][-1]),
+            "departments": sorted(depts.values(), key=lambda d: (-d["qty"], d["name"] or "")),
+            "places": places[:6],
+            "place_count": len(places),
+            "unrated_issues": by_dept["unrated_issues"],
         }
 
     def _recent(self, store_code, section_id, section_ids=None):

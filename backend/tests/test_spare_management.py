@@ -24,7 +24,6 @@ from app.models.base import utcnow
 from app.models.erp_stock import ERPStock
 from app.models.gate_entry import GateEntry
 from app.models.part import Part
-from app.models.part_request import PartRequest
 from app.models.put_away_log import PutAwayLog
 from app.models.receiving_register import ReceivingRegister
 from app.models.scan_audit import ScanAudit
@@ -253,7 +252,7 @@ def test_tracker_figures_for_a_section(seeded):
     t = m["tracker"]
     # The store-only lines (the ERP queues) are left out of a section call.
     assert [it["key"] for it in t["items"]] == [
-        "critical", "reorder", "excess", "confirm_pending", "kiosk_open",
+        "critical", "reorder", "excess", "confirm_pending",
         "returns_pending", "rgp_overdue", "no_rate"]
     it = _items(m)
     here = [{"section_id": sec.id, "name": sec.name, "count": 2}]
@@ -264,7 +263,8 @@ def test_tracker_figures_for_a_section(seeded):
     assert (crit["severity"], crit["status"], crit["scope"]) == ("critical", "OPEN", "section")
     assert crit["sections"] == here
     assert crit["link"] == {"label": "Open list", "to": "/store-stock-spare", "status": "Critical"}
-    assert (crit["action"], crit["owner"], crit["owner_is_default"]) == ("Raise / expedite PO", "Purchase", True)
+    assert (crit["action"], crit["owner"], crit["owner_is_default"]) == (
+        "Raise indent · expedite PO", "User dept + Purchase", True)
     assert (crit["target_date"], crit["overdue"], crit["days_to_target"], crit["remarks"]) == (None, False, None, "")
     assert (crit["updated_by"], crit["updated_at"]) == (None, None)
 
@@ -279,13 +279,13 @@ def test_tracker_figures_for_a_section(seeded):
     no_rate = it["no_rate"]                                             # E and F
     assert (no_rate["count"], no_rate["severity"], no_rate["status"], no_rate["sections"]) == (2, "info", "OPEN", here)
     assert no_rate["detail"] == "Not valued — left out of stock value and excess"
-    for key in ("confirm_pending", "kiosk_open", "returns_pending", "rgp_overdue"):
+    for key in ("confirm_pending", "returns_pending", "rgp_overdue"):
         line = it[key]
         # A zero count is never a warning — it is simply "ok".
         assert (line["count"], line["status"], line["severity"]) == (0, "CLEAR", "ok")
         assert (line["value"], line["value_label"], line["detail"], line["sections"]) == (None, None, "", [])
 
-    assert t["summary"] == {"open": 4, "clear": 4, "overdue": 0, "critical_parts": 2,
+    assert t["summary"] == {"open": 4, "clear": 3, "overdue": 0, "critical_parts": 2,
                             "to_restock": 1220.0, "tied_up": 1000.0}
     # The restock money is the overview's, split by status.
     assert crit["value"] + it["reorder"]["value"] == t["summary"]["to_restock"]
@@ -381,9 +381,10 @@ def test_tracker_notes_are_saved_and_reflected(client, seeded, tracker_notes):
     assert (crit["owner"], crit["target_date"], crit["remarks"]) == ("Purchase — Mr. Sharma", past, "Follow-up on Friday")
     # An empty owner goes back to the default; null clears the date.
     cleared = put("critical", owner="", target_date=None).get_json()["data"]
-    assert (cleared["owner"], cleared["owner_is_default"], cleared["target_date"]) == ("Purchase", True, None)
+    assert (cleared["owner"], cleared["owner_is_default"], cleared["target_date"]) == ("User dept + Purchase", True, None)
     crit, summary = line("critical")
-    assert (crit["owner"], crit["owner_is_default"], crit["overdue"], crit["days_to_target"]) == ("Purchase", True, False, None)
+    assert (crit["owner"], crit["owner_is_default"], crit["overdue"], crit["days_to_target"]) == (
+        "User dept + Purchase", True, False, None)
     assert (crit["remarks"], summary["overdue"]) == ("Follow-up on Friday", 0)
     ahead = (date.today() + timedelta(days=5)).isoformat()
     assert put("critical", target_date=ahead).status_code == 200
@@ -618,15 +619,18 @@ def test_scan_with_no_rows_has_no_percentage():
     assert scan["prev"] == {"total": 0, "scanned": 0, "scan_first_pct": None}
     assert scan["issues"] == {"total": 0, "by_scan": 0, "by_search": 0, "unrecorded": 0, "by_scan_pct": None}
     assert scan["put_away"] == {"count": 0, "with_lot_tag": 0, "users": 0, "last_at": None, "ever": False}
-    assert scan["kiosk"] == {"open": 0, "issued": 0, "oldest_open_at": None}
+    # No kiosk block: the kiosk was taken out on 17 Oct 2026.
+    assert set(scan) == {"window_days", "scans", "prev", "issues", "put_away", "not_found_scope"}
 
 
-def test_issues_put_aways_and_kiosk_requests_of_a_section():
+def test_issues_and_put_aways_of_a_section():
     sec = _section("Flows")
     part = _part(sec, "FLOW", None)
     other = _part(sec, "OTHER", 5)
     stock = SpareStockService()
     stock.set_quantity(part.id, 20, txn_type="OPENING")
+    # "kiosk_request": an issue made from a kiosk request before the kiosk was
+    # taken out (17 Oct 2026) — it was bin-scanned, so it still counts as a scan.
     for source in ("QR_SCAN", "kiosk_request", "ERP_SEARCH", None):
         stock.issue(part.id, 1, "Maintenance", user="tester", scan_source=source)
     now = utcnow().replace(tzinfo=None)
@@ -644,15 +648,6 @@ def test_issues_put_aways_and_kiosk_requests_of_a_section():
                          store_code=STORE, put_by=put_by, confirmed_at=now - timedelta(days=age))
         row.created_at = now - timedelta(days=age)
         db.session.add(row)
-    for status, raised, issued_at in (("PENDING", now - timedelta(hours=5), None),
-                                      ("PENDING", now - timedelta(hours=1), None),
-                                      ("ISSUED", now - timedelta(hours=9), now),
-                                      ("ISSUED", now - timedelta(days=41), now - timedelta(days=40)),
-                                      ("CANCELLED", now - timedelta(days=2), None)):
-        row = PartRequest(reference_no=f"REQ-MG-{_n()}", store_code=STORE, part_id=part.id, part_no=part.part_no,
-                          requested_qty=1, issued_qty=0, status=status, issued_at=issued_at)
-        row.created_at = raised
-        db.session.add(row)
     db.session.commit()
 
     m = SpareManagementService().management(STORE, section_id=sec.id)
@@ -661,13 +656,10 @@ def test_issues_put_aways_and_kiosk_requests_of_a_section():
     put_away = scan["put_away"]
     assert (put_away["count"], put_away["with_lot_tag"], put_away["users"], put_away["ever"]) == (2, 1, 2, True)
     assert abs(now - datetime.fromisoformat(put_away["last_at"])) < timedelta(seconds=1)
-    kiosk = scan["kiosk"]
-    assert (kiosk["open"], kiosk["issued"]) == (2, 1)
-    assert abs(now - timedelta(hours=5) - datetime.fromisoformat(kiosk["oldest_open_at"])) < timedelta(seconds=1)
+    assert "kiosk" not in scan
 
     it = _items(m)
-    assert (it["kiosk_open"]["count"], it["kiosk_open"]["detail"], it["kiosk_open"]["severity"]) == (
-        2, "Oldest waiting 5 h", "warning")
+    assert "kiosk_open" not in it
     # The four issues made at the counter wait for the fitter's confirmation.
     assert (it["confirm_pending"]["count"], it["confirm_pending"]["status"]) == (4, "OPEN")
 
@@ -691,7 +683,7 @@ def test_one_unreadable_figure_does_not_fail_the_payload(seeded, monkeypatch):
     assert (rgp["count"], rgp["status"], rgp["overdue"], rgp["detail"]) == (None, "UNKNOWN", False, "")
     # The rest of the tracker still arrives; an unknown line is neither open nor clear.
     assert (it["critical"]["count"], it["returns_pending"]["status"]) == (2, "CLEAR")
-    assert (m["tracker"]["summary"]["open"], m["tracker"]["summary"]["clear"]) == (4, 3)
+    assert (m["tracker"]["summary"]["open"], m["tracker"]["summary"]["clear"]) == (4, 2)
 
     aging = m["excess_aging"]
     assert [b["key"] for b in aging["buckets"]] == BUCKETS

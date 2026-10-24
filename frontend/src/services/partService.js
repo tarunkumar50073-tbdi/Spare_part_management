@@ -24,4 +24,19 @@ export const partService = {
     return api.post("/parts/import/preview", formData, { headers: { "Content-Type": "multipart/form-data" } });
   },
   importHistory: (limit) => api.get("/parts/import/history", { params: { limit } }),
+  // Racks / categories / sub categories of the store (and section), with counts.
+  filterOptions: (params) => api.get("/parts/filter-options", { params }),
+  // The part's one photo (21 Oct 2026): upload replaces it, remove clears it.
+  uploadImage: (id, blob) => {
+    const formData = new FormData();
+    formData.append("file", blob, "photo.jpg");
+    return api.post(`/parts/${id}/image`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+  },
+  removeImage: (id) => api.delete(`/parts/${id}/image`),
+  // For an <img src>: the session cookie goes with it. `v` is the file name,
+  // new with every photo, so a cached old picture is never shown.
+  imageUrl: (part, thumb = false) =>
+    part?.image_file
+      ? `${api.defaults.baseURL}/parts/${part.id}/image?v=${encodeURIComponent(part.image_file)}${thumb ? "&size=thumb" : ""}`
+      : null,
 };

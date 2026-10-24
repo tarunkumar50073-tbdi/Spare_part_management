@@ -1,12 +1,11 @@
 import React from "react";
 import {
-  ArrowRight, CircleCheck, Database, HeartPulse, IndianRupee, Info, MapPin, RefreshCw, ShieldCheck, Siren,
+  ArrowRight, CircleCheck, HeartPulse, IndianRupee, Info, MapPin, Siren,
   TriangleAlert,
 } from "lucide-react";
 import CardHead from "../CardHead.jsx";
 import HorizontalBars from "../HorizontalBars.jsx";
 import DonutChart from "../DonutChart.jsx";
-import { parseServerTime } from "../../lib/format.js";
 
 // The top of the Spare Parts Store dashboard, drawn from ONE server response
 // (/dashboard/spare/overview). Built so a manager can answer, in seconds:
@@ -33,10 +32,12 @@ export const STATUS_COLOR = {
   "Above Maximum": "#3b82f6",
   "Healthy": "#10b981",
   "Not Counted": "#94a3b8",
+  // Not required any more — kept with its stock, never ordered (22 Oct 2026).
+  "Discontinued": "#475569",
   // The summary's one figure for zero stock + below minimum — the zero-stock rose.
   "Critical": "#e11d48",
 };
-const STATUS_LABEL = { "Out of Stock": "Zero stock", "Above Maximum": "Excess (above max)" };
+const STATUS_LABEL = { "Out of Stock": "Zero stock", "Above Maximum": "Excess (above max)", Discontinued: "Discontinued (not required)" };
 
 // "Critical" already MEANS zero stock + below minimum, so a dashboard SUMMARY
 // shows the two as one figure with the split in small print. Per-part labels,
@@ -50,10 +51,6 @@ const SEVERITY = {
   ok: { label: "OK", Icon: CircleCheck, pill: "bg-emerald-600 text-white", rail: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-300" },
 };
 const SEV_ORDER = { critical: 0, warning: 1, info: 2, ok: 3 };
-
-// Server stamps are UTC (often zone-less) — parseServerTime reads them as UTC.
-const fmtStamp = (iso) =>
-  iso && parseServerTime(iso) ? parseServerTime(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
 
 // An Action Tracker target is a plant calendar date ("YYYY-MM-DD"), not an
 // instant — it is read and printed in UTC, so the viewer's own time zone can
@@ -69,49 +66,6 @@ const dueText = (t) => {
   if (!t.overdue) return `Target ${fmtTarget(t.target_date)}`;
   return t.days_to_target == null ? "Overdue" : `Overdue ${num(Math.abs(t.days_to_target))} d`;
 };
-
-// ---------------------------------------------------------------- status strip
-
-/** What the numbers below are built from — stated, not implied. The ERP stock
- *  figure is a snapshot with an age; the write-back is off until ERP's endpoint
- *  exists; the data-completeness figure is the master's own fill rate. */
-export function ErpStatusStrip({ erp, quality, generatedAt, onQuality }) {
-  if (!erp) return null;
-  const snap = erp.stock_snapshot || {};
-  const days = snap.age_hours != null ? Math.floor(snap.age_hours / 24) : null;
-  const snapTone = snap.state === "SYNCED"
-    ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
-    : snap.state === "STALE"
-      ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
-      : "border-slate-200 bg-slate-50 text-slate-600 dark:border-navy-700 dark:bg-navy-800 dark:text-slate-300";
-  const chip = "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium";
-  return (
-    <div className="flex flex-wrap items-center gap-2" aria-label="Data status">
-      <span className={`${chip} ${snapTone}`} title="Quantities ERP reported for this store's parts (a snapshot, not a live feed)">
-        <Database size={12} aria-hidden="true" />
-        ERP stock snapshot: <b className="font-semibold">{snap.state === "NONE" ? "none received" : snap.state}</b>
-        {snap.synced_at && <> · {fmtStamp(snap.synced_at)}{days != null && days >= 1 ? ` (${days} d old)` : ""}</>}
-      </span>
-      <span className={`${chip} border-slate-200 bg-white text-slate-600 dark:border-navy-700 dark:bg-navy-900 dark:text-slate-300`}
-        title={erp.write?.reason}>
-        <RefreshCw size={12} aria-hidden="true" />
-        ERP write-back: <b className="font-semibold">{erp.write?.active ? "on" : "off"}</b>
-        {erp.write?.pending ? ` · ${num(erp.write.pending)} movement${erp.write.pending === 1 ? "" : "s"} queued` : ""}
-      </span>
-      {quality?.completeness_pct != null && (
-        <button type="button" onClick={onQuality}
-          className={`${chip} border-slate-200 bg-white text-slate-600 hover:border-toyotared hover:text-toyotared dark:border-navy-700 dark:bg-navy-900 dark:text-slate-300`}
-          title="Share of Max / Min / Reorder / Rate / Location filled in across all parts">
-          <ShieldCheck size={12} aria-hidden="true" />
-          Master data complete: <b className="font-semibold">{quality.completeness_pct}%</b>
-        </button>
-      )}
-      {generatedAt && (
-        <span className="text-[11px] text-slate-400">Updated {new Date(generatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
-      )}
-    </div>
-  );
-}
 
 // ------------------------------------------------------------- attention board
 

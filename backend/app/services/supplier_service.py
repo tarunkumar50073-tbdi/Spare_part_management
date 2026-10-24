@@ -21,8 +21,9 @@ class SupplierService:
     def __init__(self):
         self.repo = SupplierRepository()
 
-    def list_suppliers(self, keyword=None, status=None, vehicle_tracking=None):
-        return self.repo.search(keyword=keyword, status=status, vehicle_tracking=vehicle_tracking)
+    def list_suppliers(self, keyword=None, status=None, vehicle_tracking=None, store_code=None):
+        return self.repo.search(keyword=keyword, status=status, vehicle_tracking=vehicle_tracking,
+                                store_code=store_code)
 
     def get(self, supplier_id):
         supplier = self.repo.get_by_id(supplier_id)

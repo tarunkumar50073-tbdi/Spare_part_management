@@ -20,7 +20,7 @@ def _store_code():
 
 
 @bp.route("", methods=["GET"])
-@permission_required("part_master", "view")
+@permission_required("data_quality", "view")
 def summary():
     """Completeness % plus every check with its count."""
     code = _store_code()
@@ -28,7 +28,7 @@ def summary():
 
 
 @bp.route("/parts", methods=["GET"])
-@permission_required("part_master", "view")
+@permission_required("data_quality", "view")
 def parts():
     """The parts one check flags (?check=<key>); 400 on an unknown check."""
     code = _store_code()

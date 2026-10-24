@@ -63,20 +63,6 @@ class EmployeeService:
             query = query.limit(limit)
         return [e.to_dict() for e in query.all()]
 
-    @staticmethod
-    def mobile_prefix(prefix, limit):
-        """Active people whose mobile number starts with the digits of `prefix`,
-        by name, at most `limit` — the kiosk's saved-number list (see
-        employee_routes). No digits, no one: the start of a number is needed."""
-        digits = "".join(ch for ch in str(prefix or "") if ch.isdigit())[:10]
-        if not digits:
-            return []
-        query = (Employee.query
-                 .filter(Employee.is_active.is_(True), Employee.mobile.like(f"{digits}%"))
-                 .order_by(func.lower(Employee.name).asc())
-                 .limit(limit))
-        return [e.to_dict() for e in query.all()]
-
     # ---- validation ----
 
     @staticmethod

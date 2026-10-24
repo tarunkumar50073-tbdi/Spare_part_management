@@ -24,7 +24,7 @@ import { TONE_CHIP, scanIcon } from "./scanIcons.js";
 //
 // part       scan.part
 // barcodes   scan.barcodes — BarcodeService.list_part_barcodes, internal first
-// defaultOpen  open on arrival (Receive & Label); collapsed to one line otherwise
+// defaultOpen  open on arrival; collapsed to one line otherwise (the default)
 // onRelease  hands the caret back to the scanner gun after a click here
 
 const CODE_MAX = 80; // part_barcodes.code — the longest code that can be mapped
@@ -169,8 +169,8 @@ export default function BarcodesPanel({ part, barcodes, defaultOpen = false, onR
   const [adding, setAdding] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
-  // Receive & Label opens it, Issue folds it; a new part starts without a
-  // half-typed code from the last one.
+  // Folded unless the caller opens it; a new part starts without a half-typed
+  // code from the last one.
   useEffect(() => { setOpen(defaultOpen); }, [defaultOpen]);
   useEffect(() => { setAdding(false); }, [part.id]);
 

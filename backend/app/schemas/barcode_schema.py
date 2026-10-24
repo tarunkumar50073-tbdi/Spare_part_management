@@ -18,9 +18,10 @@ from app.models.scan_audit import SCAN_MODES, SCAN_SOURCES
 # holds a few thousand characters at most.
 SCAN_READ_MAX = 4096
 
-# The sources a single or bulk print may name. GATE_ENTRY is not one of them: a
-# gate-entry label is recorded only through /gate-labels/print, which checks the
-# part is on that gate entry and keeps the entry no. with the print.
+# The sources a single or bulk print may name. GATE_ENTRY is not one of them:
+# it marks the gate-entry lot tags, which were recorded only through the old
+# /gate-labels/print and are no longer printed at all (taken out on 17 Oct 2026
+# — paper waste). Their history rows keep the source.
 PART_PRINT_SOURCES = [s for s in PRINT_SOURCES if s != "GATE_ENTRY"]
 
 

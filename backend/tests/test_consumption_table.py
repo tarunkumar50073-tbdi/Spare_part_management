@@ -1,17 +1,18 @@
-"""The Issuance Report and the Consumption Report (/api/v1/consumption-analytics
-/table, report=issuance|consumption): pick a part (or all), a From - To range
-and a view, see it, and download it as Excel or PDF right there ("wahi mil
-jaaye app me ... month wise ya year wise consumption mil jaaye, alag se report
-me aane ki jarurat nhi, wahi se excel / pdf download ho jaaye" — the store, 14
-Oct 2026). The six consumption cuts the Reports page had are views here now;
-their pinned figures moved with them. One screen became two reports on 17 Oct
-2026 ("issuance and consumption ki report alag alag chahiye").
+"""The Issuance & Consumption Report (/api/v1/consumption-analytics/table): pick
+a part (or all), a From - To range and a view, see it, and download it as Excel
+or PDF right there ("wahi mil jaaye app me ... month wise ya year wise
+consumption mil jaaye, alag se report me aane ki jarurat nhi, wahi se excel /
+pdf download ho jaaye" — the store, 14 Oct 2026). The six consumption cuts the
+Reports page had are views here now; their pinned figures moved with them. Two
+reports for a day (17 Oct 2026), one again since 18 Oct ("issuance and
+consumption report same dikh rhi h dono me differance nhi to ye kaam merge me
+bhi ho sakta h"): every view shows what left the store and what was really used.
 
-Consumption counts for the department owning the part's section, never the one
-typed on the issue ("consumption maintenance and tool room karega store nhi"),
-and nets what came back; Issuance counts for the department typed on the issue
-(who took it), gross. The Issue Register keeps both departments side by side
-and is checked here too.
+An issue counts for the department owning the part's section, never the one
+typed on the issue ("consumption maintenance and tool room karega store nhi";
+"issuance me store dikha rha h jabki store to issue karta h"), and what came
+back is netted. The Issue Register keeps both departments side by side and is
+checked here too.
 
 Everything here is CT-<tag>-<n>: this file's own stores, sections,
 departments, parts and users. Afterwards the stores and users are switched off
@@ -21,6 +22,7 @@ import csv
 import io
 import uuid
 from datetime import date, datetime, time, timedelta
+from xml.sax.saxutils import escape
 
 import pytest
 from openpyxl import load_workbook
@@ -36,23 +38,21 @@ from app.models.store import Section, Store
 from app.models.user import User, UserStoreAccess
 from app.services import spare_report_service
 from app.services.consumption_analytics_service import ConsumptionAnalyticsService, _local_offset
-from app.services.consumption_table_service import (
-    BASIS, ConsumptionTableService, issue_departments, preset_window, presets,
-)
+from app.services.consumption_table_service import BASIS, ConsumptionTableService, preset_window, presets
 from app.services.report_service import ReportService
 from app.services.spare_report_service import SpareReportService
-from app.services.spare_stock_service import SpareStockService
+from app.services.spare_stock_service import SpareStockService, is_store_department
 from app.utils import pdf_io
 from app.utils.exceptions import BadRequestError, NotFoundError
 
 _TAG = uuid.uuid4().hex[:6].upper()
 _seq = {"n": 0}
 URL = "/api/v1/consumption-analytics/table"
-# The Consumption Report's views, the default when no report is named.
-VIEWS = ["day", "week", "month", "year", "fy", "part", "department", "machine", "category"]
-# The Issuance Report's: the Issue list first.
-ISSUANCE_VIEWS = ["list", "day", "week", "month", "year", "fy", "part", "department", "person"]
-VIEW = {"spare_store": {"view": True}}
+# The report's views, in the View dropdown's order: the Issue list first.
+VIEWS = ["list", "day", "week", "month", "year", "fy", "part", "department", "person", "machine", "category"]
+# The views that count Issues per row (the Issue list counts them in its subtotals).
+TABLE_VIEWS = [v for v in VIEWS if v != "list"]
+VIEW = {"consumption": {"view": True}}
 
 
 def _n():
@@ -379,26 +379,23 @@ def test_year_view(make, plant_at):
 
 
 def test_period_views_are_one_row_per_period(make, plant_at):
-    """One row per date, week, month, year or financial year in both reports,
-    however many departments took or used the parts in it: "how much on
-    10.03" or "in March" is read off one row, not added up from one per
-    department (the store, 17 Oct 2026: "thoda simple ho jisme dropdown me
-    date wise, month wise, year wise"). Department-wise still splits it."""
+    """One row per date, week, month, year or financial year, however many
+    departments used the parts in it: "how much on 10.03" or "in March" is read
+    off one row, not added up from one per department (the store, 17 Oct 2026:
+    "thoda simple ho jisme dropdown me date wise, month wise, year wise").
+    Department-wise still splits it."""
     f = _consumption_floor(make, plant_at)
     other = make.department()
     # A second taker, and a third consumer (a part in no section), on 10 March.
     _issue(f.s, other, qty=7, at=plant_at(date(2026, 3, 10), 16))
-    for report in ("issuance", "consumption"):
-        for key in ("day", "week", "month", "year", "fy"):
-            out = _table(f.s, key, *SPRING, report=report)
-            firsts = [r[out["columns"][0]] for r in out["rows"]]
-            assert len(firsts) == len(set(firsts)) and "Department" not in out["columns"], (report, key)
-        march = _view(f.s, "month", *SPRING, report=report)[0]
-        assert (march["Month"], march["Issues"], march["Parts"], march["Qty Issued"]) == (
-            "Mar 2026", 3, 3, 13), report
-        split = _view(f.s, "department", "2026-03-01", "2026-03-31", report=report)
-        assert len(split) == (3 if report == "issuance" else 4), report          # two takers; three consumers
-        assert split[-1]["Qty Issued"] == 13, report
+    for key in ("day", "week", "month", "year", "fy"):
+        out = _table(f.s, key, *SPRING)
+        firsts = [r[out["columns"][0]] for r in out["rows"]]
+        assert len(firsts) == len(set(firsts)) and "Department" not in out["columns"], key
+    march = _view(f.s, "month", *SPRING)[0]
+    assert (march["Month"], march["Issues"], march["Parts"], march["Qty Issued"]) == ("Mar 2026", 3, 3, 13)
+    split = _view(f.s, "department", "2026-03-01", "2026-03-31")
+    assert len(split) == 4 and split[-1]["Qty Issued"] == 13                 # three consumers, then the Total
 
 
 def test_one_part_across_months_and_years_over_a_long_range(make, plant_at):
@@ -426,7 +423,7 @@ def test_one_part_across_months_and_years_over_a_long_range(make, plant_at):
     assert _cut(out["rows"], "Part No", "Issues", "Qty Issued", "First Issued", "Last Issued") == [
         (p.part_no, 3, 9, "15.06.2023", "03.03.2025"), ("Total", 3, 9, "15.06.2023", "03.03.2025")]
     assert out["filters"]["part_no"] == p.part_no and out["title"] == (
-        f"Consumption Report Part-wise {p.part_no} 01.01.2022 to 31.12.2025")
+        f"Issuance & Consumption Report Part-wise {p.part_no} 01.01.2022 to 31.12.2025")
     assert q.part_no not in {r["Part No"] for r in out["rows"]}
 
 
@@ -637,7 +634,7 @@ def test_every_view_value_unknown_zero_and_all_back(make):
     Part.query.filter_by(id=p.id).update({"unit_price": 10})
     db.session.commit()
     _return(s, p, lid, _utc(day + timedelta(days=3)), qty_good=2)
-    for view in VIEWS:
+    for view in TABLE_VIEWS:
         unknown = _view(s, view, "2019-02-20", "2019-02-20")[-1]
         assert (unknown["Issues"], unknown["Value"], unknown["Net Value"]) == (1, None, None), view
         empty = _view(s, view, "2019-02-21", "2019-02-21")
@@ -674,7 +671,7 @@ def test_filters_part_section_department_and_type(make, plant_at):
     assert out["filters"] == {"part_id": f.p1_id, "part_no": f.p1, "part_name": f.p1_name,
                               "section_id": f.s.live, "section_name": f.s.live_name,
                               "department": f.group, "type": "Bearing"}
-    assert out["title"] == (f"Consumption Report Date-wise {f.p1} {f.s.live_name} {f.group} Bearing "
+    assert out["title"] == (f"Issuance & Consumption Report Date-wise {f.p1} {f.s.live_name} {f.group} Bearing "
                             "01.03.2026 to 30.04.2026")
 
 
@@ -710,20 +707,16 @@ def test_a_part_or_section_of_another_store_is_404(make):
 
 def test_unknown_view_report_and_format(make):
     s = make.store()
-    for view in (None, "", "hour", "consumption_by_month", "person"):
-        with pytest.raises(BadRequestError, match="view must be one of day, week, month, year, fy, "
-                                                  "part, department, machine, category"):
-            _table(s, view, "2026-03-01", "2026-03-31")
-    # Each report offers its own views: no Issue list on the Consumption
-    # Report, no machine or category on the Issuance Report.
-    with pytest.raises(BadRequestError, match="view must be one of day, week"):
-        _table(s, "list", "2026-03-01", "2026-03-31", report="consumption")
-    for view in ("machine", "category", None):
+    for view in (None, "", "hour", "consumption_by_month"):
         with pytest.raises(BadRequestError, match="view must be one of list, day, week, month, year, fy, "
-                                                  "part, department, person"):
-            _table(s, view, "2026-03-01", "2026-03-31", report="issuance")
+                                                  "part, department, person, machine, category"):
+            _table(s, view, "2026-03-01", "2026-03-31")
+    # The one report has every view, whatever an old link names it.
+    for report in (None, "", "consumption", "issuance"):
+        for view in ("list", "person", "machine"):
+            assert _table(s, view, "2026-03-01", "2026-03-31", report=report)["report"] == "consumption"
     for report in ("sales", "Issuance"):
-        with pytest.raises(BadRequestError, match="report must be one of issuance, consumption"):
+        with pytest.raises(BadRequestError, match="report must be one of consumption"):
             _table(s, "day", "2026-03-01", "2026-03-31", report=report)
     for fmt in (None, "csv", "docx"):
         with pytest.raises(BadRequestError, match="format must be one of excel, pdf"):
@@ -741,9 +734,9 @@ def test_table_endpoint(client, make, plant_at):
     assert set(body) == {"report", "report_title", "view", "label", "title", "columns", "rows", "window",
                          "unrated_issues", "filters", "basis", "views", "group", "groups", "subtotal_rows",
                          "cancelled_rows", "pack_title", "issues"}
-    assert (body["report"], body["report_title"]) == ("consumption", "Consumption Report")   # no report named
+    assert (body["report"], body["report_title"]) == ("consumption", "Issuance & Consumption Report")   # no report named
     assert (body["view"], body["label"], body["title"]) == (
-        "month", "Month-wise", "Consumption Report Month-wise 01.03.2026 to 30.04.2026")
+        "month", "Month-wise", "Issuance & Consumption Report Month-wise 01.03.2026 to 30.04.2026")
     assert body["columns"] == ["Month", *FIGURES]
     # The floor's ledger starts with its first issue, 10 March: the range is counted in part.
     assert body["window"] == {"from": "2026-03-01", "to": "2026-04-30", "days": 61, "clamped_to_today": False,
@@ -754,20 +747,19 @@ def test_table_endpoint(client, make, plant_at):
         ("Mar 2026", 6), ("Apr 2026", 12), ("Total", 18)]
     assert body["rows"][0]["Value"] == 20                                   # Zed's 4 have no rate: not in Value
     assert [v["key"] for v in body["views"]] == VIEWS
-    assert set(body["basis"]) == {"consumption", "returns", "value", "period", "place"}   # JSON sorts keys
+    assert set(body["basis"]) == {"consumption", "returns", "value", "period", "list", "person", "place"}
     assert (body["group"], body["subtotal_rows"], body["cancelled_rows"]) == (None, [], [])
     assert [g["key"] for g in body["groups"]] == ["day", "month", "year", "fy"]
-    assert body["pack_title"] == "Consumption Report Full pack 01.03.2026 to 30.04.2026"
+    assert body["pack_title"] == "Issuance & Consumption Report Full pack 01.03.2026 to 30.04.2026"
+    # A link from the two-report days (report=issuance) opens the same report.
     issuance = c.get(f"{URL}?store_code={f.s.code}&report=issuance&view=month&from=2026-03-01&to=2026-04-30"
                      ).get_json()["data"]
-    assert (issuance["report"], issuance["title"], issuance["pack_title"]) == (
-        "issuance", "Issuance Report Month-wise 01.03.2026 to 30.04.2026",
-        "Issuance Report Full pack 01.03.2026 to 30.04.2026")
-    assert [v["key"] for v in issuance["views"]] == ISSUANCE_VIEWS
-    assert set(issuance["basis"]) == {"issuance", "value", "period", "list", "person"}
-    assert issuance["columns"] == ["Month", "Issues", "Parts", "Qty Issued", "Value"]
+    assert issuance == body
 
     columns = {
+        "list": ["Date", "Time", "Issue No", "Reference", "Part No", "Description", "Section", "Department",
+                 "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
+                 "Line / Machine / Die", "Status"],
         "day": ["Date", "Day", *FIGURES],
         "week": ["Week", *FIGURES],
         "month": ["Month", *FIGURES],
@@ -776,6 +768,7 @@ def test_table_endpoint(client, make, plant_at):
         "part": ["Part No", "Description", "Section", "Department", "UOM", "Issues", "Qty Issued",
                  "Qty Returned", "Net Qty", "Rate", "Value", "Net Value", "First Issued", "Last Issued"],
         "department": ["Department", "Section", *FIGURES],
+        "person": ["Issued To", "Code", "Mobile", "Department", *FIGURES],
         "machine": ["Department", "Line", "Machine", *FIGURES],
         "category": ["Department", "Category", *FIGURES],
     }
@@ -786,7 +779,8 @@ def test_table_endpoint(client, make, plant_at):
         }).get_json()["data"]
         assert body["columns"] == expected, view
         assert body["rows"][-1][expected[0]] == "Total" and body["rows"][-1]["Qty Issued"] == 5, view
-        assert body["title"].startswith(f"Consumption Report {body['label']} {f.p1} "), view
+        assert body["title"].startswith(f"Issuance & Consumption Report {body['label']} {f.p1} "), view
+    assert list(columns) == VIEWS
 
 
 @pytest.mark.parametrize("query", [
@@ -798,9 +792,8 @@ def test_table_endpoint(client, make, plant_at):
     "view=day&part_id=abc",
     "view=day&section_id=1.5",
     "view=list&group=week",                        # the Issue list groups by day, month, year or fy
-    "report=consumption&view=list",                # the Issue list is the Issuance Report's
-    "report=issuance&view=machine",                # Line / Machine is the Consumption Report's
     "report=sales&view=day",
+    "report=Issuance&view=day",                    # the old name, exactly as the old links wrote it
 ])
 def test_table_endpoint_rejects_bad_input(client, make, query):
     s = make.store()
@@ -823,7 +816,7 @@ def test_table_endpoint_long_range_and_404(client, make):
 def test_table_endpoint_permission_and_store_access(client, make):
     s = make.store()
     query = f"store_code={s.code}&view=month&from=2026-03-01&to=2026-03-31"
-    no_right = _as(client, make.user(stores=(s.code,)))                       # the store, but no spare_store right
+    no_right = _as(client, make.user(stores=(s.code,)))                       # the store, but no consumption right
     assert no_right.get(f"{URL}?{query}").status_code == 403
     assert no_right.get(f"{URL}/export?{query}&format=excel").status_code == 403
     reports_only = _as(client, make.user(stores=(s.code,), perms={"reports": {"view": True}}))
@@ -858,14 +851,14 @@ def test_export_excel_reads_back_as_shown(client, make, plant_at):
     ledger, and three of its issues have no rate."""
     f = _consumption_floor(make, plant_at)
     c = _as(client, make.user(role="ADMIN", stores=()))
-    for view in VIEWS:
+    for view in TABLE_VIEWS:                     # the Issue list's own: test_issue_list_excel_and_pdf
         query = f"store_code={f.s.code}&view={view}&from=2026-03-01&to=2026-04-30"
         shown = c.get(f"{URL}?{query}").get_json()["data"]
         resp = c.get(f"{URL}/export?{query}&format=excel")
         assert resp.status_code == 200, (view, resp.get_json() if resp.is_json else None)
         assert resp.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         label = shown["label"].replace(" / ", " ")                         # "/" cannot be in a file name
-        assert _filename(resp) == f"Consumption Report {label} 01.03.2026 to 30.04.2026.xlsx", view
+        assert _filename(resp) == f"Issuance & Consumption Report {label} 01.03.2026 to 30.04.2026.xlsx", view
         table, ws = _sheet(resp)
         end = len(shown["rows"]) + 1
         assert list(table[0]) == shown["columns"], view
@@ -880,18 +873,18 @@ def test_export_excel_reads_back_as_shown(client, make, plant_at):
 
     one = c.get(f"{URL}/export?store_code={f.s.code}&view=month&from=2026-03-01&to=2026-04-30"
                 f"&part_id={f.p1_id}&format=excel")
-    assert _filename(one) == f"Consumption Report Month-wise {f.p1} 01.03.2026 to 30.04.2026.xlsx"
+    assert _filename(one) == f"Issuance & Consumption Report Month-wise {f.p1} 01.03.2026 to 30.04.2026.xlsx"
     rows, _ = _sheet(one)
     assert rows[0][:4] == ("Month", "Issues", "Parts", "Qty Issued")
     assert [(r[0], r[3]) for r in rows[1:]] == [
         ("Mar 2026", 2), ("Apr 2026", 3), ("Total", 5), (None, None), (LEDGER_NOTE, None)]   # p1 has a rate: one note
     single = c.get(f"{URL}/export?store_code={f.s.code}&view=day&from=2026-04-01&to=2026-04-01&format=excel")
-    assert _filename(single) == "Consumption Report Date-wise 01.04.2026.xlsx"
+    assert _filename(single) == "Issuance & Consumption Report Date-wise 01.04.2026.xlsx"
 
 
 def test_export_pdf_titled_and_fitted(client, make, plant_at, monkeypatch):
-    """Each view as a PDF titled like its file; the fourteen-column Part-wise
-    table, with a long description, fitted to the page. A fitted cell may break
+    """Each view as a PDF titled like its file; the wide Part-wise table and the
+    Issue list, with a long description, fitted to the page. A fitted cell may break
     onto more lines, so its words are compared."""
     f = _consumption_floor(make, plant_at)
     Part.query.filter_by(part_no=f.p1).update({"part_name": LONG})
@@ -906,8 +899,9 @@ def test_export_pdf_titled_and_fitted(client, make, plant_at, monkeypatch):
         assert resp.get_data()[:4] == b"%PDF", view
         assert _filename(resp) == f"{shown['title'].replace(' / ', ' ')}.pdf", view
         doc, story = drawn[-1]
-        assert story[0].text == shown["title"] == (
-            f"Consumption Report {shown['label']} {f.p1} 01.03.2026 to 30.04.2026"), view
+        # The title is markup: "Issuance & Consumption" is written "&amp;" and prints "&".
+        assert story[0].text == escape(shown["title"]) == escape(
+            f"Issuance & Consumption Report {shown['label']} {f.p1} 01.03.2026 to 30.04.2026"), view
         # Under the title, ahead of the figures: p1 has a rate, so only the ledger's start.
         assert [p.text for p in story[1:-2]] == [LEDGER_NOTE], view
         table = story[-1]
@@ -953,7 +947,7 @@ def test_no_none_or_nan_cells_in_exports(client, make):
     _issue(s, taker, qty=2, at=_utc(date(2026, 3, 4)))          # waiting: no line, machine, die
     c = _as(client, make.user(role="ADMIN", stores=()))
     bad = {"None", "none", "nan", "NaN", "null"}
-    for report, view in [*(("consumption", v) for v in VIEWS), *(("issuance", v) for v in ISSUANCE_VIEWS)]:
+    for report, view in [*(("consumption", v) for v in VIEWS), ("issuance", "list")]:
         query = f"store_code={s.code}&report={report}&view={view}&from=2026-03-01&to=2026-03-31"
         xlsx = c.get(f"{URL}/export?{query}&format=excel")
         cells = [v for row in load_workbook(io.BytesIO(xlsx.get_data())).active.iter_rows(values_only=True)
@@ -1063,25 +1057,21 @@ def test_reports_page_no_longer_offers_consumption(client, make):
         assert c.get(f"/api/v1/reports/{key}/excel?store_code=MAINTENANCE").status_code == 404, key
 
 
-# ---- issuance: the presets, the Issue list, the financial year, the Full pack ------------------
+# ---- the presets, the Issue list, the financial year, the Full pack ----------------------------
 # "issuance and consumption ka bna de but mail nhi karenge bas excel/pdf download
 # ka option" (the store, 17 Oct 2026): yesterday, last month and the financial
 # year (April - March) as presets, every issue listed with subtotals, and one
-# workbook of it all — downloads only. The same day: "issuance and consumption
-# ki report alag alag chahiye" — two reports.
+# workbook of it all — downloads only. One report since 18 Oct 2026.
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Description", "Section", "Department",
-                "Issued To", "Qty Issued", "Rate", "Value", "Line / Machine / Die", "Status")
-LIST_FIGURES = ("Qty Issued", "Rate", "Value")
+                "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
+                "Line / Machine / Die", "Status")
+LIST_FIGURES = ("Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value")
 ISSUED = ("Issues", "Parts", "Qty Issued", "Value")
-# The Issuance Report's Total over the floor: the same 6 issues, 5 parts, 18
-# issued and 55 value as the Consumption Report's, gross — nothing netted.
-ISSUED_TOTAL = (6, 5, 18, 55)
 TOTAL_FIGURES = ("Qty Issued", "Value", "Qty Returned", "Net Qty", "Net Value")
 CANCELLED_NOTE = "1 cancelled issue listed in grey, left out of every subtotal and the Total"
 UNRATED_NOTE = "Value covers rated issues only; 3 issues have no rate"
-NETTED = {"Qty Returned", "Net Qty", "Net Value"}
 
 
 @pytest.mark.parametrize("today, expected", [
@@ -1125,137 +1115,97 @@ def test_presets_go_by_the_plant_clock(client, make, plant_at, monkeypatch):
         preset_window("last_week", date(2026, 4, 1))
 
 
-def test_issuance_views_on_the_floor(make, plant_at):
-    """The Issuance Report: what left the store, when, to whom — every issue
-    counted for the department written on it (the floor's issues were all
-    taken out by one department), gross: p1's return on 5 April is not netted.
-    The cancelled issue is in no figure."""
+def test_person_wise_on_the_floor(make, plant_at):
+    """Person-wise carries the whole figures — what left the store and what was
+    really used — and every department the person's parts went to: the
+    consuming ones, never the department typed on the issue. Nobody was written
+    on the floor's issues."""
     f = _consumption_floor(make, plant_at)
-
-    def view(key):
-        return _view(f.s, key, *SPRING, report="issuance")
-
-    # The period views: Issues, Parts, Qty Issued, Value — one row a period.
-    for key, first in (("day", ("Date", "Day")), ("week", ("Week",)), ("month", ("Month",)), ("year", ("Year",)),
-                       ("fy", ("Financial Year",))):
-        assert _cols(key, "issuance") == (*first, *ISSUED), key
-    assert _cut(view("day"), "Date", "Day", *ISSUED) == [
-        ("10.03.2026", "Tue", 2, 2, 6, 20),
-        ("01.04.2026", "Wed", 4, 4, 12, 35),                           # 31 Mar 20:00 UTC is 1 Apr 01:30
-        ("Total", None, *ISSUED_TOTAL)]
-    assert _cut(view("week"), "Week", *ISSUED) == [
-        ("09.03.2026 - 15.03.2026", 2, 2, 6, 20),
-        ("30.03.2026 - 05.04.2026", 4, 4, 12, 35),
-        ("Total", *ISSUED_TOTAL)]
-    assert _cut(view("month"), "Month", *ISSUED) == [
-        ("Mar 2026", 2, 2, 6, 20), ("Apr 2026", 4, 4, 12, 35), ("Total", *ISSUED_TOTAL)]
-    assert _cut(view("year"), "Year", *ISSUED) == [("2026", *ISSUED_TOTAL), ("Total", *ISSUED_TOTAL)]
-    assert _cut(view("fy"), "Financial Year", *ISSUED) == [
-        ("FY 2025-26", 2, 2, 6, 20), ("FY 2026-27", 4, 4, 12, 35), ("Total", *ISSUED_TOTAL)]
-    # Part-wise: the most money first, unrated parts after by quantity; p1 is
-    # 5 issued and 50 of value, its return not netted.
-    parts = view("part")
-    assert _cut(parts, "Part No", "Section", "Issues", "Qty Issued", "Rate", "Value", "First Issued",
-                "Last Issued") == [
-        (f.p1, f.s.live_name, 2, 5, 10, 50, "10.03.2026", "01.04.2026"),
-        (f.p3, f.old, 1, 1, 5, 5, "01.04.2026", "01.04.2026"),
-        (f.p6, f.s.live_name, 1, 6, None, None, "01.04.2026", "01.04.2026"),
-        (f.p2, f.zed, 1, 4, None, None, "10.03.2026", "10.03.2026"),
-        (f.p5, None, 1, 2, None, None, "01.04.2026", "01.04.2026"),
-        ("Total", None, 6, 18, None, 55, "10.03.2026", "01.04.2026")]
-    assert parts[0]["Description"] == f.p1_name and parts[0]["UOM"] == "NOS"
-    assert _cut(view("department"), "Department", *ISSUED) == [(f.taker, *ISSUED_TOTAL), ("Total", *ISSUED_TOTAL)]
-    # Nobody was written on the floor's issues.
-    assert _cut(view("person"), "Issued To", "Code", "Mobile", "Department", *ISSUED) == [
-        ("Not recorded", None, None, f.taker, *ISSUED_TOTAL), ("Total", None, None, None, *ISSUED_TOTAL)]
-    for key in ISSUANCE_VIEWS:
-        assert not NETTED & set(_cols(key, "issuance")), key
+    assert _cut(_view(f.s, "person", *SPRING), "Issued To", "Code", "Mobile", "Department", *FIGURES) == [
+        ("Not recorded", None, None, f"{f.group}, {f.zed}, {f.old}, No section", *FLOOR_TOTAL),
+        ("Total", None, None, None, *FLOOR_TOTAL)]
 
 
-def test_issuance_counts_the_department_written_consumption_the_owner(make):
-    """An issue typed to the store's own people for a Maintenance-section part:
-    the Issuance Report says who took it (Store), the Consumption Report who
-    consumed it (Maintenance) — in its Department-wise, every other view that
-    names a department and its Department filter (the store's rule, 14 Oct
-    2026; two reports, 17 Oct)."""
+def test_every_view_names_the_consuming_department_never_the_taker(make):
+    """An issue typed to the store's own people for a Maintenance-section part
+    is Maintenance's in every view that names a department — Department-wise,
+    the Issue list, Person-wise, Part-wise, Line / Machine, Category — and in
+    the Department filter (the store's rule, 14 Oct 2026; "issuance me store
+    dikha rha h jabki store to issue karta h" — 18 Oct 2026)."""
     s = make.store()
     maint = make.department(name=s.live_name)                # owns the live section by its name
-    store = make.department(name=f"Store {s.code}")          # hands parts out: consumes nothing
-    p, _ = _issue(s, store, qty=4, section=s.live, at=_utc(date(2019, 3, 5)))
+    taker = make.department(name=f"Stores team {s.code}")   # hands parts out: consumes nothing
+    p, _ = _issue(s, taker, qty=4, section=s.live, at=_utc(date(2019, 3, 5)))
     Part.query.filter_by(id=p.id).update({"unit_price": 25})
     db.session.commit()
     span = ("2019-03-05", "2019-03-05")
 
-    assert _cut(_view(s, "department", *span, report="issuance"), "Department", *ISSUED) == [
-        (store.name, 1, 1, 4, 100), ("Total", 1, 1, 4, 100)]
-    assert _cut(_view(s, "department", *span, report="consumption"), "Department", "Section", "Qty Issued",
-                "Net Qty", "Net Value") == [(maint.name, s.live_name, 4, 4, 100), ("Total", None, 4, 4, 100)]
-    assert _view(s, "list", *span, report="issuance")[0]["Department"] == store.name
-    assert _cut(_view(s, "person", *span, report="issuance"), "Department") == [(store.name,), (None,)]
-    assert _cut(_view(s, "part", *span, report="consumption"), "Department") == [(maint.name,), (None,)]
-    assert _cut(_view(s, "category", *span, report="consumption"), "Department") == [(maint.name,), ("Total",)]
+    assert _cut(_view(s, "department", *span), "Department", "Section", "Qty Issued", "Net Qty", "Net Value") == [
+        (maint.name, s.live_name, 4, 4, 100), ("Total", None, 4, 4, 100)]
+    assert _view(s, "list", *span)[0]["Department"] == maint.name
+    for view in ("person", "part", "machine", "category"):
+        rows = _view(s, view, *span)
+        assert rows[0]["Department"] == maint.name and taker.name not in {r["Department"] for r in rows}, view
 
-    def qty(report, dept):
-        return _view(s, "month", *span, report=report, department=dept)[-1]["Qty Issued"]
+    def qty(dept):
+        return _view(s, "month", *span, department=dept)[-1]["Qty Issued"]
 
-    assert (qty("issuance", store.name), qty("issuance", maint.name)) == (4, 0)
-    assert (qty("consumption", maint.name), qty("consumption", store.name)) == (4, 0)
+    assert (qty(maint.name), qty(taker.name)) == (4, 0)
 
 
-def test_issuance_adds_up_to_the_consumption_reports_qty_issued(make, plant_at):
-    """The same issues in both reports: every view of each ends on the same
-    Qty Issued and Value for a range, under the same part / section / type."""
+def test_every_view_ends_on_the_same_total(make, plant_at):
+    """Every view of the range — the Issue list and Person-wise too — ends on
+    the same Qty Issued, Value, Qty Returned, Net Qty and Net Value, under the
+    same part / section / type."""
     f = _consumption_floor(make, plant_at)
-    for report, views in (("issuance", ISSUANCE_VIEWS), ("consumption", VIEWS)):
-        for key in views:
-            total = _view(f.s, key, *SPRING, report=report)[-1]
-            assert (total["Qty Issued"], total["Value"]) == (18, 55), (report, key)
+    for key in VIEWS:
+        total = _view(f.s, key, *SPRING)[-1]
+        assert tuple(total[k] for k in TOTAL_FIGURES) == (18, 55, 1, 17, 45), key
     for narrowed in ({"part_id": f.p1_id}, {"section_id": f.s.live}, {"part_type": "Seal"}, {}):
-        issued, used = (_view(f.s, "month", *SPRING, report=r, **narrowed)[-1] for r in ("issuance", "consumption"))
-        assert _cut([issued], "Issues", "Parts", "Qty Issued", "Value") == _cut(
-            [used], "Issues", "Parts", "Qty Issued", "Value"), narrowed
+        totals = {key: tuple(_view(f.s, key, *SPRING, **narrowed)[-1][k] for k in TOTAL_FIGURES) for key in VIEWS}
+        assert len(set(totals.values())) == 1, (narrowed, totals)
 
 
-def test_returns_are_netted_only_in_the_consumption_report(make, plant_at):
-    """p1's 2 issued on 10 March, 1 back on 5 April: the Issuance Report counts
-    the 2 that left (gross); the Consumption Report the 1 really used."""
+def test_returns_are_netted_in_every_view_the_issue_list_too(make, plant_at):
+    """p1's 2 issued on 10 March, 1 back on 5 April: every view shows the 2 that
+    left and the 1 really used — Part-wise, and the issue's own line on the
+    Issue list."""
     f = _consumption_floor(make, plant_at)
     march = ("2026-03-01", "2026-03-31")
-    issued = next(r for r in _view(f.s, "part", *march, report="issuance") if r["Part No"] == f.p1)
-    used = next(r for r in _view(f.s, "part", *march, report="consumption") if r["Part No"] == f.p1)
-    assert (issued["Qty Issued"], issued["Value"]) == (2, 20) and not NETTED & set(issued)
-    assert (used["Qty Issued"], used["Value"], used["Qty Returned"], used["Net Qty"], used["Net Value"]) == (
+    part = next(r for r in _view(f.s, "part", *march) if r["Part No"] == f.p1)
+    assert (part["Qty Issued"], part["Value"], part["Qty Returned"], part["Net Qty"], part["Net Value"]) == (
         2, 20, 1, 1, 10)
-    listed = _table(f.s, "list", *march, report="issuance")
-    assert not NETTED & set(listed["columns"])
+    line = next(r for r in _view(f.s, "list", *march) if r["Issue No"] == f.i1)
+    assert _cut([line], *LIST_FIGURES) == [(2, 1, 1, 10, 20, 10)]
 
 
 def test_issue_list_on_the_floor(make, plant_at):
-    """Every issue, oldest first, in the Issue Register's words — Department
-    and Issued To as written —, a subtotal after each plant day (a range of 61
-    days) and the Total last. The cancelled issue (i5) is listed — marked
-    Cancelled, with its quantity and nothing else — and no subtotal or total
-    counts it."""
+    """Every issue, oldest first, in the Issue Register's words — Issued To as
+    written, Department the consuming one —, what came back against each
+    issue beside it, a subtotal after each plant day (a range of 61 days) and
+    the Total last. The cancelled issue (i5) is listed — marked Cancelled, with
+    its quantity and rate and nothing else — and no subtotal or total counts
+    it."""
     f = _consumption_floor(make, plant_at)
     SpareStockLedger.query.filter_by(id=f.i1).update({"reference": "REQ-0001", "issued_to": "Ravi Kumar",
                                                        "issued_to_mobile": "9876543210"})
     db.session.commit()
-    out = _table(f.s, "list", *SPRING, report="issuance")
+    out = _table(f.s, "list", *SPRING)
     assert out["columns"] == list(LIST_COLUMNS)
     assert (out["title"], out["group"], out["label"]) == (
-        "Issuance Report Issue list 01.03.2026 to 30.04.2026", "day", "Issue list")
+        "Issuance & Consumption Report Issue list 01.03.2026 to 30.04.2026", "day", "Issue list")
     rows = out["rows"]
     assert _cut(rows, "Date", "Time", "Issue No", "Part No", "Section", "Department", *LIST_FIGURES) == [
-        ("10.03.2026", "09:00", f.i1, f.p1, f.s.live_name, f.taker, 2, 10, 20),   # its 5 Apr return not netted
-        ("10.03.2026", "15:00", f.i3, f.p2, f.zed, f.taker, 4, None, None),      # no rate: no value
-        ("Subtotal 10.03.2026", None, "2 issues", None, None, None, 6, None, 20),
-        ("01.04.2026", "01:30", f.i2, f.p1, f.s.live_name, f.taker, 3, 10, 30),  # 31 Mar 20:00 UTC
-        ("01.04.2026", "10:00", f.i4, f.p3, f.old, f.taker, 1, 5, 5),
-        ("01.04.2026", "11:00", f.i5, f.p4, None, f.taker, 5, 2, None),          # cancelled
-        ("01.04.2026", "12:00", f.i6, f.p5, None, f.taker, 2, None, None),
-        ("01.04.2026", "13:00", f.i7, f.p6, f.s.live_name, f.taker, 6, None, None),
-        ("Subtotal 01.04.2026", None, "4 issues + 1 cancelled", None, None, None, 12, None, 35),
-        ("Total", None, "6 issues + 1 cancelled", None, None, None, 18, None, 55),
+        ("10.03.2026", "09:00", f.i1, f.p1, f.s.live_name, f.group, 2, 1, 1, 10, 20, 10),   # 1 back on 5 Apr
+        ("10.03.2026", "15:00", f.i3, f.p2, f.zed, f.zed, 4, 0, 4, None, None, None),       # no rate: no value
+        ("Subtotal 10.03.2026", None, "2 issues", None, None, None, 6, 1, 5, None, 20, 10),
+        ("01.04.2026", "01:30", f.i2, f.p1, f.s.live_name, f.group, 3, 0, 3, 10, 30, 30),   # 31 Mar 20:00 UTC
+        ("01.04.2026", "10:00", f.i4, f.p3, f.old, f.old, 1, 0, 1, 5, 5, 5),
+        ("01.04.2026", "11:00", f.i5, f.p4, None, "No section", 5, None, None, 2, None, None),   # cancelled
+        ("01.04.2026", "12:00", f.i6, f.p5, None, "No section", 2, 0, 2, None, None, None),
+        ("01.04.2026", "13:00", f.i7, f.p6, f.s.live_name, f.group, 6, 0, 6, None, None, None),
+        ("Subtotal 01.04.2026", None, "4 issues + 1 cancelled", None, None, None, 12, 0, 12, None, 35, 35),
+        ("Total", None, "6 issues + 1 cancelled", None, None, None, 18, 1, 17, None, 55, 45),
     ]
     assert _cut(rows, "Reference", "Issued To", "Line / Machine / Die", "Status") == [
         ("REQ-0001", "Ravi Kumar · 9876543210", "Recliner 02 / MC-1", "Installed"),
@@ -1271,8 +1221,8 @@ def test_issue_list_on_the_floor(make, plant_at):
     ]
     assert rows[0]["Description"] == f.p1_name
     assert (out["subtotal_rows"], out["cancelled_rows"], out["unrated_issues"], out["issues"]) == ([2, 8], [5], 3, 6)
-    # The Consumption Report never sees the cancelled issue either: the same Qty Issued and Value.
-    assert _cut([_view(f.s, "day", *SPRING)[-1]], "Qty Issued", "Value") == _cut([rows[-1]], "Qty Issued", "Value")
+    # Date-wise never sees the cancelled issue either: the same Total.
+    assert _cut([_view(f.s, "day", *SPRING)[-1]], *TOTAL_FIGURES) == _cut([rows[-1]], *TOTAL_FIGURES)
 
 
 def _known(values):
@@ -1285,19 +1235,20 @@ def _known(values):
     ("day", "day", "Date"), ("month", "month", "Month"), ("year", "year", "Year"), ("fy", "fy", "Financial Year")])
 def test_issue_list_subtotals_agree_with_the_period_views(make, plant_at, group, view, key):
     f = _consumption_floor(make, plant_at)
-    listed = _table(f.s, "list", *SPRING, group=group, report="issuance")
+    listed = _table(f.s, "list", *SPRING, group=group)
     assert listed["group"] == group                                     # asked for: a link's own grouping
     subtotals = [listed["rows"][i] for i in listed["subtotal_rows"]]
-    shown = _view(f.s, view, *SPRING, report="issuance")
+    shown = _view(f.s, view, *SPRING)
     periods = {}
     for r in shown[:-1]:
         periods.setdefault(r[key], []).append(r)
     assert [s["Date"] for s in subtotals] == [f"Subtotal {p}" for p in periods]
     for s, (period, rows) in zip(subtotals, periods.items()):
         assert int(s["Issue No"].split()[0]) == sum(r["Issues"] for r in rows), period
-        assert (s["Qty Issued"], s["Value"]) == (
-            round(sum(r["Qty Issued"] for r in rows), 2), _known(r["Value"] for r in rows)), period
-    assert _cut([listed["rows"][-1]], "Qty Issued", "Value") == _cut([shown[-1]], "Qty Issued", "Value")
+        assert (s["Qty Issued"], s["Net Qty"], s["Value"], s["Net Value"]) == (
+            round(sum(r["Qty Issued"] for r in rows), 2), round(sum(r["Net Qty"] for r in rows), 2),
+            _known(r["Value"] for r in rows), _known(r["Net Value"] for r in rows)), period
+    assert _cut([listed["rows"][-1]], *TOTAL_FIGURES) == _cut([shown[-1]], *TOTAL_FIGURES)
 
 
 @pytest.mark.parametrize("days, group, label", [
@@ -1311,12 +1262,11 @@ def test_issue_list_subtotals_follow_the_range_length(make, days, group, label):
     s, taker = make.store(), make.department()
     _issue(s, taker, qty=2, at=_utc(date(2018, 1, 1)))
     first, last = date(2018, 1, 1), date(2018, 1, 1) + timedelta(days=days - 1)
-    out = _table(s, "list", first.isoformat(), last.isoformat(), report="issuance")
+    out = _table(s, "list", first.isoformat(), last.isoformat())
     assert (out["window"]["days"], out["group"]) == (days, group)
     assert [out["rows"][i]["Date"] for i in out["subtotal_rows"]] == [label]
-    assert _table(s, "list", first.isoformat(), last.isoformat(), report="issuance", group="fy")["group"] == "fy"
-    buf, _, _ = ConsumptionTableService().pack(s.code, date_from=first.isoformat(), date_to=last.isoformat(),
-                                               report="issuance")
+    assert _table(s, "list", first.isoformat(), last.isoformat(), group="fy")["group"] == "fy"
+    buf, _, _ = ConsumptionTableService().pack(s.code, date_from=first.isoformat(), date_to=last.isoformat())
     wb = load_workbook(buf)
     assert label in [r[0] for r in wb["Issue list"].iter_rows(values_only=True)]
     summary = dict((k, v) for k, v in wb["Summary"].iter_rows(values_only=True) if v is not None)
@@ -1325,13 +1275,13 @@ def test_issue_list_subtotals_follow_the_range_length(make, days, group, label):
 
 def test_issue_list_agrees_with_the_issue_register(make, plant_at):
     """The same issues as the Reports page's Issue Register for the same range,
-    in the same order, with its date and time, reference, part, section, the
-    department written on it, status and quantity."""
+    in the same order, with its date and time, reference, part, section, status
+    and quantity — and the Register's Consumer as the Department."""
     f = _consumption_floor(make, plant_at)
     SpareStockLedger.query.filter_by(id=f.i4).update({"reference": "DOC-77"})
     db.session.commit()
-    out = _table(f.s, "list", *SPRING, group="month")                  # no report named: the Issue list is issuance
-    assert out["report"] == "issuance"
+    out = _table(f.s, "list", *SPRING, group="month")
+    assert out["report"] == "consumption"
     skip = set(out["subtotal_rows"]) | {len(out["rows"]) - 1}
     issues = [r for i, r in enumerate(out["rows"]) if i not in skip]
     register = SpareReportService().build(f.s.code, "issue_register", *SPRING)[2]
@@ -1341,7 +1291,7 @@ def test_issue_list_agrees_with_the_issue_register(make, plant_at):
         assert f"{mine['Date']} {mine['Time']}" == theirs["Date & Time"], mine["Issue No"]
         assert _cut([mine], "Reference", "Part No", "Description", "Section", "Department", "Status",
                     "Qty Issued") == (
-            _cut([theirs], "Reference", "Part No", "Description", "Section", "Department", "Status", "Qty")), mine
+            _cut([theirs], "Reference", "Part No", "Description", "Section", "Consumer", "Status", "Qty")), mine
     assert issues[3]["Reference"] == "DOC-77"
 
 
@@ -1349,138 +1299,107 @@ def test_issue_list_filters(make, plant_at):
     f = _consumption_floor(make, plant_at)
 
     def listed(**filters):
-        out = _table(f.s, "list", *SPRING, report="issuance", **filters)
+        out = _table(f.s, "list", *SPRING, **filters)
         skip = set(out["subtotal_rows"]) | {len(out["rows"]) - 1}
         return [r["Issue No"] for i, r in enumerate(out["rows"]) if i not in skip], out["rows"][-1]["Issue No"]
 
     assert listed(part_id=f.p1_id) == ([f.i1, f.i2], "2 issues")
     assert listed(section_id=f.s.live) == ([f.i1, f.i2, f.i7], "3 issues")
-    # The department is the one written on the issue, case and spaces aside —
-    # the cancelled one listed, not counted...
-    assert listed(department=f" {f.taker.upper()} ") == (
-        [f.i1, f.i3, f.i2, f.i4, f.i5, f.i6, f.i7], "6 issues + 1 cancelled")
-    # ... never the consuming one.
-    assert listed(department=f.zed) == ([], "0 issues")
-    assert listed(department="Not recorded") == ([], "0 issues")
+    # The department is the CONSUMING one, case and spaces aside — the
+    # cancelled one listed, not counted...
+    assert listed(department=f" {f.zed.upper()} ") == ([f.i3], "1 issue")
+    assert listed(department=f.group) == ([f.i1, f.i2, f.i7], "3 issues")
+    assert listed(department="No section") == ([f.i5, f.i6], "1 issue + 1 cancelled")
+    # ... never the one written on the issue.
+    assert listed(department=f.taker) == ([], "0 issues")
     assert listed(part_type="seal") == ([f.i4, f.i7], "2 issues")
     assert listed(section_id=f.s.live, part_type="Bearing") == ([f.i1, f.i2], "2 issues")
-    assert _table(f.s, "list", "2026-03-11", "2026-03-31", report="issuance")["rows"] == [{
-        **dict.fromkeys(LIST_COLUMNS), "Date": "Total", "Issue No": "0 issues", "Qty Issued": 0, "Value": 0}]
+    assert _table(f.s, "list", "2026-03-11", "2026-03-31")["rows"] == [{
+        **dict.fromkeys(LIST_COLUMNS), "Date": "Total", "Issue No": "0 issues", "Qty Issued": 0,
+        "Qty Returned": 0, "Net Qty": 0, "Value": 0, "Net Value": 0}]
 
 
 def test_person_wise(make):
     """Who the parts were handed to: one employee picked from the master is one
     row whatever was typed, with the latest name, code and mobile and every
-    department written on their issues; a name written by hand is one row,
-    case and spaces aside; "Not recorded" (nobody written) last."""
+    department their parts went to (the consuming one); a name written by hand
+    is one row, case and spaces aside; "Not recorded" (nobody written) last."""
     from app.models.employee import Employee
     s, taker, other = make.store(), make.department(), make.department()
+    maint = make.department(name=s.live_name)
     emp = Employee(mobile=f"6{uuid.uuid4().int % 10 ** 9:09d}", name=f"Ravi {_TAG}",
                    employee_code=f"E-{_TAG}-{_n()}")
     db.session.add(emp)
     db.session.commit()
     day = date(2019, 4, 2)
-    p, a = _issue(s, taker, qty=2, at=_utc(day, 9), employee_id=emp.id)
-    _, b = _issue(s, other, qty=3, part=p, at=_utc(day, 10), employee_id=emp.id, issued_to="Ravi K")
+    p, a = _issue(s, taker, qty=2, section=s.live, at=_utc(day, 9), employee_id=emp.id)
+    q, b = _issue(s, other, qty=3, at=_utc(day, 10), employee_id=emp.id, issued_to="Ravi K")
     _issue(s, taker, qty=1, at=_utc(day, 11), issued_to=" sunil ")
     _issue(s, taker, qty=4, at=_utc(day, 12), issued_to="Sunil")
     _issue(s, taker, qty=5, at=_utc(day, 13))
-    Part.query.filter_by(id=p.id).update({"unit_price": 10})
+    Part.query.filter(Part.id.in_([p.id, q.id])).update({"unit_price": 10}, synchronize_session=False)
     db.session.commit()
     span = ("2019-04-02", "2019-04-02")
 
-    rows = _view(s, "person", *span, report="issuance")
+    rows = _view(s, "person", *span)
     assert _cut(rows, "Issued To", "Code", "Mobile", "Department", *ISSUED) == [
-        ("Ravi K", emp.employee_code, emp.mobile, f"{taker.name}, {other.name}", 2, 1, 5, 50),
-        ("Sunil", None, None, taker.name, 2, 2, 5, None),
-        ("Not recorded", None, None, taker.name, 1, 1, 5, None),
-        ("Total", None, None, None, 5, 4, 15, 50)]
-    listed = {r["Issue No"]: r for r in _view(s, "list", *span, report="issuance")}
-    assert listed[a]["Issued To"] == f"Ravi {_TAG} · {emp.mobile}"
-    assert (listed[b]["Issued To"], listed[b]["Department"]) == (f"Ravi K · {emp.mobile}", other.name)
+        ("Ravi K", emp.employee_code, emp.mobile, f"{maint.name}, No section", 2, 2, 5, 50),
+        ("Sunil", None, None, "No section", 2, 2, 5, None),
+        ("Not recorded", None, None, "No section", 1, 1, 5, None),
+        ("Total", None, None, None, 5, 5, 15, 50)]
+    listed = {r["Issue No"]: r for r in _view(s, "list", *span)}
+    assert (listed[a]["Issued To"], listed[a]["Department"]) == (f"Ravi {_TAG} · {emp.mobile}", maint.name)
+    assert (listed[b]["Issued To"], listed[b]["Department"]) == (f"Ravi K · {emp.mobile}", "No section")
 
 
-def test_issuance_department_filter_and_its_choices(client, make):
-    """The Issuance Report's Department is the one written on the issue: its
-    filter matches it case and spaces aside, "Not recorded" matches an issue
-    with none, and the filter bar offers the departments written on this
-    store's issues — master order, "Not recorded" last."""
+def test_the_filter_bar_offers_the_consuming_departments_only(client, make):
+    """One report, one Department: the filter bar offers the consuming
+    departments — never one only written on issues (the taker) — and no list of
+    written departments any more."""
     s = make.store()
-    first = make.department(name=f"Store {s.code}", sort_order=5)
-    later = make.department(name=f"Alpha {s.code}", sort_order=900)
-    make.department(name=f"Never {s.code}", sort_order=6)              # writes nothing: not offered
-    day = date(2019, 5, 6)
-    _issue(s, first, qty=2, at=_utc(day, 9))
-    _issue(s, later, qty=1, at=_utc(day, 10))
-    _, blank = _issue(s, first, qty=4, at=_utc(day, 11))
-    SpareStockLedger.query.filter_by(id=blank).update({"department": "  "})   # as some old rows carry it
-    db.session.commit()
-    span = ("2019-05-06", "2019-05-06")
-
-    def qty(dept):
-        return _view(s, "day", *span, report="issuance", department=dept)[-1]["Qty Issued"]
-
-    assert (qty(f"  {first.name.upper()} "), qty(later.name), qty("not recorded")) == (2, 1, 4)
-    assert _cut(_view(s, "department", *span, report="issuance"), "Department", "Qty Issued") == [
-        (first.name, 2), (later.name, 1), ("Not recorded", 4), ("Total", 7)]
-    assert _view(s, "list", *span, report="issuance")[2]["Department"] is None   # the list shows what was written
-    expected = [first.name, later.name, "Not recorded"]
-    assert issue_departments(s.code) == expected
+    maint = make.department(name=s.live_name)
+    taker = make.department(name=f"Stores team {s.code}")
+    _issue(s, taker, qty=2, section=s.live, at=_utc(date(2019, 5, 6), 9))
     c = _as(client, make.user(stores=(s.code,), perms=VIEW))
     body = c.get(f"/api/v1/consumption-analytics/options?store_code={s.code}").get_json()["data"]
-    assert body["issue_departments"] == expected and first.name not in body["departments"]
+    assert "issue_departments" not in body
+    assert maint.name in body["departments"] and taker.name not in body["departments"]
 
 
-def test_old_callers_name_no_report(client, make, plant_at):
-    """Links and calls from before the split (17 Oct 2026) keep working: no
-    report named is the Consumption Report, except the Issue list — issuance
-    all along —, a link's group= still subtotals the list, and the Full pack
-    is the Consumption Report's. The one screen's Department was the CONSUMING
-    one in every view, the Issue list too: such a call still filters the list
-    by who consumed it, and its title says so — the list's Department column
-    stays who took it out. Naming the report gives the Issuance Report's own
-    Department (who took it)."""
+def test_old_links_open_the_one_report(client, make, plant_at):
+    """Links from before the merge keep working: no report named (before 17
+    Oct 2026) or report=issuance (17 - 18 Oct) is this report, view for view;
+    a link's group= still subtotals the list; the Department filter is the
+    consuming one on the Issue list too (an old /issuance link's "taken by"
+    department is dropped by the screen's redirect)."""
     f = _consumption_floor(make, plant_at)
     c = _as(client, make.user(role="ADMIN", stores=()))
     span = "from=2026-03-01&to=2026-04-30"
-    listed = c.get(f"{URL}?store_code={f.s.code}&view=list&{span}").get_json()["data"]
-    assert (listed["report"], listed["title"], listed["group"]) == (
-        "issuance", "Issuance Report Issue list 01.03.2026 to 30.04.2026", "day")
+    for view in VIEWS:
+        bodies = [c.get(f"{URL}?store_code={f.s.code}&view={view}{r}&{span}").get_json()["data"]
+                  for r in ("", "&report=issuance", "&report=consumption")]
+        assert bodies[0] == bodies[1] == bodies[2] and bodies[0]["report"] == "consumption", view
+        assert bodies[0]["title"].startswith("Issuance & Consumption Report "), view
 
     def issues(out):
         skip = set(out["subtotal_rows"]) | {len(out["rows"]) - 1}
         return [(r["Issue No"], r["Department"]) for i, r in enumerate(out["rows"]) if i not in skip]
 
-    old = c.get(URL, query_string={"store_code": f.s.code, "view": "list", "department": f.zed,
+    old = c.get(URL, query_string={"store_code": f.s.code, "report": "issuance", "view": "list", "department": f.zed,
                                    "from": "2026-03-01", "to": "2026-04-30"}).get_json()["data"]
-    assert issues(old) == [(f.i3, f.taker)] and old["rows"][-1]["Issue No"] == "1 issue"
-    assert old["title"] == f"Issuance Report Issue list consumed by {f.zed} 01.03.2026 to 30.04.2026"
-    assert old["filters"]["department"] == f.zed
-    taken = c.get(URL, query_string={"store_code": f.s.code, "view": "list", "department": f.taker,
-                                     "from": "2026-03-01", "to": "2026-04-30"}).get_json()["data"]
-    assert issues(taken) == []                                         # the taker consumed nothing
-    named = c.get(URL, query_string={"store_code": f.s.code, "report": "issuance", "view": "list",
-                                     "department": f.zed, "from": "2026-03-01", "to": "2026-04-30"}).get_json()["data"]
-    assert issues(named) == [] and named["title"] == f"Issuance Report Issue list {f.zed} 01.03.2026 to 30.04.2026"
+    assert issues(old) == [(f.i3, f.zed)] and old["rows"][-1]["Issue No"] == "1 issue"
+    assert old["title"] == f"Issuance & Consumption Report Issue list {f.zed} 01.03.2026 to 30.04.2026"
     old_file = c.get(f"{URL}/export", query_string={"store_code": f.s.code, "view": "list", "format": "excel",
                                                     "department": f.zed, "from": "2026-03-01", "to": "2026-04-30"})
-    assert _filename(old_file) == f"Issuance Report Issue list consumed by {f.zed} 01.03.2026 to 30.04.2026.xlsx"
+    assert _filename(old_file) == f"Issuance & Consumption Report Issue list {f.zed} 01.03.2026 to 30.04.2026.xlsx"
     rows, _ = _sheet(old_file)
     assert [r[2] for r in rows[1:4]] == [f.i3, "1 issue", "1 issue"]   # the issue, its day's subtotal, the Total
-    # Any other old view's department was the consuming one anyway.
-    assert _cut(c.get(URL, query_string={"store_code": f.s.code, "view": "month", "department": f.zed,
-                                         "from": "2026-03-01", "to": "2026-04-30"}).get_json()["data"]["rows"],
-                "Month", "Qty Issued") == [("Mar 2026", 4), ("Total", 4)]
     monthly = c.get(f"{URL}?store_code={f.s.code}&view=list&group=month&{span}").get_json()["data"]
     assert [monthly["rows"][i]["Date"] for i in monthly["subtotal_rows"]] == ["Subtotal Mar 2026", "Subtotal Apr 2026"]
-    for view in VIEWS:
-        body = c.get(f"{URL}?store_code={f.s.code}&view={view}&{span}").get_json()["data"]
-        assert body["report"] == "consumption" and body["title"].startswith("Consumption Report "), view
-    xlsx = c.get(f"{URL}/export?store_code={f.s.code}&view=list&format=excel&{span}")
-    assert _filename(xlsx) == "Issuance Report Issue list 01.03.2026 to 30.04.2026.xlsx"
-    resp, wb = _pack(c, f"store_code={f.s.code}&{span}")
-    assert _filename(resp) == "Consumption Report Full pack 01.03.2026 to 30.04.2026.xlsx"
-    assert wb.sheetnames == CONSUMPTION_PACK_SHEETS
+    for report in ("", "&report=issuance"):
+        resp, wb = _pack(c, f"store_code={f.s.code}{report}&{span}")
+        assert _filename(resp) == "Issuance & Consumption Report Full pack 01.03.2026 to 30.04.2026.xlsx"
+        assert wb.sheetnames == PACK_SHEETS
 
 
 def test_financial_year_view_cuts_at_the_plants_1_april(make, plant_at):
@@ -1510,7 +1429,7 @@ def test_financial_year_view_cuts_at_the_plants_1_april(make, plant_at):
 def test_issue_list_excel_and_pdf(client, make, plant_at, monkeypatch):
     """The Issue list downloads as shown, in each grouping: subtotals and the
     Total bold, the cancelled issue grey, the notes under it — the cancelled one
-    too. Its fourteen columns are fitted to the PDF page, the bold rows
+    too. Its seventeen columns are fitted to the PDF page, the bold rows
     measured bold so they fit their columns."""
     f = _consumption_floor(make, plant_at)
     Part.query.filter_by(part_no=f.p1).update({"part_name": LONG})
@@ -1518,9 +1437,9 @@ def test_issue_list_excel_and_pdf(client, make, plant_at, monkeypatch):
     drawn = _drawn_pdfs(monkeypatch)
     c = _as(client, make.user(role="ADMIN", stores=()))
     for group in ("day", "month", "year", "fy"):
-        query = f"store_code={f.s.code}&report=issuance&view=list&group={group}&from=2026-03-01&to=2026-04-30"
+        query = f"store_code={f.s.code}&view=list&group={group}&from=2026-03-01&to=2026-04-30"
         shown = c.get(f"{URL}?{query}").get_json()["data"]
-        assert shown["title"] == "Issuance Report Issue list 01.03.2026 to 30.04.2026", group
+        assert shown["title"] == "Issuance & Consumption Report Issue list 01.03.2026 to 30.04.2026", group
         n = len(shown["rows"])
         strong = {*shown["subtotal_rows"], n - 1}
 
@@ -1537,7 +1456,7 @@ def test_issue_list_excel_and_pdf(client, make, plant_at, monkeypatch):
         assert pdf.status_code == 200 and pdf.get_data()[:4] == b"%PDF", group
         assert _filename(pdf) == f"{shown['title']}.pdf"
         doc, story = drawn[-1]
-        assert story[0].text == shown["title"]
+        assert story[0].text == escape(shown["title"])
         assert [p.text for p in story[1:-2]] == [LEDGER_NOTE, UNRATED_NOTE, CANCELLED_NOTE]
         table = story[-1]
         frame = doc.pageTemplates[0].frames[0]
@@ -1551,10 +1470,8 @@ def test_issue_list_excel_and_pdf(client, make, plant_at, monkeypatch):
                         group, line)
 
 
-ISSUANCE_PACK_SHEETS = ["Summary", "Date-wise", "Month-wise", "Year-wise", "Part-wise", "Department-wise",
-                        "Person-wise", "Issue list"]
-CONSUMPTION_PACK_SHEETS = ["Summary", "Date-wise", "Month-wise", "Year-wise", "Part-wise", "Department-wise",
-                           "Line & Machine-wise", "Category-wise"]
+PACK_SHEETS = ["Summary", "Issue list", "Date-wise", "Month-wise", "Year-wise", "Part-wise", "Department-wise",
+               "Person-wise", "Line & Machine-wise", "Category-wise"]
 
 
 def _pack(c, query):
@@ -1564,11 +1481,11 @@ def _pack(c, query):
     return resp, load_workbook(io.BytesIO(resp.get_data()))
 
 
-def _pack_sheets_as_shown(c, wb, f, report, sheets, span, figures, totals):
-    """Each sheet of a Full pack is the screen's view of the same report,
-    range and filters, its Total `totals` and its notes those of the screen."""
+def _pack_sheets_as_shown(c, wb, f, sheets, span, figures, totals):
+    """Each sheet of the Full pack is the screen's view of the same range and
+    filters, its Total `totals` and its notes those of the screen."""
     for name, view in sheets:
-        shown = c.get(f"{URL}?store_code={f.s.code}&report={report}&view={view}&{span}").get_json()["data"]
+        shown = c.get(f"{URL}?store_code={f.s.code}&view={view}&{span}").get_json()["data"]
         rows = list(wb[name].iter_rows(values_only=True))
         n = len(shown["rows"])
         assert list(rows[0]) == shown["columns"], name
@@ -1580,75 +1497,46 @@ def _pack_sheets_as_shown(c, wb, f, report, sheets, span, figures, totals):
         assert wb[name].freeze_panes == "A2" and wb[name].auto_filter.ref.endswith(str(n + 1)), name
 
 
-def test_issuance_full_pack(client, make, plant_at):
-    """ONE workbook of the Issuance Report's range and filters: a Summary, then
-    each view's sheet exactly as the screen shows it — Year-wise in financial
-    years, the range holding 1 April — and the Issue list subtotalled as on
-    screen (by day: 61 days). Every sheet's Total is the same, and the
-    Summary's."""
+def test_full_pack(client, make, plant_at):
+    """ONE workbook of the range and filters: a Summary, then each view's sheet
+    exactly as the screen shows it — the Issue list first, subtotalled as on
+    screen (by day: 61 days), Year-wise in financial years (the range holds 1
+    April). Every sheet's Total is the same, and the Summary's."""
     f = _consumption_floor(make, plant_at)
     c = _as(client, make.user(role="ADMIN", stores=()))
     span = "from=2026-03-01&to=2026-04-30"
-    resp, wb = _pack(c, f"store_code={f.s.code}&report=issuance&{span}")
-    assert _filename(resp) == "Issuance Report Full pack 01.03.2026 to 30.04.2026.xlsx"
-    assert wb.sheetnames == ISSUANCE_PACK_SHEETS
-    _pack_sheets_as_shown(c, wb, f, "issuance", (
-        ("Date-wise", "day"), ("Month-wise", "month"), ("Year-wise", "fy"), ("Part-wise", "part"),
-        ("Department-wise", "department"), ("Person-wise", "person"), ("Issue list", "list")),
-        span, ("Qty Issued", "Value"), (18, 55))
+    resp, wb = _pack(c, f"store_code={f.s.code}&{span}")
+    assert _filename(resp) == "Issuance & Consumption Report Full pack 01.03.2026 to 30.04.2026.xlsx"
+    assert wb.sheetnames == PACK_SHEETS
+    _pack_sheets_as_shown(c, wb, f, (
+        ("Issue list", "list"), ("Date-wise", "day"), ("Month-wise", "month"), ("Year-wise", "fy"),
+        ("Part-wise", "part"), ("Department-wise", "department"), ("Person-wise", "person"),
+        ("Line & Machine-wise", "machine"), ("Category-wise", "category")),
+        span, TOTAL_FIGURES, (18, 55, 1, 17, 45))
     listed = wb["Issue list"]
     assert [listed.cell(row=r, column=1).value for r in (4, 10, 11)] == [
         "Subtotal 10.03.2026", "Subtotal 01.04.2026", "Total"]
     assert all(listed.cell(row=r, column=1).font.b for r in (4, 10, 11))
     assert not listed.cell(row=2, column=1).font.b
     assert listed.cell(row=7, column=3).value == f.i5 and listed.cell(row=7, column=3).font.color.rgb[-6:] == "94A3B8"
-    assert not any(NETTED & set(next(wb[name].iter_rows(values_only=True))) for name in ISSUANCE_PACK_SHEETS[1:])
 
     summary = list(wb["Summary"].iter_rows(values_only=True))
     assert summary[0] == ("Item", "Value")
     items = {k: v for k, v in summary[1:] if v is not None}
     assert {k: items[k] for k in ("Store", "Report", "From", "To", "Days", "Part", "Section",
-                                  "Department (taken by)", "Part type", "Year-wise sheet",
+                                  "Consuming department", "Part type", "Year-wise sheet",
                                   "Issue list subtotals")} == {
-        "Store": f"Consumption Store {f.s.code} ({f.s.code})", "Report": "Issuance Report", "From": "01.03.2026",
+        "Store": f"Consumption Store {f.s.code} ({f.s.code})", "Report": "Issuance & Consumption Report", "From": "01.03.2026",
         "To": "30.04.2026", "Days": 61, "Part": "All parts", "Section": "All sections",
-        "Department (taken by)": "All departments", "Part type": "All part types",
+        "Consuming department": "All departments", "Part type": "All part types",
         "Year-wise sheet": "Financial years, 1 April to 31 March", "Issue list subtotals": "By day"}
     assert tuple(items[k] for k in ("Issues", "Cancelled issues (listed, not counted)", "Parts", "Qty Issued",
-                                    "Value (today's rate)")) == (6, 1, 5, 18, 55)
-    assert not NETTED & set(items) and "Net Value (today's rate)" not in items
-    notes = [k for k, v in summary[1:] if k and v is None]
-    assert notes[:4] == [LEDGER_NOTE, UNRATED_NOTE, CANCELLED_NOTE, "How it is counted:"]
-    assert notes[4:] == [BASIS[k] for k in ConsumptionTableService.REPORTS["issuance"].basis]
-    assert len(notes) == 9 and wb["Summary"].cell(row=len(summary), column=1).font.i
-
-
-def test_consumption_full_pack(client, make, plant_at):
-    """ONE workbook of the Consumption Report's range and filters: a Summary,
-    then each view's sheet as the screen shows it, netted — no Issue list.
-    Every sheet's Total is the same, and the Summary's."""
-    f = _consumption_floor(make, plant_at)
-    c = _as(client, make.user(role="ADMIN", stores=()))
-    span = "from=2026-03-01&to=2026-04-30"
-    resp, wb = _pack(c, f"store_code={f.s.code}&report=consumption&{span}")
-    assert _filename(resp) == "Consumption Report Full pack 01.03.2026 to 30.04.2026.xlsx"
-    assert wb.sheetnames == CONSUMPTION_PACK_SHEETS
-    _pack_sheets_as_shown(c, wb, f, "consumption", (
-        ("Date-wise", "day"), ("Month-wise", "month"), ("Year-wise", "fy"), ("Part-wise", "part"),
-        ("Department-wise", "department"), ("Line & Machine-wise", "machine"), ("Category-wise", "category")),
-        span, TOTAL_FIGURES, (18, 55, 1, 17, 45))
-
-    summary = list(wb["Summary"].iter_rows(values_only=True))
-    items = {k: v for k, v in summary[1:] if v is not None}
-    assert {k: items[k] for k in ("Report", "Days", "Consuming department", "Year-wise sheet")} == {
-        "Report": "Consumption Report", "Days": 61, "Consuming department": "All departments",
-        "Year-wise sheet": "Financial years, 1 April to 31 March"}
-    assert tuple(items[k] for k in ("Issues", "Cancelled issues (not counted)", "Parts", "Qty Issued",
                                     "Value (today's rate)", "Qty Returned", "Net Qty",
                                     "Net Value (today's rate)")) == (6, 1, 5, 18, 55, 1, 17, 45)
-    assert "Issue list subtotals" not in items
     notes = [k for k, v in summary[1:] if k and v is None]
-    assert notes[:3] == [LEDGER_NOTE, UNRATED_NOTE, "How it is counted:"] and len(notes) == 8
+    assert notes[:4] == [LEDGER_NOTE, UNRATED_NOTE, CANCELLED_NOTE, "How it is counted:"]
+    assert notes[4:] == [BASIS[k] for k in ConsumptionTableService.REPORTS["consumption"].basis]
+    assert len(notes) == 11 and wb["Summary"].cell(row=len(summary), column=1).font.i
 
 
 def test_full_pack_filtered_and_its_years(client, make, plant_at):
@@ -1656,30 +1544,78 @@ def test_full_pack_filtered_and_its_years(client, make, plant_at):
     1 April is cut in calendar years; a financial year is one FY row."""
     f = _consumption_floor(make, plant_at)
     c = _as(client, make.user(role="ADMIN", stores=()))
-    for report, sheets in (("consumption", CONSUMPTION_PACK_SHEETS), ("issuance", ISSUANCE_PACK_SHEETS)):
+    for report in ("consumption", "issuance"):
         resp, wb = _pack(c, f"store_code={f.s.code}&report={report}&from=2026-03-01&to=2026-03-31&part_id={f.p1_id}")
-        title = "Consumption Report" if report == "consumption" else "Issuance Report"
-        assert _filename(resp) == f"{title} Full pack {f.p1} 01.03.2026 to 31.03.2026.xlsx"
+        assert _filename(resp) == f"Issuance & Consumption Report Full pack {f.p1} 01.03.2026 to 31.03.2026.xlsx"
         year = list(wb["Year-wise"].iter_rows(values_only=True))
         assert year[0][:2] == ("Year", "Issues") and year[1][:2] == ("2026", 1) and year[2][0] == "Total"
         summary = {k: v for k, v in wb["Summary"].iter_rows(values_only=True) if v is not None}
         assert (summary["Part"], summary["Issues"], summary["Qty Issued"]) == (f"{f.p1} - {f.p1_name}", 1, 2)
         assert summary["Year-wise sheet"] == "Calendar years, January to December"
         # Every sheet narrowed to the part: its one March issue, 2 issued.
-        for name in sheets[1:]:
+        for name in PACK_SHEETS[1:]:
             rows = list(wb[name].iter_rows(values_only=True))
             total = dict(zip(rows[0], next(r for r in rows if r[0] == "Total")))
             assert total["Qty Issued"] == 2, (report, name)
         assert [r[0] for r in wb["Part-wise"].iter_rows(min_row=2, max_row=3, values_only=True)] == [f.p1, "Total"]
 
     resp, wb = _pack(c, f"store_code={f.s.code}&from=2025-04-01&to=2026-03-31")
-    assert _filename(resp) == "Consumption Report Full pack 01.04.2025 to 31.03.2026.xlsx"
+    assert _filename(resp) == "Issuance & Consumption Report Full pack 01.04.2025 to 31.03.2026.xlsx"
     assert [r[:3] for r in wb["Year-wise"].iter_rows(values_only=True)][:3] == [
         ("Financial Year", "Issues", "Parts"), ("FY 2025-26", 2, 2), ("Total", 2, 2)]
-    # A whole financial year (365 days): the Issuance Report's Issue list by month.
-    resp, wb = _pack(c, f"store_code={f.s.code}&report=issuance&from=2025-04-01&to=2026-03-31")
+    # A whole financial year (365 days): the Issue list by month.
     assert [r[0] for r in wb["Issue list"].iter_rows(values_only=True) if str(r[0]).startswith("Subtotal")] == [
         "Subtotal Mar 2026"]
     # A range the screen refuses is refused here too, and so is an unknown report.
     assert c.get(f"{URL}/pack?store_code={f.s.code}&from=2026-04-30&to=2026-03-01").status_code == 400
     assert c.get(f"{URL}/pack?store_code={f.s.code}&report=sales").status_code == 400
+
+
+# ---- the store never takes an issue -------------------------------------------------------------
+
+@pytest.mark.parametrize("name, store", [
+    ("Store", True), ("  store ", True), ("SPARE  STORE", True), ("Spare Store", True), ("Tool Room", False),
+    ("Storeroom", False), ("Stores team", False), ("", False), (None, False)])
+def test_is_store_department(name, store):
+    assert is_store_department(name) is store
+
+
+def test_the_store_never_takes_an_issue(make):
+    """The store hands parts out, so an issue to the store itself is refused —
+    before a part leaves the shelf ("issuance me store dikha rha h jabki store to
+    issue karta h" — the store, 18 Oct 2026). The Store department stays in the
+    master for the store's own mails."""
+    s = make.store()
+    p = _part(s, qty=10)
+    for name in ("Store", " store ", "Spare Store"):
+        with pytest.raises(BadRequestError, match="The store hands parts out"):
+            SpareStockService().issue(p.id, 1, name)
+    assert SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").count() == 0
+    ok = make.department(name=f"Stores team {s.code}")       # a name that only starts like it
+    SpareStockService().issue(p.id, 1, ok.name)
+    assert SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").count() == 1
+
+
+def test_live_board_issue_month_reads_the_report(make, plant_at):
+    """The Live Board's Issue & Consumption panel (the store, 22 Oct 2026:
+    "kitna issue hua and kahan consume hua wo data mile") is the report's own
+    department and machine views: the same Total, each department once (its
+    sections summed), and where the parts went — the line / machine recorded on
+    Confirm Installation, the most used first."""
+    from app.services.spare_dashboard_service import SpareDashboardService
+    f = _consumption_floor(make, plant_at)
+    out = SpareDashboardService._issue_month(f.s.code, None, None, *SPRING)
+    t = out["total"]
+    assert (t["issues"], t["qty"], t["value"], t["returned"], t["net_qty"], t["net_value"]) == (6, 18, 55, 1, 17, 45)
+    depts = {d["name"]: d for d in out["departments"]}
+    assert (depts[f.group]["qty"], depts[f.group]["returned"], depts[f.group]["net_qty"],
+            depts[f.group]["value"]) == (11, 1, 10, 50)
+    assert depts[f.zed]["value"] is None                          # no rate: unknown, never 0
+    assert out["departments"][0]["name"] == f.group               # the most issued first
+    places = [(p["department"], p["machine"], p["net_qty"]) for p in out["places"]]
+    assert (f.group, "MC-1", 1) in places and (f.group, "MC-2", 3) in places
+    assert [p["net_qty"] for p in out["places"]] == sorted((p["net_qty"] for p in out["places"]), reverse=True)
+    assert out["unrated_issues"] == _table(f.s, "department", *SPRING)["unrated_issues"]
+    # A section group is read as its department.
+    grouped = SpareDashboardService._issue_month(f.s.code, None, [f.s.live], *SPRING)
+    assert [d["name"] for d in grouped["departments"]] == [f.group] and grouped["total"]["qty"] == 11

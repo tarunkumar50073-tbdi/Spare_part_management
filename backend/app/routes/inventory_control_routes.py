@@ -14,7 +14,7 @@ service = InventoryControlService()
 
 
 @bp.route("", methods=["GET"])
-@permission_required("store_stock", "view")
+@permission_required("inventory_control", "view")
 def overview():
     code = request.args.get("store_code")
     if not code:

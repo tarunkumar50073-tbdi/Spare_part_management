@@ -21,35 +21,54 @@ ROLES = ["ADMIN", "STORE_USER"]
 # the admin screen shows.
 PERMISSION_MODULES = [
     {"key": "spare_store", "label": "Spare Parts Store (dashboard)"},
+    {"key": "action_tracker", "label": "Action Tracker"},
+    {"key": "notifications", "label": "Notification Center"},
     {"key": "store_stock", "label": "Store Stock (count / edit)"},
+    {"key": "inventory_control", "label": "Critical · Reorder · Excess"},
+    {"key": "put_away_check", "label": "Put-away Check"},
     {"key": "scan_part", "label": "Scan Part — issue / receive / return"},
-    # The locked-store KIOSK (outside the store): a requester submits a part
-    # request here. Request-only — it cannot issue; the supervisor (scan_part)
-    # fulfils it. Grant this to the kiosk device's own login.
-    {"key": "kiosk", "label": "Kiosk — part request (outside store)"},
+    {"key": "work_queue", "label": "Work Queue"},
+    {"key": "consumption", "label": "Issuance & Consumption"},
+    {"key": "receiving", "label": "Receiving & GRN"},
+    {"key": "short_rejection", "label": "Short & Rejection"},
+    # No "kiosk" right any more: the kiosk part request and its Part Requisition
+    # queue were taken out on 17 Oct 2026 ("management k according manual detail
+    # fill karke issuance karna time waste h" — the store). A "kiosk" key an old
+    # login still has stored is simply never asked for, and drops off the next
+    # time that login's rights are saved (set_permissions keeps known keys only).
     # Stage-2 only: a line user may confirm where an issued part was fitted
     # (line / machine / die + how much was used) WITHOUT the full issue /
     # receive / return rights that scan_part carries. There is no per-part QR to
-    # re-scan (we print lot tags and bin sheets, not part labels), so the confirm
+    # re-scan (we print bin sheets, not part labels), so the confirm
     # screen is a list of parts already issued, not a scanner. The confirm
     # endpoint accepts this right OR scan_part edit; it still needs store access.
     {"key": "install_confirm", "label": "Confirm Installation — line / machine (user)"},
     {"key": "part_ledger", "label": "Part Ledger"},
     {"key": "erp_gap", "label": "ERP vs Physical Gap"},
+    {"key": "erp_control", "label": "ERP Control Center"},
     {"key": "part_master", "label": "Part Master"},
+    {"key": "data_quality", "label": "Data Quality"},
     {"key": "supplier_barcodes", "label": "Supplier Barcodes"},
     {"key": "scan_audit", "label": "Scan Audit"},
     {"key": "departments", "label": "Department Emails"},
     # People parts are issued to (mobile no. -> name / code / department). The
     # issue screen can add a missing person with scan_part edit too.
     {"key": "employees", "label": "Employee Master"},
-    # Line / Machine / Die pick-lists for the install screen. The install form
-    # can add a missing value with scan_part edit too.
-    {"key": "equipment", "label": "Line / Machine / Die Master"},
+    # No "part_photos" right either: Photo Mode opens from the Part Master's own
+    # button and a photo is saved with the Part Master edit right (23 Oct 2026).
+    # No "equipment" right any more: the Line / Machine / Die master is kept by
+    # whoever keeps the Part Master (the store, 23 Oct 2026). Its pick-lists on
+    # the issue / install screens never needed it, and the install form can still
+    # add a missing value with scan_part edit. An old login's stored "equipment"
+    # key is simply never asked for.
     {"key": "reports", "label": "Reports"},
     {"key": "audit_trail", "label": "Audit Trail"},
     {"key": "live_dashboard", "label": "Live Dashboard"},
     {"key": "gate_entry", "label": "Gate Entry"},
+    # Urgent material on a supplier's delivery challan before its PO / invoice
+    # (21 Oct 2026). A register only — the ERP GRN stays the one way stock goes up.
+    {"key": "challan_register", "label": "Urgent Challan Register"},
+    {"key": "rejection_request", "label": "Rejection Mail (RQC)"},
     {"key": "vehicle_in_out", "label": "Vehicle In / Out"},
     {"key": "admin", "label": "Admin — user management"},
     # Child Parts Store write screens (put-away, holding transfer, daily count,
@@ -57,6 +76,25 @@ PERMISSION_MODULES = [
     # so those endpoints are not open to every signed-in user in the meantime.
     {"key": "child_store", "label": "Child Parts Store — operations"},
 ]
+
+# Screens that had no right of their own until 23 Oct 2026 (the store: "jo naye
+# module bne h wo bhi add kar right matrix me"), each with the older right it
+# used to open on. A login saved before the split takes that right's view / edit
+# once (app._split_rights), so nobody lost a screen the day it got its own column.
+# Notification Center opened for every login of the Spare Parts Store, with no
+# right at all (None): such a login takes view.
+SPLIT_RIGHTS = {
+    "action_tracker": "spare_store",
+    "consumption": "spare_store",
+    "receiving": "spare_store",
+    "short_rejection": "spare_store",
+    "inventory_control": "store_stock",
+    "put_away_check": "store_stock",
+    "work_queue": "scan_part",
+    "erp_control": "erp_gap",
+    "data_quality": "part_master",
+    "notifications": None,
+}
 
 
 class User(BaseModel):

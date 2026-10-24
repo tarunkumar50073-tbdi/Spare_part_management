@@ -7,12 +7,13 @@ import {
   Database, AlertTriangle, Boxes, ClipboardList,
   FileBarChart, PackagePlus, Sun, Moon, ArrowLeft, RefreshCw, RotateCw,
   Maximize, Minimize, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight,
-  Hourglass, ListChecks, ScanBarcode,
+  Hourglass, ListChecks, Search, TrendingUp,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { spareStockService } from "../services/spareStockService.js";
 import { spareFlowService } from "../services/spareFlowService.js";
 import { managementService } from "../services/managementService.js";
+import { partService } from "../services/partService.js";
 import { storeService } from "../services/storeService.js";
 import { NO_ROWS } from "../lib/stockQueries.js";
 import { fmtStamp, parseServerTime } from "../lib/format.js";
@@ -564,7 +565,7 @@ function AgeRow({ b, max, since }) {
 const TRK_COLS = "grid items-center gap-x-[1vh] grid-cols-[minmax(0,1.5fr)_4.6vh_7.4vh_minmax(0,1.2fr)_5.6vh] landscape:grid-cols-[minmax(0,1.5fr)_7vh_11vh_minmax(0,1.3fr)_minmax(0,1fr)_8vh_8vh]";
 // Shorter names for the half-height wall rows; landscape shows the full label.
 const TRK_SHORT = {
-  srv_pending: "GRN / quality pending", confirm_pending: "Awaiting confirmation", kiosk_open: "Kiosk requests open",
+  srv_pending: "GRN / quality pending", confirm_pending: "Awaiting confirmation",
   returns_pending: "Returns to inspect", erp_pending: "Not yet in ERP",
 };
 const SEV_RANK = { critical: 0, warning: 1, info: 2, ok: 3 };
@@ -660,7 +661,7 @@ export default function TvDashboard() {
   // The exit pill opens the store's dashboard, which a Live Board login (store's
   // role templates, 17 Oct 2026: the board and nothing else) may not open — it
   // would land on "Access restricted" inside the full app. Such a login gets no
-  // exit, like the kiosk: the board is all that device shows.
+  // exit: the board is all that device shows.
   const canOpenStore = useCan("spare_store");
   // The wallboard lives outside MainLayout, so it opens its own SSE connection —
   // stock moves then refresh the TV immediately instead of on the 2-min poll.
@@ -674,6 +675,7 @@ export default function TvDashboard() {
   const menuAnchor = useRef(null);
   const [isFs, setIsFs] = useState(false);
   const [stack, setStack] = useState([]); // Explore-Data drill frames (in-board)
+  const [trendView, setTrendView] = useState("month"); // the value trend's Day / Week / Month / Year
   const [lastUpdated, setLastUpdated] = useState(null); // when the board figures last refreshed (header "Updated" stamp)
   // Sticky day/night: seeded from localStorage so a choice survives leaving the
   // board (e.g. to the Spare Store) and coming back, and reloads — it stays until
@@ -738,7 +740,7 @@ export default function TvDashboard() {
   // overview call (the same figures the desktop dashboard shows); "All
   // Sections" reads the store overview the loader below already holds, so the
   // whole-store view never asks twice. The parts list feeds the charts and
-  // drills; the management block feeds the tracker, aging, in-vs-out and scan
+  // drills; the management block feeds the tracker, aging and in-vs-out
   // panels.
   useEffect(() => {
     if (sectionId == null) return undefined;
@@ -756,8 +758,8 @@ export default function TvDashboard() {
       const [secOv, list, mgmt, today, deptMonth] = await Promise.all([
         ownOv && !ovDenied ? fetchData(spareStockService.overview(STORE, sec)) : undefined,
         fetchData(spareStockService.list({ store_code: STORE, section_id: sec })),
-        // The management block (action tracker, excess aging, in vs out, scan
-        // discipline) — silent, so a wall left on an older backend shows its
+        // The management block (action tracker, excess aging, receipt vs issue) —
+        // silent, so a wall left on an older backend shows its
         // panels as "couldn't load" without a toast every refresh.
         fetchData(managementService.get(STORE, sec, undefined, { silent: true })),
         ovDenied ? fetchData(spareStockService.today(STORE, sec)) : undefined,
@@ -857,6 +859,11 @@ export default function TvDashboard() {
   const healthy = countOf("Healthy");
   const critical = ov ? zero + belowMin : null;
   const counted = kpis?.counted_parts ?? null;
+  // A discontinued part (not required any more) has no levels to be healthy or
+  // short against: the four health shares are of the counted parts without it,
+  // so they still add to 100%.
+  const discontinuedN = countOf("Discontinued");
+  const healthBase = counted != null ? Math.max(0, counted - discontinuedN) : null;
   // Nothing counted means every Min/Max status is empty by definition — the
   // tiles say so rather than show zeros that read as a healthy store.
   const noneCounted = counted === 0;
@@ -899,6 +906,22 @@ export default function TvDashboard() {
     () => rows.reduce((s, r) => (r.status === "Above Maximum" ? s + excessOf(r) : s), 0),
     [rows],
   );
+  // Discontinued parts (never reordered) and the stock still on their racks —
+  // the money management has to decide on: scrap, return or move elsewhere.
+  const disc = useMemo(() => {
+    const all = rows.filter((r) => r.discontinued);
+    const held = all.filter((r) => (r.qty_on_hand || 0) > 0);
+    return {
+      all, held,
+      cleared: all.filter((r) => r.qty_on_hand != null && r.qty_on_hand <= 0),
+      // never counted: no stock figure at all, so neither "with stock" nor
+      // "no stock left" — said on the With-stock tile so the three add up.
+      uncounted: all.filter((r) => r.qty_on_hand == null).length,
+      value: held.reduce((s, r) => s + (r.stock_value || 0), 0),
+      noRate: held.filter((r) => r.stock_value == null).length,
+      top: held.reduce((b, r) => ((r.stock_value || 0) > (b?.stock_value || 0) ? r : b), null),
+    };
+  }, [rows]);
   // The list's own reading of "nothing counted", for the panels drawn from it.
   const rowsNoneCounted = useMemo(() => rows.length > 0 && !rows.some((r) => r.qty_on_hand != null), [rows]);
 
@@ -927,7 +950,10 @@ export default function TvDashboard() {
   const byStatus = (...st) => rows.filter((r) => st.includes(r.status));
   const openCritical = () => openParts({ title: "Critical Parts", rows: byStatus("Out of Stock", "Below Minimum"), valueLabel: "Short by", valueOf: shortBy });
   const openReorder = () => openParts({ title: "Reorder", rows: byStatus("Reorder"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand });
-  const openExcess = () => openParts({ title: "Excess Parts", rows: byStatus("Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney });
+  // A Top 10 only where the list's question is money — Excess ₹ and Stock
+  // Value (`top10`); a short / reorder / healthy list is the list alone (the
+  // store's chart rule, 17 Oct 2026).
+  const openExcess = () => openParts({ title: "Excess Parts", rows: byStatus("Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney, top10: true });
   const sectionName = useMemo(() => Object.fromEntries((sections || []).map((s) => [s.id, s.name])), [sections]);
 
   // Stock value by section, straight off the overview — the same split the
@@ -945,9 +971,26 @@ export default function TvDashboard() {
   const openValueSection = (sid) => {
     if (sid == null) return;
     const secRows = rows.filter((r) => r.section_id === sid && r.stock_value != null);
-    openParts({ title: `Stock Value — ${sectionName[sid] || "Section"}`, rows: secRows, valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney });
+    openParts({ title: `Stock Value — ${sectionName[sid] || "Section"}`, rows: secRows, valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, top10: true });
   };
   const openStockValue = () => openParts({ title: "Stock Value", rows: rows.filter((r) => r.stock_value != null), valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, chart: "bySection", sectionNames: sectionName });
+  // A money list, so it carries the Top 10 (the store's chart rule).
+  const openTrend = (view) => openStack({ kind: "valueTrend", title: `Stock Value Trend${secView ? ` — ${activeName}` : ""}`, trend, view });
+  // Discontinued parts are a line of the excess panel (their own panel gave
+  // way to the value trend on 24 Oct 2026).
+  const discRow = rowsState === "ok" && disc.all.length > 0;
+  const openDiscontinued = () => openParts({ title: "Discontinued Stock", rows: disc.held, valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, top10: true });
+  // Find a part (the store, 22 Oct 2026): anyone at the board looks up a part's
+  // stock, bin and photo. Always the whole store — a part is looked for by its
+  // number, not by the section on screen — so a section view fetches the store list.
+  const [findQ, setFindQ] = useState("");
+  const openSearch = () => {
+    setFindQ("");
+    if (!secView) return openStack({ kind: "partSearch", title: "Find a part", rows });
+    return openAsync({ kind: "partSearch", title: "Find a part", rows: [] },
+      () => fetchData(spareStockService.list({ store_code: STORE }))
+        .then((list) => (asList(list) ? { rows: list } : { error: true })));
+  };
 
   const cats = useMemo(() => {
     const by = {};
@@ -980,8 +1023,12 @@ export default function TvDashboard() {
   const mgState = stateOf(P.mgmt);
   const aging = asObj(P.mgmt?.excess_aging);
   const movement = asObj(P.mgmt?.movement);
-  const scan = asObj(P.mgmt?.scan);
   const tracker = asObj(P.mgmt?.tracker);
+  // What the stock was worth, day by day up to year by year: null when nothing
+  // in the scope has a rate, undefined from a backend without it.
+  const trend = P.mgmt ? P.mgmt.value_trend : undefined;
+  const trendPts = trend?.series?.[trendView] || [];
+  const trendDelta = trendPts.length > 1 ? trendPts[trendPts.length - 1].value - trendPts[trendPts.length - 2].value : null;
   const agingMax = useMemo(() => Math.max(0, ...(aging?.buckets || []).map((b) => b.value || 0)), [aging]);
   const agingIdlePct = aging?.total?.value ? Math.round(((aging.idle?.value || 0) / aging.total.value) * 100) : null;
   // Rupees received (ERP GRN) and issued (app) per month. A month the source
@@ -992,36 +1039,6 @@ export default function TvDashboard() {
     [movement],
   );
   const moveHasData = moveData.some((m) => m.in || m.out);
-  // Scan Part only: how the part was identified. A share needs volume behind it,
-  // so under 20 scans the tile shows the count ("3/8") instead of a percentage.
-  const sc = scan?.scans || null;
-  const scanTotal = sc?.total || 0;
-  const scanPct = sc?.scan_first_pct;
-  const scanIssues = scan?.issues || null;
-  const putAway = scan?.put_away || null;
-  const scanTiles = [
-    { label: "Scan-first rate",
-      value: !scanTotal ? "—" : scanTotal >= 20 && scanPct != null ? `${Math.round(scanPct)}%` : `${fmtInt(sc.scanned)}/${fmtInt(scanTotal)}`,
-      color: !scanTotal ? C.muted : scanPct >= 80 ? STATUS.healthy : scanPct >= 50 ? STATUS.below : STATUS.out,
-      sub: scanTotal ? `${fmtInt(sc.scanned)} of ${fmtInt(scanTotal)} scans by scanner` : "No scan in 30 days" },
-    { label: "Code not found",
-      value: scan?.not_found_scope === "section" ? "—" : fmtInt(sc?.not_found ?? 0),
-      color: hot(scan?.not_found_scope === "section" ? 0 : sc?.not_found, STATUS.below),
-      sub: scan?.not_found_scope === "section" ? "Counted for the whole store" : "Tag missing or wrong" },
-    { label: "Issues by scan",
-      value: scanIssues?.total ? `${fmtInt(scanIssues.by_scan)}/${fmtInt(scanIssues.total)}` : "—",
-      color: scanIssues?.total ? (scanIssues.by_scan >= scanIssues.total * 0.8 ? STATUS.healthy : STATUS.below) : C.muted,
-      sub: scanIssues?.total ? `${fmtInt(scanIssues.by_search)} by search / typed` : "No issue recorded yet" },
-    { label: "Put-away by scan",
-      value: putAway?.ever || putAway?.count ? fmtInt(putAway.count) : "—",
-      color: putAway?.count ? STATUS.healthy : C.muted,
-      sub: putAway?.ever || putAway?.count ? `${fmtInt(putAway.with_lot_tag)} with a lot tag` : "Not started yet" },
-  ];
-  const scanSplit = [
-    { label: "Scanned", n: sc?.scanned_ok || 0, color: C.purple },
-    { label: "Typed", n: sc?.typed_ok || 0, color: STATUS.below },
-    { label: "Not found", n: sc?.not_found || 0, color: STATUS.out },
-  ];
   // Worst first, as the server tags them (a clear line is "ok", so it sinks);
   // the wall shows the first six, landscape eight.
   const trackerRows = useMemo(
@@ -1031,7 +1048,17 @@ export default function TvDashboard() {
     [tracker],
   );
 
+  // This month's issues as the Issuance & Consumption Report counts them
+  // (overview.consumption.issue_month): issued / returned / consumed, per
+  // consuming department, and where the parts were used. Absent on the
+  // stock-list fallback, which keeps the plain department split below.
+  const issueMonth = ov?.consumption?.issue_month || null;
   const deptData = useMemo(() => {
+    if (issueMonth) {
+      const tot = issueMonth.total?.qty || 0;
+      return (issueMonth.departments || []).filter((d) => d.qty > 0)
+        .map((d, i) => ({ name: d.name, value: d.qty, pct: tot ? (d.qty / tot) * 100 : 0, color: PIE[i % PIE.length] }));
+    }
     const top = ov?.consumption?.this_month_by_department || [];
     // Denominator is the WHOLE month's issuance (the overview's this-month
     // total), not just the top-5 subtotal, so each department's % is its real
@@ -1039,7 +1066,7 @@ export default function TvDashboard() {
     const topSum = top.reduce((s, d) => s + (d.value || 0), 0);
     const totAll = Math.max(ov?.consumption?.comparison?.current?.value || 0, topSum) || 1;
     return top.map((d, i) => ({ name: d.name, value: Math.round(d.value || 0), pct: ((d.value || 0) / totAll) * 100, color: PIE[i % PIE.length] }));
-  }, [ov]);
+  }, [ov, issueMonth]);
 
 
   // ERP current stock (store-wide) + its match against the store's physical count.
@@ -1067,7 +1094,15 @@ export default function TvDashboard() {
     setMenuOpen(true);
   };
 
-  const openHistory = (part) => openAsync(
+  // A row of an issue / movement list carries little more than the part's no.
+  // and name, so the header read In Stock, Min, Max, Value and Location as "—"
+  // (the store, 22 Oct 2026): take the part's own figures off the board's stock
+  // list when it is there.
+  const openHistory = (row) => {
+    const full = rows.find((r) => r.part_id === row.part_id);
+    return openHistoryOf(full ? { ...row, ...full } : row);
+  };
+  const openHistoryOf = (part) => openAsync(
     { kind: "partHistory", title: part.part_no, part, history: [] },
     () => fetchData(spareStockService.history(part.part_id, 100))
       .then((h) => ({ history: asList(h) || [], error: !Array.isArray(h) })),
@@ -1081,7 +1116,7 @@ export default function TvDashboard() {
   // note from the rows that came back, so a figure the header does not count
   // (a qty, a store-wide total) is stated off the list itself.
   const openTxns = (title, opts = {}) => openAsync(
-    { kind: "txnList", title, rows: [], note: opts.note, deptData: opts.deptData },
+    { kind: "txnList", title, rows: [], note: opts.note, empty: opts.empty },
     async () => {
       const fetcher = opts.fetch || (() => spareStockService.activity(STORE, 60).then((r) => r.data.data));
       const a = await fetcher().catch(() => null);
@@ -1131,9 +1166,13 @@ export default function TvDashboard() {
     ));
   // This shift's issues and stock-ins, in the same section scope as their
   // tiles (and the ticker), so each list ties out to its figure.
+  // Today's issues only. The month's department split it used to carry above
+  // the list did not match it ("is chart se kuch samajh nhi aa rha" — 0 issues
+  // today under a chart of the month, 22 Oct 2026); the month lives on the
+  // board's Issue & Consumption panel.
   const openTodayIssues = () => openTxns("Today's Issue", {
+    empty: "No issue yet today",
     fetch: () => spareStockService.todayIssues(STORE, secView ? sectionId : undefined).then((r) => r.data.data || []),
-    deptData,
   });
   const openTodayReceipts = () => openTxns("Today Added to Stock", {
     fetch: () => spareStockService.todayReceipts(STORE, secView ? sectionId : undefined).then((r) => r.data.data || []),
@@ -1151,6 +1190,7 @@ export default function TvDashboard() {
   // Excess aging: the excess parts of a band, by the server's own band of each
   // part (excess_aging.part_buckets) — exactly the parts the band counts.
   const agingBands = asObj(aging?.part_buckets);
+  const agingAges = asObj(aging?.part_ages);
   const agingSince = aging?.horizon ? fmtIsoDay(aging.horizon) : null;
   const ageTitle = (b) => `Excess Aging — ${b.key === "none" && agingSince ? `No inward since ${agingSince}` : b.label}`;
   const openAgeBands = (keys, title) => {
@@ -1158,16 +1198,24 @@ export default function TvDashboard() {
       return openNoList(title, "The parts behind this band come with the updated server — the list opens after the app's server has restarted.");
     }
     const want = new Set(keys);
-    return openParts({ title, rows: rows.filter((r) => want.has(agingBands[r.part_id])), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney });
+    // Each part says how long it has waited since its last ERP inward — "kitne
+    // din se pending" (the store, 22 Oct 2026) — and the longest waits come first.
+    const ageOf = (r) => agingAges?.[r.part_id] || {};
+    const waited = (r) => (r.age_days == null ? Infinity : r.age_days);
+    const list = rows.filter((r) => want.has(agingBands[r.part_id]))
+      .map((r) => ({ ...r, age_days: ageOf(r).days ?? null, last_inward: ageOf(r).last_inward ?? null }))
+      .sort((a, b) => (waited(b) - waited(a)) || (excessOf(b) - excessOf(a)));
+    return openParts({ title, rows: list, valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney, top10: true,
+      ageCol: agingAges ? { horizonDays: aging?.horizon_days, since: agingSince } : null });
   };
-  // The management block's lists (in / out of a month, a department's issues,
-  // the scan tiles), in this view's section scope unless `storeWide`. null =
+  const openAgingAll = () => openAgeBands((aging?.buckets || []).map((b) => b.key), "Excess Aging — all excess parts");
+  // The management block's lists (in / out of a month, a department's
+  // issues), in this view's section scope unless `storeWide`. null =
   // the call failed, so the drill says so instead of "no movements".
   const mgmtRows = (kind, key, storeWide = false) => managementService
     .list(STORE, kind, key, secView && !storeWide ? sectionId : undefined, { silent: true })
     .then((r) => asList(r.data?.data?.rows));
-  const mapped = (fn) => (list) => (list ? list.map(fn) : null);
-  // Material in vs out: one month's movements behind its bars — In = the ERP
+  // Receipt vs Issue: one month's movements behind its bars — Receipt = the ERP
   // GRN lines, Out = the app's issues — so the lines and ₹ are the bar's. A
   // side the chart has no figure for that month (outside the ERP register, or
   // before the app's ledger started) has no bar, and is left out.
@@ -1175,14 +1223,14 @@ export default function TvDashboard() {
     const m = movement?.months?.[i];
     if (!m) return undefined;
     const month = `${m.label || monthLabel(m.period)} ${String(m.period || "").slice(0, 4)}`.trim();
-    const title = side === "in" ? `In · ${month} (ERP GRN)` : side === "out" ? `Out · ${month} (issued)` : `In vs Out · ${month}`;
+    const title = side === "in" ? `Receipt · ${month} (ERP GRN)` : side === "out" ? `Issue · ${month}` : `Receipt vs Issue · ${month}`;
     const sides = (side === "both" ? ["in", "out"] : [side]).filter((s) => (s === "in" ? m.in_value : m.out_value) != null);
     if (!sides.length) {
-      return openNoList(title, `${month} has no In or Out figure on the chart — the ERP GRN register does not hold the whole month and no issue was recorded in the app then — so there is no list behind it.`);
+      return openNoList(title, `${month} has no Receipt or Issue figure on the chart — the ERP GRN register does not hold the whole month and no issue was recorded in the app then — so there is no list behind it.`);
     }
     const says = sides.map((s) => (s === "in"
-      ? `In: ${fmtInt(m.in_lines)} ERP GRN line(s) · ${fmtMoney(m.in_value)} (receipt qty × current rate)`
-      : `Out: ${fmtInt(m.out_lines)} issue line(s) · ${fmtMoney(m.out_value)} (issued qty × current rate)`));
+      ? `Receipt: ${fmtInt(m.in_lines)} ERP GRN line(s) · ${fmtMoney(m.in_value)} (receipt qty × current rate)`
+      : `Issue: ${fmtInt(m.out_lines)} issue line(s) · ${fmtMoney(m.out_value)} (issued qty × current rate)`));
     return openTxns(title, {
       fetch: () => Promise.all(sides.map((s) => mgmtRows(s, m.period)))
         .then((lists) => (lists.every(Array.isArray)
@@ -1213,46 +1261,6 @@ export default function TvDashboard() {
       return `${fmtInt(qty)} issued (qty) this month for ${d.name} in ${fmtInt(list.length)} issue line(s) — the qty is the panel's figure; ${deptRule}`;
     },
   });
-  // Scan discipline (last 30 days): the scans, issues and put-aways behind
-  // each tile and each part of the scanned / typed / not-found bar.
-  const scanRow = (r) => ({ ...r, part_name: [r.part_name || "No part with this code", r.user && `by ${r.user}`].filter(Boolean).join(" · ") });
-  // `note` may be a function of the rows (null while loading) when the tile's
-  // own figure is not the list's — the store-wide not-found list.
-  const openScans = (key, title, note, storeWide = false) => {
-    const tail = " Scan Part page, last 30 days. Tap a row for that part's history.";
-    const say = typeof note === "function" ? note : () => note;
-    return openTxns(title, {
-      fetch: () => mgmtRows("scans", key, storeWide).then(mapped(scanRow)),
-      note: `${say(null)}${tail}`,
-      noteOf: (list) => `${say(list)}${tail}`,
-    });
-  };
-  const notFoundStore = scan?.not_found_scope === "section";
-  const openScanIssues = () => openTxns("Issues by scan · 30 d", {
-    fetch: () => mgmtRows("issues", "all").then(mapped((r) => ({ ...r, txn_type: r.how || r.txn_type }))),
-    note: `${fmtInt(scanIssues?.by_scan)} of ${fmtInt(scanIssues?.total)} issues reached the part by a scan (QR, supplier barcode or kiosk request), ${fmtInt(scanIssues?.by_search)} by search / typing${scanIssues?.unrecorded ? `, ${fmtInt(scanIssues.unrecorded)} not recorded` : ""}. Cancelled issues are left out. Tap a row for that part's history.`,
-  });
-  const openPutAways = () => openTxns("Put-aways by scan · 30 d", {
-    fetch: () => mgmtRows("put_away", "all").then(mapped((r) => ({
-      ...r, part_name: [r.part_name, r.location && `bin ${r.location}`, r.put_by && `by ${r.put_by}`, r.gate_entry_no && `lot ${r.gate_entry_no}`].filter(Boolean).join(" · "),
-    }))),
-    note: `${fmtInt(putAway?.count)} put-away(s) confirmed by scanning the bin, ${fmtInt(putAway?.with_lot_tag)} of them from a lot tag. Qty is the lot qty. Tap a row for that part's history.`,
-  });
-  const scanOpen = {
-    "Scan-first rate": () => openScans("all", "Scan Part scans · 30 d",
-      `${fmtInt(sc?.scanned)} of ${fmtInt(scanTotal)} scans were read by a scanner or camera; the rest were typed.`),
-    // In a section view the tile reads "—" and the list is the whole store's,
-    // so its number comes off that list, not the section's (always 0) figure.
-    "Code not found": () => openScans("not_found", "Code not found · 30 d",
-      notFoundStore
-        ? (list) => `${list ? `${fmtInt(list.length)} scan(s)` : "Scans"} of a code that matched no part, store-wide — tag missing or wrong. A code that is no part has no section, so this is the whole store's list.`
-        : `${fmtInt(sc?.not_found)} scan(s) of a code that matched no part — tag missing or wrong.`, notFoundStore),
-    "Issues by scan": openScanIssues,
-    "Put-away by scan": openPutAways,
-    Scanned: () => openScans("scanned_ok", "Scanned · 30 d", `${fmtInt(sc?.scanned_ok)} scan(s) by scanner or camera that found the part.`),
-    Typed: () => openScans("typed_ok", "Typed · 30 d", `${fmtInt(sc?.typed_ok)} code(s) typed in that found the part.`),
-    "Not found": () => openScans("not_found", "Not found · 30 d", `${fmtInt(sc?.not_found)} scan(s) of a code that matched no part.`),
-  };
   // ERP vs physical tiles: the comparison list, cut to what each tile counts
   // (its chips summarise the rows shown).
   // Accuracy is a figure of the whole comparison: a slice holding only some of
@@ -1313,7 +1321,12 @@ export default function TvDashboard() {
   if (reorderN) liveAlerts.push({ color: STATUS.reorder, text: `${plural(reorderN, "part")} at reorder level`, onClick: openReorder });
   if (excess) liveAlerts.push({ color: STATUS.above, text: `${plural(excess, "part")} above maximum · ${fmtMoney(excessValue ?? excessValueRows)} tied up`, onClick: openExcess });
   if (confirmCount) liveAlerts.push({ color: C.purple, text: `${plural(confirmCount, "issue")} awaiting user confirmation`, onClick: openConfirmations });
-  if (erpGapCount) liveAlerts.push({ color: C.cyan, text: `${plural(erpGapCount, "part")} differ from the ERP ${snapDay ? `${snapDay} ` : ""}snapshot`, onClick: openErpGap });
+  // Said the way the store reads it (the store, 24 Oct 2026: "is line ko thik
+  // meaning me likho" — "differ from the ERP 10 Aug snapshot" read as a puzzle):
+  // the store's count against ERP's, which way each part is off, and that the
+  // ERP side is a dated figure, not live.
+  if (erpGapCount) liveAlerts.push({ color: C.cyan, onClick: openErpGap,
+    text: `ERP vs Physical mismatch: ${plural(erpGapCount, "part")} (${fmtInt(erpSum.short)} short, ${fmtInt(erpSum.excess)} excess)${snapDay ? ` · as on ${snapDay}` : ""}` });
   if (pendingErp) liveAlerts.push({ color: C.purple, text: `${plural(pendingErp, "movement")} queued for ERP (write-back ${erp?.write?.active ? "on" : "off"})`,
     onClick: () => openTxns("Pending ERP", {
       fetch: () => spareStockService.erpPendingList(STORE).then((r) => r.data.data?.rows || []),
@@ -1483,6 +1496,10 @@ export default function TvDashboard() {
         {/* date · clock · last refresh · shift toggle */}
         <HeaderClock isDay={isDay} updated={lastUpdated} onToggle={() => setShiftOverride(!isDay)} />
 
+        <button onClick={openSearch} title="Find a part — stock, bin, photo" aria-label="Find a part"
+          className={`shrink-0 landscape:order-5 inline-flex items-center gap-[0.5vh] rounded-full px-[1.1vh] py-[0.35vh] text-[1.3vh] font-bold transition-colors ${isDay ? "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50" : "bg-white/10 border border-white/25 text-white hover:bg-white/20"}`}>
+          <Search size={15} /><span className="hidden landscape:inline">Find part</span>
+        </button>
         <button onClick={toggleFs} title={isFs ? "Exit fullscreen" : "Fullscreen"} className={`shrink-0 landscape:order-5 ${isDay ? "text-slate-400 hover:text-slate-700" : "text-white/60 hover:text-white"}`}>{isFs ? <Minimize size={16} /> : <Maximize size={16} />}</button>
       </div>
       </div>
@@ -1579,12 +1596,12 @@ export default function TvDashboard() {
           PORTRAIT (the 9:16 wall, ~55vh wide): two columns.
             stock health (full width)
             value by section | excess aging
-            material in vs out | by department
+            receipt vs issue | issue & consumption
             management action tracker (full width)
-            scan discipline | ERP vs physical
+            stock value trend | ERP vs physical
           LANDSCAPE (laptop / wide monitor): four columns in three titled rows:
             Stock overview      health · value by section · part mix · excess aging
-            Movement & control  in vs out · by department · scan discipline · ERP vs physical
+            Movement & control  receipt vs issue · issue & consumption · stock value trend · ERP vs physical
             Management action   action tracker (3 columns wide) · recent movements
           The last landscape row takes whatever height is left, so the board
           fills exactly one screen instead of scrolling.
@@ -1592,18 +1609,18 @@ export default function TvDashboard() {
           recent-movements table (its newest line runs in the ticker, and the
           in-vs-out card opens the full list). */}
       <div className="grid grid-cols-2 gap-[0.6vh] landscape:grid-cols-4 landscape:flex-1 landscape:grid-rows-[auto_auto_auto_auto_auto_1fr]">
-      <SectionBar className="landscape:order-1" title="Stock Overview" hint="Stock health · value by section · part mix · excess aging" tone="var(--pill-blue)" />
-      <SectionBar className="landscape:order-6" title="Movement & Control" hint="Material in vs out · department-wise issue · scan discipline · ERP vs physical" tone="var(--pill-green)" />
+      <SectionBar className="landscape:order-1" title="Stock Overview" hint="Stock health · value by section · part mix · excess & discontinued" tone="var(--pill-blue)" />
+      <SectionBar className="landscape:order-6" title="Movement & Control" hint="Receipt vs issue · issue & consumption · stock value trend · ERP vs physical" tone="var(--pill-green)" />
       <SectionBar className="landscape:order-11" title="Management Action" hint="What is wrong · how much money · who must act · latest movements" tone="var(--pill-red)" />
 
       {/* ---------- stock health ---------- */}
         <Card className="min-w-0 p-[0.7vh] order-1 col-span-2 landscape:col-span-1 landscape:order-2">
           <PanelHead icon={HeartMini} color={C.green} title="Stock Health"
-            note={ovState === "ok" && counted ? `Share of ${fmtInt(counted)} counted parts` : undefined} />
+            note={ovState === "ok" && healthBase ? `Share of ${fmtInt(healthBase)} counted parts${discontinuedN ? ` · ${fmtInt(discontinuedN)} discontinued apart` : ""}` : undefined} />
           {/* Shares of the COUNTED parts, all four bands, so they add to 100% —
               a part nobody has counted has no status to judge, and says so. */}
           {ovState !== "ok" ? <PanelState state={ovState} onRetry={reload} h="7vh" />
-            : !counted ? <PanelState empty="No part counted yet — stock health needs a physical count" h="7vh" />
+            : !healthBase ? <PanelState empty="No part counted yet — stock health needs a physical count" h="7vh" />
               : (
                 <>
                   <div className="flex items-center justify-around pt-[0.3vh]">
@@ -1612,16 +1629,16 @@ export default function TvDashboard() {
                         width landscape card alike. */}
                     {/* Each gauge opens the parts in its status (the same rows it counts). */}
                     <Tap className="min-w-0 rounded-xl px-[0.3vh]" onOpen={openHealthy} label={`Healthy: ${fmtInt(healthy)} parts. Open the list`}>
-                      <Gauge w="var(--dx-gauge-w)" pct={(healthy / counted) * 100} color={STATUS.healthy} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
+                      <Gauge w="var(--dx-gauge-w)" pct={(healthy / healthBase) * 100} color={STATUS.healthy} label="Healthy" sub={`${fmtInt(healthy)} Parts`} />
                     </Tap>
                     <Tap className="min-w-0 rounded-xl px-[0.3vh]" onOpen={openReorder} label={`Reorder: ${fmtInt(reorderN)} parts. Open the list`}>
-                      <Gauge w="var(--dx-gauge-w)" pct={(reorderN / counted) * 100} color={STATUS.reorder} label="Reorder" sub={`${fmtInt(reorderN)} Parts`} />
+                      <Gauge w="var(--dx-gauge-w)" pct={(reorderN / healthBase) * 100} color={STATUS.reorder} label="Reorder" sub={`${fmtInt(reorderN)} Parts`} />
                     </Tap>
                     <Tap className="min-w-0 rounded-xl px-[0.3vh]" onOpen={openCritical} label={`Critical: ${fmtInt(critical)} parts. Open the list`}>
-                      <Gauge w="var(--dx-gauge-w)" pct={(critical / counted) * 100} color={C.red} label="Critical" sub={`${fmtInt(critical)} Parts`} />
+                      <Gauge w="var(--dx-gauge-w)" pct={(critical / healthBase) * 100} color={C.red} label="Critical" sub={`${fmtInt(critical)} Parts`} />
                     </Tap>
                     <Tap className="min-w-0 rounded-xl px-[0.3vh]" onOpen={openExcess} label={`Excess: ${fmtInt(excess)} parts. Open the list`}>
-                      <Gauge w="var(--dx-gauge-w)" pct={(excess / counted) * 100} color={STATUS.above} label="Excess" sub={`${fmtInt(excess)} Parts`} />
+                      <Gauge w="var(--dx-gauge-w)" pct={(excess / healthBase) * 100} color={STATUS.above} label="Excess" sub={`${fmtInt(excess)} Parts`} />
                     </Tap>
                   </div>
                 </>
@@ -1702,8 +1719,8 @@ export default function TvDashboard() {
           (GRN / gate entry). The ERP mirror only reaches back to its horizon, so
           the last band is "no inward since then" — a floor, not an exact age. */}
       <Card className="min-w-0 p-[0.7vh] order-3 landscape:order-5">
-        <PanelHead tight icon={Hourglass} color={STATUS.above} title="Excess Aging · Tied-up ₹"
-          action="View Details" onAction={openExcess} />
+        <PanelHead tight icon={Hourglass} color={STATUS.above} title="Tied-up ₹ · Excess & Discontinued"
+          action="View Details" onAction={agingBands ? openAgingAll : openExcess} />
         {mgState !== "ok" || !aging ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.6vh" />
           : !aging.total?.parts ? (
             <PanelState h="8.6vh" empty={noneCounted || rowsNoneCounted ? "No part counted yet — excess needs a physical count" : "No excess stock — nothing above its maximum"} />
@@ -1718,7 +1735,8 @@ export default function TvDashboard() {
                   idle 91+ days or no inward{agingIdlePct != null ? ` · ${agingIdlePct}% of ${fmtMoney(aging.total.value)} above max` : ""}
                 </span>
               </Tap>
-              <div className="mt-[0.4vh] landscape:mt-[0.7vh] space-y-[0.3vh] landscape:space-y-[0.5vh]">
+              <div className="mt-[0.4vh] landscape:mt-[0.7vh] space-y-[0.3vh] landscape:space-y-[0.5vh]"
+                title={`Age = days since the last ERP inward (GRN / gate)${aging.horizon ? ` · ERP history from ${fmtIsoDay(aging.horizon)}` : ""}`}>
                 {(aging.buckets || []).map((b) => (
                   <Tap key={b.key} className="rounded-md px-[0.3vh] -mx-[0.3vh]" onOpen={() => openAgeBands([b.key], ageTitle(b))}
                     label={`${ageTitle(b)}: ${fmtInt(b.parts)} parts, ${fmtMoney(b.value)}. Open the list`}>
@@ -1726,27 +1744,47 @@ export default function TvDashboard() {
                   </Tap>
                 ))}
               </div>
-              <div className="hidden landscape:block mt-[0.6vh] text-[1.1vh] leading-tight text-[var(--dx-t4)] truncate">
-                Age = days since the last ERP inward (GRN / gate){aging.horizon ? ` · ERP history from ${fmtIsoDay(aging.horizon)}` : ""}
-              </div>
+              {/* The age note gives its line to the discontinued row when there is
+                  one (the board must stay one screen); it is still the bands' hover text. */}
+              {!discRow && (
+                <div className="hidden landscape:block mt-[0.6vh] text-[1.1vh] leading-tight text-[var(--dx-t4)] truncate">
+                  Age = days since the last ERP inward (GRN / gate){aging.horizon ? ` · ERP history from ${fmtIsoDay(aging.horizon)}` : ""}
+                </div>
+              )}
             </>
           )}
+        {/* Discontinued stock: money that will not be used either. It had its
+            own panel until 24 Oct 2026, when that place went to the value
+            trend ("discontinue wala excess aging me hi aa sakta h"). Opens its parts. */}
+        {discRow && (
+          <Tap className="block mt-[0.4vh] pt-[0.4vh] landscape:mt-[0.5vh] landscape:pt-[0.5vh] border-t border-[var(--dx-divide)] rounded-md px-[0.3vh] -mx-[0.3vh]"
+            onOpen={openDiscontinued}
+            label={`Discontinued: ${fmtInt(disc.held.length)} parts with stock, ${fmtMoney(disc.value)}. Open the list`}>
+            <div className="flex items-center gap-[0.8vh] text-[1.15vh] landscape:text-[1.3vh] leading-none">
+              <span className="shrink-0 font-semibold text-[var(--dx-t2)]">Discontinued</span>
+              <span className="flex-1 min-w-0 truncate text-[var(--dx-t4)]">
+                {fmtInt(disc.held.length)} with stock<span className="hidden landscape:inline"> · scrap / return / move</span>
+              </span>
+              <span className="shrink-0 font-bold tabular-nums" style={{ color: C.amber }}>{fmtMoney(disc.value)}</span>
+            </div>
+          </Tap>
+        )}
       </Card>
 
-      {/* ---------- material movement: in vs out ---------- */}
+      {/* ---------- material movement: receipt vs issue ---------- */}
       {/* Rupees per month. In = what ERP's GRN register received; Out = what the
           app's issue ledger issued — both at the part's current rate. A month a
           source does not cover has no bar (it is unknown, not zero). */}
       <Card className="min-w-0 p-[0.7vh] order-4 landscape:order-7">
-        <PanelHead tight icon={ArrowLeftRight} color={C.green} title="Material In vs Out · ₹"
+        <PanelHead tight icon={ArrowLeftRight} color={C.green} title="Receipt vs Issue · ₹"
           action="Movements" onAction={openMovements} />
         {mgState !== "ok" || !movement ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.8vh" />
-          : !moveHasData ? <PanelState h="8.8vh" empty="No inward or issue on record yet" />
+          : !moveHasData ? <PanelState h="8.8vh" empty="No receipt or issue on record yet" />
             : (
               <>
                 <div className="flex items-center gap-[1.2vh] text-[1.05vh] landscape:text-[1.2vh] leading-tight text-[var(--dx-t2)] px-[0.4vh] pb-[0.2vh] whitespace-nowrap overflow-hidden">
-                  <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.healthy }} />In<span className="hidden landscape:inline"> · ERP GRN</span></span>
-                  <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.out }} />Out<span className="hidden landscape:inline"> · app issues</span></span>
+                  <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.healthy }} />Receipt<span className="hidden landscape:inline"> · ERP GRN</span></span>
+                  <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.out }} />Issue<span className="hidden landscape:inline"> · app</span></span>
                   <span className="ml-auto text-[var(--dx-t4)]">₹ lakh / month</span>
                 </div>
                 <div className="h-[5.9vh] landscape:h-[10.5vh]">
@@ -1767,9 +1805,9 @@ export default function TvDashboard() {
                       <YAxis tick={{ fontSize: tickPx, fill: axisColor }} axisLine={false} tickLine={false} width={Math.round(tickPx * 2.2)}
                         tickFormatter={(v) => Math.round(v / 1e5)} />
                       <Tooltip content={<BoardTip fmt={fmtMoney} />} cursor={{ fill: "var(--dx-track)" }} />
-                      <Bar dataKey="in" name="In (ERP GRN)" fill={STATUS.healthy} radius={[4, 4, 0, 0]} maxBarSize={tickPx * 2} isAnimationActive={false}
+                      <Bar dataKey="in" name="Receipt (ERP GRN)" fill={STATUS.healthy} radius={[4, 4, 0, 0]} maxBarSize={tickPx * 2} isAnimationActive={false}
                         cursor="pointer" onClick={onMoveBar("in")} activeBar={{ fillOpacity: 0.8, stroke: axisColor, strokeWidth: 1 }} minPointSize={tapSliver} />
-                      <Bar dataKey="out" name="Out (issued)" fill={STATUS.out} radius={[4, 4, 0, 0]} maxBarSize={tickPx * 2} isAnimationActive={false}
+                      <Bar dataKey="out" name="Issue" fill={STATUS.out} radius={[4, 4, 0, 0]} maxBarSize={tickPx * 2} isAnimationActive={false}
                         cursor="pointer" onClick={onMoveBar("out")} activeBar={{ fillOpacity: 0.8, stroke: axisColor, strokeWidth: 1 }} minPointSize={tapSliver} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -1779,12 +1817,12 @@ export default function TvDashboard() {
                     <>
                       This month:{" "}
                       {movement.this_month?.in_value != null
-                        ? <Tap className="inline rounded-sm px-[0.2vh]" onOpen={() => openMonth(moveData.length - 1, "in")} label="This month's In (ERP GRN lines). Open the list">in {fmtMoney(movement.this_month.in_value)}</Tap>
-                        : <>in {fmtMoney(movement.this_month?.in_value)}</>}
+                        ? <Tap className="inline rounded-sm px-[0.2vh]" onOpen={() => openMonth(moveData.length - 1, "in")} label="This month's Receipt (ERP GRN lines). Open the list">receipt {fmtMoney(movement.this_month.in_value)}</Tap>
+                        : <>receipt {fmtMoney(movement.this_month?.in_value)}</>}
                       {" · "}
                       {movement.this_month?.out_value != null
-                        ? <Tap className="inline rounded-sm px-[0.2vh]" onOpen={() => openMonth(moveData.length - 1, "out")} label="This month's Out (issues). Open the list">out {fmtMoney(movement.this_month.out_value)}</Tap>
-                        : <>out {fmtMoney(movement.this_month?.out_value)}</>}
+                        ? <Tap className="inline rounded-sm px-[0.2vh]" onOpen={() => openMonth(moveData.length - 1, "out")} label="This month's Issue. Open the list">issue {fmtMoney(movement.this_month.out_value)}</Tap>
+                        : <>issue {fmtMoney(movement.this_month?.out_value)}</>}
                     </>
                   ) : "No issue recorded in the app yet"}
                 </div>
@@ -1794,12 +1832,28 @@ export default function TvDashboard() {
 
       {/* ---------- department-wise issue ---------- */}
         <Card className="min-w-0 p-[0.7vh] order-5 landscape:order-8">
-          {/* This shift's issues now have their own tile (Issued Today). */}
-          <PanelHead icon={FileBarChart} color={C.purple} title="Dept. Issue · This Month" />
+          {/* This shift's issues have their own tile (Issued Today). Here, the
+              month: how much went out and where it was used (the store, 22 Oct
+              2026: "kitna issue hua and kahan consume hua wo data mile"). */}
+          <PanelHead icon={FileBarChart} color={C.purple} title="Issue & Consumption · This Month" />
           {deptState !== "ok" ? <PanelState state={deptState} onRetry={reload} h="8vh" /> : (
-            <div className="space-y-[0.5vh] landscape:space-y-[0.9vh] pt-[0.3vh]">
-              {/* Top four — the share beside each is still of the WHOLE month. */}
-              {/* Each department opens its issues this month. */}
+            <div className="space-y-[0.5vh] landscape:space-y-[0.8vh] pt-[0.3vh]">
+              {issueMonth && issueMonth.total?.issues > 0 && (
+                <div className="grid grid-cols-3 gap-[0.5vh]">
+                  {[
+                    { label: "Issued", value: fmtInt(issueMonth.total.qty), sub: `${fmtInt(issueMonth.total.issues)} issues · ${fmtMoney(issueMonth.total.value)}`, color: STATUS.out },
+                    { label: "Returned", value: fmtInt(issueMonth.total.returned), sub: "came back", color: C.muted },
+                    { label: "Consumed", value: fmtInt(issueMonth.total.net_qty), sub: fmtMoney(issueMonth.total.net_value), color: C.purple },
+                  ].map((t) => (
+                    <div key={t.label} className="min-w-0 rounded-xl px-[0.8vh] py-[0.4vh]" style={{ background: "var(--dx-track)" }}>
+                      <div className="text-[1.05vh] landscape:text-[1.2vh] leading-tight text-[var(--dx-t3)] truncate">{t.label}</div>
+                      <div className="text-[1.7vh] landscape:text-[2.1vh] font-extrabold leading-none tabular-nums" style={{ color: t.color }}>{t.value}</div>
+                      <div className="hidden landscape:block mt-[0.2vh] text-[1.05vh] leading-tight text-[var(--dx-t4)] truncate">{t.sub}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Each consuming department, the most issued first; each opens its issues this month. */}
               {deptData.length ? deptData.slice(0, 4).map((d) => (
                 <Tap key={d.name} className="rounded-md px-[0.3vh] -mx-[0.3vh]" onOpen={() => openDept(d)}
                   label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
@@ -1807,45 +1861,63 @@ export default function TvDashboard() {
                 </Tap>
               ))
                 : <div className="text-[1.4vh] text-[var(--dx-t4)] py-[2.2vh] text-center">No issue recorded this month</div>}
+              {/* Where it was used: the line / machine the fitter recorded on
+                  Confirm Installation, the most used first; "Not recorded yet"
+                  is an issue still waiting for that confirmation. */}
+              {issueMonth?.places?.length > 0 && (
+                <div className="pt-[0.2vh]">
+                  <div className="text-[1.05vh] landscape:text-[1.2vh] font-semibold uppercase tracking-wide text-[var(--dx-t4)]">Used at</div>
+                  {issueMonth.places.slice(0, 3).map((pl) => {
+                    const waiting = !pl.line && pl.machine === "Not recorded yet";
+                    const where = [pl.line, pl.machine].filter(Boolean).join(" · ");
+                    return (
+                      <div key={`${pl.department}|${pl.line}|${pl.machine}`}
+                        className="flex items-center gap-[0.8vh] text-[1.2vh] landscape:text-[1.35vh] leading-snug">
+                        <span className="min-w-0 flex-1 truncate" style={{ color: waiting ? "var(--pill-amber)" : "var(--dx-t2)" }}
+                          title={`${pl.department}: ${where}`}>
+                          {waiting ? "Install not confirmed yet" : where}
+                          <span className="text-[var(--dx-t4)]"> · {pl.department}</span>
+                        </span>
+                        <span className="shrink-0 font-bold tabular-nums text-[var(--dx-t1)]">{fmtInt(pl.net_qty)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </Card>
 
-      {/* ---------- barcode & scan discipline ---------- */}
-      {/* Is the store scanning or typing? Counted off the Scan Part page's own
-          audit rows for the last 30 days; a stream nobody has used yet says so
-          ("—") instead of scoring a zero. */}
+      {/* ---------- stock value trend ---------- */}
+      {/* What the stock was worth, day by day up to year by year (the store,
+          24 Oct 2026: "graph me dikhe ki inventory ka trand kya chal rha h month
+          wise year wise"), in the place the discontinued panel had. Worked back
+          from today's stock through the ledger at today's rate
+          (SpareManagementService._value_trend): a block of stock loaded from
+          Excel shows as a step, named under the chart, never as buying. */}
       <Card className="min-w-0 p-[0.7vh] order-7 landscape:order-9 flex flex-col">
-        <PanelHead icon={ScanBarcode} color={C.purple} title="Scan Discipline · 30 d" />
-        {mgState !== "ok" || !scan ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.3vh" /> : (
-          <>
-            <div className="grid grid-cols-2 gap-[0.5vh] landscape:flex-1">
-              {/* Each tile opens the scans / issues / put-aways behind it. */}
-              {scanTiles.map((t) => (
-                <Tap key={t.label} onOpen={scanOpen[t.label]} label={`${t.label}: ${t.value}. Open the list`} hover="hover:ring-1 hover:ring-slate-400/60"
-                  className="min-w-0 rounded-xl px-[0.9vh] py-[0.3vh] landscape:px-[1.3vh] flex flex-col justify-center" style={{ background: "var(--dx-track)" }}>
-                  <div className="text-[1.05vh] landscape:text-[1.25vh] leading-tight text-[var(--dx-t3)] truncate">{t.label}</div>
-                  <div className="mt-[0.2vh] landscape:mt-[0.25vh] text-[1.8vh] landscape:text-[2.3vh] font-extrabold leading-none tabular-nums" style={{ color: t.color }}>{t.value}</div>
-                  <div className="hidden landscape:block mt-[0.25vh] text-[1.1vh] leading-tight text-[var(--dx-t4)] truncate">{t.sub}</div>
-                </Tap>
-              ))}
-            </div>
-            {/* How the code got in — scanned, typed / searched, or not found;
-                each part of the bar and of its legend opens those scans. */}
-            {scanTotal > 0 && (
-              <div className="hidden landscape:flex mt-[0.6vh] items-center gap-[1.2vh] text-[1.1vh] leading-none text-[var(--dx-t3)] whitespace-nowrap">
-                <div className="flex-1 flex h-[1.2vh] rounded-full overflow-hidden" style={{ background: "var(--dx-track)" }}>
-                  {scanSplit.map((x) => (x.n > 0 ? <div key={x.label} title={`${x.label}: ${x.n}`} onClick={scanOpen[x.label]} className="cursor-pointer hover:brightness-110" style={{ width: `${(x.n / scanTotal) * 100}%`, background: x.color }} /> : null))}
-                </div>
-                {scanSplit.map((x) => (
-                  <Tap key={x.label} onOpen={scanOpen[x.label]} label={`${x.label}: ${fmtInt(x.n)}. Open the list`} className="flex items-center gap-[0.4vh] rounded px-[0.3vh] py-[0.2vh] -my-[0.2vh]">
-                    <span className="w-[0.9vh] h-[0.9vh] rounded-full shrink-0" style={{ background: x.color }} />{x.label} {fmtInt(x.n)}
-                  </Tap>
-                ))}
+        <PanelHead tight icon={TrendingUp} color={C.blue} title="Stock Value Trend · ₹"
+          action="View Details" onAction={trend ? () => openTrend(trendView) : undefined} />
+        {mgState !== "ok" ? <PanelState state={mgState} onRetry={reload} h="8.3vh" />
+          : !trend ? <PanelState h="8.3vh" empty={trend === null ? "No stock with a rate yet" : "Not available on this server yet"} /> : (
+            <>
+              <div className="flex items-center gap-[0.8vh] min-w-0 pb-[0.2vh]">
+                <span className="shrink-0 text-[1.8vh] landscape:text-[2.2vh] font-extrabold leading-none tabular-nums" style={{ color: C.blue }}>{fmtMoney(trend.value)}</span>
+                {trendDelta != null && (
+                  <span className="min-w-0 truncate text-[1.05vh] landscape:text-[1.2vh] font-semibold leading-tight text-[var(--dx-t3)]">
+                    {trendDelta === 0 ? "no change" : `${trendDelta > 0 ? "▲" : "▼"} ${fmtMoney(Math.abs(trendDelta))}`} vs {trendViewOf(trendView).prev}
+                  </span>
+                )}
+                <span className="ml-auto shrink-0"><TrendSelect view={trendView} setView={setTrendView} /></span>
               </div>
-            )}
-          </>
-        )}
+              <div className="h-[6.2vh] landscape:h-auto landscape:flex-1 landscape:min-h-[9vh]">
+                <TrendChart points={trendPts} axis={axisColor} grid={gridColor} tickPx={tickPx} onOpen={() => openTrend(trendView)} />
+              </div>
+              <div className="hidden landscape:block mt-[0.3vh] text-[1.1vh] leading-tight text-[var(--dx-t4)] truncate">
+                At today's rate{trend.loads?.[0] ? ` · ${fmtIsoDay(trend.loads[0].date)}: ${fmtMoney(trend.loads[0].value)} Excel load` : ""}
+              </div>
+            </>
+          )}
       </Card>
 
       {/* ---------- ERP current stock ---------- */}
@@ -1957,16 +2029,36 @@ export default function TvDashboard() {
             <button onClick={() => setStack([])} title="Close"
               className="w-[4.4vh] h-[4.4vh] rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-[2.4vh] leading-none">✕</button>
           </div>
-          <div className="flex-1 min-h-0">
-            {stack[stack.length - 1].kind === "partHistory"
-              ? <PartHistoryView frame={stack[stack.length - 1]} axis={axisColor} grid={gridColor} />
-              : stack[stack.length - 1].kind === "txnList"
-                ? <TxnListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
-                : stack[stack.length - 1].kind === "erpGap"
-                  ? <ErpGapView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />
-                  : stack[stack.length - 1].kind === "srvList"
-                    ? <SrvListView frame={stack[stack.length - 1]} />
-                    : <PartListView frame={stack[stack.length - 1]} onOpen={openHistory} axis={axisColor} grid={gridColor} />}
+          {/* Every frame of the trail stays mounted, one layer each, only the
+              last one shown: a part opened from a list sits OVER that list, so
+              Back finds it exactly as it was left — scrolled to the same row,
+              the same type / section bar still picked — instead of building it
+              again from the top (the store, 23 Oct 2026: "back button se wapis
+              usi screen par aani chahiye", as on the Spare Store dashboard).
+              Each layer scrolls on its own, so each keeps its own place. */}
+          <div className="relative flex-1 min-h-0">
+            {stack.map((f, i) => {
+              const top = i === stack.length - 1;
+              return (
+                // Keyed by what the frame shows, so another part opened in the
+                // same place starts fresh (photo closed) rather than inheriting.
+                <div key={`${i}-${f.kind}-${f.title}`} aria-hidden={!top} className={`absolute inset-0 overflow-auto ${top ? "" : "invisible"}`}>
+                  {f.kind === "partSearch"
+                    ? <PartSearchView frame={f} q={findQ} setQ={setFindQ} onOpen={openHistory} sectionNames={sectionName} />
+                    : f.kind === "partHistory"
+                    ? <PartHistoryView frame={f} axis={axisColor} grid={gridColor} />
+                    : f.kind === "valueTrend"
+                    ? <ValueTrendView frame={f} axis={axisColor} grid={gridColor} />
+                    : f.kind === "txnList"
+                      ? <TxnListView frame={f} onOpen={openHistory} axis={axisColor} grid={gridColor} />
+                      : f.kind === "erpGap"
+                        ? <ErpGapView frame={f} onOpen={openHistory} axis={axisColor} grid={gridColor} />
+                        : f.kind === "srvList"
+                          ? <SrvListView frame={f} />
+                          : <PartListView frame={f} onOpen={openHistory} axis={axisColor} grid={gridColor} />}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1975,6 +2067,117 @@ export default function TvDashboard() {
 }
 
 // ---- Explore-Data drill views ---------------------------------------------
+
+// The stock value trend's views (management.value_trend.series).
+const TREND_VIEWS = [
+  { key: "day", short: "D", label: "Day", prev: "yesterday" },
+  { key: "week", short: "W", label: "Week", prev: "last week" },
+  { key: "month", short: "M", label: "Month", prev: "last month" },
+  { key: "year", short: "Y", label: "Year", prev: "last year" },
+];
+const trendViewOf = (key) => TREND_VIEWS.find((v) => v.key === key) || TREND_VIEWS[2];
+// A rupee axis in the unit its figures need: crore once any point reaches one.
+const trendUnit = (points) => (Math.max(0, ...points.map((p) => p.value || 0)) >= 1e7
+  ? { div: 1e7, unit: "₹ Cr" } : { div: 1e5, unit: "₹ lakh" });
+
+// Day wise / Week wise / Month wise / Year wise, as one dropdown on the chart
+// (the store, 24 Oct 2026: "drop down laga graph me"). The list it opens is the
+// browser's own, so its options keep dark text on white in the night theme too.
+function TrendSelect({ view, setView, big = false }) {
+  return (
+    <select value={view} onChange={(e) => setView(e.target.value)} onClick={(e) => e.stopPropagation()}
+      aria-label="Trend by" title="Show the trend day / week / month / year wise"
+      className={`rounded-md border border-[var(--dx-border)] bg-[var(--dx-track)] font-semibold text-[var(--dx-t1)] cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400 ${big ? "px-[1vh] py-[0.4vh] text-[1.5vh]" : "px-[0.5vh] py-[0.1vh] text-[1.1vh] landscape:text-[1.2vh]"}`}>
+      {TREND_VIEWS.map((v) => (
+        <option key={v.key} value={v.key} style={{ color: "#0f172a", background: "#fff" }}>{v.label} wise</option>
+      ))}
+    </select>
+  );
+}
+
+function TrendChart({ points, axis, grid, tickPx, onOpen }) {
+  const { div } = trendUnit(points);
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <ComposedChart data={points} margin={{ top: 6, right: 8, left: 0, bottom: 0 }} onClick={onOpen}
+        style={onOpen ? { cursor: "pointer" } : undefined}>
+        <defs>
+          <linearGradient id="dxTrendFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={C.blue} stopOpacity={0.32} />
+            <stop offset="100%" stopColor={C.blue} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+        <XAxis dataKey="label" axisLine={{ stroke: grid }} tickLine={false} tick={{ fontSize: tickPx, fill: axis }}
+          interval="preserveStartEnd" minTickGap={10} height={Math.round(tickPx * 1.7)} />
+        <YAxis domain={[0, "auto"]} tick={{ fontSize: tickPx, fill: axis }} axisLine={false} tickLine={false}
+          width={Math.round(tickPx * 2.4)} tickFormatter={(v) => +(v / div).toFixed(div === 1e7 ? 1 : 0)} />
+        <Tooltip content={<BoardTip fmt={fmtMoney} />} cursor={{ stroke: axis, strokeDasharray: "3 3" }} />
+        <Area type="monotone" dataKey="value" stroke="none" fill="url(#dxTrendFill)" tooltipType="none" isAnimationActive={false} />
+        <Line type="monotone" dataKey="value" name="Stock value" stroke={C.blue} strokeWidth={2.5}
+          dot={points.length <= 14 ? { r: 3, fill: C.blue, strokeWidth: 0 } : false} activeDot={{ r: 4 }} isAnimationActive={false} />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+// The value trend, full size: the chart and, per period, what the stock was
+// worth at its end and how far that moved from the period before.
+function ValueTrendView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
+  const t = frame.trend || {};
+  const [view, setView] = useState(frame.view || "month");
+  const v = trendViewOf(view);
+  const pts = t.series?.[view] || [];
+  const tickPx = Math.max(12, Math.round((typeof window !== "undefined" ? window.innerHeight : 800) * 0.014));
+  const rows = pts.map((p, i) => {
+    const before = i ? pts[i - 1].value : null;
+    return { ...p, change: before != null ? p.value - before : null, pct: before ? ((p.value - before) / before) * 100 : null };
+  }).reverse();
+  const span = (p) => (p.from === p.to ? fmtIsoDay(p.to) : `${fmtIsoDay(p.from)} – ${fmtIsoDay(p.to)}`);
+  return (
+    <div className="flex flex-col gap-[1.4vh]">
+      <Card className="p-[1.5vh] text-[1.55vh] font-medium text-[var(--dx-t2)] border-l-4" style={{ borderLeftColor: C.blue }}>
+        Stock value today {fmtMoney(t.value)}. Each point is what the stock was worth at the end of that {v.label.toLowerCase()}:
+        today's stock worked back through the app's ledger, all at today's rate.
+        {t.unrated_parts ? ` ${fmtInt(t.unrated_parts)} part(s) with stock but no rate are not counted.` : ""}
+        {(t.loads || []).map((l) => ` ${fmtIsoDay(l.date)}: ${fmtMoney(l.value)} came in by an Excel load (${fmtInt(l.parts)} parts) — a load, not buying.`).join("")}
+      </Card>
+      <Card className="p-[1.6vh] flex flex-col">
+        <div className="flex flex-wrap items-center justify-between gap-[1vh] mb-[1vh]">
+          <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)]">By {v.label.toLowerCase()} · {trendUnit(pts).unit}</h3>
+          <TrendSelect view={view} setView={setView} big />
+        </div>
+        <div className="h-[38vh]">
+          <TrendChart points={pts} axis={axis} grid={grid} tickPx={tickPx} />
+        </div>
+      </Card>
+      <Card className="p-[1.6vh]">
+        <table className="w-full text-[1.45vh]">
+          <thead>
+            <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
+              <th className="py-[0.7vh] pr-[1vh]">{v.label}</th><th className="pr-[1vh]">Period</th>
+              <th className="pr-[1vh] text-right">Stock value</th><th className="pr-[1vh] text-right">Change</th><th className="text-right">%</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--dx-divide)]">
+            {rows.map((r) => (
+              <tr key={r.key}>
+                <td className="py-[0.8vh] pr-[1vh] font-bold text-[var(--dx-t1)] whitespace-nowrap">{r.label}</td>
+                <td className="pr-[1vh] text-[var(--dx-t3)] whitespace-nowrap">{span(r)}</td>
+                <td className="pr-[1vh] text-right font-semibold tabular-nums text-[var(--dx-t1)]">{fmtMoney(r.value)}</td>
+                <td className="pr-[1vh] text-right tabular-nums text-[var(--dx-t2)]">
+                  {r.change == null ? "—" : r.change === 0 ? "no change" : `${r.change > 0 ? "▲" : "▼"} ${fmtMoney(Math.abs(r.change))}`}
+                </td>
+                <td className="text-right tabular-nums text-[var(--dx-t3)]">{r.pct == null ? "—" : Math.abs(r.pct) < 0.05 ? "0.0%" : `${r.pct > 0 ? "+" : ""}${r.pct.toFixed(1)}%`}</td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan={5} className="py-[2.5vh] text-center text-[var(--dx-t4)]">No stock value on record</td></tr>}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
 
 function typeStyle(t) {
   if (t === "ISSUE") return { background: "rgba(244,63,94,0.16)", color: "var(--pill-red)" };
@@ -2048,9 +2251,28 @@ function DonutHub({ value, label, size = "2.5vh" }) {
   );
 }
 
+// How long an excess part has waited since its last ERP inward. With no inward in
+// the ERP history the wait is at least the history's length ("145+ days").
+function AgeCell({ r, age }) {
+  const days = r.age_days;
+  const color = days == null || days > 90 ? "var(--pill-red)" : days > 30 ? "var(--pill-amber)" : "var(--pill-green)";
+  return (
+    <>
+      <span className="font-bold tabular-nums" style={{ color }}>
+        {days != null ? `${fmtInt(days)} days` : age.horizonDays != null ? `${fmtInt(age.horizonDays)}+ days` : "—"}
+      </span>
+      <span className="ml-[0.7vh] text-[1.2vh] text-[var(--dx-t4)]">
+        {days != null ? `since ${fmtIsoDay(r.last_inward)}` : age.since ? `no inward since ${age.since}` : "no inward on record"}
+      </span>
+    </>
+  );
+}
+
 function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const rows = frame.rows || [];
-  const valueOf = frame.valueOf || ((r) => r.qty_on_hand || 0);
+  // `valueOf` is also every object's inherited method, so only the frame's OWN
+  // one counts — a list opened without one fell on Object.prototype.valueOf and crashed.
+  const valueOf = Object.prototype.hasOwnProperty.call(frame, "valueOf") ? frame.valueOf : (r) => r.qty_on_hand || 0;
   const fmtV = frame.valueFmt || fmtInt;
   // The table always shows Stock; a 2nd value column only when the frame carries
   // a DIFFERENT measure (Value ₹, Short by, Excess by), never a duplicate "Stock".
@@ -2061,6 +2283,8 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const [secPick, setSecPick] = useState(null);
   useEffect(() => { setPick(null); setSecPick(null); }, [rows]);
   const sectionNames = frame.sectionNames || {};
+  // An excess-aging list: each row's wait since its last inward replaces the status.
+  const age = frame.ageCol || null;
   const top = rows.slice().sort((a, b) => (valueOf(b) || 0) - (valueOf(a) || 0)).slice(0, 10)
     .map((r) => ({ name: r.part_no, desc: r.part_name, value: Math.round(valueOf(r) || 0) }));
   const byType = (() => {
@@ -2087,6 +2311,10 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   }
   const isByType = frame.chart === "byType";
   const isBySection = frame.chart === "bySection";
+  // No chart at all on a list that is not about money (Critical, Reorder,
+  // Healthy, a type's parts): ranking pcs / sets / metres against each other
+  // says nothing ("is type k jitne bhi chart wo horizontal" — 22 Oct 2026).
+  const hasChart = isByType || isBySection || Boolean(frame.top10);
   const chartData = isByType ? byType : isBySection ? bySection : top;
   const chartTotal = chartData.reduce((s, d) => s + (d.value || 0), 0);
   const chartTitle = isByType ? "Parts by type"
@@ -2101,7 +2329,8 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
     const r = name && rows.find((x) => x.part_no === name); if (r) onOpen(r);
   };
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh] h-full">
+    <div className={`grid grid-cols-1 ${hasChart ? "xl:grid-cols-2" : ""} gap-[1.4vh] h-full`}>
+      {hasChart && (
       <Card className="p-[1.6vh] flex flex-col">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{chartTitle}</h3>
         <div className="flex-1 min-h-[36vh]">
@@ -2161,23 +2390,27 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
               </div>
             </div>
           ) : (
-            // Top-N is a plain ranked bar chart — ten parts of similar value read
-            // as ten identical donut slices, but as bars each part's value is
-            // legible. The trend over time is a separate line chart below.
+            // A ranking reads across: HORIZONTAL bars, the part no. and its
+            // description beside each, the money at the bar's end (the store's
+            // chart rule, 17 Oct 2026 — vertical bars are for time only). Tap a
+            // part for its history.
             <div className="h-full flex flex-col">
-              <div className="flex-1 min-h-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={top} margin={{ top: 8, right: 8, left: -4, bottom: 30 }}>
-                    <defs>
-                      <linearGradient id="dg-vblue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#60a5fa" /><stop offset="1" stopColor="#2563eb" /></linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
-                    <XAxis dataKey="name" interval={0} angle={-32} textAnchor="end" height={40} tick={{ fontSize: 10, fill: axis }} />
-                    <YAxis tickFormatter={fmtV} width={54} tick={{ fontSize: 11, fill: axis }} />
-                    <Tooltip content={<PartValTip fmt={fmtV} label={frame.valueLabel} />} cursor={{ fill: "var(--dx-track)" }} />
-                    <Bar dataKey="value" fill="url(#dg-vblue)" radius={[5, 5, 0, 0]} barSize={20} cursor="pointer" onClick={onBarClick} isAnimationActive={false} />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="flex-1 min-h-0 overflow-auto pr-[0.4vh] space-y-[0.4vh]">
+                {top.map((c, i) => (
+                  <button key={c.name} type="button" onClick={() => onBarClick(c)} title={`${c.name} — ${c.desc || ""}`}
+                    className="w-full text-left rounded-md px-[0.6vh] py-[0.45vh] hover:bg-[var(--dx-track)] transition-colors">
+                    <span className="flex items-baseline gap-[1vh] text-[1.45vh]">
+                      <span className="w-[2.4vh] shrink-0 text-right tabular-nums text-[var(--dx-t4)]">{i + 1}</span>
+                      <span className="shrink-0 font-bold text-[var(--dx-t1)]">{c.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-[1.3vh] text-[var(--dx-t3)]">{c.desc}</span>
+                      <span className="dx-radiant shrink-0 whitespace-nowrap font-bold text-[var(--dx-t1)]">{fmtV(c.value)}</span>
+                    </span>
+                    <span className="ml-[3.4vh] mt-[0.3vh] block h-[1.1vh] rounded-full bg-[var(--dx-track)] overflow-hidden">
+                      <span className="block h-full rounded-full"
+                        style={{ width: `${Math.max(2, (c.value / (top[0]?.value || 1)) * 100)}%`, background: gradCss(C.blue, 90) }} />
+                    </span>
+                  </button>
+                ))}
               </div>
               <div className="mt-[0.4vh] flex items-center justify-between border-t border-[var(--dx-border)] pt-[0.7vh] px-[0.4vh]">
                 <span className="text-[1.25vh] font-semibold uppercase tracking-wide text-[var(--dx-t4)]">Top {top.length} total</span>
@@ -2187,6 +2420,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
           )}
         </div>
       </Card>
+      )}
       <Card className="p-[1.6vh] overflow-auto">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh] flex items-center gap-[1vh] flex-wrap">
           {secPick != null ? (
@@ -2215,7 +2449,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
               <th className="py-[0.7vh] pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
               <th className="pr-[1vh] text-center">Stock</th>
               {showValue && <th className="pr-[1vh] text-center">{frame.valueLabel}</th>}
-              <th className="pr-[1vh]">Status</th>
+              <th className="pr-[1vh]">{age ? "Pending since" : "Status"}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--dx-divide)]">
@@ -2225,7 +2459,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[24vh]">{r.part_name}</td>
                 <td className="pr-[1vh] text-center">{fmtInt(r.qty_on_hand)}</td>
                 {showValue && <td className="pr-[1vh] text-center font-semibold text-[var(--dx-t1)]">{fmtV(valueOf(r))}</td>}
-                <td className="pr-[1vh]"><StatusPill status={r.status} /></td>
+                <td className="pr-[1vh] whitespace-nowrap">{age ? <AgeCell r={r} age={age} /> : <StatusPill status={r.status} />}</td>
               </tr>
             ))}
             {!shown.length && <tr><td colSpan={showValue ? 5 : 4} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{pick ? `No ${pick} parts` : "No parts in this list"}</td></tr>}
@@ -2236,12 +2470,134 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   );
 }
 
+// Find a part: every word typed must be in the part's numbers, name, model,
+// specification, bin or sub category. An exact part no. comes first, then a
+// part no. that starts with the first word, then an exact old / new / model no.
+const FIND_FIELDS = ["part_no", "old_part_no", "new_part_no", "part_name", "model_no", "specification", "location", "rework_location", "sub_category"];
+const FIND_SHOWN = 40;
+function findParts(rows, q) {
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const first = words[0];
+  const hits = [];
+  rows.forEach((r) => {
+    const hay = FIND_FIELDS.map((f) => r[f] || "").join(" ").toLowerCase();
+    if (!words.every((w) => hay.includes(w))) return;
+    const no = String(r.part_no || "").toLowerCase();
+    const rank = no === first ? 0 : no.startsWith(first) ? 1
+      : [r.old_part_no, r.new_part_no, r.model_no].some((x) => String(x || "").toLowerCase() === first) ? 2 : 3;
+    hits.push([rank, r]);
+  });
+  hits.sort((a, b) => a[0] - b[0] || String(a[1].part_no).localeCompare(String(b[1].part_no)));
+  return hits.map(([, r]) => r);
+}
+
+function PartSearchView({ frame, q, setQ, onOpen, sectionNames = {} }) {
+  const inputRef = useRef(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  const hits = useMemo(() => findParts(frame.rows || [], q), [frame.rows, q]);
+  const shown = hits.slice(0, FIND_SHOWN);
+  // Enter (or a scanner gun's trailing Enter) opens the part when the answer is plain.
+  const onKey = (e) => {
+    if (e.key !== "Enter" || !hits.length) return;
+    const exact = String(hits[0].part_no || "").toLowerCase() === q.trim().toLowerCase();
+    if (exact || hits.length === 1) onOpen(hits[0]);
+  };
+  return (
+    <div className="flex flex-col gap-[1.4vh]">
+      <Card className="p-[1.6vh]">
+        <div className="flex items-center gap-[1.2vh] rounded-xl px-[1.4vh] py-[1vh] bg-[var(--dx-track)]">
+          <Search size={22} className="shrink-0 text-[var(--dx-t4)]" />
+          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
+            placeholder="Part no., old / new no., model, name, spec or bin…" aria-label="Find a part"
+            className="flex-1 min-w-0 bg-transparent outline-none text-[2.2vh] font-semibold text-[var(--dx-t1)] placeholder:text-[var(--dx-t4)] placeholder:font-normal" />
+          {q && <button type="button" onClick={() => { setQ(""); inputRef.current?.focus(); }}
+            className="shrink-0 text-[1.3vh] px-[1.2vh] py-[0.4vh] rounded-full bg-[var(--dx-card)] text-[var(--dx-t3)] hover:text-[var(--dx-t1)]">✕ clear</button>}
+        </div>
+        <div className="mt-[0.8vh] text-[1.3vh] text-[var(--dx-t4)]">
+          {frame.loading ? "Loading the store's parts…"
+            : frame.error ? "Couldn't load the parts — close and open the search again"
+              : !q.trim() ? `${fmtInt((frame.rows || []).length)} parts in the store · type to search · tap a part for its stock history`
+                : !hits.length ? "No part matches"
+                  : `${fmtInt(hits.length)} part${hits.length === 1 ? "" : "s"}${hits.length > FIND_SHOWN ? ` · first ${FIND_SHOWN} shown, type more to narrow` : ""} · tap a part for its stock history`}
+        </div>
+      </Card>
+      {shown.length > 0 && (
+        <Card className="p-[1.2vh]">
+          <div className="divide-y divide-[var(--dx-divide)]">
+            {shown.map((r) => {
+              const thumb = partService.imageUrl({ id: r.part_id, image_file: r.image_file }, true);
+              const also = [r.model_no && `Model ${r.model_no}`, r.old_part_no && `Old ${r.old_part_no}`, r.specification].filter(Boolean).join(" · ");
+              return (
+                <button key={r.part_id} type="button" onClick={() => onOpen(r)}
+                  className="w-full text-left flex items-center gap-[1.6vh] px-[0.8vh] py-[0.9vh] hover:bg-[var(--dx-track)] transition-colors rounded-lg">
+                  <span className="shrink-0 w-[6.5vh] h-[6.5vh] rounded-lg overflow-hidden bg-[var(--dx-track)] flex items-center justify-center text-[1vh] text-[var(--dx-t4)]">
+                    {thumb ? <img src={thumb} alt="" loading="lazy" className="w-full h-full object-cover" /> : "No photo"}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[1.9vh] font-extrabold text-[var(--dx-t1)] leading-tight">{r.part_no}
+                      <span className="ml-[1vh] text-[1.6vh] font-semibold text-[var(--dx-t2)]">{r.part_name}</span></span>
+                    {also && <span className="block truncate text-[1.25vh] text-[var(--dx-t4)]">{also}</span>}
+                  </span>
+                  <span className="shrink-0 w-[18vh]">
+                    <span className="block text-[1.1vh] uppercase tracking-wide text-[var(--dx-t4)]">Bin</span>
+                    <span className="block text-[1.7vh] font-bold text-[var(--dx-t1)] truncate">{r.location || "—"}</span>
+                    <span className="block text-[1.15vh] text-[var(--dx-t4)] truncate">{sectionNames[r.section_id] || ""}{r.rework_location ? ` · rework ${r.rework_location}` : ""}</span>
+                  </span>
+                  <span className="shrink-0 w-[13vh] text-right">
+                    <span className="block text-[1.1vh] uppercase tracking-wide text-[var(--dx-t4)]">In stock</span>
+                    <span className="block text-[2.1vh] font-extrabold tabular-nums text-[var(--dx-t1)]">{fmtInt(r.qty_on_hand)} <span className="text-[1.2vh] font-semibold text-[var(--dx-t4)]">{r.uom || ""}</span></span>
+                    <span className="block text-[1.15vh] text-[var(--dx-t4)] tabular-nums">min {fmtInt(r.min_stock_level)} · max {fmtInt(r.max_stock_level)}</span>
+                  </span>
+                  <span className="shrink-0 w-[14vh] flex justify-end"><StatusPill status={r.status} /></span>
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// The stock-history hover: what happened at that point — the movement, its qty
+// and the balance after it — not the balance alone (the store, 22 Oct 2026:
+// "jo lable aata h cursior se wo bhi check kar").
+function HistTip({ active, payload }) {
+  const p = active && payload?.[0]?.payload;
+  if (!p) return null;
+  const text = "max(11px, 1.25vh)";
+  const line = (k, v, color = "#fff") => (
+    <div style={{ display: "flex", gap: "1.4vh", fontSize: text, lineHeight: 1.5, color: "#b4c5e0", whiteSpace: "nowrap" }}>
+      <span>{k}</span><span style={{ marginLeft: "auto", color, fontWeight: 700 }}>{v}</span>
+    </div>
+  );
+  return (
+    <div style={{ background: "rgba(10,20,40,0.96)", border: "1px solid rgba(125,195,255,0.4)", borderRadius: 8, padding: "0.6vh 1vh", boxShadow: "0 10px 30px rgba(0,0,0,0.5)", pointerEvents: "none" }}>
+      <div style={{ color: "#fff", fontWeight: 700, fontSize: text, marginBottom: "0.2vh" }}>{p.d}</div>
+      {p.type
+        ? line(p.type, `${p.qty > 0 ? "+" : ""}${fmtInt(p.qty)}`, p.qty < 0 ? "#fb7185" : "#34d399")
+        : line("No movement since", "—")}
+      {line(p.type ? "Balance after" : "In stock", fmtInt(p.bal))}
+    </div>
+  );
+}
+
 function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
   const part = frame.part || {};
+  const [bigPhoto, setBigPhoto] = useState(false);
+  const photo = partService.imageUrl({ id: part.part_id, image_file: part.image_file }, true);
   // Stock movements only: an installation entry in the part's history moves no
   // stock, so it is neither a "movement" here nor a point on the balance line.
   const hist = (frame.history || []).filter((h) => h.row_kind !== "installation");
-  const chart = hist.slice().reverse().map((h) => ({ d: fmtDay(h.at || h.created_at), bal: Number(h.balance_after ?? 0) }));
+  // Stock holds its level until the next movement — a step, never a slope
+  // between two dates — and the last level runs on to today.
+  const chart = hist.slice().reverse().map((h) => ({
+    d: fmtDay(h.at || h.created_at), bal: Number(h.balance_after ?? 0), type: h.txn_type, qty: Number(h.qty_delta ?? 0),
+  }));
+  if (chart.length && chart[chart.length - 1].d !== fmtDay(new Date().toISOString())) {
+    chart.push({ d: "Today", bal: chart[chart.length - 1].bal, type: null });
+  }
   const emptyText = frame.error ? "Couldn't load this part's history — close and tap the part again" : "No movement recorded yet";
   // Still fetching: nothing below may read as "no movement" or "since …" yet.
   const loading = Boolean(frame.loading);
@@ -2259,6 +2615,12 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
     <div className="flex flex-col gap-[1.4vh]">
       <Card className="p-[1.6vh]">
         <div className="flex items-center gap-[2vh] flex-wrap">
+          {photo && (
+            <button type="button" onClick={() => setBigPhoto(true)} title="Open the photo"
+              className="shrink-0 w-[8vh] h-[8vh] rounded-lg overflow-hidden bg-[var(--dx-track)] hover:ring-2 hover:ring-slate-400/60">
+              <img src={photo} alt={`${part.part_no} photo`} className="w-full h-full object-cover" />
+            </button>
+          )}
           <div>
             <div className="text-[1.3vh] text-[var(--dx-t4)]">Part No.</div>
             <div className="dx-radiant text-[2.4vh] font-extrabold text-[var(--dx-t1)] leading-none">{part.part_no}</div>
@@ -2270,12 +2632,19 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
             <Stat label="Max" value={fmtInt(part.max_stock_level)} />
             <Stat label="Value" value={fmtMoney(part.stock_value)} />
             <Stat label="Location" value={part.location || "—"} />
+            {part.rework_location && <Stat label="Rework bin" value={part.rework_location} />}
             <Stat label={lastIssue ? "Not issued since" : "No issue recorded since"}
               value={!loading && sinceAt ? `${fmtDay(sinceAt)}${lyingDays != null ? ` · ${lyingDays}d` : ""}` : "—"} />
           </div>
         </div>
       </Card>
 
+      {bigPhoto && (
+        <div className="fixed inset-0 z-[70] bg-black/80 flex items-center justify-center p-[3vh] cursor-zoom-out" onClick={() => setBigPhoto(false)}>
+          <img src={partService.imageUrl({ id: part.part_id, image_file: part.image_file })} alt={`${part.part_no} photo`}
+            className="max-w-full max-h-full rounded-xl shadow-2xl" />
+        </div>
+      )}
       <Card className="p-[1.6vh]">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Stock Level History</h3>
         <div className="h-[32vh]">
@@ -2288,13 +2657,14 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
                 <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
                 <XAxis dataKey="d" tick={{ fontSize: 12, fill: axis }} />
                 <YAxis tick={{ fontSize: 12, fill: axis }} width={42} />
-                <Tooltip content={<BoardTip />} cursor={{ fill: "var(--dx-track)" }} />
+                <Tooltip content={<HistTip />} cursor={{ fill: "var(--dx-track)" }} />
                 {part.max_stock_level != null && (
                   <ReferenceLine y={part.max_stock_level} stroke="#d97706" strokeDasharray="6 4" ifOverflow="extendDomain"
                     label={{ value: `Max ${part.max_stock_level}`, position: "right", fill: "#d97706", fontSize: 11, fontWeight: 700 }} />
                 )}
-                <Area type="monotone" dataKey="bal" stroke="none" fill="url(#dg-area)" />
-                <Line type="monotone" dataKey="bal" name="Balance" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3, fill: "#2563eb" }} />
+                {/* The area only shades under the line: one "Balance" in the tooltip, not two. */}
+                <Area type="stepAfter" dataKey="bal" stroke="none" fill="url(#dg-area)" tooltipType="none" />
+                <Line type="stepAfter" dataKey="bal" name="Balance" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3, fill: "#2563eb" }} />
               </ComposedChart>
             </ResponsiveContainer>
           ) : <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">{emptyText}</div>}
@@ -2317,7 +2687,12 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
               <tr key={i}>
                 <td className="py-[0.7vh] pr-[1vh] text-[var(--dx-t3)] tabular-nums">{fmtDay(h.at || h.created_at)}</td>
                 <td className="pr-[1vh]"><span className="rounded px-[0.9vh] py-[0.2vh] text-[1.2vh] font-bold" style={typeStyle(h.txn_type)}>{h.txn_type}</span></td>
-                <td className="pr-[1vh] text-center font-semibold">{fmtInt(h.qty_delta)}</td>
+                {/* Signed both ways — a +1 shown without its −1 read as a wrong balance
+                    ("add karke dikha rha h to less karke bhi dikha" — the store, 22 Oct 2026). */}
+                <td className="pr-[1vh] text-center font-bold tabular-nums"
+                  style={{ color: Number(h.qty_delta) < 0 ? "var(--pill-red)" : Number(h.qty_delta) > 0 ? "var(--pill-green)" : undefined }}>
+                  {Number(h.qty_delta) > 0 ? "+" : ""}{fmtInt(h.qty_delta)}
+                </td>
                 <td className="pr-[1vh] text-center">{fmtInt(h.balance_after)}</td>
                 <td className="pr-[1vh] text-[var(--dx-t3)]">{h.department || "—"}</td>
                 <td className="pr-[1vh] text-[var(--dx-t3)]">{h.machine || "—"}</td>
@@ -2335,30 +2710,10 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
 
 function TxnListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const rows = frame.rows || [];
-  const dept = frame.deptData || [];
   return (
     <div className="flex flex-col gap-[1.4vh] h-full">
       {frame.note && (
         <Card className="p-[1.5vh] text-[1.55vh] font-medium text-[var(--dx-t2)] border-l-4" style={{ borderLeftColor: "#7c3aed" }}>{frame.note}</Card>
-      )}
-      {dept.length > 0 && (
-        <Card className="p-[1.6vh]">
-          <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">Issued qty by department (this month)</h3>
-          <div className="h-[22vh]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={dept} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="dg-vpurple" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#a78bfa" /><stop offset="1" stopColor="#7c3aed" /></linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
-                <XAxis dataKey="name" tick={{ fontSize: 12, fill: axis }} />
-                <YAxis tick={{ fontSize: 12, fill: axis }} width={40} />
-                <Tooltip content={<BoardTip />} cursor={{ fill: "var(--dx-track)" }} />
-                <Bar dataKey="value" fill="url(#dg-vpurple)" radius={[5, 5, 0, 0]} barSize={26} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
       )}
       <Card className="p-[1.6vh] overflow-auto flex-1">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">
@@ -2386,7 +2741,7 @@ function TxnListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
             ))}
             {!rows.length && (
               <tr><td colSpan={6} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">
-                {frame.error ? "Couldn't load these movements — close and try again" : "No movements"}
+                {frame.error ? "Couldn't load these movements — close and try again" : frame.empty || "No movements"}
               </td></tr>
             )}
           </tbody>

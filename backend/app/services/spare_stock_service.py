@@ -96,6 +96,15 @@ def _stock_build_lock(key):
 DEPARTMENTS = ("Press Shop", "Maintenance", "Tool Room")
 
 
+def is_store_department(name):
+    """Is this department the store itself ("Store", "Spare Store")? The store
+    hands parts out, so it is never the department an issue goes to ("issuance
+    me store dikha rha h jabki store to issue karta h" — the store, 18 Oct 2026).
+    It stays in the Department master for the store's own mails."""
+    name = " ".join(str(name or "").split()).lower()
+    return name == "store" or name.endswith(" store")
+
+
 def _sec_tuple(section_id=None, section_ids=None):
     """Extra WHERE clause(s) to scope a ledger query to a section group
     (section_ids), a single section, or the whole store (neither). A group wins
@@ -325,6 +334,11 @@ def _clean(value):
 # would leave the old die on the issue and in the journal as its current place.
 _KEEP = object()
 
+# "The caller sent no lot qty" for record_put_away. None cannot mean that: the
+# Put-away screen sends null when the operator leaves Lot Qty empty (a part with
+# no gate entry), and that must be recorded as empty, not looked up.
+_LOOK_UP = object()
+
 
 class SpareStockService:
     def __init__(self):
@@ -473,6 +487,8 @@ class SpareStockService:
         qty = float(qty) if qty is not None else 0.0
         if qty <= 0:
             raise BadRequestError("Issue quantity must be greater than zero")
+        if is_store_department(department):
+            raise BadRequestError("The store hands parts out — choose the department the part is for")
         if department not in self._valid_department_names():
             raise BadRequestError(f"Unknown department '{department}'")
         machine = _clean(machine)
@@ -630,9 +646,8 @@ class SpareStockService:
         """Lot quantity on a gate-entry line — the gate qty SUMMED for this part on
         this gate entry (one entry can carry several parts, and a part several
         rows). `item_code` on GateEntry is the ERP Item Code = Part No., matched
-        case-blind; the gate entry no is trimmed (as the lot tag is built). Used by
-        the Put-away Check screen to show the lot qty. Returns a float, or None
-        when nothing matches (e.g. a plain part QR with no gate entry)."""
+        case-blind; the gate entry no is trimmed. Returns a float, or None when
+        nothing matches."""
         from sqlalchemy import func
         from app.models.gate_entry import GateEntry
         ge = (gate_entry_no or "").strip()
@@ -645,15 +660,53 @@ class SpareStockService:
         ).scalar()
         return float(total) if total is not None else None
 
-    def record_put_away(self, part, scanned_location, gate_entry_no=None, user=None):
+    def latest_lot(self, part):
+        """The lot the Put-away Check screen offers for a part: its LATEST ERP gate
+        entry — newest gate date, then time, then row — with the qty summed for
+        this part on that entry (lot_qty). Since 17 Oct 2026 the store prints no
+        lot tag ("lot tag bhi kah rhe h ki paper wastage h use hta do" —
+        management: paper waste), so the qty that tag carried comes from here and
+        the storeman may correct it before confirming.
+
+        A gate line belongs to the part when its item code is the Part No.
+        (case-blind, as lot_qty); the part is one of the store's, so its lines are
+        that store's. Returns {gate_entry_no, gate_entry_dt, gate_entry_time,
+        qty, uom} — every value None when ERP has no gate entry for the part."""
+        from sqlalchemy import func
+        from app.models.gate_entry import GateEntry as G
+        empty = {"gate_entry_no": None, "gate_entry_dt": None, "gate_entry_time": None,
+                 "qty": None, "uom": part.uom}
+        pn = (part.part_no or "").strip()
+        if not pn:
+            return empty
+        row = (db.session.query(G.gate_entry_no, G.gate_entry_dt, G.gate_entry_time)
+               .filter(func.upper(G.item_code) == pn.upper(),
+                       G.gate_entry_no.isnot(None), func.trim(G.gate_entry_no) != "")
+               .order_by(G.gate_entry_dt.desc(), G.gate_entry_time.desc(), G.id.desc())
+               .first())
+        if row is None:
+            return empty
+        no, dt, tm = row
+        ge = no.strip()
+        return {"gate_entry_no": ge, "gate_entry_dt": dt.isoformat() if dt else None,
+                "gate_entry_time": (tm or "").strip() or None,
+                "qty": self.lot_qty(ge, pn), "uom": part.uom}
+
+    def record_put_away(self, part, scanned_location, gate_entry_no=None, qty=_LOOK_UP, user=None):
         """Record a confirmed put-away: the material was physically shelved in one
         of the part's bins — its fresh location or, when it has one, its rework
         location. Verifies the scanned location is one of them (the screen only
-        offers Confirm on a match, but guard here too), captures the lot qty from
-        the gate entry when a lot tag was scanned, and stamps who/when. Writes a
-        PutAwayLog row whose assigned_location is the bin that matched; stock is
-        NOT moved (the part already carries its locations). Returns the saved
-        record — location_kind is "fresh" / "rework" for a two-bin part."""
+        offers Confirm on a match, but guard here too), records the lot qty and
+        the gate entry it came from, and stamps who/when. Writes a PutAwayLog row
+        whose assigned_location is the bin that matched; stock is NOT moved (the
+        part already carries its locations). Returns the saved record —
+        location_kind is "fresh" / "rework" for a two-bin part.
+
+        `qty` is the Lot Qty as confirmed on the screen — the latest gate entry's
+        (latest_lot), or what the storeman typed over it; None when it was left
+        empty. A caller that sends no qty at all (a screen from before 17 Oct
+        2026, which sent the gate entry no. of a scanned lot tag) gets that gate
+        entry's qty looked up, as before."""
         from app.models.put_away_log import PutAwayLog
         from app.utils.bin_location import bins_text, match_bin, part_bins
         bins = part_bins(part.location, part.rework_location)
@@ -672,7 +725,12 @@ class SpareStockService:
                 else "Scanned location does not match the part's assigned location")
         kind, assigned = matched
         ge = (gate_entry_no or "").strip() or None
-        qty = self.lot_qty(ge, part.part_no) if ge else None
+        if qty is _LOOK_UP:
+            qty = self.lot_qty(ge, part.part_no) if ge else None
+        elif qty is not None:
+            qty = float(qty)
+            if not qty > 0:
+                raise BadRequestError("Lot qty must be more than 0 — or leave it empty")
         now = utcnow()
         log = PutAwayLog(
             part_id=part.id, part_no=part.part_no,
@@ -1005,6 +1063,9 @@ class SpareStockService:
 
         if qty is None:
             status = "Not Counted"
+        elif getattr(part, "discontinued", False):
+            # Not required any more: nothing to order, whatever is on the shelf.
+            status = "Discontinued"
         elif qty <= 0:
             status = "Out of Stock"
         elif minimum > 0 and qty < minimum:
@@ -1030,6 +1091,8 @@ class SpareStockService:
             # the Live Dashboard can group on-hand parts by category and by status.
             "category": part.category, "sub_category": part.sub_category,
             "specification": part.specification,
+            # The Live Board's Find-part search reads the model no. and shows the photo.
+            "model_no": getattr(part, "model_no", None), "image_file": getattr(part, "image_file", None),
             "qty_on_hand": qty,
             "min_stock_level": minimum,
             "reorder_level": reorder,
@@ -1040,6 +1103,7 @@ class SpareStockService:
             "unit_price": rate,
             "stock_value": round(qty * rate, 2) if (qty is not None and rate is not None) else None,
             "status": status,
+            "discontinued": bool(getattr(part, "discontinued", False)),
             "last_counted_at": stock.last_counted_at.isoformat() if stock and stock.last_counted_at else None,
         }
 
@@ -1297,6 +1361,10 @@ class SpareStockService:
         than in the browser — one definition per metric, and the same figure
         whoever asks."""
         rows = self.list_stock(store_code, section_id)
+        # A discontinued part has no levels to be healthy or short against: its
+        # stock still counts in the money (value bands), not in the health.
+        valued_all = [r for r in rows if r["qty_on_hand"] is not None and r["stock_value"] is not None]
+        rows = [r for r in rows if not r.get("discontinued")]
         counted = [r for r in rows if r["qty_on_hand"] is not None]
         by = lambda s: sum(1 for r in counted if r["status"] == s)  # noqa: E731
 
@@ -1319,7 +1387,7 @@ class SpareStockService:
         with_max = sum(1 for r in rows if r["max_stock_level"])
         with_both = sum(1 for r in rows if r["min_stock_level"] and r["max_stock_level"])
 
-        valued = [r for r in counted if r["stock_value"] is not None]
+        valued = valued_all
         value_bands = {"Normal Stock": 0.0, "Critical Stock": 0.0, "Excess Stock": 0.0}
         for r in valued:
             if r["status"] in ("Out of Stock", "Below Minimum", "Reorder"):

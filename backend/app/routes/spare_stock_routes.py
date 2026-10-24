@@ -247,7 +247,7 @@ def erp_sync_pending_list():
 
 
 @bp.route("/erp-sync", methods=["POST"])
-@permission_required("store_stock", "edit")
+@permission_required(("store_stock", "erp_control"), "edit")
 def erp_sync():
     return success_response(service.sync_pending_to_erp(_store_code()))
 
@@ -372,28 +372,32 @@ def scan_lookup():
     return success_response(service.resolve_scan(_store_code(), request.args.get("code")))
 
 
-@bp.route("/lot-qty", methods=["GET"])
-def lot_qty():
-    """Lot quantity for a scanned lot tag (gate_entry_no + part_no) — shown on the
-    Put-away Check screen. Read-only, store-scoped like the part scan; returns
-    {"qty": <number|null>} (null when it isn't a lot tag or nothing matches)."""
-    _store_code()
-    qty = service.lot_qty(request.args.get("gate_entry_no"), request.args.get("part_no"))
-    return success_response({"qty": qty})
+@bp.route("/parts/<int:part_id>/latest-lot", methods=["GET"])
+def latest_lot(part_id):
+    """The part's latest ERP gate entry and its lot qty — what Put-away Check
+    fills Lot Qty with since the lot tags went (17 Oct 2026; there is no tag
+    to scan, so the old /lot-qty lookup by a tag's gate entry no. is gone).
+    Read-only and store-scoped like the part scan; every value null when ERP
+    has no gate entry for the part."""
+    part = _require_part_store(part_id)
+    return success_response(service.latest_lot(part))
 
 
 @bp.route("/put-away/record", methods=["POST"])
-@permission_required("store_stock", "edit")
+@permission_required(("store_stock", "put_away_check"), "edit")
 def put_away_record():
     """Record a confirmed put-away (Put-away Check → Confirm Put Away): the part
     was physically shelved in one of its bins (fresh, or rework when it has one).
-    Guards that the scanned location is one of them, captures the lot qty, and
-    stamps who/when. Does not move stock."""
+    Guards that the scanned location is one of them, records the lot qty and its
+    gate entry no., and stamps who/when. Does not move stock."""
     data = validate_payload(PutAwayRecordSchema(), request.get_json(force=True) or {})
     part = _require_part_store(data["part_id"])
+    # Only a qty the body carries (a number, or null for "left empty") is
+    # passed; without one the service looks the gate entry's qty up.
+    extra = {"qty": data["qty"]} if "qty" in data else {}
     row = service.record_put_away(
         part, data["scanned_location"],
-        gate_entry_no=data.get("gate_entry_no"), user=_username(),
+        gate_entry_no=data.get("gate_entry_no"), user=_username(), **extra,
     )
     return success_response(row, "Put away confirmed", 201)
 

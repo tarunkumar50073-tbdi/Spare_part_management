@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import {
-  ArrowLeft, Bell, FileDown, Home, Info, LogOut, Moon, Sun, Maximize2, Minimize2, Search, Settings as SettingsIcon, Siren, TriangleAlert,
-} from "lucide-react";
+import { Info, Search, Siren, TriangleAlert } from "lucide-react";
 import Badge from "./Badge.jsx";
+import IconTile, { tileStyle } from "./IconTile.jsx";
 import { liveStockService } from "../services/liveStockService.js";
 import {
   ALERTS_REFRESH_MS, alertsKey, alertsStoreFor, canOpenAction, fetchAlerts,
@@ -23,14 +22,19 @@ import { parseServerTime } from "../lib/format.js";
 // may access and admins / plant-heads will toggle between both here.
 // Below 1280 px it shows just "P1" (Plant 2 is only a placeholder), so the page
 // title keeps room to show in full on a small laptop / tablet window.
+// Each plant wears the app-icon tile, like the bar's other controls: the
+// current one lit in Toyota red, the coming one dimmed.
 function PlantToggle() {
+  const { dark } = useTheme();
   return (
-    <div className="hidden md:inline-flex items-center rounded-lg border border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 p-0.5">
+    <div className="hidden md:inline-flex items-center gap-1.5">
       <button
         type="button"
-        className="rounded-md bg-toyotared px-2.5 py-1 text-xs font-semibold text-white shadow-sm"
+        className="inline-flex h-8 items-center gap-1.5 rounded-[11px] px-2.5 text-xs font-bold text-toyotared dark:text-white"
+        style={tileStyle("#f87171", true, !dark)}
         title="Plant 1 — current"
       >
+        <span aria-hidden="true" className="text-[15px] leading-none">🏭</span>
         <span className="xl:hidden">P1</span>
         <span className="hidden xl:inline">Plant&nbsp;1</span>
       </button>
@@ -38,8 +42,10 @@ function PlantToggle() {
         type="button"
         disabled
         title="Plant 2 — coming soon (its data isn't connected yet)"
-        className="hidden xl:inline-flex rounded-md px-2.5 py-1 text-xs font-semibold text-slate-400 cursor-not-allowed"
+        className="hidden xl:inline-flex h-8 items-center gap-1.5 rounded-[11px] px-2.5 text-xs font-bold text-slate-400 dark:text-slate-300 opacity-60 cursor-not-allowed"
+        style={tileStyle("#94a3b8", false, !dark)}
       >
+        <span aria-hidden="true" className="text-[15px] leading-none grayscale">🏭</span>
         Plant&nbsp;2
       </button>
     </div>
@@ -149,6 +155,15 @@ const asSpareResult = (row) => ({
 // The smallest the page title may shrink to before it is cut ("…").
 const TITLE_MIN_PX = 13;
 
+// Every top-bar control is the sidebar's app-icon tile (emoji, own colour), so
+// the bar and the rail read as one set — but in the bar's own colour: white by
+// day, navy by night (`light={!dark}`). The tile brightens and lifts on hover;
+// `lit` marks the page or panel that is open.
+const TILE = 32;
+const tileBtn = "group relative inline-flex shrink-0 items-center justify-center rounded-[11px] "
+  + "focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/50";
+const tileHover = "transition group-hover:brightness-125 group-hover:-translate-y-px";
+
 export default function Topbar({ title, showSearch = true }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -235,7 +250,11 @@ export default function Topbar({ title, showSearch = true }) {
   // A screen this user has no right to would only say "Access restricted";
   // the Notification Center still shows them the whole alert.
   const openAlert = (a) => {
-    navigate(canOpenAction(user, a.action) ? a.action.to : "/notifications");
+    // Notification Center has its own right (23 Oct 2026): without it, an
+    // alert whose screen the login may not open stays in the list.
+    if (canOpenAction(user, a.action)) navigate(a.action.to);
+    else if (can(user, "notifications")) navigate("/notifications");
+    else return;
     setBellOpen(false);
   };
 
@@ -320,20 +339,18 @@ export default function Topbar({ title, showSearch = true }) {
             onClick={() => navigate(-1)}
             title="Back"
             aria-label="Go back"
-            className="shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
-              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+            className={tileBtn}
           >
-            <ArrowLeft size={16} />
+            <IconTile emoji="⬅️" color="#94a3b8" size={TILE} light={!dark} className={tileHover} />
           </button>
           )}
           <Link
             to="/"
             title="Home"
             aria-label="Home"
-            className="shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
-              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+            className={tileBtn}
           >
-            <Home size={16} />
+            <IconTile emoji="🏠" color="#60a5fa" size={TILE} light={!dark} className={tileHover} lit={LANDING_PATHS.includes(location.pathname)} />
           </Link>
           {showSearch && (
             <div ref={searchRef} className="relative hidden lg:block w-40 xl:w-52 2xl:w-64">
@@ -437,23 +454,23 @@ export default function Topbar({ title, showSearch = true }) {
           <ErpStatusPill />
           <button
             onClick={toggleFullscreen}
-            className="hidden lg:inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
-              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 transition-colors"
+            className={`${tileBtn} hidden lg:inline-flex`}
             title={full ? "Leave fullscreen" : "Fill the screen"}
+            aria-label={full ? "Leave fullscreen" : "Fill the screen"}
           >
-            {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            <IconTile emoji={full ? "🪟" : "📺"} color="#a78bfa" size={TILE} light={!dark} className={tileHover} lit={full} />
           </button>
 
           <div className="relative" ref={bellRef}>
             <button
               onClick={() => setBellOpen((o) => !o)}
-              className="relative h-8 w-8 flex items-center justify-center text-base hover:opacity-70 transition-opacity"
+              className={tileBtn}
               title={urgent ? `Notifications: ${urgentLabel}` : "Notifications"}
               aria-label={urgent ? `Notifications, ${urgentLabel}` : "Notifications"}
             >
-              <Bell size={18} aria-hidden="true" />
+              <IconTile emoji="🔔" color="#fbbf24" size={TILE} light={!dark} className={tileHover} lit={bellOpen} />
               {urgent > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 bg-toyotared text-white text-[10px] font-bold rounded-full min-w-[15px] h-[15px] px-0.5 flex items-center justify-center">
+                <span className="absolute -top-1.5 -right-1.5 ring-2 ring-white dark:ring-navy-900 bg-toyotared text-white text-[10px] font-bold rounded-full min-w-[15px] h-[15px] px-0.5 flex items-center justify-center">
                   {urgent > 99 ? "99+" : urgent}
                 </span>
               )}
@@ -507,6 +524,7 @@ export default function Topbar({ title, showSearch = true }) {
                     })}
                   </div>
                 )}
+                {can(user, "notifications") && (
                 <Link
                   to="/notifications"
                   onClick={() => setBellOpen(false)}
@@ -514,17 +532,18 @@ export default function Topbar({ title, showSearch = true }) {
                 >
                   View all{alertData?.summary.total ? ` (${alertData.summary.total})` : ""}
                 </Link>
+                )}
               </div>
             )}
           </div>
           {can(user, "reports") && (
           <Link
             to="/reports"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-[#ff2a3c] to-toyotared px-2.5 py-1.5 text-xs font-semibold
-              text-white shadow-[0_6px_16px_rgba(235,10,30,0.35)] hover:brightness-110 transition shrink-0"
+            className={tileBtn}
             title="Reports"
+            aria-label="Reports"
           >
-            <FileDown size={14} /> <span className="hidden 2xl:inline">Report</span>
+            <IconTile emoji="📊" color="#fb7185" size={TILE} light={!dark} className={tileHover} lit={location.pathname.startsWith("/reports")} />
           </Link>
           )}
 
@@ -533,10 +552,9 @@ export default function Topbar({ title, showSearch = true }) {
             onClick={toggleDark}
             title={dark ? "Switch to light mode" : "Switch to dark mode"}
             aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
-              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+            className={tileBtn}
           >
-            {dark ? <Sun size={15} /> : <Moon size={15} />}
+            <IconTile emoji={dark ? "☀️" : "🌙"} color="#818cf8" size={TILE} light={!dark} className={tileHover} />
           </button>
 
           {/* Settings — admins only (the page is admin-gated anyway). */}
@@ -545,10 +563,9 @@ export default function Topbar({ title, showSearch = true }) {
               to="/settings"
               title="Settings"
               aria-label="Settings"
-              className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
-                text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+              className={tileBtn}
             >
-              <SettingsIcon size={15} />
+              <IconTile emoji="⚙️" color="#94a3b8" size={TILE} light={!dark} className={tileHover} lit={location.pathname.startsWith("/settings")} />
             </Link>
           )}
 
@@ -557,10 +574,9 @@ export default function Topbar({ title, showSearch = true }) {
             onClick={logout}
             title={user ? `Sign out ${user.username}` : "Sign out"}
             aria-label="Sign out"
-            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-slate-200 dark:border-navy-700
-              text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-800 hover:text-toyotared transition-colors"
+            className={tileBtn}
           >
-            <LogOut size={15} />
+            <IconTile emoji="🚪" color="#f87171" size={TILE} light={!dark} className={tileHover} />
           </button>
           </div>
         </div>

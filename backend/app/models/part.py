@@ -28,6 +28,13 @@ class Part(BaseModel):
     # Nullable: a part may have no reorder trigger set.
     reorder_level = db.Column(db.Numeric(12, 2), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    # Not required any more / discontinued (the store, 22 Oct 2026: Tool Room
+    # parts with no minimum "future me required nhi h ya discontinue ho chuke
+    # h"). Unlike inactive, the part and its stock stay in every list and in the
+    # stock value — the material is still on the shelf — but its status is
+    # "Discontinued": never Out of Stock / Below Minimum / Reorder, never in a
+    # reorder mail, never counted as missing a min / max / reorder level.
+    discontinued = db.Column(db.Boolean, nullable=False, default=False)
 
     # COV (Cover Days) planning — Short/Excess is judged against these.
     # target_cov_days_min default 1 matches "Coverage < 1 Day = Short";
@@ -51,8 +58,8 @@ class Part(BaseModel):
     # Parts dashboard's rack-utilisation figures.
     # rework_location is the second shelf a part goes to when it is pulled for
     # rework — real for about a fifth of the press-shop list.
-    location = db.Column(db.String(40), nullable=True)
-    rework_location = db.Column(db.String(40), nullable=True)
+    location = db.Column(db.String(60), nullable=True)
+    rework_location = db.Column(db.String(60), nullable=True)
 
     # Sourcing classification (BOP/Import/Maintenance-Tool Room/Consumable/
     # In-Parts) — a different axis from part_type (routing target);
@@ -63,6 +70,13 @@ class Part(BaseModel):
     # Free-text technical specification of the part (e.g. "SMPS 230VAC O/P
     # DC12VDC 3A"). Shown on the drawer and searchable; Excel-uploadable.
     specification = db.Column(db.String(255), nullable=True)
+    # The part's model no. as its maker prints it (e.g. "XVC1B3HK") — a column
+    # of the Part Master list since 21 Oct 2026; searchable, Excel-uploadable.
+    model_no = db.Column(db.String(60), nullable=True)
+    # The part's one photo: a file in the part-images folder, never the DB. A
+    # new photo gets a new name, so the URL carrying it is never served stale
+    # from a browser cache (services/part_image_service.py).
+    image_file = db.Column(db.String(80), nullable=True)
 
     new_part_no = db.Column(db.String(30), nullable=True)
     old_part_no = db.Column(db.String(30), nullable=True)

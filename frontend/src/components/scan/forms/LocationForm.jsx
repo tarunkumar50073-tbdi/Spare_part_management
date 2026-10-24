@@ -60,7 +60,7 @@ export default function LocationForm({ scan, onDone, onCancel }) {
       }>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="New location" required htmlFor={`${uid}-loc`} error={show("location")}>
-          <input id={`${uid}-loc`} value={location} maxLength={40} onChange={(e) => setLocation(e.target.value)}
+          <input id={`${uid}-loc`} value={location} maxLength={60} onChange={(e) => setLocation(e.target.value)}
             className={inputCls(show("location"), "text-base font-mono")} placeholder="e.g. A1-03" />
         </Field>
         <Field label="Reason" required htmlFor={`${uid}-rsn`} error={show("reason")}>

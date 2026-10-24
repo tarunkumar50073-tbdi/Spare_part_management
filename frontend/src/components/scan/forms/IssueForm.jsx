@@ -6,7 +6,7 @@ import { spareFlowService } from "../../../services/spareFlowService.js";
 import { num } from "../../../lib/format.js";
 import { partBins } from "../../../utils/binLocation.js";
 import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
-import { clean, fmtQty, qtyError, qtyOf, stepMin, useActionFlow, useDepartments } from "./flow.js";
+import { clean, fmtQty, isStoreDepartment, qtyError, qtyOf, stepMin, useActionFlow, useDepartments } from "./flow.js";
 
 // ISSUE (spec 11): the store hands the part to a department + person. Only
 // what the store knows at the counter is asked — Line / Machine / Die are NOT
@@ -19,6 +19,10 @@ import { clean, fmtQty, qtyError, qtyOf, stepMin, useActionFlow, useDepartments 
 // pre-filled from the person's record (still a choice — the part may be for
 // another department). A number not on the master is added right there
 // first; a part is never issued to someone off the master or marked inactive.
+// The store is never the department: it hands parts out ("issuance me store
+// dikha rha h jabki store to issue karta h" — the store, 18 Oct 2026). Its
+// staff are on the master as Store, so their record fills nothing in and the
+// list does not offer it — the operator picks the department the part is for.
 
 const NO_PERSON = { employee: null, mobile: null, typed: "" };
 
@@ -75,7 +79,7 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
     if ((next.employee?.id ?? null) === (was?.id ?? null)) return;
     if (department && department !== autoDept) return;
     const dept = next.employee?.department;
-    const fill = dept && (!depts || depts.some((d) => d.name === dept)) ? dept : "";
+    const fill = dept && !isStoreDepartment(dept) && (!depts || depts.some((d) => d.name === dept)) ? dept : "";
     setDepartment(fill);
     setAutoDept(fill || null);
   };
@@ -85,6 +89,9 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
   const dirty = Boolean(department || emp || person.typed?.trim() || remarks.trim()) || Number(qty) !== Number(startQty);
   useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
 
+  // The picked person's record says Store: nothing was filled in, and why is said.
+  const storeRecord = Boolean(emp) && isStoreDepartment(emp.department);
+  const storeText = storeRecord ? `${emp.name}'s record says ${emp.department} — choose the department the part is for` : null;
   const errors = {
     person: emp ? null : person.mobile
       ? "A part is issued only to an active person on the Employee Master"
@@ -93,15 +100,17 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
       ? "Nothing available to issue"
       : qtyError(qty, { max: available, maxText: `Only ${fmtQty(available, part.uom)} available — cannot issue more` }),
     department: !department
-      ? "Choose the department"
-      : depts && !depts.some((d) => d.name === department) ? `${department} is not in the Department master — choose one` : null,
+      ? storeText || "Choose the department"
+      : isStoreDepartment(department) ? "The store hands parts out — choose the department the part is for"
+        : depts && !depts.some((d) => d.name === department) ? `${department} is not in the Department master — choose one` : null,
   };
   const valid = !Object.values(errors).some(Boolean);
   const show = (k) => (tried || k === "qty" ? errors[k] : null);
 
   const deptHint = !emp ? null
     : department && department === autoDept ? `From ${emp.name}'s record — change it if the part is for another department`
-      : emp.department && department !== emp.department ? `${emp.name}'s record says ${emp.department}` : null;
+      : storeRecord && !department ? storeText
+        : emp.department && department !== emp.department ? `${emp.name}'s record says ${emp.department}` : null;
 
   const review = () => {
     setTried(true);
@@ -150,7 +159,7 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
           <IssuedTo emp={emp} />
         </Field>
         <Field label="Department" required htmlFor={`${uid}-dept`} error={show("department")} hint={deptHint}>
-          <DepartmentSelect id={`${uid}-dept`} value={department} onChange={setDepartment} error={show("department")} />
+          <DepartmentSelect id={`${uid}-dept`} value={department} onChange={setDepartment} error={show("department")} noStore />
         </Field>
         <Field label="Issue qty" required htmlFor={`${uid}-qty`} error={show("qty")}
           hint={`Up to ${num(available)}${part.uom ? ` ${part.uom}` : ""}`}>

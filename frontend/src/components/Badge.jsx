@@ -32,6 +32,8 @@ const MAP = {
   "Reorder": "badge-warning",
   "Above Maximum": "badge-info",
   "Not Counted": "badge-neutral",
+  // Not required any more (Part Master, 22 Oct 2026): never ordered.
+  "Discontinued": "badge-neutral",
   // Two-stage issue lifecycle (spare_stock_ledger.status)
   "PENDING_USER_CONFIRMATION": "badge-warning",
   "ISSUED_BY_STORE": "badge-info",
