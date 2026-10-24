@@ -8,6 +8,8 @@ sitting in localStorage for a stray script to read.
 """
 from datetime import timedelta, timezone
 
+from sqlalchemy.exc import IntegrityError
+
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.login_attempt import LoginAttempt
@@ -85,14 +87,25 @@ class AuthService:
     def _count_wrong(guard, name, lock):
         attempts, minutes = lock
         now = utcnow()
+        key = name.lower()[:50]
         if guard is None:
-            guard = LoginAttempt(username=name.lower()[:50], failed_count=0)
+            guard = LoginAttempt(username=key, failed_count=0)
             db.session.add(guard)
+            try:
+                db.session.flush()
+            except IntegrityError:
+                # A wrong try for the same name, checked alongside, made it first.
+                db.session.rollback()
+                guard = LoginAttempt.query.filter_by(username=key).first()
         last = _aware(guard.last_failed_at)
-        if last is None or now - last > timedelta(minutes=minutes):
-            guard.failed_count = 0
-        guard.failed_count = (guard.failed_count or 0) + 1
-        guard.last_failed_at = now
+        fresh = last is None or now - last > timedelta(minutes=minutes)
+        # Counted by the database in one UPDATE: read-then-write let a burst of
+        # guesses checked side by side all write the same count and never reach
+        # the block (security audit, 24 Oct 2026). Each try now adds its own 1.
+        LoginAttempt.query.filter_by(id=guard.id).update(
+            {LoginAttempt.failed_count: 1 if fresh else LoginAttempt.failed_count + 1,
+             LoginAttempt.last_failed_at: now}, synchronize_session=False)
+        db.session.refresh(guard)
         n = guard.failed_count
         if n >= attempts:
             guard.locked_until = now + timedelta(minutes=minutes)

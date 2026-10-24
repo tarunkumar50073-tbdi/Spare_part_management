@@ -65,6 +65,11 @@ class ForecastService:
         self.bom_repo = BOMRepository()
 
     def ingest_excel(self, file_stream):
+        from app.utils.excel_io import check_xlsx_size
+        try:
+            check_xlsx_size(file_stream)
+        except ValueError as exc:
+            raise BadRequestError(str(exc)) from None
         wb = load_workbook(file_stream, data_only=True)
         ws = wb.active
         rows_iter = ws.iter_rows(values_only=True)

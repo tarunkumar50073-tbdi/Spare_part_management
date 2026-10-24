@@ -260,7 +260,11 @@ export function downloadXlsx(filename, headers, rows, sheetName = "Sheet1") {
 // so Excel opens it in the right encoding. `rows` cells may be strings or numbers.
 export function downloadCsv(filename, headers, rows) {
   const esc = (v) => {
-    const s = v == null ? "" : String(v);
+    let s = v == null ? "" : String(v);
+    // A part name or remark starting with = + - @ would run as a formula when
+    // the CSV is opened in Excel; a leading ' keeps it text (a plain number,
+    // e.g. -5, stays a number). The server's exports already do this.
+    if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [headers.map(esc).join(",")];

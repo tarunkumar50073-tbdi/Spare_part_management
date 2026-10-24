@@ -86,7 +86,33 @@ def match_columns(header_row, field_aliases, required_fields):
     return columns
 
 
+# An .xlsx is a zip: 10 MB on the wire can unpack to gigabytes (a "zip bomb"),
+# and openpyxl reads all of it into memory (security audit, 24 Oct 2026).
+XLSX_MAX_UNPACKED = 200 * 1024 * 1024
+
+
+def check_xlsx_size(data):
+    """ValueError when an .xlsx unpacks to more than XLSX_MAX_UNPACKED. `data`
+    is the file's bytes or a seekable stream, which is left where it was. A
+    file that is not a zip at all is left to openpyxl's own error."""
+    import zipfile
+    stream = io.BytesIO(data) if isinstance(data, (bytes, bytearray)) else data
+    start = stream.tell()
+    try:
+        with zipfile.ZipFile(stream) as z:
+            total = sum(i.file_size for i in z.infolist())
+    except zipfile.BadZipFile:
+        return
+    finally:
+        stream.seek(start)
+    if total > XLSX_MAX_UNPACKED:
+        raise ValueError(
+            f"This Excel file unpacks to {total // (1024 * 1024):,} MB — too big to read "
+            f"(at most {XLSX_MAX_UNPACKED // (1024 * 1024)} MB). Keep only the sheet you need and upload again.")
+
+
 def _sheets_from_xlsx(data):
+    check_xlsx_size(data)
     try:
         wb = load_workbook(io.BytesIO(data), data_only=True)
     except Exception as exc:  # noqa: BLE001 - openpyxl raises several types here

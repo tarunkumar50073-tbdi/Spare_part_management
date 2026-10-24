@@ -296,7 +296,9 @@ class RejectionRequestService:
                 f"<p>{html.escape(greet)}<br>Please punch {kind_word} as per below details. {why}</p>{table}{vehicle}"
                 f"<p>Regards<br>{html.escape(sender)}</p></div>")
         msg = EmailMessage()
-        msg["Subject"] = f"{row.ven_name} REJECTION"
+        # One line: a vendor name carrying a line break (it can come from ERP)
+        # made the mail library refuse the header, and the draft failed every time.
+        msg["Subject"] = " ".join(f"{row.ven_name} REJECTION".split())
         if s["to"]:
             msg["To"] = s["to"]
         if s["cc"]:

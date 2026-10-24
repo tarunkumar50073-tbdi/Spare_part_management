@@ -34,6 +34,13 @@ FOLDER_SUFFIX = "_part_images"
 PHOTO_MAX = 1600
 THUMB_MAX = 240
 THUMB_SUFFIX = "_t"
+# Only the formats a camera or a saved picture comes in — never Pillow's rarer
+# decoders on an upload — and the picture's size is read from its header BEFORE
+# its pixels: a 1 MB PNG can unpack to gigabytes (security audit, 24 Oct 2026).
+# 60 MP is above any phone or tablet camera. (A phone's multi-picture JPEG
+# opens through Pillow's JPEG opener.)
+PHOTO_FORMATS = ("JPEG", "PNG", "WEBP", "GIF", "BMP", "TIFF")
+PHOTO_MAX_PIXELS = 60_000_000
 
 
 def image_folder():
@@ -70,7 +77,9 @@ def _open_picture(stream):
     """The upload as an upright RGB picture, or BadRequestError."""
     from PIL import Image, ImageOps, UnidentifiedImageError
     try:
-        img = Image.open(stream)
+        img = Image.open(stream, formats=PHOTO_FORMATS)
+        if img.width * img.height > PHOTO_MAX_PIXELS:
+            raise BadRequestError("That picture is too large — take the photo again with the camera")
         img.load()
     except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
         raise BadRequestError("That file is not a photo the app can read — use a JPG or PNG picture") from None
