@@ -166,16 +166,125 @@ def _env_flag(name):
     return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
+# Values a SECRET_KEY must never be: the code's own fallback and the
+# placeholders that shipped in .env files. All are public in the repository.
+_PLACEHOLDER_KEYS = {"dev-secret", "change-me-in-production", "change-me", "changeme", "secret"}
+SECRET_KEY_FILE = "secret_key"
+
+
+def _read_or_make_key(path):
+    """The key kept in `path`, or a new random one written there first (0600).
+    Two processes starting together agree on one: the file is created
+    exclusively and the loser reads the winner's. A folder that cannot be
+    written gets a key for this run only (sign-ins then end at a restart)."""
+    import secrets
+    try:
+        with open(path, encoding="utf-8") as f:
+            kept = f.read().strip()
+        if len(kept) >= 32:
+            return kept
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return secrets.token_urlsafe(48)
+    key = secrets.token_urlsafe(48)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if os.path.exists(path):                      # there but too short: replace it
+            os.remove(path)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(key)
+        return key
+    except FileExistsError:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip() or key
+    except OSError:
+        return key
+
+
+def _ensure_secret_key(app):
+    """A strong SECRET_KEY whatever the server's .env holds. A missing, short
+    (< 32) or placeholder key — "dev-secret" is in the public code, and with it
+    anyone can sign their own admin cookie — is replaced by a random key the
+    app makes once and keeps in its instance folder (git-ignored), so every
+    restart and every worker uses the same one. Made for the live server, which
+    went on the internet on 24 Oct 2026; a .env with a good key is used as is."""
+    key = (app.config.get("SECRET_KEY") or "").strip()
+    if len(key) >= 32 and key.lower() not in _PLACEHOLDER_KEYS:
+        return
+    path = os.path.join(app.instance_path, SECRET_KEY_FILE)
+    app.config["SECRET_KEY"] = _read_or_make_key(path)
+    app.logger.warning("SECRET_KEY in .env is missing or weak; using the app's own key kept in %s", path)
+
+
+def _private_peer(addr):
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address((addr or "").split("%")[0])
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
+
+
+class _ProxyHeaders:
+    """X-Forwarded-For / -Proto / -Host, believed from ONE proxy in front.
+
+    Behind nginx or a load balancer every request arrives from the proxy, so
+    the per-IP sign-in limit was one bucket for everyone and HTTPS looked like
+    HTTP (no Secure cookie). By default ("auto") the headers are believed only
+    when the request came from this machine or the private network — where the
+    proxy sits — so a browser reaching the app straight from the internet cannot
+    forge them. TRUST_PROXY=1 believes them from any peer; TRUST_PROXY=0 never."""
+
+    def __init__(self, wsgi_app, mode):
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        self.plain = wsgi_app
+        self.fixed = ProxyFix(wsgi_app, x_for=1, x_proto=1, x_host=1)
+        self.mode = mode
+
+    def __call__(self, environ, start_response):
+        trust = self.mode == "on" or (self.mode == "auto" and _private_peer(environ.get("REMOTE_ADDR")))
+        return (self.fixed if trust else self.plain)(environ, start_response)
+
+
+def _proxy_mode():
+    value = os.getenv("TRUST_PROXY", "").strip().lower()
+    if value in ("1", "true", "yes", "on"):
+        return "on"
+    if value in ("0", "false", "no", "off"):
+        return "off"
+    return "auto"
+
+
+def _secure_cookie_sessions():
+    """Flask's cookie session, its cookie marked Secure whenever the request
+    came over HTTPS (directly, or as the proxy says) — so the live HTTPS site
+    never sends the sign-in cookie in clear, while the plant LAN's plain HTTP
+    keeps working. SESSION_COOKIE_SECURE=1 forces Secure everywhere."""
+    from flask.sessions import SecureCookieSessionInterface
+
+    class SessionInterface(SecureCookieSessionInterface):
+        def get_cookie_secure(self, app):
+            if app.config.get("SESSION_COOKIE_SECURE"):
+                return True
+            from flask import has_request_context
+            return bool(has_request_context() and request.is_secure)
+
+    return SessionInterface()
+
+
 def create_app(env_name=None):
     env_name = env_name or os.getenv("FLASK_ENV", "development")
     app = Flask(__name__)
     app.config.from_object(config_by_name[env_name])
 
-    # Fail fast rather than boot a production server on the known dev secret
-    # or without an API key (audit findings M-4 / C-1).
+    # Never sign sessions with a known or weak key (audit finding M-4): one the
+    # app makes and keeps replaces it, in every mode (see _ensure_secret_key).
+    _ensure_secret_key(app)
+    # Fail fast rather than boot a production server without an API key
+    # (audit finding C-1).
     if env_name == "production":
-        if not app.config.get("SECRET_KEY") or app.config["SECRET_KEY"] == "dev-secret":
-            raise RuntimeError("SECRET_KEY must be set to a strong value in production")
         if not app.config.get("API_KEY"):
             raise RuntimeError("API_KEY must be set in production")
 
@@ -190,9 +299,11 @@ def create_app(env_name=None):
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     # Served over HTTPS (the live site since 24 Oct 2026), the sign-in cookie
-    # must never travel on plain HTTP: SESSION_COOKIE_SECURE=1 in that server's
-    # .env marks it Secure. Off by default, for the plant LAN's plain HTTP.
+    # must never travel on plain HTTP: it is marked Secure on every HTTPS
+    # request by itself (_secure_cookie_sessions); SESSION_COOKIE_SECURE=1
+    # forces it everywhere. The plant LAN's plain HTTP keeps working.
     app.config["SESSION_COOKIE_SECURE"] = _env_flag("SESSION_COOKIE_SECURE")
+    app.session_interface = _secure_cookie_sessions()
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=_session_hours())
     # One sign-in lasts 12 h from the moment of signing in, however busy the
     # screen. Flask's default re-issues the cookie on every request, which
@@ -209,15 +320,12 @@ def create_app(env_name=None):
     app.config.setdefault("MAIL_ENGINE_FORCE_OFF",
                           os.getenv("MAIL_ENGINE_FORCE_OFF", "").strip().lower() in ("1", "true", "yes", "on"))
 
-    # Behind a reverse proxy (nginx / a load balancer terminating HTTPS) every
-    # request arrives from the proxy's own address, so the per-IP login limit
-    # was one shared bucket for the whole internet and https looked like http.
-    # TRUST_PROXY=1 reads the client address and scheme from the ONE proxy in
-    # front (X-Forwarded-For / -Proto / -Host). Never set it on a server the
-    # browsers reach directly: the headers would then be the client's to forge.
-    if _env_flag("TRUST_PROXY"):
-        from werkzeug.middleware.proxy_fix import ProxyFix
-        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    # Behind a reverse proxy the client's address and scheme come from its
+    # X-Forwarded-* headers, believed only from a proxy on this machine or the
+    # private network unless TRUST_PROXY says otherwise (see _ProxyHeaders).
+    mode = _proxy_mode()
+    if mode != "off":
+        app.wsgi_app = _ProxyHeaders(app.wsgi_app, mode)
 
     db.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)

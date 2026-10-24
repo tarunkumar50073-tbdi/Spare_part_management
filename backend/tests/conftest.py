@@ -26,6 +26,9 @@ os.environ.setdefault("FLASK_ENV", "development")
 # Deterministic shared key so the authz tests can exercise the machine caller
 # without depending on whatever .env holds.
 os.environ.setdefault("API_KEY", "test-machine-key")
+# A strong key of the run's own, so create_app never writes a key file of its
+# own into the instance folder (it would, for a missing / weak key).
+os.environ.setdefault("SECRET_KEY", "pytest-only-session-key-0123456789-abcdefghij")
 
 from config import Config  # noqa: E402
 
