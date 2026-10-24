@@ -19,6 +19,52 @@ const boardOnly = (u) => {
   return granted.length > 0 && granted.every(([mod]) => mod === "live_dashboard");
 };
 
+// A sign-in lasts while the app stays open (the store, 24 Oct 2026: "address
+// daalte hi bina login k khul rha h" → a new login every time). The server's
+// cookie outlives a closed tab or browser (12 h), so the app opened afresh — the
+// address typed again, a favourite, the browser reopened — ends that old login
+// and asks again — in the same tab too, when the address is typed or a
+// favourite opened there. A refresh (or Back) of a tab that was in use keeps it
+// (the tab's mark in sessionStorage, the time of its last activity), and so does
+// a second tab while another one of the app is still open (it answers on the
+// channel). The Live Board TV login is spared (boardOnly): the TV must come back
+// by itself.
+const TAB_KEY = "dx_tab_login";
+const CHANNEL = "dx_login";
+const markTab = () => { try { sessionStorage.setItem(TAB_KEY, String(Date.now())); } catch { /* checked below */ } };
+const unmarkTab = () => { try { sessionStorage.removeItem(TAB_KEY); } catch { /* nothing to clear */ } };
+// This page is a refresh / Back of a tab that signed in and was in use within
+// the idle limit. A browser whose storage cannot be read keeps the login as
+// before (it cannot be told apart).
+const tabInUse = () => {
+  try {
+    const nav = performance.getEntriesByType?.("navigation")?.[0]?.type;
+    if (nav === "navigate" || nav === "prerender") return false;   // the address typed, a favourite, a link
+    const at = Number(sessionStorage.getItem(TAB_KEY));
+    return Boolean(at) && Date.now() - at < IDLE_LIMIT_MS;
+  } catch {
+    return true;
+  }
+};
+// Whether another tab of the app is open and signed in (it answers "here").
+const anotherTabOpen = () => new Promise((resolve) => {
+  let ch;
+  try {
+    ch = new BroadcastChannel(CHANNEL);
+  } catch {
+    resolve(false);
+    return;
+  }
+  const done = (open) => {
+    clearTimeout(timer);
+    ch.close();
+    resolve(open);
+  };
+  const timer = setTimeout(() => done(false), 400);
+  ch.onmessage = (e) => { if (e.data === "here") done(true); };
+  ch.postMessage("anyone");
+});
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   // Why the session ended, shown on the login screen ("inactivity" after an idle
@@ -36,7 +82,16 @@ export function AuthProvider({ children }) {
   const refresh = useCallback(async () => {
     try {
       const res = await authService.me();
-      setUser(res.data.data);
+      const me = res.data.data;
+      if (!tabInUse() && !boardOnly(me) && !(await anotherTabOpen())) {
+        // The app opened afresh on an old login: it ends here.
+        try { await authService.logout(); } catch (_) { /* the login screen follows anyway */ }
+        unmarkTab();
+        setUser(null);
+        return;
+      }
+      markTab();
+      setUser(me);
     } catch (_) {
       setUser(null);
     } finally {
@@ -54,6 +109,7 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (username, password, captcha) => {
     const res = await authService.login(username, password, captcha);
+    markTab();
     setUser(res.data.data);
     setLogoutReason(null);
     setFreshLogin(true);
@@ -68,6 +124,7 @@ export function AuthProvider({ children }) {
       // this browser is done with the session. `reason` is a string only when
       // called in code (e.g. "inactivity"); a click handler passes its event,
       // which we ignore.
+      unmarkTab();
       setUser(null);
       setFreshLogin(false);
       setLogoutReason(typeof reason === "string" ? reason : null);
@@ -84,6 +141,7 @@ export function AuthProvider({ children }) {
       const now = Date.now();
       if (now - last < 1000) return; // throttle — mousemove fires constantly
       last = now;
+      markTab();                 // the tab's last activity, read on a refresh
       clearTimeout(timer);
       timer = setTimeout(() => logout("inactivity"), IDLE_LIMIT_MS);
     };
@@ -95,6 +153,20 @@ export function AuthProvider({ children }) {
       events.forEach((e) => window.removeEventListener(e, reset));
     };
   }, [user, logout]);
+
+  // While signed in, answer a newly opened tab of the app that asks whether
+  // one is already open — so a second tab does not end this login.
+  useEffect(() => {
+    if (!user) return undefined;
+    let ch;
+    try {
+      ch = new BroadcastChannel(CHANNEL);
+    } catch {
+      return undefined;
+    }
+    ch.onmessage = (e) => { if (e.data === "anyone") ch.postMessage("here"); };
+    return () => ch.close();
+  }, [user]);
 
   return (
     <AuthContext.Provider value={{
