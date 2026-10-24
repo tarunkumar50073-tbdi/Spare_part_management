@@ -7,7 +7,7 @@ import {
   Database, AlertTriangle, Boxes, ClipboardList,
   FileBarChart, PackagePlus, Sun, Moon, ArrowLeft, RefreshCw, RotateCw,
   Maximize, Minimize, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight,
-  Hourglass, ListChecks, Search, TrendingUp,
+  Hourglass, ListChecks, TrendingUp,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { spareStockService } from "../services/spareStockService.js";
@@ -980,18 +980,6 @@ export default function TvDashboard() {
   // way to the value trend on 24 Oct 2026).
   const discRow = rowsState === "ok" && disc.all.length > 0;
   const openDiscontinued = () => openParts({ title: "Discontinued Stock", rows: disc.held, valueLabel: "Value", valueOf: (r) => r.stock_value, valueFmt: fmtMoney, top10: true });
-  // Find a part (the store, 22 Oct 2026): anyone at the board looks up a part's
-  // stock, bin and photo. Always the whole store — a part is looked for by its
-  // number, not by the section on screen — so a section view fetches the store list.
-  const [findQ, setFindQ] = useState("");
-  const openSearch = () => {
-    setFindQ("");
-    if (!secView) return openStack({ kind: "partSearch", title: "Find a part", rows });
-    return openAsync({ kind: "partSearch", title: "Find a part", rows: [] },
-      () => fetchData(spareStockService.list({ store_code: STORE }))
-        .then((list) => (asList(list) ? { rows: list } : { error: true })));
-  };
-
   const cats = useMemo(() => {
     const by = {};
     rows.forEach((r) => { const c = r.sub_category || "Others"; by[c] = (by[c] || 0) + 1; });
@@ -1496,10 +1484,6 @@ export default function TvDashboard() {
         {/* date · clock · last refresh · shift toggle */}
         <HeaderClock isDay={isDay} updated={lastUpdated} onToggle={() => setShiftOverride(!isDay)} />
 
-        <button onClick={openSearch} title="Find a part — stock, bin, photo" aria-label="Find a part"
-          className={`shrink-0 landscape:order-5 inline-flex items-center gap-[0.5vh] rounded-full px-[1.1vh] py-[0.35vh] text-[1.3vh] font-bold transition-colors ${isDay ? "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50" : "bg-white/10 border border-white/25 text-white hover:bg-white/20"}`}>
-          <Search size={15} /><span className="hidden landscape:inline">Find part</span>
-        </button>
         <button onClick={toggleFs} title={isFs ? "Exit fullscreen" : "Fullscreen"} className={`shrink-0 landscape:order-5 ${isDay ? "text-slate-400 hover:text-slate-700" : "text-white/60 hover:text-white"}`}>{isFs ? <Minimize size={16} /> : <Maximize size={16} />}</button>
       </div>
       </div>
@@ -2043,9 +2027,7 @@ export default function TvDashboard() {
                 // Keyed by what the frame shows, so another part opened in the
                 // same place starts fresh (photo closed) rather than inheriting.
                 <div key={`${i}-${f.kind}-${f.title}`} aria-hidden={!top} className={`absolute inset-0 overflow-auto ${top ? "" : "invisible"}`}>
-                  {f.kind === "partSearch"
-                    ? <PartSearchView frame={f} q={findQ} setQ={setFindQ} onOpen={openHistory} sectionNames={sectionName} />
-                    : f.kind === "partHistory"
+                  {f.kind === "partHistory"
                     ? <PartHistoryView frame={f} axis={axisColor} grid={gridColor} />
                     : f.kind === "valueTrend"
                     ? <ValueTrendView frame={f} axis={axisColor} grid={gridColor} />
@@ -2466,96 +2448,6 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
           </tbody>
         </table>
       </Card>
-    </div>
-  );
-}
-
-// Find a part: every word typed must be in the part's numbers, name, model,
-// specification, bin or sub category. An exact part no. comes first, then a
-// part no. that starts with the first word, then an exact old / new / model no.
-const FIND_FIELDS = ["part_no", "old_part_no", "new_part_no", "part_name", "model_no", "specification", "location", "rework_location", "sub_category"];
-const FIND_SHOWN = 40;
-function findParts(rows, q) {
-  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.length) return [];
-  const first = words[0];
-  const hits = [];
-  rows.forEach((r) => {
-    const hay = FIND_FIELDS.map((f) => r[f] || "").join(" ").toLowerCase();
-    if (!words.every((w) => hay.includes(w))) return;
-    const no = String(r.part_no || "").toLowerCase();
-    const rank = no === first ? 0 : no.startsWith(first) ? 1
-      : [r.old_part_no, r.new_part_no, r.model_no].some((x) => String(x || "").toLowerCase() === first) ? 2 : 3;
-    hits.push([rank, r]);
-  });
-  hits.sort((a, b) => a[0] - b[0] || String(a[1].part_no).localeCompare(String(b[1].part_no)));
-  return hits.map(([, r]) => r);
-}
-
-function PartSearchView({ frame, q, setQ, onOpen, sectionNames = {} }) {
-  const inputRef = useRef(null);
-  useEffect(() => { inputRef.current?.focus(); }, []);
-  const hits = useMemo(() => findParts(frame.rows || [], q), [frame.rows, q]);
-  const shown = hits.slice(0, FIND_SHOWN);
-  // Enter (or a scanner gun's trailing Enter) opens the part when the answer is plain.
-  const onKey = (e) => {
-    if (e.key !== "Enter" || !hits.length) return;
-    const exact = String(hits[0].part_no || "").toLowerCase() === q.trim().toLowerCase();
-    if (exact || hits.length === 1) onOpen(hits[0]);
-  };
-  return (
-    <div className="flex flex-col gap-[1.4vh]">
-      <Card className="p-[1.6vh]">
-        <div className="flex items-center gap-[1.2vh] rounded-xl px-[1.4vh] py-[1vh] bg-[var(--dx-track)]">
-          <Search size={22} className="shrink-0 text-[var(--dx-t4)]" />
-          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
-            placeholder="Part no., old / new no., model, name, spec or bin…" aria-label="Find a part"
-            className="flex-1 min-w-0 bg-transparent outline-none text-[2.2vh] font-semibold text-[var(--dx-t1)] placeholder:text-[var(--dx-t4)] placeholder:font-normal" />
-          {q && <button type="button" onClick={() => { setQ(""); inputRef.current?.focus(); }}
-            className="shrink-0 text-[1.3vh] px-[1.2vh] py-[0.4vh] rounded-full bg-[var(--dx-card)] text-[var(--dx-t3)] hover:text-[var(--dx-t1)]">✕ clear</button>}
-        </div>
-        <div className="mt-[0.8vh] text-[1.3vh] text-[var(--dx-t4)]">
-          {frame.loading ? "Loading the store's parts…"
-            : frame.error ? "Couldn't load the parts — close and open the search again"
-              : !q.trim() ? `${fmtInt((frame.rows || []).length)} parts in the store · type to search · tap a part for its stock history`
-                : !hits.length ? "No part matches"
-                  : `${fmtInt(hits.length)} part${hits.length === 1 ? "" : "s"}${hits.length > FIND_SHOWN ? ` · first ${FIND_SHOWN} shown, type more to narrow` : ""} · tap a part for its stock history`}
-        </div>
-      </Card>
-      {shown.length > 0 && (
-        <Card className="p-[1.2vh]">
-          <div className="divide-y divide-[var(--dx-divide)]">
-            {shown.map((r) => {
-              const thumb = partService.imageUrl({ id: r.part_id, image_file: r.image_file }, true);
-              const also = [r.model_no && `Model ${r.model_no}`, r.old_part_no && `Old ${r.old_part_no}`, r.specification].filter(Boolean).join(" · ");
-              return (
-                <button key={r.part_id} type="button" onClick={() => onOpen(r)}
-                  className="w-full text-left flex items-center gap-[1.6vh] px-[0.8vh] py-[0.9vh] hover:bg-[var(--dx-track)] transition-colors rounded-lg">
-                  <span className="shrink-0 w-[6.5vh] h-[6.5vh] rounded-lg overflow-hidden bg-[var(--dx-track)] flex items-center justify-center text-[1vh] text-[var(--dx-t4)]">
-                    {thumb ? <img src={thumb} alt="" loading="lazy" className="w-full h-full object-cover" /> : "No photo"}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[1.9vh] font-extrabold text-[var(--dx-t1)] leading-tight">{r.part_no}
-                      <span className="ml-[1vh] text-[1.6vh] font-semibold text-[var(--dx-t2)]">{r.part_name}</span></span>
-                    {also && <span className="block truncate text-[1.25vh] text-[var(--dx-t4)]">{also}</span>}
-                  </span>
-                  <span className="shrink-0 w-[18vh]">
-                    <span className="block text-[1.1vh] uppercase tracking-wide text-[var(--dx-t4)]">Bin</span>
-                    <span className="block text-[1.7vh] font-bold text-[var(--dx-t1)] truncate">{r.location || "—"}</span>
-                    <span className="block text-[1.15vh] text-[var(--dx-t4)] truncate">{sectionNames[r.section_id] || ""}{r.rework_location ? ` · rework ${r.rework_location}` : ""}</span>
-                  </span>
-                  <span className="shrink-0 w-[13vh] text-right">
-                    <span className="block text-[1.1vh] uppercase tracking-wide text-[var(--dx-t4)]">In stock</span>
-                    <span className="block text-[2.1vh] font-extrabold tabular-nums text-[var(--dx-t1)]">{fmtInt(r.qty_on_hand)} <span className="text-[1.2vh] font-semibold text-[var(--dx-t4)]">{r.uom || ""}</span></span>
-                    <span className="block text-[1.15vh] text-[var(--dx-t4)] tabular-nums">min {fmtInt(r.min_stock_level)} · max {fmtInt(r.max_stock_level)}</span>
-                  </span>
-                  <span className="shrink-0 w-[14vh] flex justify-end"><StatusPill status={r.status} /></span>
-                </button>
-              );
-            })}
-          </div>
-        </Card>
-      )}
     </div>
   );
 }
