@@ -62,7 +62,7 @@ def _try(client, username, password, typed):
     return client.post(URL, json={"username": username, "password": password, "captcha": typed})
 
 
-def test_the_code_is_two_letters_and_two_numbers_drawn_as_a_picture(app):
+def test_the_code_is_two_letters_and_two_numbers_drawn_as_a_picture(app, guarded):
     for _ in range(50):
         c = captcha.make_code()
         assert len(c) == 4 and sum(ch.isdigit() for ch in c) == 2 and sum(ch.isalpha() for ch in c) == 2
@@ -71,7 +71,7 @@ def test_the_code_is_two_letters_and_two_numbers_drawn_as_a_picture(app):
     assert svg.startswith("<svg") and "<line" in svg and len(re.findall(r"<text ", svg)) == 4
 
 
-def test_the_session_holds_no_readable_code(app, code):
+def test_the_session_holds_no_readable_code(app, code, guarded):
     c = app.test_client()
     c.get("/api/v1/auth/captcha")
     with c.session_transaction() as s:
@@ -140,3 +140,12 @@ def test_a_wrong_try_older_than_the_block_no_longer_counts(app, guarded, user, c
     db.session.commit()
     r = _try(c, user.username, "wrong", code)
     assert "wrong 1 time(s) — 4 attempt(s) left" in r.get_json()["message"]
+
+
+def test_sign_in_needs_no_code_while_the_check_is_off(app):
+    """Off by default since 24 Oct 2026 ("login page ko without captcha rhne
+    de"): the code endpoint says so, and the screen signs in without one."""
+    assert app.config["LOGIN_CAPTCHA_ENABLED"] is False
+    c = app.test_client()
+    body = c.get("/api/v1/auth/captcha").get_json()["data"]
+    assert body == {"enabled": False}

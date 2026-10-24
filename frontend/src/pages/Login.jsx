@@ -21,6 +21,10 @@ export default function Login() {
   const [captchaSvg, setCaptchaSvg] = useState("");
   const [captchaFailed, setCaptchaFailed] = useState(false);
   const [captchaInput, setCaptchaInput] = useState("");
+  // Whether the server asks for the Security Check at all — off since 24 Oct
+  // 2026 ("login page ko without captcha rhne de"), back on with the server's
+  // LOGIN_CAPTCHA_ENABLED. Hidden until the server says.
+  const [captchaOn, setCaptchaOn] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -28,7 +32,11 @@ export default function Login() {
     setCaptchaInput("");
     setCaptchaFailed(false);
     authService.captcha()
-      .then((r) => setCaptchaSvg(r.data?.data?.svg || ""))
+      .then((r) => {
+        const d = r.data?.data || {};
+        setCaptchaOn(d.enabled !== false);
+        setCaptchaSvg(d.svg || "");
+      })
       .catch(() => { setCaptchaSvg(""); setCaptchaFailed(true); });
   }, []);
   useEffect(() => { newCaptcha(); }, [newCaptcha]);
@@ -75,7 +83,7 @@ export default function Login() {
     setError("");
     setBusy(true);
     try {
-      await login(username, password, captchaInput.trim());
+      await login(username, password, captchaOn ? captchaInput.trim() : undefined);
     } catch (err) {
       // The server's own words: a wrong code, how many tries are left, or how
       // long the account stays blocked.
@@ -157,7 +165,9 @@ export default function Login() {
           </label>
 
           {/* Security Check — the QMP portal's: the code's picture, the box to
-              type it in, and a button for a new code. */}
+              type it in, and a button for a new code. Only while the server
+              asks for it. */}
+          {captchaOn && (
           <div>
             <span className="text-sm font-semibold text-slate-700">
               Security Check <span className="font-normal text-slate-500">(type the 2 letters + 2 numbers)</span>
@@ -196,6 +206,7 @@ export default function Login() {
               </button>
             </div>
           </div>
+          )}
 
           {error && (
             <p role="alert" className="text-[14px] leading-snug text-rose-700">{error}</p>

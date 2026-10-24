@@ -41,11 +41,20 @@ def test_run_py_never_mounts_the_interactive_debugger():
 
 # ---- the live server's settings, done by the app itself -----------------------------------------
 
+@pytest.fixture()
+def code_on(app):
+    """The code endpoint writes the session (and so sets the cookie) only while
+    the sign-in check is on — off by default since 24 Oct 2026."""
+    app.config["LOGIN_CAPTCHA_ENABLED"] = True
+    yield
+    app.config["LOGIN_CAPTCHA_ENABLED"] = False
+
+
 def _cookie(resp):
     return "; ".join(v for k, v in resp.headers.items() if k.lower() == "set-cookie")
 
 
-def test_the_sign_in_cookie_is_secure_on_https_only(app):
+def test_the_sign_in_cookie_is_secure_on_https_only(app, code_on):
     c = app.test_client()
     plain = _cookie(c.get("/api/v1/auth/captcha"))
     https = _cookie(c.get("/api/v1/auth/captcha", base_url="https://localhost"))
@@ -53,7 +62,7 @@ def test_the_sign_in_cookie_is_secure_on_https_only(app):
     assert "session=" in https and "Secure" in https
 
 
-def test_a_proxy_on_the_private_network_is_believed_and_the_internet_is_not(app):
+def test_a_proxy_on_the_private_network_is_believed_and_the_internet_is_not(app, code_on):
     c = app.test_client()
     url = "/api/v1/auth/captcha"
     via_proxy = c.get(url, headers={"X-Forwarded-Proto": "https"}, environ_base={"REMOTE_ADDR": "127.0.0.1"})

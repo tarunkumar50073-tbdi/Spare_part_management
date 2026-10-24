@@ -44,9 +44,15 @@ def login():
 @bp.route("/captcha", methods=["GET"])
 def new_captcha():
     """A new Security Check code for this browser, as a picture (SVG). Only an
-    HMAC of it is kept, in the session; see utils/captcha."""
+    HMAC of it is kept, in the session; see utils/captcha. With the check
+    switched off (LOGIN_CAPTCHA_ENABLED, off since 24 Oct 2026) it answers
+    {"enabled": false} and the sign-in screen shows no code."""
+    if not current_app.config.get("LOGIN_CAPTCHA_ENABLED", True):
+        resp, status = success_response({"enabled": False})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, status
     svg = captcha.issue(session, current_app.config["SECRET_KEY"])
-    resp, status = success_response({"svg": svg, "ttl": current_app.config["LOGIN_CAPTCHA_TTL"]})
+    resp, status = success_response({"enabled": True, "svg": svg, "ttl": current_app.config["LOGIN_CAPTCHA_TTL"]})
     resp.headers["Cache-Control"] = "no-store"
     return resp, status
 

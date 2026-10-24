@@ -39,7 +39,9 @@ class Config:
     # and checks, and an account blocked for LOGIN_LOCK_MINUTES after
     # LOGIN_LOCK_ATTEMPTS wrong username / password tries. Tests switch both off;
     # their own test switches them back on.
-    LOGIN_CAPTCHA_ENABLED = _env_bool("LOGIN_CAPTCHA_ENABLED", "true")
+    # Off since 24 Oct 2026 (the store: "login page ko without captcha rhne
+    # de"); LOGIN_CAPTCHA_ENABLED=1 brings it back, the sign-in screen too.
+    LOGIN_CAPTCHA_ENABLED = _env_bool("LOGIN_CAPTCHA_ENABLED", "false")
     LOGIN_CAPTCHA_TTL = int(os.getenv("LOGIN_CAPTCHA_TTL", "300"))     # seconds a code stays good
     LOGIN_LOCK_ENABLED = _env_bool("LOGIN_LOCK_ENABLED", "true")
     LOGIN_LOCK_ATTEMPTS = int(os.getenv("LOGIN_LOCK_ATTEMPTS", "5"))
