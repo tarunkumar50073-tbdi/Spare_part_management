@@ -11,6 +11,9 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useStores } from "../context/StoreContext.jsx";
 import { ROLE_TEMPLATES, TEMPLATE_HELP, isBlank, matchTemplate, templateFields } from "../lib/roleTemplates.js";
 
+// The server's rule too (admin_service.MIN_PASSWORD_LEN): 8 since 24 Oct 2026.
+const MIN_PASSWORD_LEN = 8;
+
 const ROLES = [
   { value: "STORE_USER", label: "Store User" },
   { value: "ADMIN", label: "Admin (full access)" },
@@ -165,7 +168,7 @@ export default function Admin() {
 
   const save = async () => {
     if (!form.username.trim()) return toast.error("Username is required");
-    if (!form.id && (form.password || "").length < 4) return toast.error("Password must be at least 4 characters");
+    if (!form.id && (form.password || "").length < MIN_PASSWORD_LEN) return toast.error(`Password must be at least ${MIN_PASSWORD_LEN} characters`);
     setSaving(true);
     const payload = {
       username: form.username.trim(),
@@ -189,7 +192,7 @@ export default function Admin() {
   };
 
   const doReset = async () => {
-    if ((resetPw || "").length < 4) return toast.error("Password must be at least 4 characters");
+    if ((resetPw || "").length < MIN_PASSWORD_LEN) return toast.error(`Password must be at least ${MIN_PASSWORD_LEN} characters`);
     try {
       await adminService.resetPassword(resetFor.id, resetPw);
       toast.success(`Password reset for ${resetFor.username}`);
@@ -348,7 +351,7 @@ export default function Admin() {
               <label className="block">
                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{form.id ? "New password (blank = unchanged)" : "Password"}</span>
                 <input className="input-field mt-1" value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="min 4 characters" />
+                  onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={`min ${MIN_PASSWORD_LEN} characters`} />
               </label>
               <label className="block">
                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Role</span>
@@ -441,7 +444,7 @@ export default function Admin() {
         }>
         <label className="block">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">New password</span>
-          <input className="input-field mt-1" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="min 4 characters" autoFocus />
+          <input className="input-field mt-1" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder={`min ${MIN_PASSWORD_LEN} characters`} autoFocus />
         </label>
       </Modal>
     </div>

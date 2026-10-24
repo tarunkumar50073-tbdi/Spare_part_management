@@ -12,7 +12,10 @@ from app.repositories.user_repository import UserRepository
 from app.services.audit_log_service import AuditLogService
 from app.utils.exceptions import BadRequestError, NotFoundError
 
-MIN_PASSWORD_LEN = 4
+# A password set from User Management (new user or reset) is at least this
+# long — 4 until 24 Oct 2026, when the app went on the internet ("password
+# length 8 kar de"). Passwords already set keep working until they are reset.
+MIN_PASSWORD_LEN = 8
 
 
 def _actor():

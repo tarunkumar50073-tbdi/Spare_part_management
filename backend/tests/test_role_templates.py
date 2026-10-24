@@ -270,7 +270,7 @@ def _login_from_template(client, world, key):
     _as(client, world["admin"])
     resp = client.post("/api/v1/admin/users", json={
         "username": f"rt_{key}_{_TAG}_{_n()}", "full_name": t["label"], "role": t["role"],
-        "is_active": True, "password": "pw-1234", "stores": t["stores"], "permissions": t["permissions"],
+        "is_active": True, "password": "pw-12345678", "stores": t["stores"], "permissions": t["permissions"],
     })
     assert resp.status_code == 200, resp.get_json()
     saved = resp.get_json()["data"]
