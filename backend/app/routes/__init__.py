@@ -44,6 +44,7 @@ def register_routes(app):
     from app.routes.short_rejection_routes import bp as short_rejection_bp
     from app.routes.challan_register_routes import bp as challan_register_bp
     from app.routes.rejection_request_routes import bp as rejection_request_bp
+    from app.routes.short_mail_routes import bp as short_mail_bp
     from app.routes.inventory_control_routes import bp as inventory_control_bp
     from app.routes.consumption_analytics_routes import bp as consumption_analytics_bp
     from app.routes.data_quality_routes import bp as data_quality_bp
@@ -99,6 +100,7 @@ def register_routes(app):
     app.register_blueprint(short_rejection_bp)
     app.register_blueprint(challan_register_bp)
     app.register_blueprint(rejection_request_bp)
+    app.register_blueprint(short_mail_bp)
     app.register_blueprint(inventory_control_bp)
     app.register_blueprint(consumption_analytics_bp)
     app.register_blueprint(data_quality_bp)

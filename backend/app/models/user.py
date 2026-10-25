@@ -69,6 +69,9 @@ PERMISSION_MODULES = [
     # (21 Oct 2026). A register only — the ERP GRN stays the one way stock goes up.
     {"key": "challan_register", "label": "Urgent Challan Register"},
     {"key": "rejection_request", "label": "Rejection Mail (RQC)"},
+    # The mail to Purchase for material received short (25 Oct 2026) — its own
+    # right, apart from the Rejection Mail's ("alag alag ho").
+    {"key": "short_mail", "label": "Short Mail (Purchase)"},
     {"key": "vehicle_in_out", "label": "Vehicle In / Out"},
     {"key": "admin", "label": "Admin — user management"},
     # Child Parts Store write screens (put-away, holding transfer, daily count,
@@ -111,6 +114,7 @@ MODULE_ACTIONS = {
     "reports": _R, "audit_trail": _R, "live_dashboard": _R, "gate_entry": _R,
     "challan_register": _RCUD,    # C new challan · E edit, invoice / GRN links · D cancel
     "rejection_request": _RCU,    # C new request · E settings, mail draft
+    "short_mail": _RCU,           # C make a short mail · E its To / CC
     "vehicle_in_out": _R, "admin": _R,
     "child_store": _RCU,          # C RGP, count submit · E put-away, transfer, resolve, count import
 }

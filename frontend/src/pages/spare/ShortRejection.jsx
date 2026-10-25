@@ -14,6 +14,7 @@ import { useCan } from "../../components/Can.jsx";
 import { NO_ROWS } from "../../lib/stockQueries.js";
 import { compactMoney, money, num } from "../../lib/format.js";
 import { shortRejectionService } from "../../services/shortRejectionService.js";
+import ShortMailDialog from "../../components/spare/ShortMailDialog.jsx";
 
 // Short & Rejection — what suppliers sent short, and what was rejected, on this
 // store's ERP GRN lines, supplier-wise and line by line, with the days each has
@@ -164,6 +165,10 @@ function Status({ line }) {
 
 export default function ShortRejection() {
   const canRejections = useCan("rejection_request", "view");
+  const canShortMail = useCan("short_mail", "view");
+  const canMakeShortMail = useCan("short_mail", "create");
+  const canShortMailTo = useCan("short_mail", "update");
+  const [shortMail, setShortMail] = useState(false);
   const { activeCode, activeStore } = useStores();
   const { openPart } = usePartDrawer();
   const code = activeCode;
@@ -263,6 +268,11 @@ export default function ShortRejection() {
           {canRejections && tab !== "short" && (
             <Link to="/rejection-requests" className="btn-secondary text-[12.5px]">Rejection mail →</Link>
           )}
+          {/* The mail to Purchase for material received short — on the Short
+              tab only, apart from the Rejection Mail (25 Oct 2026). */}
+          {canShortMail && tab === "short" && (
+            <button type="button" className="btn-secondary text-[12.5px]" onClick={() => setShortMail(true)}>Short mail →</button>
+          )}
         </span>
       </div>
 
@@ -342,6 +352,11 @@ export default function ShortRejection() {
           </div>
         )}
       </div>
+
+      {shortMail && (
+        <ShortMailDialog lines={tab === "short" && d && !stale && !unreadable ? d.lines : []} storeCode={code}
+          canMake={canMakeShortMail} canSettings={canShortMailTo} onClose={() => setShortMail(false)} />
+      )}
     </div>
   );
 }
