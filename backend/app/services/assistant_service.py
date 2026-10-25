@@ -168,6 +168,11 @@ _BUCKETS = [
       "max se zyada", "max se jyada", "max se upar", "faltu", "zyada stock", "jyada stock", "jada stock",
       "zyada pada", "jyada pada", "extra pada", "faltu pada", "zyada maal", "jyada maal", "jada maal",
       "extra maal")),
+    # Not required any more (22 Oct 2026): kept with its stock, never ordered.
+    (Bucket("discontinued", "Discontinued (not required any more)", "Discontinued (ab zarurat nahi)",
+            lambda r: bool(r.get("discontinued"))),
+     ("discontinued", "discontinue", "obsolete", "not required", "no longer required", "zarurat nahi",
+      "jarurat nahi", "jaroorat nahi", "zaroorat nahi", "required nahi")),
     (Bucket("healthy", "Healthy stock", "Theek stock", lambda r: r.get("status") == "Healthy"),
      ("healthy", "ok stock", "stock theek", "normal stock", "theek stock")),
     (Bucket("not_counted", "Never counted", "Abhi tak nahi gine", lambda r: r.get("qty_on_hand") is None),
@@ -759,10 +764,13 @@ class AssistantService:
                 if names[key][0] not in [f[0] for f in found]:
                     found.append(names[key])
                 text = re.sub(rf"\b{re.escape(key)}\b", " ", text)
+        # "part", "parts", "item" never name a type on their own, though the
+        # store's types end in them ("Cylinder Parts", "Std Part"): "kitne parts
+        # khatam hai" asked the whole store and got "Cylinder Parts" (25 Oct 2026).
         if kinds is None:
             for t in types:
                 tl = t.lower()
-                if " " in tl or tl in _COMMON_TYPES:
+                if " " in tl or tl in _COMMON_TYPES or tl in _FILLER:
                     continue
                 if re.search(rf"\b{re.escape(tl)}s?\b", text):
                     take_type(t)
@@ -770,7 +778,8 @@ class AssistantService:
         if kinds is None:
             # A word that only ends types — "valve" for Solenoid Valve, Air Valve …
             for word in {t.lower().split()[-1] for t in types if " " in t}:
-                if len(word) >= 4 and word not in _COMMON_TYPES and re.search(rf"\b{re.escape(word)}s?\b", text):
+                if (len(word) >= 4 and word not in _COMMON_TYPES and word.rstrip("s") not in _FILLER
+                        and re.search(rf"\b{re.escape(word)}s?\b", text)):
                     family = [t for t in types if t.lower().split()[-1] == word]
                     kinds = {t.lower() for t in family}
                     kind_label = word.title() if len(family) == 1 else f"{word.title()} ({len(family)} types)"

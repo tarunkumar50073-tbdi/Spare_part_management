@@ -325,3 +325,43 @@ def test_a_family_word_takes_every_type_it_ends(bot):
     # "valve" is no type here, only the end of "Solenoid Valve": its one part, answered whole.
     d = bot.ask("valve kitne hain")
     assert _titles(d) == ["CNMM5000"] and d["answer"].startswith("CNMM5000 (SOLENOID VALVE 24V) ka stock 4 NOS hai")
+
+
+def _bot_with(extra, discontinued=()):
+    """The fixture's store plus extra parts (PARTS' columns), some of them
+    discontinued (Part No.s)."""
+    b = AssistantService()
+    b.stock = _Stock()
+    for i, vals in enumerate(extra, start=len(PARTS) + 1):
+        f = dict(zip(_COLS, vals))
+        part = SimpleNamespace(id=i, new_part_no=None, uom="NOS", category="Maintenance/Tool Room", specification=None,
+                               reorder_level=None, discontinued=f["part_no"] in discontinued,
+                               **{k: v for k, v in f.items() if k != "qty"})
+        stock = SimpleNamespace(qty_on_hand=f["qty"], last_counted_at=None) if f["qty"] is not None else None
+        b.stock.rows.append(SpareStockService._row_dict(part, stock))
+    b._sections = lambda: SECTIONS
+    return b
+
+
+def test_part_and_parts_never_name_a_type():
+    """Live data, 25 Oct 2026: a type "Cylinder Parts" made "kitne parts khatam
+    hai" answer for that one type — "abhi koi part nahi" — not the store."""
+    b = _bot_with([("CNMM7001", "PISTON SEAL KIT", 6, 1, 8, 90, 5, "Cylinder Parts", "R6-S1-B1", None, None)])
+    for q in ("kitne parts khatam hai", "kitne part khatam hai", "kya kya khatam hai"):
+        assert b.ask(q)["answer"].startswith("Stock khatam: 2 part"), q
+    assert b.ask("reorder wale parts kitne hai")["answer"].startswith("Reorder karne wale (min ya usse kam): 3 part")
+    # The type named in full still is one.
+    assert _titles(b.ask("cylinder parts dikhao")) == ["CNMM7001"]
+
+
+def test_discontinued_parts_are_asked_for():
+    b = _bot_with([("CNTR9001", "OLD DIE PUNCH", 4, 0, None, 500, 1, "Punch", "R12-S1-B1", None, None),
+                   ("CNTR9002", "OLD DIE BUTTON", 0, 0, None, 200, 1, "Button", "R12-S1-B2", None, None)],
+                  discontinued=("CNTR9001", "CNTR9002"))
+    for q in ("discontinued parts", "discontinued part kitne hai", "jinki zarurat nahi"):
+        d = b.ask(q)
+        assert d["answer"].startswith("Discontinued (ab zarurat nahi): 2 part") or \
+            d["answer"].startswith("Discontinued (not required any more): 2 parts"), (q, d["answer"])
+        assert set(_titles(d)) == {"CNTR9001", "CNTR9002"}
+    # A discontinued part at zero is not "out of stock".
+    assert "CNTR9002" not in _titles(b.ask("kya kya khatam hai"))
