@@ -75,8 +75,9 @@ def _can(perms, mod, action="view"):
 
 # ---- the definitions themselves ----------------------------------------------------------
 
-def test_the_five_templates_the_store_keeps():
-    assert KEYS == ["store_staff", "store_supervisor", "line_user", "manager", "live_board"]
+def test_the_templates_the_store_keeps():
+    # The Part Search Kiosk joined on 25 Oct 2026 (the kiosk outside the store).
+    assert KEYS == ["store_staff", "store_supervisor", "line_user", "manager", "live_board", "part_kiosk"]
     for t in TEMPLATES.values():
         assert t["label"] and t["short"] and t["description"], t["key"]
 
@@ -103,12 +104,13 @@ def test_template_is_well_formed(key):
 def test_narrow_templates_hold_only_their_one_screen():
     assert set(TEMPLATES["line_user"]["permissions"]) == {"install_confirm"}
     assert set(TEMPLATES["live_board"]["permissions"]) == {"live_dashboard"}
-    for key in ("line_user", "live_board"):
+    assert set(TEMPLATES["part_kiosk"]["permissions"]) == {"part_kiosk"}
+    for key in ("line_user", "live_board", "part_kiosk"):
         perms = TEMPLATES[key]["permissions"]
         assert not _can(perms, "scan_part") and not _can(perms, "store_stock"), key
 
 
-@pytest.mark.parametrize("key", ["manager", "live_board"])
+@pytest.mark.parametrize("key", ["manager", "live_board", "part_kiosk"])
 def test_view_only_templates_change_nothing(key):
     assert not any(p[a] for p in TEMPLATES[key]["permissions"].values() for a in WRITES)
 
@@ -145,6 +147,7 @@ WRITE_SCREENS = {"/scan-part", "/work-queue", "/confirm-installation",
 def test_line_user_and_board_open_only_their_screen():
     assert _opens("line_user") == {"/confirm-installation"}
     assert _opens("live_board") == {"/live-dashboard"}
+    assert _opens("part_kiosk") == {"/part-search"}
 
 
 def test_staff_screens():

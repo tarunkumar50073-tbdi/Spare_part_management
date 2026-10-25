@@ -1,5 +1,5 @@
 {
-  "about": "Ready-made rights for a new login, picked at the top of the User Management form (store's request of 17 Oct 2026: \"template bana de\" — one pick of a type and all its rights fall into place). The store approved the six types and their screens on 17 Oct 2026; the Kiosk device type went the same day with the kiosk itself (\"management k according manual detail fill karke issuance karna time waste h\"), leaving five. Each right was checked against the screens the person uses and the endpoints those screens call; `why` says which. This one file is read by the User Management screen (lib/roleTemplates.js) and by the backend test (backend/tests/test_role_templates.py), which signs in as each template and calls those endpoints. Keys are backend/app/models/user.py PERMISSION_MODULES. Rights are CRUD since 24 Oct 2026 (view = read only, create = add new, update = change, delete = remove / cancel); any write carries view, and only the actions a screen has (MODULE_ACTIONS) are ever true. Each old edit became every write its screen has, so a template does what it did before.",
+  "about": "Ready-made rights for a new login, picked at the top of the User Management form (store's request of 17 Oct 2026: \"template bana de\" — one pick of a type and all its rights fall into place). The store approved the six types and their screens on 17 Oct 2026; the Kiosk device type went the same day with the kiosk itself (\"management k according manual detail fill karke issuance karna time waste h\"), leaving five. A sixth, the read-only Part Search Kiosk for the kiosk outside the store, joined on 25 Oct 2026. Each right was checked against the screens the person uses and the endpoints those screens call; `why` says which. This one file is read by the User Management screen (lib/roleTemplates.js) and by the backend test (backend/tests/test_role_templates.py), which signs in as each template and calls those endpoints. Keys are backend/app/models/user.py PERMISSION_MODULES. Rights are CRUD since 24 Oct 2026 (view = read only, create = add new, update = change, delete = remove / cancel); any write carries view, and only the actions a screen has (MODULE_ACTIONS) are ever true. Each old edit became every write its screen has, so a template does what it did before.",
   "templates": [
     {
       "key": "store_staff",
@@ -181,6 +181,20 @@
       },
       "why": {
         "live_dashboard": "Live Board (GET /dashboard/spare/overview + /management accept it); its other figures (GET /spare-stock/today, /flow, /activity, /spare-flow/queues) need only the store. Without spare_store the board hides its Main Dashboard exit."
+      }
+    },
+    {
+      "key": "part_kiosk",
+      "label": "Part Search Kiosk",
+      "short": "Part Search Kiosk",
+      "description": "The kiosk outside the spare store: search a part and see its photo, stock, location and section. Read only — it changes nothing and stays signed in.",
+      "role": "STORE_USER",
+      "stores": ["MAINTENANCE"],
+      "permissions": {
+        "part_kiosk": { "view": true, "create": false, "update": false, "delete": false }
+      },
+      "why": {
+        "part_kiosk": "Part Search kiosk (GET /part-kiosk/parts, photos from GET /parts/:id/image) — added 25 Oct 2026"
       }
     }
   ]

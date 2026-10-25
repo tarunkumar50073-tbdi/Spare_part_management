@@ -52,6 +52,7 @@ const VehicleInOut = React.lazy(() => import("./pages/VehicleInOut.jsx"));
 const CurrentStock = React.lazy(() => import("./pages/CurrentStock.jsx"));
 const WindowTimeBoard = React.lazy(() => import("./pages/WindowTimeBoard.jsx"));
 const TvDashboard = React.lazy(() => import("./pages/TvDashboard.jsx"));
+const PartKiosk = React.lazy(() => import("./pages/spare/PartKiosk.jsx"));
 const Admin = React.lazy(() => import("./pages/Admin.jsx"));
 const RightsMatrix = React.lazy(() => import("./pages/RightsMatrix.jsx"));
 const Settings = React.lazy(() => import("./pages/Settings.jsx"));
@@ -203,6 +204,9 @@ function AuthenticatedApp() {
         {/* The 53" LED "Live Dashboard": behind login, but deliberately OUTSIDE
             MainLayout — no sidebar, no top bar, it owns the whole screen. */}
         <Route path="/live-dashboard" element={<RequirePermission mod="live_dashboard"><TvDashboard /></RequirePermission>} />
+        {/* The Part Search kiosk outside the spare store (25 Oct 2026) — read
+            only, and like the Live Board it owns the whole screen. */}
+        <Route path="/part-search" element={<RequirePermission mod="part_kiosk"><PartKiosk /></RequirePermission>} />
         {/* No /kiosk and no /part-requests any more: the store dropped the kiosk
             request and its Part Requisition queue on 17 Oct 2026 ("management k
             according manual detail fill karke issuance karna time waste h") —
@@ -333,6 +337,7 @@ const FIRST_SCREENS = [
   { to: "/scan-part", mod: "scan_part" },
   { to: "/confirm-installation", mod: "install_confirm" },
   { to: "/live-dashboard", mod: "live_dashboard" },
+  { to: "/part-search", mod: "part_kiosk" },
   { to: "/store-stock-spare", mod: "store_stock" },
   { to: "/reports", mod: "reports" },
 ];

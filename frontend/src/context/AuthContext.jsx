@@ -9,14 +9,16 @@ const AuthContext = createContext(null);
 // then shows why (see logoutReason).
 const IDLE_LIMIT_MS = 30 * 60 * 1000;
 
-// A login that can open only the Live Board — the HMI / TV screen on the shop
-// floor, where nobody touches a mouse. The idle sign-out would leave the plant
-// TV on the login screen every half hour, so it is spared (the store, 22 Oct
-// 2026: "ok"). Any other right, or an administrator, keeps the timer.
-const boardOnly = (u) => {
+// A device login: one that can open only the Live Board — the HMI / TV screen
+// on the shop floor, where nobody touches a mouse — or only the read-only Part
+// Search kiosk outside the store (25 Oct 2026). The idle sign-out would leave
+// the TV / kiosk on the login screen every half hour, so it is spared (the
+// store, 22 Oct 2026: "ok"). Any other right, or an administrator, keeps the timer.
+const DEVICE_SCREENS = new Set(["live_dashboard", "part_kiosk"]);
+const deviceOnly = (u) => {
   if (!u || u.is_admin) return false;
   const granted = Object.entries(u.permissions || {}).filter(([, p]) => p && (p.view || p.edit));
-  return granted.length > 0 && granted.every(([mod]) => mod === "live_dashboard");
+  return granted.length > 0 && granted.every(([mod]) => DEVICE_SCREENS.has(mod));
 };
 
 // A login belongs to the tab it was made in (the store, 24 Oct 2026: "address
@@ -32,8 +34,8 @@ const boardOnly = (u) => {
 // - when someone signs in in one tab, every tab signed in as another user drops
 //   to the login screen (told on the channel; the server also refuses such a
 //   tab's calls, see setTabUser in services/api.js);
-// - the Live Board TV login is spared (boardOnly): the TV must come back by
-//   itself after a restart.
+// - the Live Board TV and Part Search kiosk logins are spared (deviceOnly):
+//   the TV / kiosk must come back by itself after a restart.
 const TAB_KEY = "dx_tab_login";
 const CHANNEL = "dx_login";
 // This page's own name on the channel, so it never answers or follows itself.
@@ -114,7 +116,7 @@ export function AuthProvider({ children }) {
     try {
       const res = await authService.me();
       const me = res.data.data;
-      if (me && !tabInUse(me) && !boardOnly(me)) {
+      if (me && !tabInUse(me) && !deviceOnly(me)) {
         // Opened afresh on an old login: this tab asks for its own. The old
         // login ends too, unless another tab is still working on it.
         if (!(await anotherTabOpen())) {
@@ -198,7 +200,7 @@ export function AuthProvider({ children }) {
   // Idle auto-logout: only while signed in. Any real activity reschedules the
   // timer; IDLE_LIMIT_MS of none signs the user out with an "inactivity" reason.
   useEffect(() => {
-    if (!user || boardOnly(user)) return undefined;
+    if (!user || deviceOnly(user)) return undefined;
     let timer;
     let last = 0;
     const reset = () => {

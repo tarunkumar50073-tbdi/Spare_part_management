@@ -64,6 +64,9 @@ PERMISSION_MODULES = [
     {"key": "reports", "label": "Reports"},
     {"key": "audit_trail", "label": "Audit Trail"},
     {"key": "live_dashboard", "label": "Live Dashboard"},
+    # The read-only part search on the kiosk outside the spare store (25 Oct
+    # 2026): a part, its photo, stock, place and section — no rate, no change.
+    {"key": "part_kiosk", "label": "Part Search Kiosk"},
     {"key": "gate_entry", "label": "Gate Entry"},
     # Urgent material on a supplier's delivery challan before its PO / invoice
     # (21 Oct 2026). A register only — the ERP GRN stays the one way stock goes up.
@@ -112,6 +115,7 @@ MODULE_ACTIONS = {
     "departments": _RCUD,         # C department, recipient, send now · E edit · D remove a recipient
     "employees": _RCU,            # C new / import · E edit
     "reports": _R, "audit_trail": _R, "live_dashboard": _R, "gate_entry": _R,
+    "part_kiosk": _R,             # read only: the kiosk changes nothing
     "challan_register": _RCUD,    # C new challan · E edit, invoice / GRN links · D cancel
     "rejection_request": _RCU,    # C new request · E settings, mail draft
     "short_mail": _RCU,           # C make a short mail · E its To / CC
