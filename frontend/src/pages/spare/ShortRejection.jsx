@@ -258,8 +258,11 @@ export default function ShortRejection() {
         </div>
         <span className="flex items-center gap-2">
           {q.isFetching && d && <span className="text-[11px] text-slate-400">Updating…</span>}
-          {/* The mail to RQC to punch a rejection. */}
-          {canRejections && <Link to="/rejection-requests" className="btn-secondary text-[12.5px]">Rejection mail →</Link>}
+          {/* The mail to RQC to punch a rejection — on the Rejection tab only
+              (25 Oct 2026: "short me bhi rejection mail dikha rha h"). */}
+          {canRejections && tab !== "short" && (
+            <Link to="/rejection-requests" className="btn-secondary text-[12.5px]">Rejection mail →</Link>
+          )}
         </span>
       </div>
 
