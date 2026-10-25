@@ -387,12 +387,24 @@ def create_app(env_name=None):
     return app
 
 
+def _is_reloader_parent(app):
+    """True only in the Werkzeug reloader's watching parent, where no worker
+    thread may start (its serving child starts them). serve.py (waitress) has
+    no reloader and says so with DX_NO_RELOADER=1 — so does any other server
+    without one (gunicorn, a systemd unit) when it sets it. Without that, a .env
+    that still says development (debug on) made the one real process look like
+    the reloader parent: the ERP pollers never started there (24 Oct 2026: the
+    live site got no ERP data), while mail and backup already had the check."""
+    import os
+    return (app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+            and os.environ.get("DX_NO_RELOADER") != "1")
+
+
 def _start_erp_ledger_poller(app):
     """Start the ERP-ledger inbox auto-import poller — but only in the process
     that actually serves requests, so the Werkzeug reloader's parent process
     doesn't spawn a second one."""
-    import os
-    if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    if _is_reloader_parent(app):
         return  # reloader parent; the worker child will start it
     from app.services.erp_ledger_inbox_service import ERPLedgerInboxService
     ERPLedgerInboxService().start_poller(app)
@@ -402,8 +414,7 @@ def _start_erp_sync_poller(app):
     """Start the read-only ERP DB -> mirror sync poller — like the ledger poller,
     only in the request-serving process (not the Werkzeug reloader parent), and
     only when ERP_SYNC_POLL_SECONDS > 0 and ERP DB credentials are configured."""
-    import os
-    if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    if _is_reloader_parent(app):
         return  # reloader parent; the worker child will start it
     from app.services.erp_sync_service import ERPSyncService
     ERPSyncService().start_poller(app)
@@ -423,9 +434,7 @@ def _start_email_engine(app):
     FLASK_ENV=development would make this guard treat the one real process as
     the reloader parent and no mail would ever leave the queue. On start the
     worker puts mails a crash left in SENDING back in the queue."""
-    import os
-    if (app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
-            and os.environ.get("DX_NO_RELOADER") != "1"):
+    if _is_reloader_parent(app):
         return  # reloader parent; the worker child will start it
     from app.services.email_engine import EmailEngine
     EmailEngine.start_worker(app)
@@ -438,9 +447,7 @@ def _start_backup_worker(app):
     reloader parent, and under serve.py (DX_NO_RELOADER=1) even when .env still
     says development. A failure to start is logged, never fatal: the app must
     come up whatever happens to its backup."""
-    import os
-    if (app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
-            and os.environ.get("DX_NO_RELOADER") != "1"):
+    if _is_reloader_parent(app):
         return  # reloader parent; the worker child will start it
     try:
         from app.services.backup_service import BackupService

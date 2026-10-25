@@ -159,3 +159,29 @@ def test_window_time_board():
     assert board["summary"]["warning"] >= 1                  # our late arrival
     late = [a for a in board["alerts"] if a["supplier"] == "Board Test Supplier" and a["severity"] == "warning"]
     assert late and "late by 40 min" in late[0]["title"]
+
+
+def test_erp_pollers_start_under_waitress_even_in_development_mode(app, monkeypatch):
+    """24 Oct 2026: the live site got no ERP data. The ERP pollers took the one
+    real process of a server without a reloader (serve.py / waitress, a .env
+    still saying development) for the reloader parent and never started; mail
+    and backup already knew DX_NO_RELOADER."""
+    from app import _start_erp_ledger_poller, _start_erp_sync_poller
+    from app.services.erp_ledger_inbox_service import ERPLedgerInboxService
+    started = []
+    monkeypatch.setattr(ERPSyncService, "start_poller", lambda self, a: started.append("sync"))
+    monkeypatch.setattr(ERPLedgerInboxService, "start_poller", lambda self, a: started.append("ledger"))
+    monkeypatch.delenv("WERKZEUG_RUN_MAIN", raising=False)
+    monkeypatch.delenv("DX_NO_RELOADER", raising=False)
+    assert app.debug
+    _start_erp_sync_poller(app)
+    _start_erp_ledger_poller(app)
+    assert started == []                                  # the reloader parent: its child starts them
+    monkeypatch.setenv("DX_NO_RELOADER", "1")             # what serve.py sets
+    _start_erp_sync_poller(app)
+    _start_erp_ledger_poller(app)
+    assert started == ["sync", "ledger"]
+    monkeypatch.delenv("DX_NO_RELOADER")
+    monkeypatch.setenv("WERKZEUG_RUN_MAIN", "true")       # the reloader's serving child
+    _start_erp_sync_poller(app)
+    assert started == ["sync", "ledger", "sync"]
