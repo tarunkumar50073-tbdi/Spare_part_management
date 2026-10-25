@@ -106,10 +106,7 @@ export default function PartKiosk() {
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <img src="/toyota-boshoku-logo.png" alt="Toyota Boshoku" className="h-10 w-auto shrink-0 rounded bg-white p-0.5" draggable={false} />
-              <div className="min-w-0">
-                <h1 className="truncate text-xl font-extrabold text-slate-900 dark:text-white sm:text-2xl">Spare Parts — Part Search</h1>
-                <p className="truncate text-[13px] text-slate-500 dark:text-slate-400">Find a part: its photo, stock and where it is kept</p>
-              </div>
+              <h1 className="min-w-0 truncate text-xl font-extrabold text-slate-900 dark:text-white sm:text-2xl">Spare Parts — Part Search</h1>
             </div>
             {can(user, "spare_store") && (
               <button type="button" className="btn-secondary shrink-0" onClick={() => navigate(`/store/${STORE}`)}>
