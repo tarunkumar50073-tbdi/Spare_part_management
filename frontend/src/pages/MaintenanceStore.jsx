@@ -689,14 +689,18 @@ function MoveTip({ active, payload, label }) {
   return (
     <div className="rounded-lg bg-navy-900 text-white px-2.5 py-1.5 shadow-lg text-xs border border-white/10">
       <p className="font-semibold mb-0.5">{label}</p>
-      <p className="text-emerald-300">Received <b className="tabular">{num(v("in"))}</b></p>
-      <p className="text-rose-300">Issued <b className="tabular">{num(v("out"))}</b></p>
+      <p className="text-emerald-300">Receipt <b className="tabular">{num(v("in"))}</b></p>
+      <p className="text-rose-300">Issue <b className="tabular">{num(v("out"))}</b></p>
     </div>
   );
 }
 
-// Received (stock-in) vs issued (stock-out) per day — the 30-day trend behind
+// A quantity axis label that always fits its 40px: 1,250 → "1.3k".
+const qtyTick = (v) => (Math.abs(v) >= 1000 ? `${+(v / 1000).toFixed(1)}k` : String(v));
+
+// Receipt (stock-in) vs issue (stock-out) per day — the 30-day trend behind
 // today's Added / Issued KPIs, straight from the ledger RECEIPT / ISSUE rows.
+// Named like the Live Board's "Receipt vs Issue" panel (25 Oct 2026).
 function MovementBars({ data }) {
   const empty = !(data || []).some((d) => d.in || d.out);
   return (
@@ -708,13 +712,14 @@ function MovementBars({ data }) {
         </div>
       ) : (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 8, right: 8, left: -14, bottom: 0 }} barGap={1} barCategoryGap="20%">
+          {/* No negative left margin: it cut the axis numbers ("120" read "20"). */}
+          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={1} barCategoryGap="20%">
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148,163,184,0.2)" />
             <XAxis dataKey="d" tick={{ fontSize: 10, fill: "#94a3b8" }} interval="preserveStartEnd" minTickGap={16} />
-            <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} width={32} allowDecimals={false} />
+            <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} width={40} allowDecimals={false} tickFormatter={qtyTick} />
             <RechartsTooltip content={<MoveTip />} cursor={{ fill: "rgba(148,163,184,0.12)" }} />
-            <Bar dataKey="in" name="Received" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={13} isAnimationActive={false} />
-            <Bar dataKey="out" name="Issued" fill="#e11d48" radius={[3, 3, 0, 0]} maxBarSize={13} isAnimationActive={false} />
+            <Bar dataKey="in" name="Receipt" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={13} isAnimationActive={false} />
+            <Bar dataKey="out" name="Issue" fill="#e11d48" radius={[3, 3, 0, 0]} maxBarSize={13} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -1605,7 +1610,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
           Required both drill to the same list, and that drill carries its own
           Export button. A third copy as a flat table was redundant. */}
 
-      {/* ---- Stock In vs Out: received vs issued per day for the last 30 days —
+      {/* ---- Receipt vs Issue: received vs issued per day for the last 30 days —
            the trend behind today's Added / Issued KPIs, from the ledger. Its
            own fixed 30-day window (a daily series over all-time is meaningless),
            so it sits apart from the range-controlled Consumption section. ---- */}
@@ -1613,12 +1618,12 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
         <section>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="section-title">Stock In vs Out</h3>
-              <p className="section-hint">Received vs issued per day</p>
+              <h3 className="section-title">Receipt vs Issue</h3>
+              <p className="section-hint">Receipt vs issue per day (qty)</p>
             </div>
             <div className="flex items-center gap-3 text-[11px] font-medium text-slate-400">
-              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "#10b981" }} aria-hidden="true" />Received</span>
-              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "#e11d48" }} aria-hidden="true" />Issued</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "#10b981" }} aria-hidden="true" />Receipt</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "#e11d48" }} aria-hidden="true" />Issue</span>
               <span>· last 30 days</span>
             </div>
           </div>
