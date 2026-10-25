@@ -59,6 +59,9 @@ export default function PartKiosk() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
   const input = useRef(null);
+  // Where the list was scrolled when a part was opened, to come back to it.
+  const listY = useRef(0);
+  useEffect(() => { if (!open) window.scrollTo(0, listY.current); }, [open]);
 
   useEffect(() => {
     const t = setTimeout(() => setQ(typed.trim()), 300);
@@ -70,7 +73,7 @@ export default function PartKiosk() {
     let timer;
     const reset = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => { setTyped(""); setQ(""); setOpen(null); window.scrollTo(0, 0); }, IDLE_MS);
+      timer = setTimeout(() => { setTyped(""); setQ(""); listY.current = 0; setOpen(null); window.scrollTo(0, 0); }, IDLE_MS);
     };
     const events = ["pointerdown", "keydown", "touchstart", "wheel"];
     events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
@@ -89,11 +92,16 @@ export default function PartKiosk() {
   });
   const rows = (search.data?.pages || []).flatMap((p) => p.rows);
   const total = search.data?.pages?.[0]?.total ?? 0;
-  const clear = () => { setTyped(""); setQ(""); input.current?.focus(); };
+  // A new search (typed or cleared) brings the list back in place of the part.
+  const type = (text) => { setTyped(text); listY.current = 0; setOpen(null); };
+  const clear = () => { type(""); setQ(""); input.current?.focus(); };
 
+  // The search stays on top; a picked part fills the rest of the same screen
+  // (the store's kiosk picture, 25 Oct 2026: "jahan part search kiya and select
+  // kiya wahi par puri screen khule"), so the page is exactly one screen high.
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-navy-950">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-navy-800 dark:bg-navy-900/95">
+    <div className={`flex flex-col bg-slate-50 dark:bg-navy-950 ${open ? "h-screen overflow-hidden" : "min-h-screen"}`}>
+      <header className="sticky top-0 z-20 shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-navy-800 dark:bg-navy-900/95">
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -111,7 +119,7 @@ export default function PartKiosk() {
           </div>
           <div className="relative mt-3">
             <Search size={24} aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input ref={input} autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} maxLength={80}
+            <input ref={input} autoFocus value={typed} onChange={(e) => type(e.target.value)} maxLength={80}
               placeholder="Type Part No., name, specification or model no."
               aria-label="Search a part" enterKeyHint="search" autoComplete="off"
               className="w-full rounded-2xl border-2 border-slate-200 bg-white py-4 pl-14 pr-14 text-xl text-slate-900 shadow-sm outline-none transition focus:border-toyotared dark:border-navy-700 dark:bg-navy-900 dark:text-white" />
@@ -125,7 +133,10 @@ export default function PartKiosk() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
+      {open ? (
+        <PartScreen key={open.id} part={open} onBack={() => setOpen(null)} />
+      ) : (
+      <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6">
         {q.length < 2 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
             <Search size={56} aria-hidden="true" className="text-slate-300 dark:text-slate-600" />
@@ -148,7 +159,7 @@ export default function PartKiosk() {
               {rows.map((p) => {
                 const thumb = partService.imageUrl(p, true);
                 return (
-                  <button key={p.id} type="button" onClick={() => setOpen(p)}
+                  <button key={p.id} type="button" onClick={() => { listY.current = window.scrollY; setOpen(p); }}
                     className="card flex flex-col overflow-hidden p-0 text-left transition hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared">
                     <span className="relative flex aspect-[4/3] w-full items-center justify-center bg-slate-100 dark:bg-navy-800">
                       {thumb ? (
@@ -184,15 +195,15 @@ export default function PartKiosk() {
           </>
         )}
       </main>
-
-      {open && <PartScreen key={open.id} part={open} onBack={() => setOpen(null)} />}
+      )}
     </div>
   );
 }
 
-// One part on the whole screen: its photo as big as the screen allows, every
-// angle a tap away, and its stock and place in large type beside it (below it
-// on an upright screen). Back, Escape or the idle reset return to the search.
+// The picked part, filling the screen under the search: its photo as big as the
+// room allows, every angle a tap away, and its stock and place in large type
+// beside it (below it on an upright screen). Back, Escape, a new search or the
+// idle reset bring the list back.
 function PartScreen({ part, onBack }) {
   const photos = partService.photosOf(part);
   const [n, setN] = useState(0);
@@ -201,23 +212,22 @@ function PartScreen({ part, onBack }) {
   useEffect(() => {
     const key = (e) => {
       if (e.key === "Escape") onBack();
+      else if (e.target instanceof HTMLInputElement) return;   // arrows move the cursor in the search box
       else if (e.key === "ArrowRight" && photos.length > 1) step(1);
       else if (e.key === "ArrowLeft" && photos.length > 1) step(-1);
     };
     window.addEventListener("keydown", key);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";           // the search list stays put underneath
-    return () => { window.removeEventListener("keydown", key); document.body.style.overflow = overflow; };
+    return () => window.removeEventListener("keydown", key);
   }, [onBack, photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const spec = [part.specification, part.model_no && `Model ${part.model_no}`].filter(Boolean).join(" · ");
   return (
-    <div role="dialog" aria-modal="true" aria-label={`${part.part_no} — ${part.part_name}`}
-      className="fixed inset-0 z-50 flex flex-col bg-slate-50 dark:bg-navy-950">
-      <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-navy-800 dark:bg-navy-900 sm:px-6">
-        <button type="button" onClick={onBack} autoFocus
+    <section aria-label={`${part.part_no} — ${part.part_name}`}
+      className="flex min-h-0 w-full flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-3 px-4 pt-4 sm:px-6">
+        <button type="button" onClick={onBack}
           className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-navy-900 px-5 py-3 text-base font-bold text-white hover:bg-navy-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared dark:bg-white dark:text-navy-900">
-          <ArrowLeft size={20} aria-hidden="true" /> Back to search
+          <ArrowLeft size={20} aria-hidden="true" /> Back to results
         </button>
         <span className="min-w-0 truncate font-mono text-xl font-extrabold text-slate-900 dark:text-white sm:text-2xl">{part.part_no}</span>
       </div>
@@ -300,6 +310,6 @@ function PartScreen({ part, onBack }) {
           </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 }
