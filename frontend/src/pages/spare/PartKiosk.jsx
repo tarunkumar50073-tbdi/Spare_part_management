@@ -1,9 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { ArrowLeft, ImageOff, Layers, MapPin, PackageCheck, PackageX, Search, X } from "lucide-react";
-import Modal from "../../components/Modal.jsx";
-import PartPhotoView from "../../components/PartPhotoView.jsx";
+import { ArrowLeft, ChevronLeft, ChevronRight, ImageOff, Layers, MapPin, PackageCheck, PackageX, Search, X } from "lucide-react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { can } from "../../utils/permissions.js";
 import { num } from "../../lib/format.js";
@@ -15,7 +13,9 @@ import { partKioskService } from "../../services/partKioskService.js";
 // sakta h uski availability dekh sakta h with photo ... only part search kiosk").
 // Type a Part No. or a name; each part shows its photo, how many are in stock,
 // its location, section and specification / model no. ("sabhi option"). Tap
-// one for its photos big. Read only: nothing here changes anything.
+// one and it opens on the whole screen, its photo as big as the screen allows
+// ("part par click se drill screen khule jis par puri screen par part dekh sake
+// taaki pic dekh kar pta chal jaaye"). Read only: nothing here changes anything.
 //
 // It owns the whole screen, like the Live Board, and clears itself after
 // IDLE_MS untouched so the next person starts afresh. A kiosk login stays
@@ -26,15 +26,14 @@ const STORE = "MAINTENANCE";
 const IDLE_MS = 2 * 60 * 1000;
 const PER_PAGE = 24;
 
-function Availability({ part, big = false }) {
-  const size = big ? "px-3 py-1.5 text-[15px]" : "px-2.5 py-1 text-[13px]";
+function Availability({ part }) {
   return part.available ? (
-    <span className={`inline-flex items-center gap-1.5 rounded-full bg-emerald-50 font-bold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30 ${size}`}>
-      <PackageCheck size={big ? 17 : 15} aria-hidden="true" /> Available · {num(part.qty)} {part.uom}
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[13px] font-bold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30">
+      <PackageCheck size={15} aria-hidden="true" /> Available · {num(part.qty)} {part.uom}
     </span>
   ) : (
-    <span className={`inline-flex items-center gap-1.5 rounded-full bg-rose-50 font-bold text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30 ${size}`}>
-      <PackageX size={big ? 17 : 15} aria-hidden="true" /> Not available
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[13px] font-bold text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30">
+      <PackageX size={15} aria-hidden="true" /> Not available
     </span>
   );
 }
@@ -59,7 +58,6 @@ export default function PartKiosk() {
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
-  const [photoN, setPhotoN] = useState(0);
   const input = useRef(null);
 
   useEffect(() => {
@@ -150,7 +148,7 @@ export default function PartKiosk() {
               {rows.map((p) => {
                 const thumb = partService.imageUrl(p, true);
                 return (
-                  <button key={p.id} type="button" onClick={() => { setPhotoN(0); setOpen(p); }}
+                  <button key={p.id} type="button" onClick={() => setOpen(p)}
                     className="card flex flex-col overflow-hidden p-0 text-left transition hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared">
                     <span className="relative flex aspect-[4/3] w-full items-center justify-center bg-slate-100 dark:bg-navy-800">
                       {thumb ? (
@@ -187,20 +185,121 @@ export default function PartKiosk() {
         )}
       </main>
 
-      {/* One part big: every photo angle, its stock and where it is. */}
-      <Modal open={Boolean(open)} onClose={() => setOpen(null)} size="xl"
-        title={open ? `${open.part_no} — ${open.part_name}` : "Part"}>
-        {open && (
-          <div className="space-y-4">
-            {/* Small enough that the stock line below stays in view on a 768px-high screen. */}
-            <PartPhotoView part={open} n={photoN} onShow={setPhotoN} maxHeight="max-h-[42vh]" />
-            <div className="rounded-xl bg-slate-50 p-3 dark:bg-navy-950/40">
-              <Availability part={open} big />
-              <div className="mt-2"><Details part={open} /></div>
-            </div>
+      {open && <PartScreen key={open.id} part={open} onBack={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+// One part on the whole screen: its photo as big as the screen allows, every
+// angle a tap away, and its stock and place in large type beside it (below it
+// on an upright screen). Back, Escape or the idle reset return to the search.
+function PartScreen({ part, onBack }) {
+  const photos = partService.photosOf(part);
+  const [n, setN] = useState(0);
+  const step = (d) => setN((i) => (i + d + photos.length) % photos.length);
+
+  useEffect(() => {
+    const key = (e) => {
+      if (e.key === "Escape") onBack();
+      else if (e.key === "ArrowRight" && photos.length > 1) step(1);
+      else if (e.key === "ArrowLeft" && photos.length > 1) step(-1);
+    };
+    window.addEventListener("keydown", key);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";           // the search list stays put underneath
+    return () => { window.removeEventListener("keydown", key); document.body.style.overflow = overflow; };
+  }, [onBack, photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const spec = [part.specification, part.model_no && `Model ${part.model_no}`].filter(Boolean).join(" · ");
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`${part.part_no} — ${part.part_name}`}
+      className="fixed inset-0 z-50 flex flex-col bg-slate-50 dark:bg-navy-950">
+      <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-navy-800 dark:bg-navy-900 sm:px-6">
+        <button type="button" onClick={onBack} autoFocus
+          className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-navy-900 px-5 py-3 text-base font-bold text-white hover:bg-navy-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared dark:bg-white dark:text-navy-900">
+          <ArrowLeft size={20} aria-hidden="true" /> Back to search
+        </button>
+        <span className="min-w-0 truncate font-mono text-xl font-extrabold text-slate-900 dark:text-white sm:text-2xl">{part.part_no}</span>
+      </div>
+
+      {/* Side by side on a wide screen; on an upright kiosk screen the photo
+          takes the full width on top and the details sit under it. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 sm:p-6 landscape:flex-row">
+        {/* The photo — as large as the screen leaves room for. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200 dark:bg-navy-900 dark:ring-navy-800">
+            {photos.length ? (
+              <img src={partService.imageUrl(part, false, n)} alt={`Photo ${n + 1} of ${part.part_no}`}
+                className="h-full w-full object-contain" draggable={false} />
+            ) : (
+              <span className="flex flex-col items-center gap-2 text-slate-400">
+                <ImageOff size={72} aria-hidden="true" /><span className="text-lg font-semibold">No photo yet</span>
+              </span>
+            )}
+            {photos.length > 1 && (
+              <>
+                <button type="button" onClick={() => step(-1)} aria-label="Previous photo"
+                  className="absolute left-3 top-1/2 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70">
+                  <ChevronLeft size={32} aria-hidden="true" />
+                </button>
+                <button type="button" onClick={() => step(1)} aria-label="Next photo"
+                  className="absolute right-3 top-1/2 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70">
+                  <ChevronRight size={32} aria-hidden="true" />
+                </button>
+                <span className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-sm font-bold text-white">
+                  Photo {n + 1} of {photos.length}
+                </span>
+              </>
+            )}
           </div>
-        )}
-      </Modal>
+          {photos.length > 1 && (
+            <div className="flex shrink-0 justify-center gap-3">
+              {photos.map((name, i) => (
+                <button key={name} type="button" onClick={() => setN(i)} aria-pressed={i === n} aria-label={`Show photo ${i + 1}`}
+                  className={`h-20 w-20 overflow-hidden rounded-xl transition ${i === n
+                    ? "ring-4 ring-toyotared ring-offset-2 dark:ring-offset-navy-950"
+                    : "opacity-70 ring-1 ring-slate-300 hover:opacity-100 dark:ring-navy-700"}`}>
+                  <img src={partService.imageUrl(part, true, i)} alt="" className="h-full w-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* What it is, how many, where — readable from a step away. */}
+        <div className="flex shrink-0 flex-col gap-4 rounded-2xl bg-white p-5 ring-1 ring-slate-200 dark:bg-navy-900 dark:ring-navy-800 landscape:w-[340px] landscape:lg:w-[380px] landscape:xl:w-[440px]">
+          <div>
+            <p className="text-2xl font-bold leading-snug text-slate-900 dark:text-white">{part.part_name}</p>
+            {spec && <p className="mt-1 text-lg text-slate-500 dark:text-slate-400">{spec}</p>}
+          </div>
+          <div className={`rounded-2xl px-5 py-4 ${part.available
+            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30"
+            : "bg-rose-50 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30"}`}>
+            <p className="flex items-center gap-2 text-lg font-bold">
+              {part.available ? <PackageCheck size={24} aria-hidden="true" /> : <PackageX size={24} aria-hidden="true" />}
+              {part.available ? "Available" : "Not available"}
+            </p>
+            {part.available && (
+              <p className="mt-1 text-4xl font-extrabold tabular">{num(part.qty)} <span className="text-xl font-bold">{part.uom}</span></p>
+            )}
+          </div>
+          <div className="space-y-3 text-lg">
+            <p className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-100">
+              <MapPin size={22} aria-hidden="true" className="shrink-0 text-toyotared" />
+              {part.location || "No location"}
+            </p>
+            {part.rework_location && <p className="pl-8 text-base text-slate-500 dark:text-slate-400">Rework: {part.rework_location}</p>}
+            {part.section && (
+              <p className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+                <Layers size={20} aria-hidden="true" className="shrink-0" />{part.section}
+              </p>
+            )}
+            {part.discontinued && (
+              <p className="inline-block rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-500 dark:bg-navy-800">Discontinued</p>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
