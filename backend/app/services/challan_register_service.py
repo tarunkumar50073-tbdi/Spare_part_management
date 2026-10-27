@@ -68,7 +68,7 @@ NO_INVOICE_WITHOUT_PO = ("An invoice comes only against a PO — enter the PO No
                          "(PO status Approved) to link it")
 # How long open lines have waited since the material came in.
 AGEING = (("0-7 days", 0, 7), ("8-15 days", 8, 15), ("16-30 days", 16, 30), ("Over 30 days", 31, None))
-EXPORT_COLUMNS = ("Challan ID", "Challan No", "Challan Date", "Receipt Date", "Supplier", "Vendor Code", "Part No",
+EXPORT_COLUMNS = ("Challan ID", "Challan No", "Challan Date", "Receipt Date", "Supplier", "Supplier Code", "Part No",
                   "Description", "Challan Qty", "UOM", "PO Reference", "PO Status", "Urgency", "Invoice No",
                   "Invoice Date", "Invoiced Qty", "Invoice Status", "GRN", "Quality", "Status", "Days Open",
                   "Remarks", "Created By")

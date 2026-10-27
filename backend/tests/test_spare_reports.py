@@ -397,8 +397,8 @@ def test_issue_register_status_words(make):
 
     rows = {r["Issue No"]: r for r in _rows(s, "issue_register")}
     assert rows[waiting]["Status"] == "Issued"
-    assert (rows[waiting]["Emp Code"], rows[waiting]["Mobile"], rows[waiting]["Issued To"]) == (
-        emp.employee_code, emp.mobile, emp.name)
+    assert (rows[waiting]["Emp Code"], rows[waiting]["Issued To"]) == (emp.employee_code, emp.name)
+    assert "Mobile" not in rows[waiting]                       # no mobile anywhere (27 Oct 2026)
     assert rows[waiting]["Reference"] == f"REQ-{_TAG}-1"
     assert rows[waiting]["Used Qty"] is None and rows[waiting]["Still Out"] == 3
     assert rows[none_used]["Status"] == "Not used yet" and rows[none_used]["Used Qty"] == 0
@@ -407,7 +407,7 @@ def test_issue_register_status_words(make):
     assert rows[full]["Status"] == "Installed" and rows[full]["Used Qty"] == 3
     assert rows[full]["Die"] == "D-7"
     assert rows[back]["Status"] == "Partly returned"
-    assert (rows[back]["Qty"], rows[back]["Returned Qty"], rows[back]["Still Out"]) == (3, 1, 2)
+    assert (rows[back]["Qty Issued"], rows[back]["Returned Qty"], rows[back]["Still Out"]) == (3, 1, 2)
     # Department is who took it, as typed; Consumer the owner of the part's section.
     assert (rows[back]["Department"], rows[back]["Consumer"]) == (dept.name, "No section")
     columns = next(r.columns for r in SpareReportService.REPORTS if r.key == "issue_register")
@@ -578,7 +578,7 @@ def test_reorder_list_excel_is_coloured_like_the_reorder_mail(client, make, monk
             if heading not in ("In Stock", "Status", "Order Qty"):
                 assert _colour_of(sheet.cell(number, at)) == PLAIN, (number, heading)
     _plain_but_for(sheet, table, ("In Stock", "Status", "Order Qty"))
-    assert sheet.auto_filter.ref == "A1:N7" and sheet.freeze_panes == "A2"
+    assert sheet.auto_filter.ref == "A1:O7" and sheet.freeze_panes == "A2"
     assert _legend_of(sheet, len(parts)) == REORDER_LEGEND == (
         "In Stock / Status: dark red = no stock · red = at or below min · orange = at or below reorder level")
     assert report.legend is REORDER_LEGEND                                          # the mail's own, not a copy
@@ -622,7 +622,7 @@ def test_excess_list_excel_is_coloured_like_the_excess_mail(client, make):
             if heading not in ("In Stock", "Excess Value"):
                 assert _colour_of(sheet.cell(number, at)) == PLAIN, (number, heading)
     _plain_but_for(sheet, table, ("In Stock", "Excess Value"))
-    assert sheet.auto_filter.ref == "A1:K7" and sheet.freeze_panes == "A2"
+    assert sheet.auto_filter.ref == "A1:L7" and sheet.freeze_panes == "A2"
     assert _legend_of(sheet, len(parts)) == EXCESS_LEGEND == (
         "In Stock: yellow = above max · Excess Value: dark amber = ₹1,00,000 or more · "
         "yellow = ₹25,000 to ₹1,00,000")

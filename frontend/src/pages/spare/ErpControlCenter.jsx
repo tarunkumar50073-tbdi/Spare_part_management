@@ -357,8 +357,9 @@ const TXN_BADGE = { ISSUE: "badge-warning", RECEIPT: "badge-success", RETURN: "b
 
 const PENDING_COLUMNS = [
   {
-    key: "part_no", label: "Part", sortable: true,
+    key: "part_no", label: "Part No", sortable: true,
     searchValue: (r) => `${r.part_no} ${r.part_name || ""}`,
+    exportValue: (r) => r.part_no, exportAlso: { label: "Description", value: (r) => r.part_name || "" },
     render: (r) => (
       <div className="min-w-0">
         <p className="font-medium text-slate-800 dark:text-white">{r.part_no}</p>

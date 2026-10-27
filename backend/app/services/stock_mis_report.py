@@ -404,7 +404,7 @@ def _tiles(ws, wb, row, total):
     count = total["count"]
     tiles = (
         ("Total Parts", total["parts"], f"{_grouped(count[NOT_COUNTED])} not counted yet", "Store"),
-        ("Stock Value (₹)", total["stock_value"], f"{_grouped(total['unrated'])} with no rate", "Store"),
+        ("Stock Value", total["stock_value"], f"{_grouped(total['unrated'])} with no rate", "Store"),
         ("Critical", total["critical"],
          f"zero stock {_grouped(count[OUT])}\nbelow minimum {_grouped(count[BELOW])}", "Critical"),
         ("Reorder", count[REORDER], "at/below reorder level", REORDER),
@@ -490,7 +490,7 @@ def _status_table(ws, wb, row, total):
          _row_looks(wb, formats, color=MUTED)),
     )
     row = _heading(ws, wb, row, "Stock by status")
-    row = _table_row(ws, row, spans, ("Status", "Parts", "% of parts", "Stock Value (₹)", "% of value"),
+    row = _table_row(ws, row, spans, ("Status", "Parts", "% of parts", "Stock Value", "% of value"),
                      _head_looks(wb, len(spans)), height=18)
     for values, looks in lines:
         row = _table_row(ws, row, spans, values, looks)
@@ -510,7 +510,7 @@ def _section_table(ws, wb, row, data):
 
     row = _heading(ws, wb, row, "Stock by section")
     row = _table_row(ws, row, spans, ("Section", "Parts", "Critical", "Reorder", "Excess", "Healthy",
-                                      "Stock Value (₹)", "Excess Value (₹)"),
+                                      "Stock Value", "Excess Value"),
                      _head_looks(wb, len(spans)), height=18)
     plain, banded = _row_looks(wb, formats), _row_looks(wb, formats, fill=BAND)
     for i, (name, _, tally) in enumerate(data["sections"]):
@@ -708,15 +708,15 @@ def _detail_sheet(wb, data):
         ("Specification", "spec", 23, "text"), ("Supplier", "supplier", 18, "text"),
         ("Location", "location", 12.5, "text"), ("UOM", "uom", 5.5, "mid"), ("In Stock", "qty", 7.5, "qty"),
         ("Min", "min", 6.5, "qty"), ("Reorder Level", "reorder", 7.5, "qty"), ("Max", "max", 6.5, "qty"),
-        ("Status", "status", 12.5, "status"), ("Rate (₹)", "rate", 11, "money"),
-        ("Stock Value (₹)", "value", 13, "money"),
+        ("Status", "status", 12.5, "status"), ("Rate", "rate", 11, "money"),
+        ("Stock Value", "value", 13, "money"),
     )
     total = data["total"]
     _list_sheet(
         wb, data, "Stock Detail", NAVY, columns, data["parts"], lead=5, frozen=4,
         note="Every active part, by section and part no." + _unvalued(total["unrated"]),
         totals=((1, 2, "Total", "label"), (3, 4, total["parts"], "parts"),
-                (5, 15, "Stock value (₹)", "label_right"), (16, 16, total["stock_value"], "money")))
+                (5, 15, "Stock Value", "label_right"), (16, 16, total["stock_value"], "money")))
 
 
 def _reorder_sheet(wb, data):
@@ -726,7 +726,7 @@ def _reorder_sheet(wb, data):
         ("Location", "location", 12.5, "text"), ("UOM", "uom", 5.5, "mid"), ("In Stock", "qty", 8, "qty"),
         ("Min", "min", 6.5, "qty"), ("Reorder Level", "reorder", 7.5, "qty"), ("Max", "max", 6.5, "qty"),
         ("Status", "status", 13, "status"), ("Order Qty", "order_qty", 8.5, "qty"),
-        ("Rate (₹)", "rate", 11.5, "money"), ("Order Value (₹)", "order_value", 13.5, "money"),
+        ("Rate", "rate", 11.5, "money"), ("Order Value", "order_value", 13.5, "money"),
     )
     records = sorted((p for p in data["parts"] if p["status"] in TO_ORDER),
                      key=lambda p: (TO_ORDER[p["status"]], -p["gap"]))
@@ -736,7 +736,7 @@ def _reorder_sheet(wb, data):
         note="Worst first: zero stock, below minimum, then reorder"
              + _unvalued(unvalued, "no rate or no order quantity"),
         totals=((1, 2, "Total", "label"), (3, 4, len(records), "parts"),
-                (5, 14, "Order value (₹)", "label_right"),
+                (5, 14, "Order Value", "label_right"),
                 (15, 15, round(sum(p["order_value"] or 0 for p in records), 2), "money")))
 
 
@@ -746,7 +746,7 @@ def _excess_sheet(wb, data):
         ("Description", "name", 36, "text"), ("Supplier", "supplier", 24, "text"),
         ("Location", "location", 13, "text"), ("UOM", "uom", 5.5, "mid"), ("In Stock", "qty", 9, "qty"),
         ("Max", "max", 8, "qty"), ("Excess Qty", "excess_qty", 9, "qty"),
-        ("Rate (₹)", "rate", 12, "money"), ("Excess Value (₹)", "excess_value", 14, "money"),
+        ("Rate", "rate", 12, "money"), ("Excess Value", "excess_value", 14, "money"),
     )
     # Dearest first; the parts with no rate cannot be ranked by money, so they
     # follow, largest excess first.
@@ -757,7 +757,7 @@ def _excess_sheet(wb, data):
         wb, data, "Excess", TINTS[EXCESS][2], columns, records, lead=4, frozen=3,
         note="Above maximum, dearest excess first" + _unvalued(unrated),
         totals=((1, 2, "Total", "label"), (3, 4, len(records), "parts"),
-                (5, 11, "Excess value (₹)", "label_right"),
+                (5, 11, "Excess Value", "label_right"),
                 (12, 12, data["total"]["excess_value"], "money")))
 
 
@@ -767,7 +767,7 @@ def _category_sheet(wb, data):
     last — and a subtotal under each section. Not a sortable list — the
     subtotals belong where they are — so no filter."""
     heads = (("Section", 20), ("Category", 40), ("Parts", 11), ("Critical", 11), ("Reorder", 11),
-             ("Excess", 11), ("Healthy", 11), ("Stock Value (₹)", 18))
+             ("Excess", 11), ("Healthy", 11), ("Stock Value", 18))
 
     def no_value(tally):
         return tally["unvalued"] == tally["parts"]

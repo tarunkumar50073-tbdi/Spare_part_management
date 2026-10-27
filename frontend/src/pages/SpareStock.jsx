@@ -60,15 +60,15 @@ const statusesOf = (key) => FILTERS.find((f) => f.key === key)?.statuses || [key
 // order). Rendered through the shared Table so it gets search / sort / export
 // and, crucially, virtualization: this list can run into the thousands.
 const REORDER_COLUMNS = [
-  { key: "part_no", label: "Part", sortable: true,
+  { key: "part_no", label: "Part No", sortable: true,
     searchValue: (r) => `${r.part_no} ${r.part_name || ""}`,
-    exportValue: (r) => `${r.part_no}${r.part_name ? ` ${r.part_name}` : ""}`,
+    exportValue: (r) => r.part_no, exportAlso: { label: "Description", value: (r) => r.part_name || "" },
     render: (r) => (<><span className="font-medium">{r.part_no}</span> <span className="text-slate-400">{r.part_name}</span></>) },
   { key: "qty_on_hand", label: "In Stock", align: "right", sortable: true, render: (r) => num(r.qty_on_hand) },
   { key: "min_stock_level", label: "Min", align: "right", sortable: true, render: (r) => num(r.min_stock_level) },
-  { key: "reorder_qty", label: "Reorder Qty", align: "right", sortable: true,
+  { key: "reorder_qty", label: "Order Qty", align: "right", sortable: true,
     render: (r) => <span className="font-semibold text-amber-600 dark:text-amber-400">{r.reorder_qty == null ? "—" : num(r.reorder_qty)}</span> },
-  { key: "reorder_value", label: "Est. Value", align: "right", sortable: true,
+  { key: "reorder_value", label: "Order Value", align: "right", sortable: true,
     exportValue: (r) => r.reorder_value ?? "",
     render: (r) => (r.reorder_value == null ? "—" : money(r.reorder_value)) },
   { key: "status", label: "Status",
@@ -341,7 +341,7 @@ export default function SpareStock() {
   // One workbook shape for every client-side part export (selected rows, or the
   // current filtered view) — same columns as the server's full-store export.
   const EXPORT_HEADERS = ["Part No", "Description", "Specification", "Category", "Section", "Location", "In Stock", "Min",
-    "Reorder", "Max", "UoM", "Rate", "Stock Value", "Status", "Last issue", "Last supplier (gate)", "Last counted"];
+    "Reorder Level", "Max", "UOM", "Rate", "Stock Value", "Status", "Last Issue", "Supplier", "Last Counted"];
   const toExportRow = (r) => [
     r.part_no, r.part_name || "", r.specification || "", r.type_name, r.section_name || "", r.location || "",
     r.qty_on_hand ?? "", r.min_stock_level ?? "", r.reorder_level ?? "", r.max_stock_level ?? "",
@@ -374,7 +374,7 @@ export default function SpareStock() {
     { key: "rack", label: "Rack", sortable: true, render: (r) => r.rack || dash },
     { key: "bin", label: "Shelf · Bin", render: (r) => r.bin || dash },
     { key: "location", label: "Location", render: (r) => r.location || dash },
-    { key: "uom", label: "UoM", render: (r) => r.uom || dash },
+    { key: "uom", label: "UOM", render: (r) => r.uom || dash },
     {
       key: "qty_on_hand", label: "In Stock", align: "right", sortable: true,
       render: (r) => (editing === r.part_id ? (
@@ -428,7 +428,7 @@ export default function SpareStock() {
     },
     { key: "min_stock_level", label: "Min", align: "right", sortable: true, render: (r) => num(r.min_stock_level) },
     {
-      key: "reorder_level", label: "Reorder", align: "right", sortable: true,
+      key: "reorder_level", label: "Reorder Level", align: "right", sortable: true,
       render: (r) => (r.reorder_level == null ? dash : num(r.reorder_level)),
     },
     {
@@ -448,20 +448,20 @@ export default function SpareStock() {
       ),
     },
     {
-      key: "last_issue_at", label: "Last issue", sortable: true, sortValue: (r) => r.last_issue_at || "",
+      key: "last_issue_at", label: "Last Issue", sortable: true, sortValue: (r) => r.last_issue_at || "",
       exportValue: (r) => fmtDay(r.last_issue_at) || "",
       render: (r) => (r.last_issue_at
         ? <span title={`${num(r.issued_90d)} issued in the last 90 days`}>{fmtDay(r.last_issue_at)}</span>
         : dash),
     },
     {
-      key: "supplier", label: "Last supplier (gate)", sortable: true,
+      key: "supplier", label: "Supplier", sortable: true,
       render: (r) => (r.supplier
         ? <span title={`${r.supplier_code || ""} · last arrived ${fmtDay(r.last_arrival) || "—"}`}>{r.supplier}</span>
         : dash),
     },
     {
-      key: "last_counted_at", label: "Last counted", sortable: true, sortValue: (r) => r.last_counted_at || "",
+      key: "last_counted_at", label: "Last Counted", sortable: true, sortValue: (r) => r.last_counted_at || "",
       exportValue: (r) => fmtDay(r.last_counted_at) || "",
       render: (r) => fmtDay(r.last_counted_at) || dash,
     },
@@ -516,7 +516,7 @@ export default function SpareStock() {
             <p className="font-semibold text-slate-800 dark:text-white mb-1">How to load physical inventory</p>
             <p>
               <b>Download Template</b> — it comes pre-filled with every part number in this store.
-              Fill the <b>Qty On Hand</b> column with your <b>physical count</b> and upload it back.
+              Fill the <b>In Stock</b> column with your <b>physical count</b> and upload it back.
               A blank cell is skipped, not read as zero, so a part you have not counted stays uncounted.
               Use a fresh template each time: if a part&apos;s stock moved after the template was downloaded and
               your figure is not today&apos;s stock, that row is not applied (it could be the old figure).

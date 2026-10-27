@@ -110,9 +110,9 @@ function ActionLink({ row, action, target, canAct, primary = true }) {
 }
 
 const partCol = {
-  key: "part_no", label: "Part", sortable: true,
+  key: "part_no", label: "Part No", sortable: true,
   searchValue: (r) => `${r.part_no || ""} ${r.part_name || ""}`,
-  exportValue: (r) => `${r.part_no || ""}${r.part_name ? ` ${r.part_name}` : ""}`,
+  exportValue: (r) => r.part_no || "", exportAlso: { label: "Description", value: (r) => r.part_name || "" },
   render: (r) => (
     <div className="min-w-0">
       <div className="font-mono text-[13px] font-medium text-slate-800 dark:text-white">{r.part_no || "—"}</div>
@@ -173,10 +173,11 @@ function columnsFor(tab, { canAct, canViewReceiving, now }) {
     const grnAge = (r) => r.age_days ?? daysSinceDay(r.grn_date, now);
     return [
       {
-        key: "grn_no", label: "GRN no · date", sortable: true,
+        key: "grn_no", label: "GRN No", sortable: true,
         sortValue: (r) => `${r.grn_date || ""} ${r.grn_no || ""}`,
         searchValue: (r) => `${r.grn_no || ""} ${r.invoice_no || ""}`,
-        exportValue: (r) => `${r.grn_no || ""}${r.grn_date ? ` (${r.grn_date})` : ""}`,
+        exportValue: (r) => r.grn_no || "",
+        exportAlso: { label: "GRN Date", value: (r) => r.grn_date || "" },
         render: (r) => (
           <div>
             <div className="font-mono text-[12px] font-semibold text-slate-800 dark:text-slate-100">{r.grn_no || "—"}</div>

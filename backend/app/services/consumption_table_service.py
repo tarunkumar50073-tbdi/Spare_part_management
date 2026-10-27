@@ -152,7 +152,7 @@ BY_PART_COLUMNS = ("Part No", "Description", "Section", "Department", "UOM", "Is
 BY_MACHINE_COLUMNS = ("Department", "Line", "Machine") + CONSUMED
 BY_CATEGORY_COLUMNS = ("Department", "Category") + CONSUMED
 
-BY_PERSON_COLUMNS = ("Issued To", "Code", "Mobile", "Department") + CONSUMED
+BY_PERSON_COLUMNS = ("Issued To", "Emp Code", "Department") + CONSUMED
 # Issued to Dept = the department written on the issue: who the part was handed
 # to (Press Shop, Weld Shop ...), not the consuming one — "kis kis depart ko
 # issue kiya", "part k according bhi" (the store, 27 Oct 2026).
@@ -359,9 +359,9 @@ def _dept_taken(i):
 
 
 def _issued_to(i):
-    """Who the issue was handed to: the person and the mobile — the Issue
-    Register's Issued To / Mobile."""
-    return " · ".join(v for v in (_clean(i.issued_to), _clean(i.issued_to_mobile)) if v) or None
+    """Who the issue was handed to — the Issue Register's Issued To. No mobile
+    number anywhere (the store, 27 Oct 2026)."""
+    return _clean(i.issued_to)
 
 
 def _place(i):
@@ -865,10 +865,9 @@ class ConsumptionTableService:
             key = ("employee", i.employee_id) if i.employee_id else ("written", (name or "").lower(), mobile)
             t = groups.get(key)
             if t is None:
-                t = groups[key] = _Tally({"Issued To": NOT_WRITTEN, "Code": None, "Mobile": None,
-                                          "Department": []})
+                t = groups[key] = _Tally({"Issued To": NOT_WRITTEN, "Emp Code": None, "Department": []})
             # Issues are read oldest first, so the last word on the person stands.
-            for column, v in (("Issued To", name), ("Code", code), ("Mobile", mobile)):
+            for column, v in (("Issued To", name), ("Emp Code", code)):
                 if v:
                     t.cells[column] = v
             if u.dept not in t.cells["Department"]:

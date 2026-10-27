@@ -180,8 +180,14 @@ export default function Table({
       if (raw == null || typeof raw === "object") return "";
       return typeof raw === "number" ? raw : String(raw);
     };
-    const headers = shownColumns.map((c) => c.label);
-    const body = sorted.map((row) => shownColumns.map((col) => cellVal(col, row)));
+    // A column that shows two things on screen (Part No and its name) exports
+    // them as two columns, under the one heading each has in every file
+    // (exportAlso: { label, value }) — the store, 27 Oct 2026.
+    const cols = shownColumns.flatMap((c) => (c.exportAlso
+      ? [c, { key: `${c.key}__also`, label: c.exportAlso.label, exportValue: c.exportAlso.value }]
+      : [c]));
+    const headers = cols.map((c) => c.label);
+    const body = sorted.map((row) => cols.map((col) => cellVal(col, row)));
     return { headers, body, name: `${exportName}_${new Date().toISOString().slice(0, 10)}` };
   };
   const exportXlsx = () => { const { headers, body, name } = buildExport(); downloadXlsx(name, headers, body, "Export"); setMenu(null); };

@@ -812,7 +812,7 @@ def test_table_endpoint(client, make, plant_at):
         "issued_to": ["Issued to Dept", *FIGURES],
         "dept_part": ["Issued to Dept", "Part No", "Description", "UOM", "Issues", "Qty Issued", "Qty Returned",
                       "Net Qty", "Rate", "Value", "Net Value"],
-        "person": ["Issued To", "Code", "Mobile", "Department", *FIGURES],
+        "person": ["Issued To", "Emp Code", "Department", *FIGURES],
         "machine": ["Department", "Line", "Machine", *FIGURES],
         "category": ["Department", "Category", *FIGURES],
     }
@@ -1045,7 +1045,7 @@ def test_dashboard_tv_and_excel_cut_on_plant_days_as_the_table(make, plant_clock
     assert [(t["d"], t["out"]) for t in svc.movement_trend(s.code, date_from=rng[0], date_to=rng[1])] == [
         ("10 Mar", 3.0), ("11 Mar", 2.0)]
     sheet = load_workbook(svc.consumption_report_excel(s.code, date_from=rng[0], date_to=rng[1]))["By Department"]
-    assert list(sheet.iter_rows(values_only=True)) == [("Department", "Issued Qty"), (owner.name, 5)]
+    assert list(sheet.iter_rows(values_only=True)) == [("Department", "Qty Issued"), (owner.name, 5)]
 
     _issue(s, taker, qty=4, part=p, at=plant_clock(date(2026, 4, 1), 1, 30))        # 31 Mar 20:00 UTC
     assert svc.consumption_by_period(s.code, "month") == [{"period": "2026-03", "qty": 12.0},
@@ -1165,9 +1165,9 @@ def test_person_wise_on_the_floor(make, plant_at):
     consuming ones, never the department typed on the issue. Nobody was written
     on the floor's issues."""
     f = _consumption_floor(make, plant_at)
-    assert _cut(_view(f.s, "person", *SPRING), "Issued To", "Code", "Mobile", "Department", *FIGURES) == [
-        ("Not recorded", None, None, f"{f.group}, {f.zed}, {f.old}, No section", *FLOOR_TOTAL),
-        ("Total", None, None, None, *FLOOR_TOTAL)]
+    assert _cut(_view(f.s, "person", *SPRING), "Issued To", "Emp Code", "Department", *FIGURES) == [
+        ("Not recorded", None, f"{f.group}, {f.zed}, {f.old}, No section", *FLOOR_TOTAL),
+        ("Total", None, None, *FLOOR_TOTAL)]
 
 
 def test_every_view_names_the_consuming_department_never_the_taker(make):
@@ -1252,7 +1252,7 @@ def test_issue_list_on_the_floor(make, plant_at):
         ("Total", None, "6 issues + 1 cancelled", None, None, None, 18, 1, 17, None, 55, 45),
     ]
     assert _cut(rows, "Reference", "Issued To", "Line / Machine / Die", "Status") == [
-        ("REQ-0001", "Ravi Kumar · 9876543210", "Recliner 02 / MC-1", "Installed"),
+        ("REQ-0001", "Ravi Kumar", "Recliner 02 / MC-1", "Installed"),
         (None, None, "Not recorded yet", "Issued"),
         (None, None, None, None),
         (None, None, "Recliner 02 / MC-2", "Installed"),
@@ -1335,7 +1335,7 @@ def test_issue_list_agrees_with_the_issue_register(make, plant_at):
         assert f"{mine['Date']} {mine['Time']}" == theirs["Date & Time"], mine["Issue No"]
         assert _cut([mine], "Reference", "Part No", "Description", "Section", "Department", "Status",
                     "Qty Issued") == (
-            _cut([theirs], "Reference", "Part No", "Description", "Section", "Consumer", "Status", "Qty")), mine
+            _cut([theirs], "Reference", "Part No", "Description", "Section", "Consumer", "Status", "Qty Issued")), mine
     assert issues[3]["Reference"] == "DOC-77"
 
 
@@ -1386,14 +1386,14 @@ def test_person_wise(make):
     span = ("2019-04-02", "2019-04-02")
 
     rows = _view(s, "person", *span)
-    assert _cut(rows, "Issued To", "Code", "Mobile", "Department", *ISSUED) == [
-        ("Ravi K", emp.employee_code, emp.mobile, f"{maint.name}, No section", 2, 2, 5, 50),
-        ("Sunil", None, None, "No section", 2, 2, 5, None),
-        ("Not recorded", None, None, "No section", 1, 1, 5, None),
-        ("Total", None, None, None, 5, 5, 15, 50)]
+    assert _cut(rows, "Issued To", "Emp Code", "Department", *ISSUED) == [
+        ("Ravi K", emp.employee_code, f"{maint.name}, No section", 2, 2, 5, 50),
+        ("Sunil", None, "No section", 2, 2, 5, None),
+        ("Not recorded", None, "No section", 1, 1, 5, None),
+        ("Total", None, None, 5, 5, 15, 50)]
     listed = {r["Issue No"]: r for r in _view(s, "list", *span)}
-    assert (listed[a]["Issued To"], listed[a]["Department"]) == (f"Ravi {_TAG} · {emp.mobile}", maint.name)
-    assert (listed[b]["Issued To"], listed[b]["Department"]) == (f"Ravi K · {emp.mobile}", "No section")
+    assert (listed[a]["Issued To"], listed[a]["Department"]) == (f"Ravi {_TAG}", maint.name)
+    assert (listed[b]["Issued To"], listed[b]["Department"]) == ("Ravi K", "No section")
 
 
 def test_the_filter_bar_offers_the_consuming_departments_only(client, make):

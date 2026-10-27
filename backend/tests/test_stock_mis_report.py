@@ -45,8 +45,8 @@ STORE = "MISRPT"
 NOW = datetime(2026, 10, 13, 12, 0)
 SHEETS = ["Summary", "Stock Detail", "Critical & Reorder", "Excess", "Category Summary"]
 DETAIL_HEAD = ["Sr No", "Section", "Category", "Part No", "Description", "Specification", "Supplier",
-               "Location", "UOM", "In Stock", "Min", "Reorder Level", "Max", "Status", "Rate (₹)",
-               "Stock Value (₹)"]
+               "Location", "UOM", "In Stock", "Min", "Reorder Level", "Max", "Status", "Rate",
+               "Stock Value"]
 URL = "/api/v1/spare-stock/daily-report"
 STOCK_ONLY_URL = "/api/v1/spare-stock/daily-stock-only"
 STOCK_ONLY_HEAD = ["Sr No", "Section", "Part No", "Description", "Location", "UOM", "In Stock", "Min",
@@ -201,7 +201,7 @@ def test_summary_header_and_key_figures(wb):
         assert box in texts
 
     assert _tile(ws, "Total Parts") == (11, "1 not counted yet")
-    assert _tile(ws, "Stock Value (₹)") == (4082.5, "2 with no rate")
+    assert _tile(ws, "Stock Value") == (4082.5, "2 with no rate")
     # Critical is zero stock and below minimum together, with the split beneath.
     assert _tile(ws, "Critical") == (3, "zero stock 2\nbelow minimum 1")
     assert _tile(ws, "Reorder") == (1, "at/below reorder level")
@@ -215,7 +215,7 @@ def test_tile_small_print_fits_its_tile(wb):
     A longer line breaks wherever it happens to ("zero stock 353 · below" over
     "minimum 142"), so every line is short and Critical breaks between its halves."""
     ws = wb["Summary"]
-    for label in ("Total Parts", "Stock Value (₹)", "Critical", "Reorder", "Excess", "Healthy"):
+    for label in ("Total Parts", "Stock Value", "Critical", "Reorder", "Excess", "Healthy"):
         tile = next(c for row in ws.iter_rows() for c in row if c.value == label)
         small = ws.cell(tile.row + 2, tile.column)
         assert max(len(line) for line in small.value.split("\n")) <= 24, (label, small.value)
@@ -236,7 +236,7 @@ def test_summary_status_table_reconciles(wb):
                           "Excess (above maximum)", "Healthy", "Discontinued (not required)", "Not counted",
                           "Total"]
     parts = {label: row["Parts"] for label, row in rows.items()}
-    value = {label: row["Stock Value (₹)"] for label, row in rows.items()}
+    value = {label: row["Stock Value"] for label, row in rows.items()}
     assert parts == {"Critical": 3, "of which zero stock": 2, "of which below minimum": 1, "Reorder": 1,
                      "Excess (above maximum)": 3, "Healthy": 3, "Discontinued (not required)": 0,
                      "Not counted": 1, "Total": 11}
@@ -300,7 +300,7 @@ def test_detail_sheet(wb):
         "Sr No": 6, "Section": "MIS Alpha", "Category": "Sensor", "Part No": "MISA06",
         "Description": "Part MISA06", "Specification": "Spec MISA06", "Supplier": "ACME TOOLS",
         "Location": "R1-S1-B1", "UOM": "NOS", "In Stock": 5, "Min": 2, "Reorder Level": None, "Max": 10,
-        "Status": "Healthy", "Rate (₹)": 20.5, "Stock Value (₹)": 102.5,
+        "Status": "Healthy", "Rate": 20.5, "Stock Value": 102.5,
     }
     assert by["MISA01"]["Supplier"] is None                 # never seen at the gate: an empty cell
     assert by["MISU01"]["Section"] == "Unassigned"
@@ -308,9 +308,9 @@ def test_detail_sheet(wb):
     assert [by[p]["Status"] for p in ("MISA01", "MISA02", "MISA03", "MISA04", "MISA06", "MISA07")] == [
         "Out of Stock", "Below Minimum", "Reorder", "Above Maximum", "Healthy", "Not Counted"]
     # Not counted / not rated: empty, never a zero.
-    assert (by["MISA07"]["In Stock"], by["MISA07"]["Stock Value (₹)"]) == (None, None)
-    assert (by["MISA05"]["Rate (₹)"], by["MISA05"]["Stock Value (₹)"]) == (None, None)
-    assert by["MISA01"]["Stock Value (₹)"] == 0             # counted, rated, none on the shelf
+    assert (by["MISA07"]["In Stock"], by["MISA07"]["Stock Value"]) == (None, None)
+    assert (by["MISA05"]["Rate"], by["MISA05"]["Stock Value"]) == (None, None)
+    assert by["MISA01"]["Stock Value"] == 0             # counted, rated, none on the shelf
     # A level stored as 0 is a level not set: an empty cell, never "Max 0" beside 3 in stock.
     for part_no in ("MISB01", "MISU01"):
         assert [by[part_no][k] for k in ("Min", "Reorder Level", "Max")] == [None, None, None]
@@ -318,7 +318,7 @@ def test_detail_sheet(wb):
     assert by["MISB01"]["In Stock"] == 0                    # a count of zero is still a figure
 
     # Totals sit above the header, outside the filter range.
-    assert _values(ws, 3) == ["Total", 11, "Stock value (₹)", 4082.5]
+    assert _values(ws, 3) == ["Total", 11, "Stock Value", 4082.5]
     assert ws.auto_filter.ref == "A4:P15"
     assert ws.freeze_panes == "E5"                           # under the header, after Part No
 
@@ -332,7 +332,7 @@ def test_detail_sheet(wb):
     assert (cell["In Stock"].value, cell["In Stock"].number_format) == (2.5, MONEY)
     whole = ws.cell(5, heads.index("Max") + 1)
     assert (whole.value, type(whole.value), whole.number_format) == (10, int, WHOLE)
-    assert cell["Rate (₹)"].number_format == MONEY and cell["Rate (₹)"].alignment.horizontal == "right"
+    assert cell["Rate"].number_format == MONEY and cell["Rate"].alignment.horizontal == "right"
     assert cell["Description"].alignment.wrap_text and cell["Specification"].alignment.wrap_text
     # The Status cell wears the status' tint.
     status = heads.index("Status") + 1
@@ -345,17 +345,17 @@ def test_critical_and_reorder_sheet(wb):
     ws = wb["Critical & Reorder"]
     heads, rows = _list(ws)
     assert heads == ["Sr No", "Section", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
-                     "Min", "Reorder Level", "Max", "Status", "Order Qty", "Rate (₹)", "Order Value (₹)"]
+                     "Min", "Reorder Level", "Max", "Status", "Order Qty", "Rate", "Order Value"]
     # Worst first: zero stock (largest gap first), below minimum, then reorder.
     assert [(r["Part No"], r["Status"]) for r in rows] == [
         ("MISA01", "Out of Stock"), ("MISB01", "Out of Stock"), ("MISA02", "Below Minimum"),
         ("MISA03", "Reorder")]
     # Up to the maximum; with no maximum, up to the minimum; nothing planned, nothing to order.
     assert [r["Order Qty"] for r in rows] == [10, None, 4, 6]
-    assert [r["Order Value (₹)"] for r in rows] == [1000, None, 40, 30]
+    assert [r["Order Value"] for r in rows] == [1000, None, 40, 30]
     assert [rows[1][k] for k in ("Min", "Reorder Level", "Max")] == [None, None, None]     # stored as 0
     assert [rows[2][k] for k in ("Min", "Reorder Level", "Max")] == [5, None, None]
-    assert _values(ws, 3) == ["Total", 4, "Order value (₹)", 1070]
+    assert _values(ws, 3) == ["Total", 4, "Order Value", 1070]
     assert "1 part has no rate or no order quantity and is not valued" in _values(ws, 2)[-1]
     assert (ws.auto_filter.ref, ws.freeze_panes) == ("A4:O8", "D5")
 
@@ -364,12 +364,12 @@ def test_excess_sheet(wb):
     ws = wb["Excess"]
     heads, rows = _list(ws)
     assert heads == ["Sr No", "Section", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
-                     "Max", "Excess Qty", "Rate (₹)", "Excess Value (₹)"]
+                     "Max", "Excess Qty", "Rate", "Excess Value"]
     # Dearest excess first; the part with no rate after the rated ones.
     assert [r["Part No"] for r in rows] == ["MISA04", "MISB02", "MISA05"]
     assert [r["Excess Qty"] for r in rows] == [20, 3, 2]
-    assert [r["Excess Value (₹)"] for r in rows] == [1000, 900, None]
-    assert _values(ws, 3) == ["Total", 3, "Excess value (₹)", 1900]
+    assert [r["Excess Value"] for r in rows] == [1000, 900, None]
+    assert _values(ws, 3) == ["Total", 3, "Excess Value", 1900]
     assert "1 part has no rate and is not valued" in _values(ws, 2)[-1]
     assert (ws.auto_filter.ref, ws.freeze_panes) == ("A4:L7", "D5")
 
@@ -377,7 +377,7 @@ def test_excess_sheet(wb):
 def test_category_summary_sheet(wb):
     ws = wb["Category Summary"]
     assert [c.value for c in ws[4]] == ["Section", "Category", "Parts", "Critical", "Reorder", "Excess",
-                                        "Healthy", "Stock Value (₹)"]
+                                        "Healthy", "Stock Value"]
     rows = [row for row in ws.iter_rows(min_row=5, values_only=True)]
     # By section, the category holding the most value first, a subtotal under each.
     # A category none of whose parts is both counted and rated has no value to
@@ -457,7 +457,7 @@ def test_empty_store_builds():
     ws = wb["Summary"]
     assert _tile(ws, "Total Parts")[0] == 0
     total = _table(ws, "Stock by status")["Total"]
-    assert (total["Parts"], total["% of parts"], total["Stock Value (₹)"]) == (0, None, 0)
+    assert (total["Parts"], total["% of parts"], total["Stock Value"]) == (0, None, 0)
     assert "No material was received or issued in the last 7 days." in [c.value for c in ws["A"]]
     for title, ref in (("Stock Detail", "A4:P4"), ("Critical & Reorder", "A4:O4"), ("Excess", "A4:L4")):
         assert wb[title].auto_filter.ref == ref

@@ -114,7 +114,7 @@ def test_template_is_stamped_on_a_hidden_sheet_that_is_not_data(store, parts):
 
     # The importer reads the data sheet only: one row per part, no stamp row,
     # and no "which sheet?" question.
-    rows = list(read_rows(io.BytesIO(data), {"part_no": {"partno"}, "qty_on_hand": {"qtyonhand"}},
+    rows = list(read_rows(io.BytesIO(data), {"part_no": {"partno"}, "qty_on_hand": {"instock"}},
                           ["part_no", "qty_on_hand"]))
     assert sorted(r["part_no"] for _, r in rows) == sorted(p.part_no for p in parts.values())
 

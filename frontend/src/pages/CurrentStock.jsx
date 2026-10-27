@@ -12,7 +12,7 @@ const dash = (v) => v || "—";
 
 const COLS = [
   { key: "group_cd", label: "Group", render: (r) => `${dash(r.group_cd)}${r.group_name ? ` · ${r.group_name}` : ""}`, searchValue: (r) => `${r.group_cd} ${r.group_name}` },
-  { key: "item_cd", label: "Item", sortable: true },
+  { key: "item_cd", label: "Part No", sortable: true },
   { key: "reference_code", label: "Reference" },
   { key: "item_desc", label: "Description", searchValue: (r) => r.item_desc },
   { key: "uom", label: "UOM" },

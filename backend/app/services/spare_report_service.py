@@ -71,18 +71,18 @@ Window = namedtuple("Window", "first last lo hi")
 STOCK_COLUMNS = ("Section", "Category", "Part No", "Description", "Specification", "Supplier",
                  "Location", "UOM", "In Stock", "Min", "Reorder Level", "Max", "Status", "Rate",
                  "Stock Value")
-REORDER_COLUMNS = ("Section", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
+REORDER_COLUMNS = ("Section", "Category", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
                    "Min", "Reorder Level", "Max", "Status", "Order Qty", "Rate", "Order Value")
-EXCESS_COLUMNS = ("Section", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
+EXCESS_COLUMNS = ("Section", "Category", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
                   "Max", "Excess Qty", "Rate", "Excess Value")
-ISSUE_COLUMNS = ("Date & Time", "Issue No", "Reference", "Part No", "Description", "Section", "Qty",
-                 "Department", "Consumer", "Issued To", "Emp Code", "Mobile", "Issued By", "Status",
+ISSUE_COLUMNS = ("Date & Time", "Issue No", "Reference", "Part No", "Description", "Section", "Qty Issued",
+                 "Department", "Consumer", "Issued To", "Emp Code", "Issued By", "Status",
                  "Line", "Machine", "Die", "Used Qty", "Returned Qty", "Still Out")
 RETURN_COLUMNS = ("Date & Time", "Return No", "Issue No", "Part No", "Description", "Qty", "Reason",
                   "Returned By", "Department", "Recorded By", "Result")
 RECEIPT_COLUMNS = ("Date", "GRN No", "Part No", "Description", "Section", "Qty", "Supplier",
                    "Rate", "Value")
-ERP_COLUMNS = ("Part No", "Description", "Location", "ERP Stock", "In Stock (Physical)",
+ERP_COLUMNS = ("Part No", "Description", "Location", "ERP Stock", "In Stock",
                "Gap (Physical - ERP)", "Status")
 
 # How an issue's status reads (models/spare_stock.ISSUE_STATUSES). No line /
@@ -268,12 +268,12 @@ class SpareReportService:
             out.append({
                 "Date & Time": _stamp(r.created_at), "Issue No": r.id, "Reference": r.reference,
                 "Part No": part.part_no, "Description": part.part_name,
-                "Section": sections.get(part.section_id), "Qty": issued,
+                "Section": sections.get(part.section_id), "Qty Issued": issued,
                 # Department = who took it, as typed (often the store's own
                 # people); Consumer = who uses it, by the part's section.
                 "Department": r.department, "Consumer": consumer_of(owner, part.section_id),
                 "Issued To": r.issued_to, "Emp Code": r.issued_to_code,
-                "Mobile": r.issued_to_mobile, "Issued By": r.created_by, "Status": _issue_status(r),
+                "Issued By": r.created_by, "Status": _issue_status(r),
                 "Line": _line(r), "Machine": r.machine, "Die": r.die_no,
                 "Used Qty": used, "Returned Qty": back,
                 "Still Out": 0 if r.status == "CANCELLED" else max(round(issued - back, 2), 0),
@@ -329,7 +329,7 @@ class SpareReportService:
     def _erp_vs_physical(self, store_code, _win):
         return [{
             "Part No": r["part_no"], "Description": r["part_name"], "Location": r["location"],
-            "ERP Stock": r["erp_qty"], "In Stock (Physical)": r["physical_qty"],
+            "ERP Stock": r["erp_qty"], "In Stock": r["physical_qty"],
             "Gap (Physical - ERP)": r["gap_qty"], "Status": ERP_WORDS.get(r["status"], r["status"]),
         } for r in self.stock.erp_gap(store_code)]
 

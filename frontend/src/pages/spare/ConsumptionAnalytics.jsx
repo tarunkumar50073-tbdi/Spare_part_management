@@ -423,8 +423,8 @@ function SeriesChart({ series, colors, win, pw }) {
 }
 
 function exportSeries(d) {
-  const headers = ["From", "To", "Issued Qty", "Issue Lines", "Value (today's rate)",
-    "Previous From", "Previous To", "Previous Issued Qty", "Measured"];
+  const headers = ["From", "To", "Qty Issued", "Issue Lines", "Value (today's rate)",
+    "Previous From", "Previous To", "Previous Qty Issued", "Measured"];
   const rows = d.series.map((s) => [
     s.from, s.to,
     s.coverage === "none" ? "" : s.qty,
@@ -441,10 +441,10 @@ const TOP_COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true,
     render: (r) => <span className="font-medium text-slate-800 dark:text-white">{r.part_no}</span> },
   { key: "name", label: "Description", sortable: true },
-  { key: "qty", label: "Issued", align: "right", sortable: true, exportValue: (r) => r.qty,
+  { key: "qty", label: "Qty Issued", align: "right", sortable: true, exportValue: (r) => r.qty,
     render: (r) => <span className="font-semibold tabular">{num(r.qty)}</span> },
   // Its own column, so the export keeps each quantity's unit (NO, PCS, MTR…).
-  { key: "uom", label: "UoM", sortable: true,
+  { key: "uom", label: "UOM", sortable: true,
     render: (r) => <span className="text-[11px] text-slate-500 dark:text-slate-400">{r.uom || "—"}</span> },
   { key: "lines", label: "Lines", align: "right", sortable: true },
   { key: "share_pct", label: "Share", align: "right", sortable: true, exportValue: (r) => r.share_pct ?? "",

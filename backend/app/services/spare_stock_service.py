@@ -32,7 +32,7 @@ from app.utils.exceptions import BadRequestError, NotFoundError
 
 FIELD_ALIASES = {
     "part_no": {"partno", "partnumber", "itemcode", "itemno"},
-    "qty_on_hand": {"qtyonhand", "qty", "quantity", "openingqty", "openingstock",
+    "qty_on_hand": {"instock", "qtyonhand", "qty", "quantity", "openingqty", "openingstock",
                     "physicalstock", "physicalqty", "stock", "closingstock", "totalqty"},
     # Optional: the day the count was taken, when it is loaded later (27 Oct
     # 2026) — ERP GRNs after that day are then added on top of it.
@@ -48,7 +48,7 @@ ERP_FIELD_ALIASES = {
     "erp_qty": {"erpqty", "erpstock", "erpquantity", "erponhand", "qty", "quantity", "stock"},
 }
 ERP_REQUIRED_FIELDS = ["part_no", "erp_qty"]
-ERP_TEMPLATE_COLUMNS = ["Part No", "Part Name", "ERP Qty"]
+ERP_TEMPLATE_COLUMNS = ["Part No", "Description", "ERP Stock"]
 
 # A short-lived cache for the whole-store stock list. One dashboard refresh fires
 # list + summary + analytics, which each rebuild list_stock over every part; the
@@ -199,7 +199,7 @@ def _plant_key(fmt, column, offset):
     return func.strftime(fmt, column, f"{int(offset.total_seconds() // 60):+d} minutes")
 
 
-TEMPLATE_COLUMNS = ["Part No", "Part Name", "Qty On Hand"]
+TEMPLATE_COLUMNS = ["Part No", "Description", "In Stock"]
 
 # The stock template's stamp (store, 16 Oct 2026, "Chhote data fix"). Download
 # Template is pre-filled with TODAY's stock, so an OLD copy uploaded again would
@@ -314,8 +314,8 @@ def _template_stamp(data):
 
 
 EXPORT_COLUMNS = [
-    ("Part No", "part_no"), ("Part Name", "part_name"), ("Location", "location"),
-    ("Qty On Hand", "qty_on_hand"), ("Min", "min_stock_level"),
+    ("Part No", "part_no"), ("Description", "part_name"), ("Location", "location"),
+    ("In Stock", "qty_on_hand"), ("Min", "min_stock_level"),
     ("Reorder Level", "reorder_level"), ("Max", "max_stock_level"),
     ("Shortfall", "shortfall"), ("Rate", "unit_price"), ("Stock Value", "stock_value"),
     ("Status", "status"), ("Last Counted", "last_counted_at"),
@@ -1854,17 +1854,17 @@ class SpareStockService:
         for i, (title, head, data) in enumerate(breakdowns):
             ws = wb.active if i == 0 else wb.create_sheet(title)
             ws.title = title
-            ws.append([head, "Issued Qty"])
+            ws.append([head, "Qty Issued"])
             for r in data:
                 ws.append([_excel_safe(r["name"]), r["value"]])
             format_table(ws)
         wsm = wb.create_sheet("Month-wise")
-        wsm.append(["Month", "Issued Qty"])
+        wsm.append(["Month", "Qty Issued"])
         for r in self.consumption_by_period(store_code, "month", section_id):
             wsm.append([r["period"], r["qty"]])
         format_table(wsm)
         wsy = wb.create_sheet("Year-wise")
-        wsy.append(["Year", "Issued Qty"])
+        wsy.append(["Year", "Qty Issued"])
         for r in self.consumption_by_period(store_code, "year", section_id):
             wsy.append([r["period"], r["qty"]])
         format_table(wsy)

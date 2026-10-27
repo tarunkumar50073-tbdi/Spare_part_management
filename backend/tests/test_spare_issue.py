@@ -157,7 +157,7 @@ def test_consumption_by_department_counts_the_consuming_department(owned):
     assert not {"Maintenance", "Tool Room"} & {d["name"] for d in consumption["this_month_by_department"]}
     sheet = load_workbook(svc.consumption_report_excel(owned.code))["By Department"]
     assert [tuple(r) for r in sheet.iter_rows(values_only=True)] == [
-        ("Department", "Issued Qty"), (owned.dept, 9.5), ("No section", 3)]
+        ("Department", "Qty Issued"), (owned.dept, 9.5), ("No section", 3)]
 
 
 def test_issue_route_enforces_store_access(client):

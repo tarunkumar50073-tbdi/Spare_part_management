@@ -365,9 +365,9 @@ const EXCESS_COLUMNS = [
   { key: "part_name", label: "Description", sortable: true },
   { key: "location", label: "Location", render: (r) => r.location || "—" },
   { key: "qty_on_hand", label: "In Stock", sortable: true, align: "right", render: (r) => num(r.qty_on_hand) },
-  { key: "max_stock_level", label: "Maximum", align: "right", render: (r) => num(r.max_stock_level) },
+  { key: "max_stock_level", label: "Max", align: "right", render: (r) => num(r.max_stock_level) },
   {
-    key: "excess_qty", label: "Excess", sortable: true, align: "right",
+    key: "excess_qty", label: "Excess Qty", sortable: true, align: "right",
     render: (r) => <span className="font-semibold text-blue-700 dark:text-blue-300">+{num(r.excess_qty)}</span>,
   },
   {
@@ -376,7 +376,7 @@ const EXCESS_COLUMNS = [
     // the same figure the drill's Top 10 ranks by. A part with no rate shows "—",
     // sorts last and exports blank (the Table's own rule for a missing figure)
     // rather than posing as ₹0.
-    key: "excess_value", label: "Value Tied Up", sortable: true, align: "right",
+    key: "excess_value", label: "Excess Value", sortable: true, align: "right",
     render: (r) => money(r.excess_value),
   },
 ];
@@ -489,7 +489,8 @@ const whenCol = {
   render: (r) => <span className="whitespace-nowrap tabular">{fmtStamp(r.at)}</span>, exportValue: (r) => fmtStamp(r.at),
 };
 const partCol = {
-  key: "part_no", label: "Part", sortable: true, searchValue: (r) => `${r.part_no || ""} ${r.part_name || ""}`,
+  key: "part_no", label: "Part No", sortable: true, searchValue: (r) => `${r.part_no || ""} ${r.part_name || ""}`,
+  exportAlso: { label: "Description", value: (r) => r.part_name || "" },
   render: (r) => (
     <div className="min-w-0">
       <div className="font-mono text-[13px] font-medium text-slate-800 dark:text-white">{r.part_no || "—"}</div>
@@ -508,7 +509,7 @@ const TODAY_IN_COLUMNS = [
 ];
 const TODAY_OUT_COLUMNS = [
   whenCol, partCol,
-  { key: "qty_delta", label: "Issued", sortable: true, align: "right",
+  { key: "qty_delta", label: "Qty Issued", sortable: true, align: "right",
     render: (r) => <span className="font-semibold text-rose-600">{num(Math.abs(r.qty_delta))} {r.uom || ""}</span>,
     exportValue: (r) => Math.abs(r.qty_delta) },
   { key: "department", label: "Department", sortable: true, render: (r) => r.department || "—" },

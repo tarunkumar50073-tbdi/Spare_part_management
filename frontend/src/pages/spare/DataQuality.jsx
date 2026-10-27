@@ -516,7 +516,7 @@ function CheckList({ meta, code, summary, canEdit, onClose }) {
     }
     cols.push(
       numCol("min_stock_level", "Min"),
-      numCol("reorder_level", "Reorder"),
+      numCol("reorder_level", "Reorder Level"),
       numCol("max_stock_level", "Max"),
       numCol("unit_price", "Rate", money),
       { key: "location", label: "Location", sortable: true, render: (r) => cell(r, "location", r.location || blank) },

@@ -137,11 +137,11 @@ const LOCATION = { key: "location", label: "Location", sortable: true, render: (
 const IN_STOCK = qtyCol("qty_on_hand", "In Stock", { render: (r) => <span className="font-semibold">{num(r.qty_on_hand)}</span> });
 const ISSUED = qtyCol("issued_90d", "Issued 90 d", { render: (r) => (r.issued_90d ? num(r.issued_90d) : dash) });
 const LAST_ISSUE = {
-  key: "last_issue_at", label: "Last issue", sortable: true,
+  key: "last_issue_at", label: "Last Issue", sortable: true,
   exportValue: (r) => fmtDay(r.last_issue_at) || "", render: (r) => fmtDay(r.last_issue_at) || dash,
 };
 const SUPPLIER = {
-  key: "supplier", label: "Last supplier (gate)", sortable: true,
+  key: "supplier", label: "Supplier", sortable: true,
   render: (r) => (r.supplier
     ? <span title={`${r.supplier_code || ""} · last gate arrival ${fmtDay(r.last_arrival) || "—"}`}>{r.supplier}</span>
     : dash),
@@ -158,7 +158,7 @@ const CRITICAL_COLS = [
       </span>
     ),
   },
-  IN_STOCK, qtyCol("min_stock_level", "Min"), qtyCol("short_qty", "Short"),
+  IN_STOCK, qtyCol("min_stock_level", "Min"), qtyCol("short_qty", "Short Qty"),
   qtyCol("days_cover", "Est. days cover", {
     render: (r) => (r.days_cover == null ? dash
       : <span title="Estimate: in stock / average daily issue. Not a forecast.">{num(r.days_cover)} d</span>),
@@ -170,11 +170,11 @@ const CRITICAL_COLS = [
 const SHORT_COLS = [
   PART_NO, DESCRIPTION, SECTION, LOCATION,
   IN_STOCK, qtyCol("min_stock_level", "Min"), qtyCol("max_stock_level", "Max"),
-  qtyCol("short_qty", "Short qty", {
+  qtyCol("short_qty", "Short Qty", {
     render: (r) => <span className="font-semibold text-amber-700 dark:text-amber-400">{num(r.short_qty)}</span>,
   }),
   { key: "recommended_action", label: "Recommended action" },
-  moneyCol("order_value", "Order value"),
+  moneyCol("order_value", "Order Value"),
   ISSUED, LAST_ISSUE, SUPPLIER,
 ];
 
@@ -185,8 +185,8 @@ const REORDER_COLS = [
     render: (r) => <span className={`${PILL} ${STATUS_TONE[r.status] || ""}`}>{STATUS_LABEL[r.status] || r.status}</span>,
   },
   SECTION, LOCATION,
-  IN_STOCK, qtyCol("min_stock_level", "Min"), qtyCol("reorder_level", "Reorder"), qtyCol("max_stock_level", "Max"),
-  qtyCol("recommended_order_qty", "Order qty", {
+  IN_STOCK, qtyCol("min_stock_level", "Min"), qtyCol("reorder_level", "Reorder Level"), qtyCol("max_stock_level", "Max"),
+  qtyCol("recommended_order_qty", "Order Qty", {
     exportValue: (r) => r.recommended_order_qty ?? NO_QTY_LABEL[r.order_basis] ?? "",
     render: (r) => (r.recommended_order_qty == null
       ? <span className="text-[11px] italic text-slate-400" title={r.recommended_action}>{NO_QTY_LABEL[r.order_basis] || "none"}</span>
@@ -198,7 +198,7 @@ const REORDER_COLS = [
     render: (r) => BASIS_LABEL[r.order_basis] || dash,
   },
   moneyCol("unit_price", "Rate"),
-  moneyCol("order_value", "Order value", {
+  moneyCol("order_value", "Order Value", {
     render: (r) => (r.order_value != null ? <span className="font-semibold">{money(r.order_value)}</span>
       : r.recommended_order_qty ? <span className="text-[11px] italic text-slate-400">no rate</span> : dash),
   }),
@@ -208,16 +208,16 @@ const REORDER_COLS = [
 const excessCols = (ledgerSince) => [
   PART_NO, DESCRIPTION, SECTION, LOCATION,
   IN_STOCK, qtyCol("max_stock_level", "Max"),
-  qtyCol("excess_qty", "Excess qty", {
+  qtyCol("excess_qty", "Excess Qty", {
     render: (r) => <span className="font-semibold text-blue-700 dark:text-blue-300">{num(r.excess_qty)}</span>,
   }),
   qtyCol("excess_pct", "Excess %", { render: (r) => `${num(r.excess_pct)}%` }),
-  moneyCol("excess_value", "Excess value", {
+  moneyCol("excess_value", "Excess Value", {
     render: (r) => (r.excess_value == null
       ? <span className="text-[11px] italic text-slate-400">no rate</span>
       : <span className="font-semibold">{money(r.excess_value)}</span>),
   }),
-  qtyCol("days_in_excess", "Days over max", {
+  qtyCol("days_in_excess", "Days in Excess", {
     render: (r) => (r.days_in_excess == null ? dash
       : <span title={agingTitle(r, ledgerSince)}>{num(r.days_in_excess)} d</span>),
   }),

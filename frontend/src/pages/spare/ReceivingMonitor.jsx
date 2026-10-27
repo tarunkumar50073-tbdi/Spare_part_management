@@ -112,9 +112,9 @@ const PIPELINE_TONE = {
 };
 
 const partCol = {
-  key: "part_no", label: "Part", sortable: true,
+  key: "part_no", label: "Part No", sortable: true,
   searchValue: (r) => `${r.part_no} ${r.part_name || ""}`,
-  exportValue: (r) => `${r.part_no}${r.part_name ? ` ${r.part_name}` : ""}`,
+  exportValue: (r) => r.part_no,
   render: (r) => (
     <div className="min-w-0">
       <div className="font-medium text-slate-800 dark:text-white">{r.part_no}</div>
@@ -156,13 +156,17 @@ const useErpGrnPreview = (code) => useQuery({
   queryFn: () => erpGrnService.preview(code, { silent: true }).then((r) => r.data.data),
 });
 
+// Where no Description column follows, the part's name exports beside it.
+const partColNamed = { ...partCol, exportAlso: { label: "Description", value: (r) => r.part_name || "" }, };
+
 const LINE_COLUMNS = [
-  partCol,
+  partColNamed,
   {
-    key: "grn_no", label: "GRN no · date", sortable: true,
+    key: "grn_no", label: "GRN No", sortable: true,
     sortValue: (r) => `${r.grn_date || ""} ${r.grn_no || ""}`,
     searchValue: (r) => `${r.grn_no || ""} ${r.invoice_no || ""}`,
-    exportValue: (r) => `${r.grn_no || ""}${r.grn_date ? ` (${r.grn_date})` : ""}`,
+    exportValue: (r) => r.grn_no || "",
+    exportAlso: { label: "GRN Date", value: (r) => r.grn_date || "" },
     render: (r) => (
       <div>
         <div className="font-mono text-[12px] font-semibold text-slate-800 dark:text-slate-100">{r.grn_no || "—"}</div>
@@ -536,10 +540,10 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
 // ---- the rest of the monitor ------------------------------------------------
 
 const GRN_COLUMNS = [
-  { key: "grn_date", label: "GRN date", sortable: true, render: (r) => fmtDate(r.grn_date) },
-  { key: "grn_no", label: "GRN no", sortable: true, render: (r) => r.grn_no || dash },
+  { key: "grn_date", label: "GRN Date", sortable: true, render: (r) => fmtDate(r.grn_date) },
+  { key: "grn_no", label: "GRN No", sortable: true, render: (r) => r.grn_no || dash },
   partCol,
-  { key: "description", label: "Description (ERP)", render: (r) => <span className="block max-w-[240px] truncate">{r.description || "—"}</span> },
+  { key: "description", label: "Description", render: (r) => <span className="block max-w-[240px] truncate">{r.description || "—"}</span> },
   // Not the payload's `qty`: that falls back to the receipt qty when ERP has
   // no accepted qty yet, which would show quality-pending material as accepted.
   qtyCol("receipt_qty", "Received"),
@@ -559,7 +563,7 @@ const RECEIPT_COLUMNS = [
     key: "received_at", label: "Added", sortable: true,
     exportValue: (r) => localStamp(r.received_at), render: (r) => fmtStamp(r.received_at),
   },
-  partCol,
+  partColNamed,
   qtyCol("qty", "Qty"),
   { key: "invoice_no", label: "Invoice", render: (r) => r.invoice_no || dash },
   {
@@ -616,7 +620,7 @@ const GATE_COLUMNS = [
   { key: "gate_entry_dt", label: "Gate date", sortable: true, render: (r) => fmtDate(r.gate_entry_dt) },
   { key: "gate_entry_no", label: "Gate entry", sortable: true, render: (r) => r.gate_entry_no || dash },
   partCol,
-  { key: "description", label: "Description (ERP)", render: (r) => <span className="block max-w-[240px] truncate">{r.description || "—"}</span> },
+  { key: "description", label: "Description", render: (r) => <span className="block max-w-[240px] truncate">{r.description || "—"}</span> },
   qtyCol("qty", "Qty"),
   { key: "supplier", label: "Supplier", sortable: true, render: (r) => r.supplier || dash },
   { key: "po_no", label: "PO", render: (r) => r.po_no || dash },
