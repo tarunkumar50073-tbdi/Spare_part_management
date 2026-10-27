@@ -586,6 +586,6 @@ def test_consumption_report_excel_carries_breakdown_and_period_sheets():
 
     buf = svc.consumption_report_excel("MAINTENANCE", days=7)
     wb = load_workbook(buf)
-    assert wb.sheetnames == ["By Department", "By Machine", "By Part Type", "Month-wise", "Year-wise"]
+    assert wb.sheetnames == ["By Department", "By Machine", "By Category", "Month-wise", "Year-wise"]
     assert wb["By Department"].cell(row=1, column=1).value == "Department"
     assert wb["By Machine"].cell(row=1, column=1).value == "Machine"

@@ -20,9 +20,9 @@ export function InventoryFilters({ sections, types, racks = [], section, type, r
         <option value="">All racks</option>
         {racks.map((rk) => <option key={rk} value={rk}>{rk}</option>)}
       </select>
-      <select aria-label="Part type" className={select} value={type}
+      <select aria-label="Category" className={select} value={type}
         onChange={(e) => onChange("type", e.target.value)}>
-        <option value="">All part types</option>
+        <option value="">All categories</option>
         {types.map((t) => <option key={t.name} value={t.name}>{t.name} ({t.count})</option>)}
       </select>
       <select aria-label="Master-data gap" className={select} value={gap}

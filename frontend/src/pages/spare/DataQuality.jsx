@@ -508,7 +508,7 @@ function CheckList({ meta, code, summary, canEdit, onClose }) {
     }
     cols.push(
       { key: "section", label: "Section", sortable: true, render: (r) => r.section || blank },
-      { key: "type", label: "Type", sortable: true, render: (r) => r.type || blank },
+      { key: "type", label: "Category", sortable: true, render: (r) => r.type || blank },
       { key: "uom", label: "UOM", sortable: true, render: (r) => cell(r, "uom", r.uom || blank) },
     );
     if (meta.key === "uom_variants") {

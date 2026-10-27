@@ -1806,7 +1806,7 @@ class SpareStockService:
 
     def consumption_report_excel(self, store_code, days=None, section_id=None, date_from=None, date_to=None):
         """Downloadable consumption report. The first three sheets — By
-        Department, By Machine, By Part Type — reflect the range picked on the
+        Department, By Machine, By Category — reflect the range picked on the
         screen (a calendar range, a rolling `days` window, or all-time), so the
         download always matches the bars the user is looking at. Month-wise and
         Year-wise stay whole-ledger so the long view rides along in every
@@ -1818,7 +1818,7 @@ class SpareStockService:
         breakdowns = [
             ("By Department", "Department", self.consumption_by_department(store_code, section_id, days, date_from, date_to)),
             ("By Machine", "Machine", self.consumption_by_machine(store_code, section_id, days, date_from, date_to)),
-            ("By Part Type", "Part Type", self.consumption_by_type(store_code, section_id, days, date_from, date_to)),
+            ("By Category", "Category", self.consumption_by_type(store_code, section_id, days, date_from, date_to)),
         ]
         for i, (title, head, data) in enumerate(breakdowns):
             ws = wb.active if i == 0 else wb.create_sheet(title)

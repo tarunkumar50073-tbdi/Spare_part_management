@@ -1087,7 +1087,7 @@ def test_a_cancelled_issue_is_consumed_nowhere(make):
     assert _sum(svc.consumption_trend(s.code, days=7), "qty") == 6
     wb = load_workbook(svc.consumption_report_excel(s.code))
     assert {ws.title: sum(r[1] for r in ws.iter_rows(min_row=2, values_only=True)) for ws in wb} == dict.fromkeys(
-        ("By Department", "By Machine", "By Part Type", "Month-wise", "Year-wise"), 6)
+        ("By Department", "By Machine", "By Category", "Month-wise", "Year-wise"), 6)
 
 
 def test_reports_page_no_longer_offers_consumption(client, make):
@@ -1570,11 +1570,11 @@ def test_full_pack(client, make, plant_at):
     assert summary[0] == ("Item", "Value")
     items = {k: v for k, v in summary[1:] if v is not None}
     assert {k: items[k] for k in ("Store", "Report", "From", "To", "Days", "Part", "Section",
-                                  "Consuming department", "Part type", "Year-wise sheet",
+                                  "Consuming department", "Category", "Year-wise sheet",
                                   "Issue list subtotals")} == {
         "Store": f"Consumption Store {f.s.code} ({f.s.code})", "Report": "Issuance & Consumption Report", "From": "01.03.2026",
         "To": "30.04.2026", "Days": 61, "Part": "All parts", "Section": "All sections",
-        "Consuming department": "All departments", "Part type": "All part types",
+        "Consuming department": "All departments", "Category": "All categories",
         "Year-wise sheet": "Financial years, 1 April to 31 March", "Issue list subtotals": "By day"}
     assert tuple(items[k] for k in ("Issues", "Cancelled issues (listed, not counted)", "Parts", "Qty Issued",
                                     "Value (today's rate)", "Qty Returned", "Net Qty",

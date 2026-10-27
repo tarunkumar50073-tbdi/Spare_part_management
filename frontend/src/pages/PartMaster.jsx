@@ -461,8 +461,8 @@ export default function PartMaster() {
       key: "section", label: "Section", exportValue: (r) => sectionName(r.section_id),
       render: (r) => sectionName(r.section_id) || <span className="text-slate-300 dark:text-slate-600">—</span>,
     },
-    { key: "category", label: "Category", render: (r) => r.category || "—" },
-    { key: "sub_category", label: "Sub Category", render: (r) => r.sub_category || "—" },
+    { key: "category", label: "Main Category", render: (r) => r.category || "—" },
+    { key: "sub_category", label: "Category", render: (r) => r.sub_category || "—" },
     { key: "part_type", label: "Routing", render: (r) => <Badge status={r.part_type} /> },
     { key: "location", label: "Location", render: (r) => r.location || <span className="text-slate-300 dark:text-slate-600">—</span> },
     {
@@ -612,7 +612,7 @@ export default function PartMaster() {
         </label>
         {(filterOpts?.categories || []).length > 1 && (
           <label className="text-xs font-medium text-slate-500">
-            <span className="mb-1 block">Category</span>
+            <span className="mb-1 block">Main Category</span>
             <select className="input-field py-1.5 text-sm w-48" value={filters.category}
               onChange={(e) => setFilter("category", e.target.value)}>
               <option value="">All categories</option>
@@ -621,7 +621,7 @@ export default function PartMaster() {
           </label>
         )}
         <label className="text-xs font-medium text-slate-500">
-          <span className="mb-1 block">Sub Category</span>
+          <span className="mb-1 block">Category</span>
           {/* 470-odd values: typed to narrow, picked from the list. */}
           <input className="input-field py-1.5 text-sm w-52" list="pm-sub-categories" placeholder="All — type to pick"
             value={filters.sub_category} onChange={(e) => setFilter("sub_category", e.target.value)} />
@@ -763,7 +763,7 @@ export default function PartMaster() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-slate-500">Category</label>
+              <label className="text-xs font-medium text-slate-500">Main Category</label>
               <select
                 className="input-field mt-1"
                 value={form.category}
@@ -774,7 +774,7 @@ export default function PartMaster() {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-500">Sub Category</label>
+              <label className="text-xs font-medium text-slate-500">Category</label>
               <input
                 className="input-field mt-1"
                 value={form.sub_category}

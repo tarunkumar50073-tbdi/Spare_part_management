@@ -351,7 +351,7 @@ export default function SpareStock() {
     () => enriched.filter((r) => selected.has(r.part_id)), [enriched, selected]);
   // One workbook shape for every client-side part export (selected rows, or the
   // current filtered view) — same columns as the server's full-store export.
-  const EXPORT_HEADERS = ["Part No", "Description", "Specification", "Type", "Section", "Location", "In Stock", "Min",
+  const EXPORT_HEADERS = ["Part No", "Description", "Specification", "Category", "Section", "Location", "In Stock", "Min",
     "Reorder", "Max", "UoM", "Rate", "Stock Value", "Status", "Last issue", "Last supplier (gate)", "Last counted"];
   const toExportRow = (r) => [
     r.part_no, r.part_name || "", r.specification || "", r.type_name, r.section_name || "", r.location || "",
@@ -418,7 +418,7 @@ export default function SpareStock() {
     { key: "part_no", label: "Part No", sortable: true },
     { key: "part_name", label: "Description", sortable: true },
     { key: "specification", label: "Specification", sortable: true, render: (r) => r.specification || dash },
-    { key: "type_name", label: "Type", sortable: true },
+    { key: "type_name", label: "Category", sortable: true },
     { key: "section_name", label: "Section", sortable: true, render: (r) => r.section_name || dash },
     { key: "rack", label: "Rack", sortable: true, render: (r) => r.rack || dash },
     { key: "bin", label: "Shelf · Bin", render: (r) => r.bin || dash },

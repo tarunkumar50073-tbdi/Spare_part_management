@@ -306,7 +306,7 @@ function Body({ d, colors, openPart, onFilter }) {
           hint="Click a bar to filter to that section" empty={emptyMsg}
           looseNote="parts not placed in a section"
           onPick={(key) => onFilter({ section: String(key) })} />
-        <Breakdown icon={Tags} title="By part type" rows={d.by_type} color={colors.current}
+        <Breakdown icon={Tags} title="By category" rows={d.by_type} color={colors.current}
           hint="Part sub-category · click a bar to filter" empty={emptyMsg}
           onPick={(key) => onFilter({ type: key })} />
         {/* Stage 1 (the store issue) carries no machine; the fitter records it on

@@ -706,7 +706,7 @@ class ConsumptionTableService:
             ("Part", part),
             ("Section", f.section.name if f.section else "All sections"),
             (rep.department, f.department or "All departments"),
-            ("Part type", f.type or "All part types"),
+            ("Category", f.type or "All categories"),
             ("Issues", len(c.uses)),
             ("Cancelled issues (listed, not counted)", len(c.listed) - len(c.uses)),
             ("Parts", len({u.part.id for u in c.uses})),

@@ -351,9 +351,9 @@ function FilterBar({
           {departments.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
       </Field>
-      <Field label="Part type" className="col-span-2">
+      <Field label="Category" className="col-span-2">
         <select className={select} value={type} onChange={(e) => onChange({ type: e.target.value })}>
-          <option value="">All part types</option>
+          <option value="">All categories</option>
           {type && !types.some((x) => x.name === type) && <option value={type}>{type}</option>}
           {types.map((x) => <option key={x.name} value={x.name}>{x.name} ({x.parts})</option>)}
         </select>

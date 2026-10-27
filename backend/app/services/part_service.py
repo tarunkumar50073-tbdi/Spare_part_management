@@ -1,4 +1,5 @@
 """Part master business logic."""
+import io
 from decimal import Decimal, InvalidOperation
 
 from flask import g, has_request_context
@@ -11,7 +12,8 @@ from app.services.audit_log_service import AuditLogService
 from app.services.live_stock_service import LiveStockService
 from app.utils.db_tx import atomic
 from app.utils.exceptions import NotFoundError, ConflictError
-from app.utils.excel_io import bulk_import, build_template, build_export, to_number, to_text
+from app.utils.excel_io import (bulk_import, build_template, build_export, normalize_header, sheets_from_upload,
+                                to_number, to_text)
 
 # Normalized (upper, no space/dash/slash) input -> canonical CATEGORIES value,
 # so an Excel cell like "Maintenance / Tool Room" or "in parts" still matches.
@@ -46,9 +48,34 @@ FIELD_ALIASES = {
 }
 REQUIRED_FIELDS = ["part_no", "part_name"]
 
+
+def _aliases_for(data):
+    """The column names to read the file by. A file in today's template (it
+    has a "Main Category" heading) has Category = the part's kind
+    (sub_category); an older file ("Category (BOP/...)" + "Sub Category") is
+    read as it always was. `data` is rewound for the import."""
+    heads = set()
+    try:
+        for _, make_rows in sheets_from_upload(data):
+            for i, row in enumerate(make_rows()):
+                if i >= 15:
+                    break
+                heads |= {normalize_header(c) for c in (row or ()) if c is not None}
+    except ValueError:
+        pass
+    finally:
+        data.seek(0)
+    if any(h.startswith("maincategory") for h in heads):
+        return {**FIELD_ALIASES, "category": ("maincategory",), "sub_category": ("subcategory", "category")}
+    return FIELD_ALIASES
+
+# Headings as the store's DX sheet has them (27 Oct 2026: "heding iske accroding
+# hi rkh catogery (not type)" ... "sabhi report me same rhe ... excel file template
+# me"): Category is the part's kind (Cylinder, Bearing … — sub_category); the
+# one broad value of a store (BOP / Maintenance-Tool Room …) is the Main Category.
 TEMPLATE_COLUMNS = [
     "Part No", "Part Name", "UOM", "Barcode", "Part Type (DOL/OTHER)", "Min Stock Level", "Reorder Level", "Max Stock Level",
-    "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "Specification", "Model No", "New Part No", "Old Part No", "Package Standard",
+    "Main Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Category", "Specification", "Model No", "New Part No", "Old Part No", "Package Standard",
     "Supplier Code", "Daily Consumption", "Unit Price", "Location", "Rework Location",
 ]
 
@@ -56,7 +83,7 @@ EXPORT_COLUMNS = [
     ("Part No", "part_no"), ("Part Name", "part_name"), ("UOM", "uom"), ("Barcode", "barcode"),
     ("Part Type", "part_type"), ("Min Stock Level", "min_stock_level"),
     ("Reorder Level", "reorder_level"), ("Max Stock Level", "max_stock_level"), ("Status", "status_label"),
-    ("Category", "category"), ("Sub Category", "sub_category"), ("Specification", "specification"), ("Model No", "model_no"),
+    ("Main Category", "category"), ("Category", "sub_category"), ("Specification", "specification"), ("Model No", "model_no"),
     ("New Part No", "new_part_no"), ("Old Part No", "old_part_no"), ("Package Standard", "package_standard"),
     ("Supplier Code", "supplier_code"), ("Daily Consumption", "daily_consumption"), ("Unit Price", "unit_price"),
     ("Location", "location"), ("Rework Location", "rework_location"), ("Store", "store_code"),
@@ -327,7 +354,8 @@ class PartService:
             ))
             stats["inserted"] += 1
 
-        report = bulk_import(file_stream, FIELD_ALIASES, REQUIRED_FIELDS, row_processor, sheet_name)
+        data = io.BytesIO(file_stream.read())
+        report = bulk_import(data, _aliases_for(data), REQUIRED_FIELDS, row_processor, sheet_name)
         LiveStockService.invalidate_rows_cache()
         report["inserted"] = stats["inserted"]
         report["updated"] = stats["updated"]
@@ -363,7 +391,8 @@ class PartService:
         from app.utils.excel_io import read_rows, AmbiguousSheetError
         from app.utils.exceptions import BadRequestError
         try:
-            rows = list(read_rows(file_stream, FIELD_ALIASES, REQUIRED_FIELDS, sheet_name))
+            data = io.BytesIO(file_stream.read())
+            rows = list(read_rows(data, _aliases_for(data), REQUIRED_FIELDS, sheet_name))
         except AmbiguousSheetError as exc:
             raise BadRequestError(str(exc), errors={"sheets": exc.sheet_names}) from exc
         except ValueError as exc:

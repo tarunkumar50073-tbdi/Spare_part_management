@@ -1002,7 +1002,7 @@ export default function TvDashboard() {
     // "Others" holds many types, so its drill charts them by type (what's inside);
     // a single type charts its parts by stock.
     openParts(cat === "Others"
-      ? { title: "Others — by type", rows: catRows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand || 0, chart: "byType" }
+      ? { title: "Others — by category", rows: catRows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand || 0, chart: "byType" }
       : { title: `${cat} parts`, rows: catRows, valueLabel: "Stock", valueOf: (r) => r.qty_on_hand || 0 });
   };
 
@@ -1667,7 +1667,7 @@ export default function TvDashboard() {
 
       {/* ---------- stock by part type (landscape only — see the note above) ---------- */}
         <Card className="min-w-0 p-[0.7vh] hidden landscape:block landscape:order-4">
-          <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Part Type" />
+          <PanelHead icon={PieChartMini} color={C.blue} title="Stock by Category" />
           {rowsState !== "ok" ? <PanelState state={rowsState} onRetry={reload} h="var(--dx-donut)" /> : (
           <div className="flex items-center gap-[1vh]">
             <div className="w-[var(--dx-donut)] h-[var(--dx-donut)] relative shrink-0" style={{ filter: "drop-shadow(0 8px 14px rgba(30,60,120,0.22))" }}>
@@ -2259,7 +2259,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   // The table always shows Stock; a 2nd value column only when the frame carries
   // a DIFFERENT measure (Value ₹, Short by, Excess by), never a duplicate "Stock".
   const showValue = Boolean(frame.valueLabel) && frame.valueLabel !== "Stock";
-  // Tap a "Parts by type" bar to filter the list to that type (how many die
+  // Tap a "Parts by category" bar to filter the list to that type (how many die
   // parts, how many sensors…). Cleared whenever the data reloads.
   const [pick, setPick] = useState(null);
   const [secPick, setSecPick] = useState(null);
@@ -2299,7 +2299,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const hasChart = isByType || isBySection || Boolean(frame.top10);
   const chartData = isByType ? byType : isBySection ? bySection : top;
   const chartTotal = chartData.reduce((s, d) => s + (d.value || 0), 0);
-  const chartTitle = isByType ? "Parts by type"
+  const chartTitle = isByType ? "Parts by category"
     : isBySection ? `${frame.valueLabel || "Value"} by section`
       : `Top ${top.length} by ${frame.valueLabel || "Stock"}`;
   const shown = secPick != null ? rows.filter((r) => r.section_id === secPick)

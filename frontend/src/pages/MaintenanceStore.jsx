@@ -1113,7 +1113,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   const CONS_DIMS = [
     { key: "department", icon: Factory, tone: "violet", title: "By Department", pageTitle: "Department-wise", hint: "Share of issues by department", data: deptData, total: consTotal, empty: "Nothing issued in this range" },
     { key: "machine", icon: Settings, tone: "green", title: "By Machine", pageTitle: "Machine-wise", hint: "Which machine eats the most spares", data: machineData, total: machineTotal, empty: "No machine recorded yet" },
-    { key: "type", icon: Bolt, tone: "amber", title: "By Part Type", pageTitle: "Part-type", hint: "Sensor · Cylinder · Pin · Punch …", data: typeData, total: typeTotal, empty: "No part-type consumption yet" },
+    { key: "type", icon: Bolt, tone: "amber", title: "By Category", pageTitle: "Category", hint: "Sensor · Cylinder · Pin · Punch …", data: typeData, total: typeTotal, empty: "No part-type consumption yet" },
   ];
   const consFocus = CONS_DIMS.find((d) => d.key === consDrill) || null;
 
@@ -1407,7 +1407,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
           <div>
             <h3 className="section-title">Stock value by category</h3>
             <p className="section-hint">
-              {storeLevel ? "By part type — pick a section to see its split" : "By part type in this section"}
+              {storeLevel ? "By category — pick a section to see its split" : "By part type in this section"}
             </p>
           </div>
           <span className="text-xs text-slate-400">Total {money(catTotal)}</span>
