@@ -18,7 +18,7 @@ import IdentityCard from "../components/scan/IdentityCard.jsx";
 import StatusCard from "../components/scan/StatusCard.jsx";
 import TransactionInfo from "../components/scan/TransactionInfo.jsx";
 import QuickActions, { OtherActions, actionLabel } from "../components/scan/QuickActions.jsx";
-import PartVisual, { PartVisualPlaceholder } from "../components/scan/PartVisual.jsx";
+import { PartVisualPlaceholder } from "../components/scan/PartVisual.jsx";
 import LocationList from "../components/scan/LocationList.jsx";
 import BarcodesPanel from "../components/scan/BarcodesPanel.jsx";
 import WorkQueueLink from "../components/scan/WorkQueueLink.jsx";
@@ -616,11 +616,11 @@ export default function ScanPart() {
     </>
   );
 
-  // ---- the part as it stands: its label, barcodes, where it is, its story ----
+  // ---- the part as it stands: barcodes, where it is, its story ----
   const partSide = scan && (
     <>
-      {/* The bin sheet that hangs at the part's location, as printed. */}
-      <PartVisual part={part} storeCode={storeCode} />
+      {/* No bin label card: the store puts no tag at the location (27 Oct 2026,
+          "location par tag lagana nhi h"). */}
       <BarcodesPanel part={part} barcodes={scan.barcodes} onRelease={refocusGun} />
       <LocationList locations={scan.locations} uom={part.uom} erp={scan.erp_receiving?.erp} />
       <TimelinePreview rows={scan.timeline?.rows} hasMore={scan.timeline?.has_more}

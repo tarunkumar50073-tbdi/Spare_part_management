@@ -218,4 +218,3 @@ def test_job_work_routes_rights(app):
     body = c.get("/api/v1/job-work/returns", query_string={"store_code": STORE, "q": ret["return_no"]}).get_json()["data"]
     assert [r["return_no"] for r in body["rows"]] == [ret["return_no"]] and "sync" in body
     assert c.post(f"/api/v1/job-work/returns/{ret['id']}/link", json={"rgp_line_id": 1}).status_code == 403
-    assert c.post("/api/v1/job-work/rgp/sync").status_code == 403

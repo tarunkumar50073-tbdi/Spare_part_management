@@ -320,3 +320,22 @@ def test_uom_spellings_normalise_to_one_unit():
     assert {_uom_key(u) for u in ("NOS", "Nos.", "no", "NUMBERS")} == {"NO"}
     assert {_uom_key(u) for u in ("PCS", "pc", "Pieces")} == {"PC"}
     assert _uom_key("KGS") == "KG" and _uom_key("MS") == "MS" and _uom_key("SET") == "SET"
+
+
+def test_a_discontinued_part_needs_no_levels():
+    """A discontinued part is never ordered: its 0 min / max / reorder are not
+    gaps (the 22 Oct 2026 rule) — the 189 Maintenance parts discontinued on 27
+    Oct 2026 must leave No minimum / No maximum / Reorder level is 0."""
+    n = _next()
+    store = Store.query.filter_by(code=STORE).first()
+    sec = Section(store_id=store.id, name=f"DQ Disc Section {n}")
+    db.session.add(sec)
+    db.session.commit()
+    live = _part(sec, "LIVE", 1, reorder_level=0, max_stock_level=0, unit_price=1)
+    gone = _part(sec, "GONE", 1, reorder_level=0, max_stock_level=0, unit_price=1, discontinued=True)
+    s = DataQualityService().summary(STORE, section_id=sec.id)
+    for key in ("missing_min", "missing_max", "zero_reorder"):
+        assert _hits(s)[key]["count"] == 1, key
+        rows = DataQualityService().parts(STORE, key, section_id=sec.id)
+        ids = {r["part_id"] for r in (rows["rows"] if isinstance(rows, dict) else rows)}
+        assert live.id in ids and gone.id not in ids, key

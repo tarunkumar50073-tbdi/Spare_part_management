@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { AlertTriangle, Hammer, Link2, RefreshCw, Search, Unlink } from "lucide-react";
+import { AlertTriangle, Hammer, Link2, Search, Unlink } from "lucide-react";
 import Modal from "../../components/Modal.jsx";
 import ErrorState from "../../components/ErrorState.jsx";
 import { useCan } from "../../components/Can.jsx";
@@ -53,22 +53,9 @@ function SearchBox({ value, onChange, placeholder }) {
   );
 }
 
-// When ERP was last read, and whether the last try failed.
-function SyncBar({ sync, onSynced }) {
-  const canSync = useCan("scan_part", "update");
-  const [busy, setBusy] = useState(false);
-  const run = async () => {
-    setBusy(true);
-    try {
-      const r = await jobWorkService.sync();
-      (r.data.data.ok ? toast.success : toast.error)(r.data.message);
-      onSynced();
-    } catch (e) {
-      toast.error(errText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+// When ERP was last read (by itself, with the ERP read every 2 minutes), and
+// whether the last try failed.
+function SyncBar({ sync }) {
   if (!sync) return null;
   return (
     <div className={`card flex flex-wrap items-center justify-between gap-3 py-3 text-[12.5px] ${sync.ok === false ? "border-rose-200 dark:border-rose-500/30" : ""}`}>
@@ -82,11 +69,6 @@ function SyncBar({ sync, onSynced }) {
           {sync.ok === false && <span className="ml-2 inline-flex items-center gap-1 font-semibold text-rose-600"><AlertTriangle size={12} aria-hidden="true" />Last read failed {fmtStamp(sync.last_error_at)}: {sync.last_error}</span>}
         </p>
       </div>
-      {canSync && (
-        <button type="button" className="btn-secondary text-[12.5px]" onClick={run} disabled={busy}>
-          <RefreshCw size={14} className={busy ? "animate-spin" : ""} aria-hidden="true" /> {busy ? "Reading ERP…" : "Refresh from ERP"}
-        </button>
-      )}
     </div>
   );
 }
@@ -142,7 +124,7 @@ function ReturnsTab({ storeCode }) {
   const d = list.data;
   return (
     <div className="space-y-3">
-      <SyncBar sync={d?.sync} onSynced={refresh} />
+      <SyncBar sync={d?.sync} />
       <div className="card p-0">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
           <div className="flex flex-wrap gap-1">
@@ -275,7 +257,6 @@ function LinkDialog({ ret, onClose, onLinked }) {
 }
 
 function RgpTab() {
-  const qc = useQueryClient();
   const [typed, setTyped] = useState("");
   const q = useDebounced(typed);
   const list = useQuery({
@@ -286,7 +267,7 @@ function RgpTab() {
   const d = list.data;
   return (
     <div className="space-y-3">
-      <SyncBar sync={d?.sync} onSynced={() => qc.invalidateQueries({ queryKey: ["job-work"] })} />
+      <SyncBar sync={d?.sync} />
       <div className="card p-0">
         <div className="flex justify-end border-b border-slate-100 px-4 py-3 dark:border-navy-800">
           <SearchBox value={typed} onChange={setTyped} placeholder="Challan no., item, party…" />
@@ -311,7 +292,7 @@ function RgpTab() {
                 ))}
               </tbody>
             </table>
-            {d && d.rows.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">{q ? "No RGP matches." : "No RGP read from ERP yet — press Refresh from ERP."}</p>}
+            {d && d.rows.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">{q ? "No RGP matches." : "No RGP read from ERP yet — they come with the next automatic ERP read."}</p>}
           </div>
         )}
       </div>

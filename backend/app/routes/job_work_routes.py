@@ -3,8 +3,7 @@
 The return itself is made where every return is (POST /spare-stock/issues/<id>/return,
 return_type JOB_WORK_RETURN). Here: the Pending RGP list, ERP's RGP lines (read
 only), and the link a store person saves between the two. Rights are Scan
-Part's, as for returns: view to read, update to link / unlink and to read ERP
-again now.
+Part's, as for returns: view to read, update to link / unlink.
 
 GET  /returns                  store_code, state (PENDING_RGP | RGP_AVAILABLE | RGP_LINKED | SYNC_FAILED), q
 GET  /returns/<id>/candidates  q — the suggested RGP lines, and any found by q
@@ -12,7 +11,7 @@ POST /returns/<id>/link        rgp_line_id
 POST /returns/<id>/unlink
 GET  /rgp                      q — ERP's RGP lines as last read
 GET  /rgp/status               the last read: when, how many, any failure
-POST /rgp/sync                 read ERP now
+(ERP's RGPs are read with the automatic ERP read, every 2 minutes — no button.)
 """
 from flask import Blueprint, request
 
@@ -90,12 +89,3 @@ def rgp_lines():
 @permission_required(RIGHT, "view")
 def rgp_status():
     return success_response(service.status())
-
-
-@bp.route("/rgp/sync", methods=["POST"])
-@permission_required(RIGHT, "update")
-def rgp_sync():
-    out = service.sync()
-    if out["ok"]:
-        return success_response(out, f"RGPs read from ERP — {out['added'] or 0} new, {out['updated'] or 0} changed")
-    return success_response(out, f"ERP could not be read: {out['last_error']}")

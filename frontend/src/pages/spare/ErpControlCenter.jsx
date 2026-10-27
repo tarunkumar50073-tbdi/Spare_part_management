@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import toast from "react-hot-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight, Boxes, ClipboardList, CloudUpload, Database, DatabaseZap, FileSpreadsheet, Info, Network,
@@ -144,7 +143,7 @@ const ERP_TABLES = [
   ["rgp_lines", "RGP (returnable gate pass)", "termsdb.challan_register"],
 ];
 
-function ErpTables({ sync, canRead, onRead, reading }) {
+function ErpTables({ sync }) {
   const tables = sync.tables || {};
   const today = new Date().toISOString().slice(0, 10);
   return (
@@ -153,15 +152,10 @@ function ErpTables({ sync, canRead, onRead, reading }) {
         <div>
           <p className="text-sm font-semibold text-slate-800 dark:text-white">ERP data in the app</p>
           <p className="text-[11px] text-slate-400">
-            Read only from ERP{every(sync.poll_seconds) ? `, every ${every(sync.poll_seconds)}` : ""}
+            Read only from ERP, by itself{every(sync.poll_seconds) ? ` every ${every(sync.poll_seconds)}` : ""} — no button needed
             {sync.last_sync_at ? ` · last read ${stamp(sync.last_sync_at)}` : ""}
           </p>
         </div>
-        {canRead && (
-          <button type="button" className="btn-primary text-[12.5px]" onClick={onRead} disabled={reading}>
-            <RefreshCw size={14} className={reading ? "animate-spin" : ""} aria-hidden="true" /> {reading ? "Reading ERP…" : "Read ERP now"}
-          </button>
-        )}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] text-left text-[12.5px]">
@@ -672,17 +666,6 @@ export default function ErpControlCenter() {
   const confirm = useConfirm();
   const qc = useQueryClient();
   const [pushResult, setPushResult] = useState(null);
-  const [reading, setReading] = useState(false);
-  const readNow = async () => {
-    setReading(true);
-    try {
-      const r = await erpControlService.syncNow();
-      toast.success(r.data.message);
-      qc.invalidateQueries();
-    } catch { /* the api interceptor toasts */ } finally {
-      setReading(false);
-    }
-  };
 
   const q = useQuery({
     queryKey: ["stock", "erp-control", code],
@@ -780,7 +763,7 @@ export default function ErpControlCenter() {
             </p>
           )}
           <StatusCards d={d} />
-          <ErpTables sync={d.db_sync} canRead={canPushErp} onRead={readNow} reading={reading} />
+          <ErpTables sync={d.db_sync} />
           <LastErrors errors={errorsOf(d)} />
           <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
             <PendingMovements wb={d.write_back} onOpen={openPart} />

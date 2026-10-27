@@ -11,5 +11,4 @@ export const jobWorkService = {
   link: (returnId, rgpLineId) => api.post(`/job-work/returns/${returnId}/link`, { rgp_line_id: rgpLineId }),
   unlink: (returnId) => api.post(`/job-work/returns/${returnId}/unlink`),
   rgp: (q, config) => api.get("/job-work/rgp", { params: { q: q || undefined }, ...config }),
-  sync: () => api.post("/job-work/rgp/sync"),
 };

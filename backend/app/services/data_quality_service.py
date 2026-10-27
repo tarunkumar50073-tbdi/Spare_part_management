@@ -209,16 +209,20 @@ class DataQualityService:
         for r in rows:
             pid = r["part_id"]
             mx, mn, ro = r["max_stock_level"], r["min_stock_level"], r["reorder_level"]
+            # A discontinued part is never ordered, so it needs no min / max /
+            # reorder: its 0s are not gaps (the 22 Oct 2026 rule, as on the
+            # overview and Part Master — missed here until 27 Oct 2026).
+            levels = not r.get("discontinued")
             # Same predicates as the dashboard's completeness (and the inventory
             # gap filters): 0 counts as "not set" for max and min, blank for the
             # rest; a 0 reorder level or rate gets its own check instead.
-            if not mx:
+            if levels and not mx:
                 hits["missing_max"].add(pid)
-            if not mn:
+            if levels and not mn:
                 hits["missing_min"].add(pid)
-            if ro is None:
+            if levels and ro is None:
                 hits["missing_reorder"].add(pid)
-            elif ro == 0:
+            elif levels and ro == 0:
                 hits["zero_reorder"].add(pid)
             if r["unit_price"] is None:
                 hits["missing_rate"].add(pid)
@@ -229,9 +233,9 @@ class DataQualityService:
             if r["qty_on_hand"] is None:
                 hits["never_counted"].add(pid)
             # Only a set maximum makes a band to fall outside of; min 0 is a floor.
-            if ro is not None and mx and not (mn <= ro <= mx):
+            if levels and ro is not None and mx and not (mn <= ro <= mx):
                 hits["reorder_outside_min_max"].add(pid)
-            if mx and mn > mx:
+            if levels and mx and mn > mx:
                 hits["min_greater_than_max"].add(pid)
             if pid not in mapped and not barcodes.get(pid):
                 hits["missing_barcode"].add(pid)

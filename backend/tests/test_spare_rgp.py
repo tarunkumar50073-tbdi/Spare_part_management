@@ -123,9 +123,7 @@ def test_no_endpoint_makes_an_rgp_without_a_return(app):
              if "POST" in r.methods and "rgp" in r.rule.lower() and not r.rule.startswith("/api/v1/rgp")]
     # Job work (27 Oct 2026) only READS ERP's RGPs and links one to a return —
     # it never makes an RGP (the store makes those in ERP).
-    job_work = {"/api/v1/job-work/rgp/sync"}
-    assert {r for r in posts if r.startswith("/api/v1/job-work/")} == job_work
-    posts = [r for r in posts if r not in job_work]
+    assert not [r for r in posts if r.startswith("/api/v1/job-work/")]
     assert "/api/v1/spare-flow/returns/<int:return_id>/rgp-out" in posts
     assert all(r.startswith(("/api/v1/spare-flow/returns/", "/api/v1/spare-flow/rgps/")) for r in posts)
 
