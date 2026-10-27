@@ -49,9 +49,12 @@ CHECKS = (
      "No location, so nobody can be told where the part sits."),
     ("never_counted", "Never counted", "warning", None,
      "No physical count recorded. The quantity is unknown, not zero — count it on Store Stock."),
-    ("reorder_outside_min_max", "Reorder outside min–max", "warning", "reorder_level",
-     "Reorder level is below the minimum or above the maximum (checked only where a maximum is set; "
-     "a reorder level of 0 is the store's own choice and is not checked)."),
+    # The key keeps its old name (links, the screen's icons); the check is
+    # "above the maximum" only: the store sets the reorder level BELOW the
+    # minimum on purpose (27 Oct 2026: "haan reorder minimum se kam sahi h").
+    ("reorder_outside_min_max", "Reorder above maximum", "warning", "reorder_level",
+     "Reorder level is above the maximum (checked only where a maximum is set). A reorder level below "
+     "the minimum, or 0, is the store's own way and is not a fault."),
     ("min_greater_than_max", "Minimum above maximum", "warning", "max_stock_level",
      "Minimum is higher than the maximum, so one of the two is wrong (checked only where a maximum is set)."),
     ("missing_barcode", "No barcode", "info", None,
@@ -236,7 +239,7 @@ class DataQualityService:
             if r["qty_on_hand"] is None:
                 hits["never_counted"].add(pid)
             # Only a set maximum makes a band to fall outside of; min 0 is a floor.
-            if levels and ro and mx and not (mn <= ro <= mx):
+            if levels and ro and mx and ro > mx:
                 hits["reorder_outside_min_max"].add(pid)
             if levels and mx and mn > mx:
                 hits["min_greater_than_max"].add(pid)

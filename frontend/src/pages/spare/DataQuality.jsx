@@ -97,25 +97,17 @@ function parseDraft(field, draft, row) {
     if (field === "max_stock_level") {
       if (n < mn) return { error: `Max can't be below the minimum (${num(mn)})` };
       if (ro != null && n < ro) return { error: `Max can't be below the reorder level (${num(ro)})` };
-      if (ro != null && ro < mn) {
-        return {
-          value: n,
-          note: `Its reorder level (${num(ro)}) is below the minimum (${num(mn)}), so it is listed under "Reorder outside min–max" — fix it there.`,
-        };
-      }
     }
-    // Reorder is only checked against min where a maximum is set.
+    // A reorder level below the minimum is the store's way (27 Oct 2026), so
+    // the minimum is checked only against the maximum.
     if (field === "min_stock_level" && mx > 0) {
       if (n > mx) return { error: `Min can't be above the maximum (${num(mx)})` };
-      if (ro != null && n > ro) return { error: `Min can't be above the reorder level (${num(ro)})` };
     }
     if (field === "reorder_level") {
       if (mx > 0 && mn > mx) {
         return { error: `Fix Min/Max first — the minimum (${num(mn)}) is above the maximum (${num(mx)}). Set a new max under "Minimum above maximum".` };
       }
-      if (n < mn || (mx > 0 && n > mx)) {
-        return { error: mx > 0 ? `Reorder must sit between min ${num(mn)} and max ${num(mx)}` : `Reorder can't be below the minimum (${num(mn)})` };
-      }
+      if (mx > 0 && n > mx) return { error: `Reorder can't be above the maximum (${num(mx)})` };
     }
     return { value: n };
   }

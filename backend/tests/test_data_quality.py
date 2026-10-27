@@ -343,7 +343,7 @@ def test_a_discontinued_part_needs_no_levels():
 
 def test_a_reorder_level_of_0_is_the_stores_choice_not_a_fault():
     """27 Oct 2026: "jinke reorder 0 h wo 0 hi rhenge" — a 0 reorder level is
-    listed for reference (info), never under Reorder outside min-max."""
+    listed for reference (info), never under Reorder above maximum."""
     n = _next()
     store = Store.query.filter_by(code=STORE).first()
     sec = Section(store_id=store.id, name=f"DQ Zero Section {n}")
@@ -355,5 +355,22 @@ def test_a_reorder_level_of_0_is_the_stores_choice_not_a_fault():
     assert c["zero_reorder"]["severity"] == "info" and c["zero_reorder"]["count"] == 1
     rows = DataQualityService().parts(STORE, "reorder_outside_min_max", section_id=sec.id)
     ids = {r["part_id"] for r in (rows["rows"] if isinstance(rows, dict) else rows)}
-    assert ids == {low.id} and zero.id not in ids
+    # Neither: a 0 reorder is the store's choice, and so is one below the minimum.
+    assert zero.id not in ids and low.id not in ids
+
+
+def test_a_reorder_level_below_the_minimum_is_the_stores_way():
+    """27 Oct 2026: "haan reorder minimum se kam sahi h" — only a reorder level
+    above the maximum is listed."""
+    n = _next()
+    store = Store.query.filter_by(code=STORE).first()
+    sec = Section(store_id=store.id, name=f"DQ Below Section {n}")
+    db.session.add(sec)
+    db.session.commit()
+    below = _part(sec, "BELOW", 1, min_stock_level=20, reorder_level=10, max_stock_level=30, unit_price=1)
+    above = _part(sec, "ABOVE", 1, min_stock_level=2, reorder_level=10, max_stock_level=4, unit_price=1)
+    rows = DataQualityService().parts(STORE, "reorder_outside_min_max", section_id=sec.id)
+    ids = {r["part_id"] for r in (rows["rows"] if isinstance(rows, dict) else rows)}
+    assert ids == {above.id} and below.id not in ids
+    assert _hits(DataQualityService().summary(STORE, section_id=sec.id))["reorder_outside_min_max"]["label"] == "Reorder above maximum"
 
