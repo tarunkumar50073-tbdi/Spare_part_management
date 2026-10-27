@@ -48,7 +48,8 @@ export const REPORT = {
   subtitle: "Every issue from the store, what came back and what each department really used. "
     + "Pick a period and a view; download as Excel or PDF.",
   departmentHint: "The department that owns the part's section (who consumed it) — never the store, which only hands parts out",
-  pack: "Summary, Issue list, Date-wise, Month-wise, Year-wise, Part-wise, Department-wise, Person-wise, "
+  pack: "Summary, Issue list, Date-wise, Month-wise, Year-wise, Part-wise, Department-wise, Issued to Dept-wise, "
+    + "Issued to Dept & Part-wise, Person-wise, "
     + "Line & Machine-wise and Category-wise",
   views: [
     { key: "list", label: "Issue list", option: "Issue list (every issue)" },
@@ -58,7 +59,11 @@ export const REPORT = {
     { key: "year", label: "Year-wise" },
     { key: "fy", label: "Financial year-wise" },
     { key: "part", label: "Part-wise" },
-    { key: "department", label: "Department-wise" },
+    { key: "department", label: "Department-wise", option: "Department-wise (consuming)" },
+    // Who the part was handed to — the department written on the issue (the
+    // store, 27 Oct 2026: "kis kis depart ko issue kiya", "part k according bhi").
+    { key: "issued_to", label: "Issued to Dept-wise", option: "Issued to department" },
+    { key: "dept_part", label: "Issued to Dept & Part-wise", option: "Issued to department + part" },
     { key: "person", label: "Person-wise", option: "Person-wise (issued to)" },
     { key: "machine", label: "Line / Machine-wise" },
     { key: "category", label: "Category-wise" },

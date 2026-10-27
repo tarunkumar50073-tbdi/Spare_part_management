@@ -153,10 +153,16 @@ BY_MACHINE_COLUMNS = ("Department", "Line", "Machine") + CONSUMED
 BY_CATEGORY_COLUMNS = ("Department", "Category") + CONSUMED
 
 BY_PERSON_COLUMNS = ("Issued To", "Code", "Mobile", "Department") + CONSUMED
+# Issued to Dept = the department written on the issue: who the part was handed
+# to (Press Shop, Weld Shop ...), not the consuming one — "kis kis depart ko
+# issue kiya", "part k according bhi" (the store, 27 Oct 2026).
+BY_ISSUED_TO_COLUMNS = ("Issued to Dept",) + CONSUMED
+BY_DEPT_PART_COLUMNS = ("Issued to Dept", "Part No", "Description", "UOM", "Issues", "Qty Issued",
+                        "Qty Returned", "Net Qty", "Rate", "Value", "Net Value")
 # The Issue list, in the Issue Register's words — Issued To = the person and the
 # mobile — with what came back against each issue beside what went out.
 LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Description", "Section", "Department",
-                "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
+                "Issued to Dept", "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
                 "Line / Machine / Die", "Status")
 
 UNCATEGORISED = "Uncategorised"
@@ -198,6 +204,9 @@ BASIS = {
     "person": "Person-wise: the person written on the issue, with the employee code and mobile kept at "
               f"issue time; one employee is one row. '{NOT_WRITTEN}' = no person written.",
     "place": PLACE_BASIS,
+    "issued_to": "Issued to Dept: the department written on the issue — who the part was handed to "
+                 f"(e.g. Press Shop); '{NOT_WRITTEN}' = none written. Issued to Dept & Part-wise lists each "
+                 "department's parts with a subtotal after the department.",
 }
 
 # The notes under the downloaded table: grey italics in the Excel, small grey
@@ -221,7 +230,8 @@ PRESETS = ("yesterday", "last_month", "this_fy", "last_fy")
 # Year-wise is decided by the range (_year_view). A sheet name cannot hold "/",
 # so the Line / Machine view's sheet says "&".
 PACK_SHEETS = (("Issue list", "list"), ("Date-wise", "day"), ("Month-wise", "month"), ("Year-wise", None),
-               ("Part-wise", "part"), ("Department-wise", "department"), ("Person-wise", "person"),
+               ("Part-wise", "part"), ("Department-wise", "department"),
+               ("Issued to Dept-wise", "issued_to"), ("Issued to Dept & Part-wise", "dept_part"), ("Person-wise", "person"),
                ("Line & Machine-wise", "machine"), ("Category-wise", "category"))
 PACK = "Full pack"
 
@@ -341,6 +351,11 @@ def _count(issues, cancelled):
 
 def _clean(v):
     return (v or "").strip() or None
+
+
+def _dept_taken(i):
+    """The department written on the issue (who it was handed to), or None."""
+    return _clean(i.department)
 
 
 def _issued_to(i):
@@ -865,6 +880,46 @@ class ConsumptionTableService:
             t.cells["Issued To"] == NOT_WRITTEN, *_by_money(t), t.cells["Issued To"].lower()))
         return _with_total(ordered, total, columns)
 
+    def _by_issued_to(self, c, columns):
+        """Issued to Dept-wise: per department written on the issue (who the
+        part was handed to), case and spaces aside; most money first, "Not
+        recorded" last."""
+        groups, total = self._groups(c, lambda u: (
+            (_dept_taken(u.issue) or "").lower(), {"Issued to Dept": _dept_taken(u.issue) or NOT_WRITTEN}))
+        ordered = sorted(groups.values(), key=lambda t: (
+            t.cells["Issued to Dept"] == NOT_WRITTEN, *_by_money(t), t.cells["Issued to Dept"].lower()))
+        return _with_total(ordered, total, columns)
+
+    def _by_dept_part(self, c, columns):
+        """Issued to Dept & Part-wise: what each department was handed, part
+        by part (most money first), a subtotal after each department — the
+        departments in Issued to Dept-wise's order."""
+        depts, total = {}, _Tally({})
+        for u in c.uses:
+            name = _dept_taken(u.issue) or NOT_WRITTEN
+            dept = depts.setdefault(name.lower(), (_Tally({"Issued to Dept": name}), {}))
+            t = dept[1].get(u.part.id)
+            if t is None:
+                t = dept[1][u.part.id] = _Tally({
+                    "Issued to Dept": dept[0].cells["Issued to Dept"], "Part No": u.part.part_no,
+                    "Description": u.part.part_name, "UOM": u.part.uom,
+                    "Rate": u.part.unit_price or None})            # a rate of 0 is a missing rate
+            t.add(u)
+            dept[0].add(u)
+            total.add(u)
+        rows, subtotals = [], []
+        for tally, parts in sorted(depts.values(), key=lambda d: (
+                d[0].cells["Issued to Dept"] == NOT_WRITTEN, *_by_money(d[0]), d[0].cells["Issued to Dept"].lower())):
+            rows += [t.row(columns) for t in sorted(parts.values(),
+                                                    key=lambda t: (*_by_money(t), t.cells["Part No"] or ""))]
+            tally.cells = {"Issued to Dept": SUBTOTAL.format(tally.cells["Issued to Dept"]),
+                           "Part No": _plural(len(tally.parts), "part")}
+            subtotals.append(len(rows))
+            rows.append(tally.row(columns))
+        total.cells = {"Issued to Dept": TOTAL, "Part No": _plural(len(total.parts), "part")}
+        rows.append(total.row(columns))
+        return Built(rows, total, subtotals)
+
     def _by_machine(self, c, columns):
         def where(u):
             # The line / machine the fitter recorded at installation (the
@@ -934,7 +989,7 @@ class ConsumptionTableService:
         cells = {
             "Date": on, "Time": at, "Issue No": i.id, "Reference": i.reference, "Part No": part.part_no,
             "Description": part.part_name, "Section": u.section, "Department": u.dept,
-            "Issued To": _issued_to(i), "Rate": part.unit_price or None,   # a rate of 0 is a missing rate
+            "Issued to Dept": _dept_taken(i), "Issued To": _issued_to(i), "Rate": part.unit_price or None,   # a rate of 0 is a missing rate
             "Line / Machine / Die": None if u.cancelled else _place(i), "Status": _issue_status(i),
         }
         if u.cancelled:
@@ -957,10 +1012,12 @@ class ConsumptionTableService:
             View("fy", "Financial year-wise", BY_FY_COLUMNS, _by_fy),
             View("part", "Part-wise", BY_PART_COLUMNS, _by_part),
             View("department", "Department-wise", BY_DEPARTMENT_COLUMNS, _by_department),
+            View("issued_to", "Issued to Dept-wise", BY_ISSUED_TO_COLUMNS, _by_issued_to),
+            View("dept_part", "Issued to Dept & Part-wise", BY_DEPT_PART_COLUMNS, _by_dept_part),
             View("person", "Person-wise", BY_PERSON_COLUMNS, _by_person),
             View("machine", "Line / Machine-wise", BY_MACHINE_COLUMNS, _by_machine),
             View("category", "Category-wise", BY_CATEGORY_COLUMNS, _by_category),
-        ), PACK_SHEETS, ("consumption", "returns", "value", "period", "list", "person", "place"),
+        ), PACK_SHEETS, ("consumption", "returns", "value", "period", "list", "person", "place", "issued_to"),
             "Consuming department"),
     }
     # The report's name in links made while there were two (17 - 18 Oct 2026).

@@ -33,10 +33,12 @@ const MONEY = new Set(["Rate", "Value", "Net Value"]);
 const LONG_TEXT = new Set(["Description", "Issued To", "Line / Machine / Die"]);
 // The order the "How this table is counted" lines are read in (JSON hands the
 // server's keys back sorted). Some are about one view only (BASIS_VIEWS).
-const BASIS_KEYS = ["consumption", "list", "returns", "value", "period", "person", "place"];
+const BASIS_KEYS = ["consumption", "list", "issued_to", "returns", "value", "period", "person", "place"];
 // The Issue list's line on the Issue list, Person-wise's on Person-wise, and
 // how a line / machine is named where one is shown.
-const BASIS_VIEWS = { list: ["list"], person: ["person"], place: ["list", "machine"] };
+const BASIS_VIEWS = {
+  list: ["list"], person: ["person"], place: ["list", "machine"], issued_to: ["list", "issued_to", "dept_part"],
+};
 
 // Rows drawn at first. Five years Date-wise runs to thousands of rows and the
 // line-side browser stalls drawing them all; the Total row and the files
@@ -364,7 +366,9 @@ export default function ConsumptionTable({ tq, view, filtered, longer, onPreset 
             <span>
               {isList
                 ? <>{num(body.length - subtotals.size)} issue line{body.length - subtotals.size === 1 ? "" : "s"} · {num(subtotals.size)} {shownGroup.noun}{subtotals.size === 1 ? "" : "s"}</>
-                : <>{num(body.length)} row{body.length === 1 ? "" : "s"}</>}
+                : subtotals.size > 0
+                  ? <>{num(body.length - subtotals.size)} row{body.length - subtotals.size === 1 ? "" : "s"} · {num(subtotals.size)} department{subtotals.size === 1 ? "" : "s"}</>
+                  : <>{num(body.length)} row{body.length === 1 ? "" : "s"}</>}
               {!showAll && body.length > FIRST_ROWS && (
                 <>
                   {" "}· showing the first {num(FIRST_ROWS)} rows ·{" "}

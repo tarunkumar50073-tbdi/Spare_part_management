@@ -24,8 +24,10 @@ import { REPORT, consumptionAnalyticsService } from "../../services/consumptionA
 // month and the financial year (1 April - 31 March) the store asked for on
 // 17 Oct 2026 ("issuance and consumption ka bna de"). This year and the last
 // 12 months are for the month- and year-wise table ("month wise ya year wise"
-// — the store, 14 Oct 2026).
+// — the store, 14 Oct 2026). Today is "aaj kitna part, konsa konsa part, kis kis
+// depart ko issue kiya" (27 Oct 2026), cut on the browser's calendar as This month is.
 const PRESETS = [
+  { key: "today", label: "Today" },
   { key: "yesterday", label: "Yesterday", served: true },
   { key: "month", label: "This month" },
   { key: "last_month", label: "Last month", served: true },
@@ -66,6 +68,7 @@ function presetRange(key, served) {
     return w ? [w.from, w.to] : ["", ""];
   }
   const today = new Date();
+  if (key === "today") return [isoDay(today), isoDay(today)];
   if (key === "month") return [isoDay(new Date(today.getFullYear(), today.getMonth(), 1)), isoDay(today)];
   if (key === "year") return [isoDay(new Date(today.getFullYear(), 0, 1)), isoDay(today)];
   // Twelve calendar months, this one to date: a month-wise table then starts on
