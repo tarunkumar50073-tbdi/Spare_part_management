@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  Activity, AlarmClock, Archive, BellRing, BookOpen, Bolt, Boxes, Calculator, CalendarRange, ClipboardCheck,
+  Activity, AlarmClock, Archive, Hammer, BellRing, BookOpen, Bolt, Boxes, Calculator, CalendarRange, ClipboardCheck,
   ClipboardList, Clock3, Container, Factory, FileChartColumn, FileText, Grid3x3, History, LayoutDashboard,
   Mail, Mails, Send, Settings2, Workflow, Package, PanelLeftClose, PanelLeftOpen, Scale,
   Bell, Inbox, PackageCheck, PackageX, ScanBarcode, ScanSearch, ScrollText, Search, ServerCog, Settings, ShieldCheck, Siren,
@@ -119,6 +119,8 @@ const NAV_BY_STORE = {
         { to: "/scan-part", label: "Scan Part", short: "Scan", icon: ScanBarcode, mod: "scan_part" },
         { to: "/work-queue", label: "Work Queue", icon: ClipboardList, mod: "work_queue" },
         { to: "/confirm-installation", label: "Confirm Installation", short: "Install", icon: Wrench, mod: "install_confirm" },
+        // Job work returns waiting for their ERP RGP, and the link (27 Oct 2026).
+        { to: "/job-work", label: "Job Work & RGP", short: "Job Work", icon: Hammer, mod: "scan_part" },
         // Inside Scan Part's header for whoever can open Scan Part; this row is
         // only for a user who cannot (`unless`).
         { to: "/put-away-check", label: "Put-away Check", short: "Put-away", icon: PackageCheck, mod: "put_away_check", unless: "scan_part" },

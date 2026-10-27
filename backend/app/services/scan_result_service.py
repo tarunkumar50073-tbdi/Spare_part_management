@@ -106,6 +106,8 @@ ISSUE_FIELDS = (
     "id", "issued_at", "issued_qty", "returned_qty", "outstanding_qty", "actual_qty",
     "department", "issued_to", "issued_to_mobile", "issued_to_code", "line_name", "line_no",
     "machine", "die_no", "status", "confirmed_at", "confirmed_by", "reference", "issued_by",
+    # The packet / unit the issue handed out whole (it comes back only whole).
+    "packet",
 )
 
 TIMELINE_KEYS = (

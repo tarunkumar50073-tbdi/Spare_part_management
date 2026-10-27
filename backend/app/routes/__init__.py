@@ -47,6 +47,7 @@ def register_routes(app):
     from app.routes.short_mail_routes import bp as short_mail_bp
     from app.routes.part_kiosk_routes import bp as part_kiosk_bp
     from app.routes.spare_packet_routes import bp as spare_packets_bp
+    from app.routes.job_work_routes import bp as job_work_bp
     from app.routes.inventory_control_routes import bp as inventory_control_bp
     from app.routes.consumption_analytics_routes import bp as consumption_analytics_bp
     from app.routes.data_quality_routes import bp as data_quality_bp
@@ -105,6 +106,7 @@ def register_routes(app):
     app.register_blueprint(short_mail_bp)
     app.register_blueprint(part_kiosk_bp)
     app.register_blueprint(spare_packets_bp)
+    app.register_blueprint(job_work_bp)
     app.register_blueprint(inventory_control_bp)
     app.register_blueprint(consumption_analytics_bp)
     app.register_blueprint(data_quality_bp)

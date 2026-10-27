@@ -761,7 +761,8 @@ class ConsumptionTableService:
                 .filter(*where).order_by(L.created_at, L.id).all())
         parts = _parts({r.part_id for r in rows})
         sections = SpareReportService._sections(store_code)
-        returned = SpareStockService._returned_qty_map([r.id for r in rows])
+        # A job work return was used, then brought back for repair: consumed.
+        returned = SpareStockService._returned_qty_map([r.id for r in rows], job_work=False)
         # The plant clock the range was cut on, read once rather than per issue.
         offset = _offset(win)
         uses = []

@@ -50,6 +50,7 @@ from app.models.email_engine import EmailMessage, EmailAttachment, EmailAttempt,
 from app.models.challan_register import ChallanRegister, ChallanLink, ChallanHistory
 from app.models.rejection_request import RejectionRequest, RejectionHistory
 from app.models.spare_packet import SpareBatch, SparePacket
+from app.models.job_work import ErpRgpLine, RgpReturnLink
 
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",

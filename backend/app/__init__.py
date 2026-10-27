@@ -473,6 +473,13 @@ LATE_COLUMNS = (
     # his id there (27 Oct 2026, roster_service).
     ("employees", "source", "VARCHAR(12)"),
     ("employees", "external_id", "VARCHAR(40)"),
+    # Returns by type (27 Oct 2026): fresh / unused or job work; the packet that
+    # came back whole; QR or manual identification; who counted it back.
+    ("spare_returns", "return_type", "VARCHAR(20)"),
+    ("spare_returns", "packet_id", "INTEGER"),
+    ("spare_returns", "identified_by", "VARCHAR(10)"),
+    ("spare_returns", "verified_by", "VARCHAR(60)"),
+    ("spare_returns", "verified_at", "TIMESTAMP WITH TIME ZONE"),
 )
 
 # Columns made optional after a database was created (PostgreSQL only; SQLite

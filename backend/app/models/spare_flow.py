@@ -48,6 +48,9 @@ BUCKETS = (
     "SUPPLIER", "QUALITY_PENDING", "AVAILABLE", "ISSUED", "RETURN_PENDING",
     "RETURN_HOLD", "DAMAGED", "WITH_SUPPLIER", "RGP_GRN_PENDING",
     "SCRAPPED", "REJECTED", "CANCELLED",
+    # Back from the floor for job work (27 Oct 2026): in the store, not stock,
+    # waiting for the RGP the store makes in ERP.
+    "JOB_WORK",
 )
 
 # ---- receipts (spec 1 / 9) ----------------------------------------------------
@@ -60,7 +63,11 @@ RECEIPT_OPEN = ("RECEIVED", "QUALITY_PENDING")
 # Store inspection results.
 INSPECTION_RESULTS = ("GOOD", "INSPECTION_REQUIRED", "DAMAGED", "SCRAP")
 # Cached headline of a return from its quantity split (see SpareReturn).
-RETURN_STATUSES = ("INSPECTION_PENDING", "RETURN_HOLD", "DAMAGED", "CLOSED")
+RETURN_STATUSES = ("INSPECTION_PENDING", "RETURN_HOLD", "DAMAGED", "CLOSED", "JOB_WORK")
+# The two kinds of return (the store's spec of 27 Oct 2026): fresh / unused —
+# counted back by the supervisor straight into stock (a packet only whole); job
+# work — kept apart, never stock, until ERP's RGP takes it out.
+RETURN_TYPES = ("UNUSED_RETURN", "JOB_WORK_RETURN")
 RETURN_OPEN = ("INSPECTION_PENDING", "RETURN_HOLD", "DAMAGED")
 
 # ---- RGP (spec 15-19) --------------------------------------------------------
@@ -176,6 +183,15 @@ class SpareReturn(BaseModel):
 
     scanned_code = db.Column(db.String(80), nullable=True)
     scan_source = db.Column(db.String(20), nullable=True)
+    # RETURN_TYPES; None = a return from before 27 Oct 2026 (all fresh).
+    return_type = db.Column(db.String(20), nullable=True)
+    # The packet (spare_packets) that came back whole, when the issue was one.
+    packet_id = db.Column(db.Integer, nullable=True)
+    # QR (the part / packet label was scanned) or MANUAL (searched by Part No.).
+    identified_by = db.Column(db.String(10), nullable=True)
+    # Fresh return: the supervisor who counted it back, and when.
+    verified_by = db.Column(db.String(60), nullable=True)
+    verified_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     part = db.relationship("Part")
     issue = db.relationship("SpareStockLedger", foreign_keys=[issue_id])
@@ -194,8 +210,12 @@ class SpareReturn(BaseModel):
         return float(getattr(self, column) or 0)
 
     def refresh_status(self):
-        """Headline from the quantity split (the one rule every service uses)."""
-        if self.q("qty_pending") > 0:
+        """Headline from the quantity split (the one rule every service uses).
+        A job work return is JOB_WORK until ERP's RGP takes it out (its
+        quantity sits in qty_rgp: for rework, not stock)."""
+        if self.return_type == "JOB_WORK_RETURN":
+            self.status = "JOB_WORK"
+        elif self.q("qty_pending") > 0:
             self.status = "INSPECTION_PENDING"
         elif self.q("qty_hold") > 0:
             self.status = "RETURN_HOLD"

@@ -139,5 +139,10 @@ class SpareReturnSchema(Schema):
     reason = fields.String(allow_none=True, validate=validate.Length(max=60))
     note = fields.String(allow_none=True, validate=validate.Length(max=255))
     returned_by = fields.String(allow_none=True, validate=validate.Length(max=80))
+    # 27 Oct 2026: UNUSED_RETURN (default) or JOB_WORK_RETURN; a fresh return
+    # needs verified=true (the supervisor counted it); identified_by QR / MANUAL.
+    return_type = fields.String(allow_none=True, validate=validate.OneOf(("UNUSED_RETURN", "JOB_WORK_RETURN")))
+    verified = fields.Boolean(allow_none=True)
+    identified_by = fields.String(allow_none=True, validate=validate.OneOf(("QR", "MANUAL")))
     scanned_code = fields.String(allow_none=True, validate=validate.Length(max=80))
     scan_source = fields.String(allow_none=True, validate=validate.Length(max=20))

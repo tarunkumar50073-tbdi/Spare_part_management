@@ -131,6 +131,13 @@ class ERPSyncService:
                 publish("stock", {"store_code": "MAINTENANCE", "action": "erp_grn"})
         except Exception:  # noqa: BLE001
             logger.exception("Posting ERP GRNs to spare stock failed")
+        # ERP's RGP lines, for linking job work returns (27 Oct 2026). Its own
+        # failure is kept and shown by JobWorkService; never fails this sync.
+        try:
+            from app.services.job_work_service import JobWorkService
+            result["rgp_lines"] = JobWorkService().sync().get("lines")
+        except Exception:  # noqa: BLE001
+            logger.exception("Reading ERP RGPs failed")
         return result
 
     def status(self):

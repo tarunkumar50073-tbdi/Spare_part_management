@@ -901,13 +901,15 @@ class SpareStockService:
         return 0.0
 
     @staticmethod
-    def _returned_qty_map(issue_ids):
+    def _returned_qty_map(issue_ids, job_work=True):
         """{issue_id: quantity returned against it}, in a few set queries — the
         one rule behind every "still out" figure (outstanding = issued -
         returned):
 
         * every return raised against the issue (spare_returns.qty), whatever
-          its inspection later decided — the part is back in the store;
+          its inspection later decided — the part is back in the store
+          (job_work=False leaves out job work returns: a worn part brought back
+          for repair was used, so consumption keeps it);
         * legacy direct RETURN ledger rows, written before returns went through
           inspection. A RETURN row written by a GOOD inspection
           (RETURN_ROW_INSPECTED) is quantity already counted from its return,
@@ -922,8 +924,11 @@ class SpareStockService:
         for start in range(0, len(ids), 500):
             chunk = ids[start:start + 500]
             returns = (db.session.query(SpareReturn.issue_id, func.sum(SpareReturn.qty))
-                       .filter(SpareReturn.issue_id.in_(chunk))
-                       .group_by(SpareReturn.issue_id))
+                       .filter(SpareReturn.issue_id.in_(chunk)))
+            if not job_work:
+                returns = returns.filter(or_(SpareReturn.return_type.is_(None),
+                                             SpareReturn.return_type != "JOB_WORK_RETURN"))
+            returns = returns.group_by(SpareReturn.issue_id)
             legacy = (db.session.query(SpareStockLedger.return_of_id,
                                        func.sum(func.abs(SpareStockLedger.qty_delta)))
                       .filter(SpareStockLedger.return_of_id.in_(chunk),
@@ -943,7 +948,8 @@ class SpareStockService:
         return SpareStockService._returned_qty_map([issue_id]).get(issue_id, 0.0)
 
     def return_item(self, ledger_id, qty=None, reason=None, note=None,
-                    returned_by=None, user=None, scanned_code=None, scan_source=None):
+                    returned_by=None, user=None, scanned_code=None, scan_source=None,
+                    return_type="UNUSED_RETURN", verified_by=None, identified_by=None):
         """Take an issued part back to the store against its ORIGINAL issue
         (spec 13). Works for ANY issue, not just a returnable tool/die, and an
         installed part may come back too (removed from the machine).
@@ -956,10 +962,16 @@ class SpareStockService:
         issue_status) for the screens that read them, plus `return`: the return
         document, closed with all of it good."""
         from app.services.spare_return_service import SpareReturnService
-        ret = SpareReturnService().return_to_store(
-            ledger_id, qty=qty, reason=reason, note=note, returned_by=returned_by,
-            user=user, scanned_code=scanned_code, scan_source=scan_source,
-        )
+        if return_type == "JOB_WORK_RETURN":
+            ret = SpareReturnService().job_work_return(
+                ledger_id, qty=qty, reason=reason, note=note, returned_by=returned_by, user=user,
+                scanned_code=scanned_code, scan_source=scan_source, identified_by=identified_by)
+        else:
+            ret = SpareReturnService().return_to_store(
+                ledger_id, qty=qty, reason=reason, note=note, returned_by=returned_by,
+                user=user, scanned_code=scanned_code, scan_source=scan_source,
+                verified_by=verified_by, identified_by=identified_by,
+            )
         part = self.part_repo.get_by_id(ret["part_id"])
         result = self._row_dict(part, self.repo.get_by_part(part.id))
         result.update({"return_no": ret["return_no"], "returned_qty": ret["qty"],
@@ -985,6 +997,10 @@ class SpareStockService:
         ]
         # Returned quantities for all of them at once, not a query per issue.
         returned = self._returned_qty_map([i.id for i in issues])
+        # The packet / individual unit an issue handed out whole: it comes back whole.
+        from app.models.spare_packet import SparePacket
+        packets = {p.issue_ledger_id: p for p in SparePacket.query.filter(
+            SparePacket.issue_ledger_id.in_([i.id for i in issues] or [-1]))}
 
         out = []
         for i in issues:
@@ -1021,6 +1037,8 @@ class SpareStockService:
                 "issued_at": i.created_at.isoformat() if i.created_at else None,
                 "confirmed_by": i.confirmed_by,
                 "confirmed_at": i.confirmed_at.isoformat() if i.confirmed_at else None,
+                "packet": ({"code": packets[i.id].code, "kind": packets[i.id].kind, "qty": float(packets[i.id].qty),
+                            "status": packets[i.id].status} if i.id in packets else None),
             })
         return out
 

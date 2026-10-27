@@ -14,6 +14,19 @@ waiting: GOOD puts it back on the shelf, "Inspection Required" holds it,
 "Damaged" keeps it apart (it may go to a supplier for rework on an RGP, or be
 scrapped) and "Scrap" ends it.
 
+Two kinds of return since 27 Oct 2026 (the store's spec "Part Return, Job Work
+Return & Pending RGP"):
+  * UNUSED_RETURN — a part (or a whole packet) that could not be used: the
+    supervisor counts it and confirms, and it goes straight back into stock,
+    as above. A packet comes back only whole, and is on the shelf again — the
+    same QR, the same receipt, so FIFO keeps its place.
+  * JOB_WORK_RETURN — a worn or damaged part brought back for repair: no
+    inspection, NO stock; it waits in the store (qty_rgp, status JOB_WORK) for
+    the RGP another store employee makes in ERP, which the store then links to
+    it (JobWorkService). The app never makes an RGP.
+Both are recorded against the original issue, and together never more than it
+issued.
+
 Every step writes one journal row inside the same atomic() as the change it
 describes, so the part history can never disagree with the documents. Each
 write takes the database write lock before re-checking the quantities
@@ -107,8 +120,97 @@ class SpareReturnService:
 
     # ------------------------------------------------------ return to store
 
+    @staticmethod
+    def _packet_of(issue):
+        """The packet (or individual unit) this issue handed out whole, or None."""
+        from app.models.spare_packet import SparePacket
+        return SparePacket.query.filter_by(issue_ledger_id=issue.id).first()
+
+    @staticmethod
+    def _whole_packet(packet, qty_back):
+        if packet.status != "ISSUED":
+            raise BadRequestError(f"Packet {packet.code} is not out ({packet.status.lower()}) — it cannot come back")
+        if abs(float(packet.qty) - float(qty_back)) > 1e-9:
+            what = "an individual part" if packet.kind == "UNIT" else "a packet"
+            raise BadRequestError(f"{packet.code} was issued as {what} of {float(packet.qty):g} — it comes back only "
+                                  f"whole ({float(packet.qty):g}), never part of it")
+
+    def job_work_return(self, issue_id, qty=None, reason=None, note=None, returned_by=None, user=None,
+                        scanned_code=None, scan_source=None, identified_by=None):
+        """A part brought back worn / damaged for job work, against its
+        original issue. No inspection and no stock: the quantity waits in the
+        store (qty_rgp) as status JOB_WORK until ERP's RGP is linked to it. A
+        packet comes back only whole and stays out of the shelf."""
+        reason = _text(reason)
+        if not reason:
+            raise BadRequestError("Say why it needs job work (worn out, damaged, repair, reconditioning …)")
+        if len(reason) > REASON_MAX:
+            raise BadRequestError(f"Job work reason must be {REASON_MAX} characters or fewer")
+        issue, part, qty_back = self._returnable(issue_id, qty)
+        packet = self._packet_of(issue)
+        if packet is not None:
+            self._whole_packet(packet, qty_back)
+        note = _text(note, 255)
+        with atomic():
+            self.stock._lock(SpareStockLedger, issue.id)
+            db.session.refresh(issue)
+            outstanding = self._outstanding(issue)
+            if qty_back > outstanding:
+                raise BadRequestError(f"Cannot return {qty_back:g}: only {outstanding:g} still out on this issue")
+            ret = SpareReturn(
+                return_no=self.journal.next_return_no(), part_id=issue.part_id, store_code=part.store_code,
+                issue_id=issue.id, status="JOB_WORK", return_type="JOB_WORK_RETURN",
+                qty=qty_back, qty_pending=0, qty_hold=0, qty_damaged=0, qty_good=0, qty_scrap=0, qty_rgp=qty_back,
+                reason=reason, remarks=note, returned_by=_text(returned_by, 80), received_by=user,
+                department=issue.department, issued_to=issue.issued_to, line_name=issue.line_name,
+                line_no=issue.line_no, machine=issue.machine, die_no=issue.die_no,
+                scanned_code=_text(scanned_code, 80), scan_source=_text(scan_source, 20),
+                packet_id=packet.id if packet is not None else None,
+                identified_by=_text(identified_by, 10),
+            )
+            db.session.add(ret)
+            db.session.flush()
+            prev_status = issue.status
+            new_status = "RETURNED" if qty_back >= outstanding else "PARTIALLY_RETURNED"
+            self.stock.ledger_repo.update(issue, status=new_status)
+            self.journal.record(
+                issue.part_id, "RETURN_TO_STORE", qty_back, store_code=part.store_code,
+                user=user, prev_status=prev_status, new_status=new_status,
+                from_bucket="ISSUED", to_bucket="JOB_WORK", return_id=ret.id, issue_id=issue.id,
+                department=issue.department, issued_to=issue.issued_to,
+                line_name=issue.line_name, line_no=issue.line_no, machine=issue.machine, die_no=issue.die_no,
+                return_reason=reason, remarks=(f"Job work return — not stock, waits for its RGP in ERP"
+                                               + (f" · {note}" if note else ""))[:255],
+                scanned_code=_text(scanned_code, 80), scan_source=_text(scan_source, 20),
+            )
+        return self.to_dict(ret)
+
+    def _outstanding(self, issue):
+        return round(abs(float(issue.qty_delta)) - self.stock._returned_qty(issue.id), 2)
+
+    def _returnable(self, issue_id, qty):
+        """(issue, part, quantity coming back) — checked against what is still out."""
+        issue = db.session.get(SpareStockLedger, issue_id)
+        if issue is None or issue.txn_type != "ISSUE":
+            raise BadRequestError("That is not an issue that can be returned")
+        if issue.status == "CANCELLED":
+            raise BadRequestError("This issue was cancelled and cannot be returned")
+        part = issue.part
+        if not part.is_active:
+            raise BadRequestError(f"Part '{part.part_no}' is inactive")
+        outstanding = self._outstanding(issue)
+        if outstanding <= 0:
+            raise BadRequestError("Nothing left to return on this issue")
+        qty_back = outstanding if qty is None else _qty(qty, "Return quantity")
+        if qty_back <= 0:
+            raise BadRequestError("Return quantity must be greater than zero")
+        if qty_back > outstanding:
+            raise BadRequestError(f"Cannot return {qty_back:g}: only {outstanding:g} still out on this issue")
+        return issue, part, qty_back
+
     def return_to_store(self, issue_id, qty=None, reason=None, note=None,
-                        returned_by=None, user=None, scanned_code=None, scan_source=None):
+                        returned_by=None, user=None, scanned_code=None, scan_source=None,
+                        verified_by=None, identified_by=None):
         """Spec 13: record a part coming back against its original ISSUE.
 
         Up to what is still out on that issue (issued - returned) may come
@@ -147,6 +249,9 @@ class SpareReturnService:
         note = _text(note, 255)
         returned_by = _text(returned_by, 80)
         scanned_code, scan_source = _text(scanned_code, 80), _text(scan_source, 20)
+        packet = self._packet_of(issue)
+        if packet is not None:
+            self._whole_packet(packet, qty_back)
 
         with atomic():
             # Lock first, then re-check against what is committed now, so two
@@ -169,9 +274,23 @@ class SpareReturnService:
                 line_name=issue.line_name, line_no=issue.line_no,
                 machine=issue.machine, die_no=issue.die_no,
                 scanned_code=scanned_code, scan_source=scan_source,
+                return_type="UNUSED_RETURN", packet_id=packet.id if packet is not None else None,
+                identified_by=_text(identified_by, 10), verified_by=_text(verified_by, 60),
+                verified_at=utcnow() if verified_by else None,
             )
             db.session.add(ret)
             db.session.flush()
+            if packet is not None:
+                # The whole packet is on the shelf again: the same QR, the same
+                # receipt (FIFO keeps its place). Once only — a second return of
+                # it finds it AVAILABLE and is refused.
+                from app.models.spare_packet import SparePacket
+                won = (SparePacket.query.filter_by(id=packet.id, status="ISSUED")
+                       .update({"status": "AVAILABLE", "issued_at": None, "issued_by": None, "department": None,
+                                "issued_to": None, "issue_ledger_id": None, "fifo_override_reason": None},
+                               synchronize_session=False))
+                if not won:
+                    raise BadRequestError(f"Packet {packet.code} was just returned from another screen")
             prev_status = issue.status
             new_status = "RETURNED" if qty_back >= outstanding else "PARTIALLY_RETURNED"
             self.stock.ledger_repo.update(issue, status=new_status)
@@ -345,6 +464,8 @@ class SpareReturnService:
             "last_inspected_by": r.last_inspected_by,
             "last_inspected_at": _iso(r.last_inspected_at),
             "scanned_code": r.scanned_code, "scan_source": r.scan_source,
+            "return_type": r.return_type or "UNUSED_RETURN", "packet_id": r.packet_id,
+            "identified_by": r.identified_by, "verified_by": r.verified_by, "verified_at": _iso(r.verified_at),
             "created_at": _iso(r.created_at),
         }
 

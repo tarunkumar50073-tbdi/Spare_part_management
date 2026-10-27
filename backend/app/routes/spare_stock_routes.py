@@ -287,14 +287,24 @@ def return_issue(ledger_id):
         raise NotFoundError(f"Issue {ledger_id} not found")
     require_store_access(row.part.store_code)
     data = validate_payload(SpareReturnSchema(), request.get_json(force=True, silent=True) or {})
+    kind = data.get("return_type") or "UNUSED_RETURN"
+    # A typed return type means the new return screen (27 Oct 2026): a fresh
+    # return goes back into stock only once the supervisor has counted it.
+    if data.get("return_type") == "UNUSED_RETURN" and not data.get("verified"):
+        raise BadRequestError("Count the returned material and confirm it — then it goes back into stock")
     result = service.return_item(
         ledger_id,
         qty=(float(data["qty"]) if data.get("qty") is not None else None),
         reason=data.get("reason"), note=data.get("note"),
         returned_by=data.get("returned_by"), user=_username(),
         scanned_code=data.get("scanned_code"), scan_source=data.get("scan_source"),
+        return_type=kind, verified_by=_username() if data.get("verified") else None,
+        identified_by=data.get("identified_by"),
     )
     publish("stock", {"part_id": row.part_id, "ledger_id": ledger_id, "action": "return"})
+    if kind == "JOB_WORK_RETURN":
+        return success_response(result, f"Job work return · {result.get('return_no')} — {result['returned_qty']:g} kept "
+                                         "apart, not stock — Pending RGP")
     return success_response(
         result, f"Returned · {result.get('return_no')} — {result['returned_qty']:g} back in store stock")
 
