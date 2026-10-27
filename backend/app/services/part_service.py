@@ -20,8 +20,8 @@ from app.utils.excel_io import (bulk_import, build_template, build_export, norma
 CATEGORY_ALIASES = {c.upper().replace(" ", "").replace("-", "").replace("/", ""): c for c in CATEGORIES}
 
 FIELD_ALIASES = {
-    "part_no": {"partno", "partnumber"},
-    "part_name": {"partname", "description"},
+    "part_no": {"partno", "partnumber", "itemcode"},
+    "part_name": {"partname", "description", "itemdescription"},
     "uom": {"uom", "unit", "unitofmeasure"},
     "barcode": {"barcode", "qrcode", "scancode"},
     "part_type": {"parttype", "routing", "materialrouting"},
@@ -44,16 +44,20 @@ FIELD_ALIASES = {
     # rework_location. Neither had a way in before, so the only way to set them
     # was the one-off loader script.
     "location": {"location", "storelocation", "binlocation", "shelf"},
-    "rework_location": {"reworklocation", "reworkloc", "reworkshelf"},
+    "rework_location": {"reworklocation", "reworkloc", "reworkshelf", "reworkitemlocation"},
+    # The section's name within the part's store (the DX sheet's Section column).
+    "section": {"section", "sectionname"},
 }
 REQUIRED_FIELDS = ["part_no", "part_name"]
 
 
 def _aliases_for(data):
-    """The column names to read the file by. A file in today's template (it
-    has a "Main Category" heading) has Category = the part's kind
-    (sub_category); an older file ("Category (BOP/...)" + "Sub Category") is
-    read as it always was. `data` is rewound for the import."""
+    """The column names to read the file by. A file with "Sub Category" (the
+    Child Part layout and every older file) reads Category as the broad group,
+    as it always did. A file without one — the Spare Parts Store's DX sheet
+    layout — has Category = the part's kind (sub_category) and no broad column;
+    a file from the short-lived "Main Category" template reads that heading as
+    the broad group. `data` is rewound for the import."""
     heads = set()
     try:
         for _, make_rows in sheets_from_upload(data):
@@ -65,17 +69,17 @@ def _aliases_for(data):
         pass
     finally:
         data.seek(0)
+    if any(h.startswith("subcategory") for h in heads):
+        return FIELD_ALIASES
     if any(h.startswith("maincategory") for h in heads):
-        return {**FIELD_ALIASES, "category": ("maincategory",), "sub_category": ("subcategory", "category")}
+        return {**FIELD_ALIASES, "category": ("maincategory",), "sub_category": ("category",)}
+    if "category" in heads:
+        return {**FIELD_ALIASES, "category": (), "sub_category": ("category",)}
     return FIELD_ALIASES
 
-# Headings as the store's DX sheet has them (27 Oct 2026: "heding iske accroding
-# hi rkh catogery (not type)" ... "sabhi report me same rhe ... excel file template
-# me"): Category is the part's kind (Cylinder, Bearing … — sub_category); the
-# one broad value of a store (BOP / Maintenance-Tool Room …) is the Main Category.
 TEMPLATE_COLUMNS = [
     "Part No", "Part Name", "UOM", "Barcode", "Part Type (DOL/OTHER)", "Min Stock Level", "Reorder Level", "Max Stock Level",
-    "Main Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Category", "Specification", "Model No", "New Part No", "Old Part No", "Package Standard",
+    "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "Specification", "Model No", "New Part No", "Old Part No", "Package Standard",
     "Supplier Code", "Daily Consumption", "Unit Price", "Location", "Rework Location",
 ]
 
@@ -83,12 +87,37 @@ EXPORT_COLUMNS = [
     ("Part No", "part_no"), ("Part Name", "part_name"), ("UOM", "uom"), ("Barcode", "barcode"),
     ("Part Type", "part_type"), ("Min Stock Level", "min_stock_level"),
     ("Reorder Level", "reorder_level"), ("Max Stock Level", "max_stock_level"), ("Status", "status_label"),
-    ("Main Category", "category"), ("Category", "sub_category"), ("Specification", "specification"), ("Model No", "model_no"),
+    ("Category", "category"), ("Sub Category", "sub_category"), ("Specification", "specification"), ("Model No", "model_no"),
     ("New Part No", "new_part_no"), ("Old Part No", "old_part_no"), ("Package Standard", "package_standard"),
     ("Supplier Code", "supplier_code"), ("Daily Consumption", "daily_consumption"), ("Unit Price", "unit_price"),
     ("Location", "location"), ("Rework Location", "rework_location"), ("Store", "store_code"),
     ("Discontinued", "discontinued_label"),
 ]
+
+# The Spare Parts Store's Part Master file in its DX sheet's order (27 Oct 2026:
+# "part master ki file excel k according sahi kar k bna"): each part shown by
+# its Section, Category = the part's kind. No broad category (every spare is
+# Maintenance/Tool Room) and no Part Type (an internal routing field). Supplier
+# and Status are for reading — the import does not take them.
+SPARE_STORE = "MAINTENANCE"
+SPARE_CATEGORY = "Maintenance/Tool Room"
+SPARE_EXPORT_COLUMNS = [
+    ("Part No", "part_no"), ("Location", "location"), ("Rework Location", "rework_location"),
+    ("Section", "section"), ("Category", "sub_category"), ("Specification", "specification"),
+    ("Description", "part_name"), ("UOM", "uom"), ("Supplier", "supplier"),
+    ("Min", "min_stock_level"), ("Max", "max_stock_level"), ("Reorder Level", "reorder_level"),
+    ("Rate", "unit_price"), ("Model No", "model_no"), ("Barcode", "barcode"),
+    ("Discontinued", "discontinued_label"), ("Status", "status_label"),
+]
+SPARE_TEMPLATE_COLUMNS = [label for label, key in SPARE_EXPORT_COLUMNS if key not in ("supplier", "status_label")]
+
+
+def _section_ids():
+    """(store code, SECTION NAME) -> section id, for the active sections."""
+    from app.models.store import Section, Store
+    rows = (db.session.query(Section.id, Store.code, Section.name)
+            .join(Store, Store.id == Section.store_id).filter(Section.is_active.is_(True)))
+    return {(code, (name or "").strip().upper()): sid for sid, code, name in rows}
 
 
 def _actor():
@@ -230,6 +259,8 @@ class PartService:
     def create(self, data):
         if self.repo.get_by_part_no(data["part_no"]):
             raise ConflictError(f"Part no {data['part_no']} already exists")
+        if data.get("store_code") == SPARE_STORE and not data.get("category"):
+            data = {**data, "category": SPARE_CATEGORY}   # every spare's broad group
         # The part and its audit row commit together, or neither does.
         with atomic():
             part = self.repo.create(**data)
@@ -278,6 +309,7 @@ class PartService:
         run in the import history. Missing parts are never auto-deleted.
         """
         stats = {"inserted": 0, "updated": 0}
+        section_ids = _section_ids()
 
         def row_processor(raw_row):
             part_no = to_text(raw_row.get("part_no"))
@@ -317,6 +349,13 @@ class PartService:
                 # Yes / No; blank leaves it as it is (the importer's rule).
                 "discontinued": _yes_no(raw_row.get("discontinued")),
             }
+            section_name = to_text(raw_row.get("section"), "")
+            if section_name:
+                part_store = existing.store_code if existing else store_code
+                sid = section_ids.get((part_store, section_name.upper()))
+                if sid is None:
+                    raise ValueError(f"{part_no}: Section '{section_name}' is not a section of this store")
+                fields["section_id"] = sid
 
             if existing:
                 # A blank cell leaves the field alone rather than clearing it.
@@ -343,13 +382,17 @@ class PartService:
             # blank Min column needs the column default rather than None.
             if new_fields["min_stock_level"] is None:
                 new_fields["min_stock_level"] = 0
+            if new_fields["category"] is None and store_code == SPARE_STORE:
+                new_fields["category"] = SPARE_CATEGORY
+            # The row's own Section wins over the one the upload was made from.
+            row_section = new_fields.pop("section_id", None)
 
             db.session.add(Part(
                 part_no=part_no,
                 part_name=part_name,
                 part_type=part_type,
                 store_code=store_code,
-                section_id=section_id,
+                section_id=row_section or section_id,
                 **new_fields,
             ))
             stats["inserted"] += 1
@@ -383,11 +426,11 @@ class PartService:
             )
         return report
 
-    def preview_import(self, file_stream, sheet_name=None):
+    def preview_import(self, file_stream, sheet_name=None, store_code=None):
         """Dry-run: parse + validate the file and return the planned action for
         every row (INSERT / UPDATE / ERROR) WITHOUT writing anything. Detects
-        duplicate Part No. within the same file. Lets the user confirm before
-        committing (spec §2)."""
+        duplicate Part No. within the same file, and a Section that is not one
+        of the part's store. Lets the user confirm before committing (spec §2)."""
         from app.utils.excel_io import read_rows, AmbiguousSheetError
         from app.utils.exceptions import BadRequestError
         try:
@@ -401,15 +444,21 @@ class PartService:
         counts = {"insert": 0, "update": 0, "error": 0}
         preview = []
         seen = {}
+        section_ids = _section_ids()
         for row_no, raw in rows:
             part_no = to_text(raw.get("part_no"))
             part_name = to_text(raw.get("part_name"))
+            section_name = to_text(raw.get("section"), "")
             action, reason = "INSERT", None
+            existing = self.repo.get_by_part_no(part_no) if part_no else None
+            part_store = existing.store_code if existing else store_code
             if not part_no:
                 action, reason = "ERROR", "Part No is required"
             elif part_no in seen:
                 action, reason = "ERROR", f"Duplicate Part No in file (first at row {seen[part_no]})"
-            elif self.repo.get_by_part_no(part_no):
+            elif section_name and part_store and (part_store, section_name.upper()) not in section_ids:
+                action, reason = "ERROR", f"Section '{section_name}' is not a section of this store"
+            elif existing:
                 action = "UPDATE"
             elif not part_name:
                 action, reason = "ERROR", "Part Name is required for a new part"
@@ -434,20 +483,32 @@ class PartService:
         } for h in q.all()]
 
     @staticmethod
-    def build_template():
-        return build_template(TEMPLATE_COLUMNS)
+    def build_template(store_code=None):
+        return build_template(SPARE_TEMPLATE_COLUMNS if store_code == SPARE_STORE else TEMPLATE_COLUMNS)
 
     def export_all(self, store_code=None):
         """The whole master, or one store's slice of it. Scoped because the
         export is the input to the import: a Spare Parts keeper filling in
         maximums should get 485 rows to work through, not 739 with the child
-        parts mixed in."""
+        parts mixed in. The Spare Parts Store's file is in its DX sheet's
+        layout, section by section."""
         query = self.repo.get_all()
         if store_code:
             query = query.filter(Part.store_code == store_code)
+        spare = store_code == SPARE_STORE
+        gate = {}
+        if spare:
+            from app.services.spare_stock_service import SpareStockService
+            gate = SpareStockService().part_facts(store_code)
         rows = []
-        for part in query.order_by(Part.part_no.asc()).all():
+        parts = query.order_by(Part.part_no.asc()).all()
+        if spare:
+            parts.sort(key=lambda p: ((p.section.name if p.section else "~").upper(), p.part_no))
+        for part in parts:
             rows.append({
+                "section": part.section.name if part.section else "",
+                "supplier": (part.supplier.supplier_name if part.supplier
+                             else gate.get(str(part.id), {}).get("supplier", "")),
                 "part_no": part.part_no, "part_name": part.part_name, "uom": part.uom,
                 "barcode": part.barcode or "",
                 "part_type": part.part_type,
@@ -467,4 +528,4 @@ class PartService:
                 "store_code": part.store_code or "",
                 "discontinued_label": "Yes" if part.discontinued else "",
             })
-        return build_export(EXPORT_COLUMNS, rows)
+        return build_export(SPARE_EXPORT_COLUMNS if spare else EXPORT_COLUMNS, rows)

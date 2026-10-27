@@ -392,6 +392,10 @@ _HDR_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _BODY_ALIGN = Alignment(vertical="center")
 
 
+# Least width of a few columns by heading (format_table).
+_MIN_WIDTH = {"part no": 14, "item code": 14, "description": 30, "location": 14}
+
+
 def format_table(ws):
     """Turn a populated worksheet (row 1 = header) into a formatted table:
     styled frozen+filterable header, bordered cells, content-sized columns."""
@@ -407,9 +411,17 @@ def format_table(ws):
             else:
                 cell.alignment = _BODY_ALIGN
             if cell.value is not None:
-                ln = len(str(cell.value)) + 2
+                # The header is bold and carries the filter arrow (about three
+                # characters): sized for both, or "Part No" / "In Stock" /
+                # "Reorder Level" hid behind the arrow (the store, 27 Oct 2026).
+                ln = len(str(cell.value)) + (5 if r == 1 else 2)
                 if ln > widths[c]:
                     widths[c] = min(50, ln)
+    # The columns a reader looks for first never come out cramped.
+    for c, cell in enumerate(next(ws.iter_rows(min_row=1, max_row=1, max_col=max_col))):
+        floor = _MIN_WIDTH.get(str(cell.value or "").strip().lower())
+        if floor and widths[c] < floor:
+            widths[c] = floor
     for c in range(max_col):
         ws.column_dimensions[get_column_letter(c + 1)].width = widths[c]
     ws.freeze_panes = "A2"

@@ -54,6 +54,11 @@ export default function PartMaster() {
   // documents ("turned Total Active Parts from 253 into 738").
   const { activeCode, activeStore } = useStores();
   const sections = activeStore?.sections || [];
+  // A store with sections (the Spare Parts Store) shows each part by its
+  // Section, and Category is the part's kind — its broad group (every spare is
+  // Maintenance/Tool Room) and the routing are not shown (27 Oct 2026). A store
+  // without sections keeps Category + Sub Category.
+  const sectioned = sections.length > 0;
   const sectionName = (id) => sections.find((s) => s.id === id)?.name || "";
 
   // The top bar's search lands here for every store but Child Parts, so the
@@ -453,17 +458,16 @@ export default function PartMaster() {
     { key: "model_no", label: "Model No", render: (r) => r.model_no || <span className="text-slate-300 dark:text-slate-600">—</span> },
     { key: "uom", label: "UOM" },
     { key: "barcode", label: "Barcode", render: (r) => r.barcode || <span className="text-slate-300 dark:text-slate-600">—</span> },
-    // Section, not Category, beside the sub category: every spare is filed under
-    // the one category "Maintenance/Tool Room", while the section (Maintenance /
-    // General / Press Tool Room) tells parts apart (the store, 22 Oct 2026).
-    // Category stays in the Columns menu, hidden.
+    // Section beside the Category: every spare is filed under the one broad
+    // group "Maintenance/Tool Room", while the section (Maintenance / General /
+    // Press Tool Room) tells parts apart (the store, 22 + 27 Oct 2026).
     {
       key: "section", label: "Section", exportValue: (r) => sectionName(r.section_id),
       render: (r) => sectionName(r.section_id) || <span className="text-slate-300 dark:text-slate-600">—</span>,
     },
-    { key: "category", label: "Main Category", render: (r) => r.category || "—" },
-    { key: "sub_category", label: "Category", render: (r) => r.sub_category || "—" },
-    { key: "part_type", label: "Routing", render: (r) => <Badge status={r.part_type} /> },
+    ...(sectioned ? [] : [{ key: "category", label: "Category", render: (r) => r.category || "—" }]),
+    { key: "sub_category", label: sectioned ? "Category" : "Sub Category", render: (r) => r.sub_category || "—" },
+    ...(sectioned ? [] : [{ key: "part_type", label: "Routing", render: (r) => <Badge status={r.part_type} /> }]),
     { key: "location", label: "Location", render: (r) => r.location || <span className="text-slate-300 dark:text-slate-600">—</span> },
     {
       key: "rework_location",
@@ -610,9 +614,9 @@ export default function PartMaster() {
             {(filterOpts?.racks || []).map((r) => <option key={r.value} value={r.value}>{r.value} ({r.count})</option>)}
           </select>
         </label>
-        {(filterOpts?.categories || []).length > 1 && (
+        {!sectioned && (filterOpts?.categories || []).length > 1 && (
           <label className="text-xs font-medium text-slate-500">
-            <span className="mb-1 block">Main Category</span>
+            <span className="mb-1 block">Category</span>
             <select className="input-field py-1.5 text-sm w-48" value={filters.category}
               onChange={(e) => setFilter("category", e.target.value)}>
               <option value="">All categories</option>
@@ -621,7 +625,7 @@ export default function PartMaster() {
           </label>
         )}
         <label className="text-xs font-medium text-slate-500">
-          <span className="mb-1 block">Category</span>
+          <span className="mb-1 block">{sectioned ? "Category" : "Sub Category"}</span>
           {/* 470-odd values: typed to narrow, picked from the list. */}
           <input className="input-field py-1.5 text-sm w-52" list="pm-sub-categories" placeholder="All — type to pick"
             value={filters.sub_category} onChange={(e) => setFilter("sub_category", e.target.value)} />
@@ -761,20 +765,22 @@ export default function PartMaster() {
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className={sectioned ? "" : "grid grid-cols-2 gap-3"}>
+            {!sectioned && (
+              <div>
+                <label className="text-xs font-medium text-slate-500">Category</label>
+                <select
+                  className="input-field mt-1"
+                  value={form.category}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                >
+                  <option value="">— None —</option>
+                  {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            )}
             <div>
-              <label className="text-xs font-medium text-slate-500">Main Category</label>
-              <select
-                className="input-field mt-1"
-                value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
-              >
-                <option value="">— None —</option>
-                {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-500">Category</label>
+              <label className="text-xs font-medium text-slate-500">{sectioned ? "Category" : "Sub Category"}</label>
               <input
                 className="input-field mt-1"
                 value={form.sub_category}
@@ -872,18 +878,20 @@ export default function PartMaster() {
             </div>
           )}
 
-          <div>
-            <label className="text-xs font-medium text-slate-500">Material Routing (manual-override reference only — SRV routing is decided by ERP's qc_required flag)</label>
-            <select
-              className="input-field mt-1"
-              value={form.part_type}
-              onChange={(e) => setForm({ ...form, part_type: e.target.value })}
-            >
-              <option value="DOL">DOL</option>
-              <option value="OTHER">Others / BOP</option>
-              <option value="TOOL_ROOM">Tool Room</option>
-            </select>
-          </div>
+          {!sectioned && (
+            <div>
+              <label className="text-xs font-medium text-slate-500">Material Routing (manual-override reference only — SRV routing is decided by ERP's qc_required flag)</label>
+              <select
+                className="input-field mt-1"
+                value={form.part_type}
+                onChange={(e) => setForm({ ...form, part_type: e.target.value })}
+              >
+                <option value="DOL">DOL</option>
+                <option value="OTHER">Others / BOP</option>
+                <option value="TOOL_ROOM">Tool Room</option>
+              </select>
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-medium text-slate-500">Min Stock Level</label>

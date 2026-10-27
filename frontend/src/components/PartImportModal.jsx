@@ -30,7 +30,7 @@ export default function PartImportModal({ file, storeCode, sectionId, onClose, o
   useEffect(() => {
     if (!file) return;
     setPhase("loading"); setPreview(null); setResult(null);
-    partService.previewImport(file)
+    partService.previewImport(file, { store_code: storeCode })
       .then((r) => { setPreview(r.data.data); setPhase("preview"); })
       .catch(() => onClose());
     partService.importHistory(8).then((r) => setHistory(r.data.data || [])).catch(() => {});

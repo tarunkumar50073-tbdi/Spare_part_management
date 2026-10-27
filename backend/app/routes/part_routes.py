@@ -149,7 +149,7 @@ def delete_part(part_id):
 
 @bp.route("/template", methods=["GET"])
 def download_template():
-    buf = service.build_template()
+    buf = service.build_template(store_code=scoped_store(request.args.get("store_code")))
     return send_file(buf, as_attachment=True, download_name="part_master_template.xlsx",
                       mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -168,7 +168,8 @@ def preview_import_parts():
     file = request.files.get("file")
     if not file or file.filename == "":
         raise BadRequestError("No file uploaded")
-    report = service.preview_import(file.stream, sheet_name=request.form.get("sheet_name") or None)
+    report = service.preview_import(file.stream, sheet_name=request.form.get("sheet_name") or None,
+                                    store_code=scoped_store(request.form.get("store_code")))
     return success_response(report, "Preview ready")
 
 
