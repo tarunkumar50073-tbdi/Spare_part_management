@@ -480,6 +480,9 @@ LATE_COLUMNS = (
     ("spare_returns", "identified_by", "VARCHAR(10)"),
     ("spare_returns", "verified_by", "VARCHAR(60)"),
     ("spare_returns", "verified_at", "TIMESTAMP WITH TIME ZONE"),
+    # The day a physical count stands for, when it was loaded later (27 Oct
+    # 2026: the DX sheet's count "as on 27.09" loaded a month on).
+    ("spare_stock", "count_as_of", "DATE"),
 )
 
 # Columns made optional after a database was created (PostgreSQL only; SQLite

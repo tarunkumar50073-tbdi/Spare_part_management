@@ -113,7 +113,9 @@ class ErpGrnPostingService:
     def _baseline(part_ids):
         """part_id -> (baseline plant date, counted?) — the latest of the last
         physical count, the latest OPENING / ADJUSTMENT row and the stock row's
-        creation. No stock row = never counted."""
+        creation. No stock row = never counted. A count loaded later than it
+        was taken carries its own day (SpareStock.count_as_of, 27 Oct 2026):
+        that day is the baseline, so GRNs after it are added on top."""
         rows = {r.part_id: r for r in SpareStock.query.filter(SpareStock.part_id.in_(part_ids)).all()} if part_ids else {}
         counts = dict(
             db.session.query(SpareStockLedger.part_id, func.max(SpareStockLedger.created_at))
@@ -126,6 +128,9 @@ class ErpGrnPostingService:
             r = rows.get(pid)
             if r is None:
                 out[pid] = (None, False)
+                continue
+            if getattr(r, "count_as_of", None):
+                out[pid] = (r.count_as_of, True)
                 continue
             dates = [d for d in (_plant_date(r.last_counted_at), _plant_date(counts.get(pid)),
                                  _plant_date(r.created_at)) if d]

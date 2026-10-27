@@ -34,6 +34,9 @@ FIELD_ALIASES = {
     "part_no": {"partno", "partnumber", "itemcode", "itemno"},
     "qty_on_hand": {"qtyonhand", "qty", "quantity", "openingqty", "openingstock",
                     "physicalstock", "physicalqty", "stock", "closingstock", "totalqty"},
+    # Optional: the day the count was taken, when it is loaded later (27 Oct
+    # 2026) — ERP GRNs after that day are then added on top of it.
+    "count_as_of": ("countedon", "countdate", "countedasof", "physicalcountdate", "asondate"),
 }
 REQUIRED_FIELDS = ["part_no", "qty_on_hand"]
 
@@ -323,6 +326,31 @@ EXPORT_COLUMNS = [
 ERP_PUSH_TYPES = ("ISSUE", "RECEIPT", "RETURN")
 
 
+def _count_day(value):
+    """A count date from a sheet cell — a date, or text DD.MM.YYYY / DD-MM-YYYY /
+    DD/MM/YYYY / YYYY-MM-DD — or None for a blank. Not in the future."""
+    from datetime import date as _date, datetime as _dt
+    if value in (None, ""):
+        return None
+    if isinstance(value, _dt):
+        day = value.date()
+    elif isinstance(value, _date):
+        day = value
+    else:
+        text_ = str(value).strip()
+        for fmt in ("%d.%m.%Y", "%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
+            try:
+                day = _dt.strptime(text_, fmt).date()
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError(f"'{text_}' is not a date — write the count date as DD.MM.YYYY")
+    if day > _date.today():
+        raise ValueError(f"The count date {day:%d.%m.%Y} is in the future")
+    return day
+
+
 def _clean(value):
     """Trimmed text or None — a blank field is "not given", never an empty value."""
     return (value or "").strip() or None
@@ -352,7 +380,8 @@ class SpareStockService:
 
     def _write(self, part_id, new_qty, txn_type, reference=None, remarks=None,
                user=None, counted=False, department=None, machine=None,
-               returnable=False, return_of_id=None, extra=None, return_ledger=False):
+               returnable=False, return_of_id=None, extra=None, return_ledger=False,
+               count_as_of=None):
         """Set a part's quantity and record why, in one go. The ledger row and
         the maintained qty are written together — a balance that moved with no
         row to explain it is worse than no history at all. `extra` carries the
@@ -378,6 +407,8 @@ class SpareStockService:
         row.qty_on_hand = new_qty
         if counted:
             row.last_counted_at = utcnow()
+            # The day this count stands for; a count with none is "now".
+            row.count_as_of = count_as_of
 
         # An import that re-states the same figure is not a movement. Writing a
         # zero-delta row for all 481 parts on every upload would bury the real
@@ -2444,6 +2475,7 @@ class SpareStockService:
             if qty < 0:
                 raise ValueError(f"{part_no}: quantity cannot be negative")
             qty = round(float(qty), 2)
+            as_of = _count_day(raw_row.get("count_as_of"))
 
             if part.id in moved:
                 stock = self.repo.get_by_part(part.id)
@@ -2462,7 +2494,8 @@ class SpareStockService:
 
             _, delta = self._write(
                 part.id, qty, "OPENING", reference=tag,
-                remarks="Opening stock upload", user=user, counted=True,
+                remarks="Opening stock upload" + (f" — counted on {as_of:%d.%m.%Y}" if as_of else ""),
+                user=user, counted=True, count_as_of=as_of,
             )
             applied["updated" if delta else "unchanged"] += 1
 

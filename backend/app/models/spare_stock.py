@@ -86,6 +86,11 @@ class SpareStock(BaseModel):
     # the row was last written — an issue changes the quantity without anyone
     # having recounted anything.
     last_counted_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # The day the last count stands for, when it was loaded later than it was
+    # taken (a count "as on 27.09" uploaded on 27.10): ERP GRNs after that day
+    # are then added to stock, the ones on / before it are already in the count
+    # (ErpGrnPostingService._baseline). A count with no date clears it.
+    count_as_of = db.Column(db.Date, nullable=True)
 
     part = db.relationship("Part")
 
