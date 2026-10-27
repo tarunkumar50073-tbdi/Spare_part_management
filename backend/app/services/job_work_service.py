@@ -2,19 +2,27 @@
 Return, Job Work Return & Pending RGP Integration").
 
 A job work return (SpareReturnService.job_work_return) waits in the store, not
-stock, for the RGP another store employee makes in ERP. This service:
-  * reads ERP's RGP lines, READ ONLY — termsdb.challan_register rows of
-    challan_type "Returnable Gate Pass (RGP)" (the store chose that type only,
-    not "Job Work (Tooling)") — through the same ERP database login the GRN
-    sync uses, and keeps them as ErpRgpLine, keyed by challan no. + item code,
-    so reading again never makes a second line (sync());
+stock, for the returnable challan another store employee makes in ERP. In ERP a
+spare goes out for job work / coating on a "General FOC" challan of exit type
+RETURNABLE, made from the issue slip in the vendor's name (doc_no = the issue
+slip no.) — never on the "Returnable Gate Pass (RGP)" type, which carries no
+spare part (the store, 27 Oct 2026: "haan general foc returnable dikha de").
+This service:
+  * reads those challan lines of the store's spare parts, READ ONLY — from
+    termsdb.challan_register (the RGP type too, should a spare ever go on one)
+    — through the same ERP database login the GRN sync uses, and keeps them as
+    ErpRgpLine, keyed by challan no. + item code, so reading again never makes
+    a second line; a line no longer in that read and on no return is dropped
+    (sync());
   * says, per job work return, where it stands — RGP Linked, RGP Available –
-    Pending Match (unlinked RGP lines of the same item made on / after the
+    Pending Match (unlinked lines of the same item made on / after the
     return), Pending RGP, or API Sync Failed when the last read failed;
-  * links the RGP line a store person picks to the return (link()), never by
-    itself: ERP's RGP carries no reference to the return, and none of today's
-    RGP item codes is a spare Part No., so the suggestion is only a suggestion.
-    One RGP line belongs to one return (unique), the link names who saved it.
+  * links each waiting return to its challan by itself at every read (his
+    pick, 27 Oct 2026: "Apne aap jode") — the first unlinked line of the same
+    part made on / after the return, the same quantity first (auto_link()). A
+    store person can unlink a wrong one and pick another (link()); a return a
+    person has unlinked is never linked by itself again. One line belongs to
+    one return (unique), the link names who (or "Auto") saved it.
 
 The app never creates, edits, approves or cancels an RGP. When ERP cannot be
 read, the returns and links stay as they are and the failure is shown (and
@@ -38,7 +46,12 @@ from app.utils.exceptions import BadRequestError, NotFoundError
 logger = logging.getLogger("dxstore.job_work")
 
 RGP_TYPE = "Returnable Gate Pass (RGP)"
+FOC_TYPE, RETURNABLE = "General FOC", "RETURNABLE"
+SPARE_STORE = "MAINTENANCE"
 SETTING_KEY = "erp_rgp_sync"
+# Returns a store person unlinked: auto_link() leaves them to the person.
+MANUAL_KEY = "erp_rgp_manual_returns"
+AUTO_BY = "Auto (ERP challan)"
 # An RGP made a day before the return is booked (the return written late) still matches.
 DATE_SLACK = timedelta(days=1)
 STATES = {
@@ -48,7 +61,9 @@ STATES = {
     "SYNC_FAILED": "API Sync Failed",
 }
 _SQL = ('SELECT id, challan_no, challan_dt, challan_type, party_cd, party_name, status, target_date, gate_exit_no, '
-        'doc_no, item_cd, item_desc, uom, qty FROM "{schema}"."challan_register" WHERE challan_type = %s')
+        'doc_no, item_cd, item_desc, uom, qty FROM "{schema}"."challan_register" '
+        'WHERE ((challan_type = %s AND upper(exit_type) = %s) OR challan_type = %s) '
+        'AND upper(trim(item_cd)) = ANY(%s)')
 
 
 def _day(v):
@@ -82,34 +97,44 @@ class JobWorkService:
 
     @staticmethod
     def _read_erp():
-        """ERP's RGP lines as dicts — one read-only SELECT."""
+        """ERP's returnable challan lines of the store's spare parts as dicts —
+        one read-only SELECT."""
         from flask import current_app
         import psycopg2.extras
         from app.services.erp_db_client import ERPDBClient
+        codes = [c for (c,) in db.session.query(func.upper(func.trim(Part.part_no)))
+                 .filter(Part.store_code == SPARE_STORE) if c]
+        if not codes:
+            return []
         conn = ERPDBClient()._connect()
         try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute(_SQL.format(schema=current_app.config.get("ERP_DB_SCHEMA", "termsdb")), (RGP_TYPE,))
+            cur.execute(_SQL.format(schema=current_app.config.get("ERP_DB_SCHEMA", "termsdb")),
+                        (FOC_TYPE, RETURNABLE, RGP_TYPE, codes))
             return [dict(r) for r in cur.fetchall()]
         finally:
             conn.close()
 
     def sync(self, rows=None):
-        """Read ERP's RGP lines and bring ErpRgpLine in line: new lines added,
-        known ones updated (status, qty …) — never a second line for the same
-        challan + item, never a link touched. Returns the sync status; a
-        failure is kept (with the last good time) and logged, not raised."""
+        """Read ERP's challan lines and bring ErpRgpLine in line: new lines
+        added, known ones updated (status, qty …), lines gone from the read and
+        on no return dropped — never a second line for the same challan + item,
+        never a link touched. Then waiting returns are linked (auto_link()).
+        Returns the sync status; a failure is kept (with the last good time)
+        and logged, not raised."""
         state = AppSetting.get_value(SETTING_KEY, {}) or {}
         try:
             rows = self._read_erp() if rows is None else rows
             now = utcnow()
             known = {(l.challan_no, l.item_cd): l for l in ErpRgpLine.query.all()}
             added = updated = 0
+            seen = set()
             with atomic():
                 for r in rows:
                     key = (_txt(r.get("challan_no"), 40), _txt(r.get("item_cd"), 40))
                     if not all(key):
                         continue
+                    seen.add(key)
                     want = {
                         "challan_date": _day(r.get("challan_dt")), "challan_type": _txt(r.get("challan_type"), 40),
                         "party_cd": _txt(r.get("party_cd"), 40), "party_name": _txt(r.get("party_name"), 160),
@@ -131,8 +156,17 @@ class JobWorkService:
                             setattr(line, k, v)
                         updated += 1
                     line.synced_at = now
+                # Out of scope now (the RGP type's non-spare lines read before
+                # 27 Oct 2026) or gone from ERP: dropped unless a return holds it.
+                held = self._linked_ids()
+                dropped = 0
+                for key, line in known.items():
+                    if key not in seen and line.id is not None and line.id not in held:
+                        db.session.delete(line)
+                        dropped += 1
+            linked = self.auto_link()
             state = {**state, "ok": True, "last_ok_at": now.isoformat(), "last_error": None, "last_error_at": None,
-                     "lines": len(rows), "added": added, "updated": updated}
+                     "lines": len(rows), "added": added, "updated": updated, "dropped": dropped, "auto_linked": linked}
         except Exception as exc:  # noqa: BLE001 — ERP down, not set up, table renamed: shown, not fatal
             db.session.rollback()
             logger.warning("ERP RGP read failed: %s: %s", type(exc).__name__, exc)
@@ -148,6 +182,37 @@ class JobWorkService:
                 "lines": ErpRgpLine.query.count(),
                 "linked": RgpReturnLink.query.count(),
                 "newest_rgp": _iso(db.session.query(func.max(ErpRgpLine.challan_date)).scalar())}
+
+    def auto_link(self):
+        """Link each waiting job work return (oldest first) to the first
+        unlinked challan line of its part made on / after it — the same
+        quantity first, then the earliest. A return a store person has unlinked
+        is left to the person. Returns how many were linked."""
+        manual = set(AppSetting.get_value(MANUAL_KEY, []) or [])
+        done = {r for (r,) in db.session.query(RgpReturnLink.return_id)}
+        waiting = (SpareReturn.query.filter(SpareReturn.return_type == "JOB_WORK_RETURN")
+                   .order_by(SpareReturn.created_at.asc(), SpareReturn.id.asc()).all())
+        linked = self._linked_ids()
+        n = 0
+        for ret in waiting:
+            if ret.id in done or ret.id in manual or ret.part is None:
+                continue
+            qty = float(ret.qty)
+            lines = self._suggest_query(ret, linked).all()
+            if not lines:
+                continue
+            line = min(lines, key=lambda l: (l.qty is None or float(l.qty) != qty,
+                                             l.challan_date or date.max, l.id))
+            try:
+                with atomic():
+                    db.session.add(RgpReturnLink(return_id=ret.id, rgp_line_id=line.id, linked_by=AUTO_BY))
+            except IntegrityError:
+                db.session.rollback()
+                continue
+            linked.add(line.id)
+            n += 1
+            logger.info("Job work return %s linked by itself to challan %s · %s", ret.return_no, line.challan_no, line.item_cd)
+        return n
 
     # ---- the returns and their RGP ------------------------------------------------------------
 
@@ -250,6 +315,10 @@ class JobWorkService:
         with atomic():
             logger.info("RGP link of %s to %s removed by %s", ret.return_no, link.rgp.challan_no if link.rgp else "?", user)
             db.session.delete(link)
+        # From now on this return is the person's to link, never auto_link()'s.
+        manual = list(AppSetting.get_value(MANUAL_KEY, []) or [])
+        if ret.id not in manual:
+            AppSetting.set_value(MANUAL_KEY, manual + [ret.id], _txt(user, 60) or "STORE")
         return self._return_dict(ret)
 
     def lines(self, q=None, limit=200):

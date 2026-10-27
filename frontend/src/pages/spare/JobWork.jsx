@@ -12,16 +12,18 @@ import { jobWorkService } from "../../services/jobWorkService.js";
 // Job Work & RGP — the store's spec of 27 Oct 2026 ("Part Return, Job Work
 // Return & Pending RGP Integration"). A user brings a worn / damaged part back
 // for job work (Scan Part -> Return -> Job work): it is kept apart, not stock,
-// as Pending RGP. Another store employee makes the RGP in ERP; the app reads
-// ERP's RGPs (read only — it never makes one) and a store person links the
-// right RGP to the return here. A suggestion is only a suggestion: nothing is
-// linked until someone picks it.
+// as Pending RGP. Another store employee makes the challan in ERP — a "General
+// FOC" returnable challan, made from the issue slip in the vendor's name — the
+// app reads those of the spare parts (read only — it never makes one) and links
+// each waiting return to its challan by itself; a store person can unlink a
+// wrong one and pick another here (27 Oct 2026).
 //
-//   Returns    each job work return: Pending RGP · RGP available – pending
-//              match · RGP linked · API sync failed
-//   ERP RGPs   the RGP lines as last read from ERP, and which return each is on
+//   Returns       each job work return: Pending RGP · RGP available – pending
+//                 match · RGP linked · API sync failed
+//   ERP challans  the returnable challan lines as last read from ERP, and which
+//                 return each is on
 
-const TABS = [{ key: "returns", label: "Job work returns" }, { key: "rgp", label: "ERP RGPs" }];
+const TABS = [{ key: "returns", label: "Job work returns" }, { key: "rgp", label: "ERP challans" }];
 const STATES = [
   { key: "", label: "All" },
   { key: "PENDING_RGP", label: "Pending RGP" },
@@ -61,8 +63,8 @@ function SyncBar({ sync }) {
     <div className={`card flex flex-wrap items-center justify-between gap-3 py-3 text-[12.5px] ${sync.ok === false ? "border-rose-200 dark:border-rose-500/30" : ""}`}>
       <div className="space-y-0.5">
         <p className="text-slate-700 dark:text-slate-200">
-          ERP RGPs: <b>{num(sync.lines)}</b> lines read · <b>{num(sync.linked)}</b> linked to returns
-          {sync.newest_rgp && <> · newest RGP in ERP {fmtDate(sync.newest_rgp)}</>}
+          ERP returnable challans (General FOC) of spare parts: <b>{num(sync.lines)}</b> lines read · <b>{num(sync.linked)}</b> linked to returns
+          {sync.newest_rgp && <> · newest challan in ERP {fmtDate(sync.newest_rgp)}</>}
         </p>
         <p className="text-slate-500">
           Last good read: {sync.last_ok_at ? fmtStamp(sync.last_ok_at) : "never"}
@@ -81,7 +83,7 @@ export default function JobWork() {
       <div className="min-w-0">
         <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-white"><Hammer size={20} aria-hidden="true" /> Job Work &amp; RGP</h2>
         <p className="mt-0.5 text-xs text-slate-400">
-          Parts brought back for job work wait here (not stock) until the RGP made in ERP is linked. The app only reads ERP — it never makes an RGP.
+          Parts brought back for job work wait here (not stock) until the returnable challan made in ERP (General FOC, from the issue slip) is linked — the app links it by itself. The app only reads ERP — it never makes a challan.
           A job work return is made on Scan Part → Return → Job work.
         </p>
       </div>
@@ -276,12 +278,13 @@ function RgpTab() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-[12.5px]">
               <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
-                <tr><TH>RGP challan</TH><TH>Item</TH><TH right>Qty</TH><TH>Party</TH><TH>ERP status</TH><TH>Target</TH><TH>Linked return</TH></tr>
+                <tr><TH>Challan</TH><TH>Issue slip</TH><TH>Part No</TH><TH right>Qty</TH><TH>Party</TH><TH>ERP status</TH><TH>Target</TH><TH>Linked return</TH></tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
                 {(d?.rows || []).map((l) => (
                   <tr key={l.id} className="align-top text-slate-700 dark:text-slate-200">
                     <td className="whitespace-nowrap px-3 py-2.5"><div className="font-mono font-semibold">{l.challan_no}</div><div className="text-[11px] text-slate-400">{fmtDate(l.challan_date)}</div></td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11.5px]">{l.doc_no || <span className="text-slate-400">—</span>}</td>
                     <td className="px-3 py-2.5"><div className="font-mono">{l.item_cd}</div><div className="max-w-[240px] truncate text-[11px] text-slate-400" title={l.item_desc}>{l.item_desc}</div></td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">{num(l.qty)} {l.uom}</td>
                     <td className="px-3 py-2.5">{l.party_name}</td>
@@ -292,7 +295,7 @@ function RgpTab() {
                 ))}
               </tbody>
             </table>
-            {d && d.rows.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">{q ? "No RGP matches." : "No RGP read from ERP yet — they come with the next automatic ERP read."}</p>}
+            {d && d.rows.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">{q ? "No challan matches." : "No challan read from ERP yet — they come with the next automatic ERP read."}</p>}
           </div>
         )}
       </div>

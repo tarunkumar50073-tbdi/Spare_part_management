@@ -146,12 +146,15 @@ def test_a_job_work_return_still_counts_as_consumed():
 # ---- 7, 8, 9, 10: ERP's RGPs and the link ----------------------------------------------------------
 
 def _rgp(challan, item, qty, day, status="HOLD", party="REPAIR WORKS"):
-    return {"id": None, "challan_no": challan, "challan_dt": day.strftime("%d-%m-%Y"), "challan_type": "Returnable Gate Pass (RGP)",
+    return {"id": None, "challan_no": challan, "challan_dt": day.strftime("%d-%m-%Y"), "challan_type": "General FOC",
             "party_cd": "P1", "party_name": party, "status": status, "target_date": None, "gate_exit_no": None,
             "doc_no": None, "item_cd": item, "item_desc": "PUMP SEAL", "uom": "NOS", "qty": str(qty)}
 
 
-def test_7_8_9_10_rgps_read_from_erp_suggested_never_auto_linked_and_never_twice():
+def test_7_8_9_10_challans_read_from_erp_linked_by_themselves_and_never_twice():
+    """27 Oct 2026: spares go out on ERP's "General FOC" returnable challan
+    (made from the issue slip), and a waiting return is linked to its challan
+    by itself ("Apne aap jode"); a person can unlink and pick another."""
     p, issue_id = _issued(qty=1, stock=2)
     ret = returns.job_work_return(issue_id, 1, reason="Seal leaking", user="store")
     today = date.today()
@@ -161,28 +164,43 @@ def test_7_8_9_10_rgps_read_from_erp_suggested_never_auto_linked_and_never_twice
             _rgp(f"RG/{tag}/4", p.part_no, 1, today, status="CANCEL")]
     st = jobs.sync(rows=rows)                                                         # 7: read (rows as ERP gives them)
     assert st["ok"] is True and ErpRgpLine.query.filter(ErpRgpLine.challan_no.like(f"RG/{tag}/%")).count() == 4
-    # 9: two RGPs fit — both suggested, none linked by itself.
+    # 9: linked by itself to the first fitting line — never the earlier or the cancelled one.
+    row = jobs.returns(STORE, q=ret["return_no"])["rows"][0]
+    assert row["state"] == "RGP_LINKED"
+    assert (row["link"]["rgp"]["challan_no"], row["link"]["linked_by"]) == (f"RG/{tag}/1", "Auto (ERP challan)")
+    # A wrong one is unlinked by a person: both fitting lines are offered and
+    # the next read does not link it again by itself.
+    jobs.unlink(ret["id"], user="sup")
+    jobs.sync(rows=rows)
     cand = jobs.candidates(ret["id"])
     assert sorted(x["challan_no"] for x in cand["suggested"]) == [f"RG/{tag}/1", f"RG/{tag}/2"]
     row = jobs.returns(STORE, q=ret["return_no"])["rows"][0]
     assert (row["state"], row["suggested"], row["link"]) == ("RGP_AVAILABLE", 2, None)
-    assert RgpReturnLink.query.filter_by(return_id=ret["id"]).first() is None
     # 8: the store person picks the right one.
-    pick = next(x for x in cand["suggested"] if x["challan_no"] == f"RG/{tag}/1")
+    pick = next(x for x in cand["suggested"] if x["challan_no"] == f"RG/{tag}/2")
     out = jobs.link(ret["id"], pick["id"], user="sup")
-    assert out["link"]["rgp"]["challan_no"] == f"RG/{tag}/1" and out["link"]["linked_by"] == "sup"
+    assert out["link"]["rgp"]["challan_no"] == f"RG/{tag}/2" and out["link"]["linked_by"] == "sup"
     assert jobs.returns(STORE, q=ret["return_no"])["rows"][0]["state"] == "RGP_LINKED"
-    # The same RGP cannot go to a second return.
+    # The same line cannot go to a second return.
     p2, issue2 = _issued(qty=1, stock=2)
     ret2 = returns.job_work_return(issue2, 1, reason="Worn", user="store")
     with pytest.raises(BadRequestError, match="already linked"):
         jobs.link(ret2["id"], pick["id"], user="sup")
     # 10: reading ERP again (a status changed) makes no second line and keeps the link.
-    rows[0]["status"] = "EXITED"
+    rows[1]["status"] = "EXITED"
     jobs.sync(rows=rows)
     jobs.sync(rows=rows)
     assert ErpRgpLine.query.filter(ErpRgpLine.challan_no.like(f"RG/{tag}/%")).count() == 4
     assert RgpReturnLink.query.filter_by(return_id=ret["id"]).one().rgp.status == "EXITED"
+    # A line gone from ERP's read is dropped, unless a return holds it.
+    jobs.sync(rows=[rows[1]])
+    assert [l.challan_no for l in ErpRgpLine.query.filter(ErpRgpLine.challan_no.like(f"RG/{tag}/%"))] == [f"RG/{tag}/2"]
+
+
+def test_the_erp_read_asks_for_returnable_foc_challans_of_spare_parts_only():
+    from app.services import job_work_service as jw
+    assert "challan_type = %s AND upper(exit_type) = %s" in jw._SQL and "ANY(%s)" in jw._SQL
+    assert (jw.FOC_TYPE, jw.RETURNABLE) == ("General FOC", "RETURNABLE")
 
 
 def test_an_erp_read_failure_keeps_everything_and_says_so(monkeypatch):
