@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  Activity, AlarmClock, Archive, Hammer, BellRing, BookOpen, Bolt, Boxes, Calculator, CalendarRange, ClipboardCheck,
+  Activity, AlarmClock, Archive, Database, Hammer, BellRing, BookOpen, Bolt, Boxes, Calculator, CalendarRange, ClipboardCheck,
   ClipboardList, Clock3, Container, Factory, FileChartColumn, FileText, Grid3x3, History, LayoutDashboard,
   Mail, Mails, Send, Settings2, Workflow, Package, PanelLeftClose, PanelLeftOpen, Scale,
   Bell, Inbox, PackageCheck, PackageX, ScanBarcode, ScanSearch, ScrollText, Search, ServerCog, Settings, ShieldCheck, Siren,
@@ -190,6 +190,8 @@ const SYSTEM_GROUP = {
     { to: "/admin", label: "User Management", short: "Users", icon: UserCog },
     { to: "/rights-matrix", label: "Rights Matrix", short: "Rights", icon: Grid3x3 },
     { to: "/settings", label: "Settings", icon: Settings },
+    // Every table of the database, read only (27 Oct 2026).
+    { to: "/data-browser", label: "Data Browser", short: "Data", icon: Database },
   ],
 };
 

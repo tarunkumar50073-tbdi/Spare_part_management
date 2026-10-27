@@ -64,6 +64,7 @@ const ChallanRegister = React.lazy(() => import("./pages/spare/ChallanRegister.j
 const RejectionRequests = React.lazy(() => import("./pages/spare/RejectionRequests.jsx"));
 const PacketManagement = React.lazy(() => import("./pages/spare/PacketManagement.jsx"));
 const JobWork = React.lazy(() => import("./pages/spare/JobWork.jsx"));
+const DataBrowser = React.lazy(() => import("./pages/DataBrowser.jsx"));
 const InventoryControl = React.lazy(() => import("./pages/spare/InventoryControl.jsx"));
 const ConsumptionAnalytics = React.lazy(() => import("./pages/spare/ConsumptionAnalytics.jsx"));
 const DataQuality = React.lazy(() => import("./pages/spare/DataQuality.jsx"));
@@ -221,6 +222,7 @@ function AuthenticatedApp() {
           <Route path="/dashboard" element={<StoreRoute store="CHILD_PART"><StoreDashboard /></StoreRoute>} />
           <Route path="/store/MAINTENANCE" element={<RequirePermission mod="spare_store"><MaintenanceStore /></RequirePermission>} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/data-browser" element={<DataBrowser />} />
           <Route path="/rights-matrix" element={<RightsMatrix />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/services" element={<AllServices />} />
