@@ -462,6 +462,12 @@ def _start_backup_worker(app):
 LATE_COLUMNS = (
     # The part's 2nd and 3rd photos, comma-separated file names (24 Oct 2026).
     ("parts", "extra_images", "VARCHAR(200)"),
+    # A packet that carries the supplier's own label instead of ours: the code
+    # read off that box (27 Oct 2026, "uske qr/bar ko map karenge").
+    ("spare_packets", "supplier_code", "VARCHAR(255)"),
+    # A receipt left loose on purpose — the supplier's code is the same on every
+    # box, so it was mapped to the part instead of packed (27 Oct 2026).
+    ("spare_batches", "loose_note", "VARCHAR(255)"),
 )
 
 

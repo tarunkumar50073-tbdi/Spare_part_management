@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Boxes, CheckCircle2, Package, Printer, Search } from "lucide-react";
+import { CheckCircle2, Package, Printer } from "lucide-react";
 import Modal from "../Modal.jsx";
 import { inputCls } from "../scan/forms/flow.js";
 import { fmtDate, num } from "../../lib/format.js";
@@ -11,8 +11,9 @@ import { printLabels } from "../../utils/barcodeRender.js";
 import { packetLabelsHtml } from "../../utils/packetLabels.js";
 
 // The Packets & QR Labels dialogs (the store's spec of 27 Oct 2026): verify a
-// receipt physically, make its packets / unit labels, print or reprint them,
-// cancel one made by mistake, and make a batch of stock already on the shelf.
+// receipt physically, make its packets / unit labels (or label old stock on the
+// shelf, or take the supplier's own box labels), print or reprint them, and
+// cancel one made by mistake.
 // None of them changes stock — only issuing a packet does (Scan Part).
 
 export const errText = (e) => e?.response?.data?.message || e?.message || "Something went wrong";
@@ -108,72 +109,258 @@ export function VerifyDialog({ receipt, onClose, onDone }) {
 }
 
 // ---- make packets / unit labels ----------------------------------------------------------
+//
+// For a receipt (`receipt`), or for old stock on the shelf (`old`: a row of the
+// Old stock list — the count on the shelf is asked, and it is packed as an
+// opening batch). The labels are ours (printed next), or — the store, 27 Oct
+// 2026: "supplier k part par agar already qr ya bar code aa rha h to uska hum qr
+// label nhi nikalenge" — the supplier's own label already on each box: its code
+// is scanned box by box and the box becomes that packet. If the code is the
+// same on every box, a box cannot be told apart: the code is mapped to the part
+// instead and the stock stays loose (issued by scanning it with a quantity).
 
-export function MakeLabelsDialog({ receipt, onClose, onMade }) {
-  const [kind, setKind] = useState("PACKET");
-  const [size, setSize] = useState("");
-  const [count, setCount] = useState("");
-  const [lastSmaller, setLastSmaller] = useState(false);
+function OldFacts({ row }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 dark:bg-navy-950/40 sm:grid-cols-4">
+      <Fact label="Part">{row.part.part_no}</Fact>
+      <Fact label="Location">{row.part.location || "—"}</Fact>
+      <Fact label="On hand">{num(row.on_hand)} {row.part.uom}</Fact>
+      <Fact label="Without a label">{num(row.to_label)} {row.part.uom}</Fact>
+      <p className="col-span-full -mt-1 truncate text-[12px] text-slate-500" title={row.part.part_name}>{row.part.part_name}</p>
+    </div>
+  );
+}
+
+function Choice({ options, value, onChange }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {options.map(([k, title, sub]) => (
+        <button key={k} type="button" onClick={() => onChange(k)} aria-pressed={value === k}
+          className={`rounded-xl border-2 p-3 text-left transition ${value === k ? "border-toyotared bg-toyotared/5" : "border-slate-200 hover:border-slate-300 dark:border-navy-700"}`}>
+          <span className="block text-[14px] font-bold text-slate-800 dark:text-white">{title}</span>
+          <span className="block text-[12px] text-slate-500">{sub}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// The supplier's code read off each box, one per packet, checked as it is scanned.
+function BoxCodes({ partId, need, boxes, setBoxes, onSame }) {
+  const [typed, setTyped] = useState("");
+  const [note, setNote] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const add = async () => {
+    const code = typed.trim();
+    if (!code || checking) return;
+    setNote(null);
+    if (boxes.includes(code)) {
+      setNote({ same: true, code, text: `Box ${boxes.indexOf(code) + 1} has this same code — the supplier's code is the same on every box, so a box cannot be told apart.` });
+      setTyped("");
+      return;
+    }
+    setChecking(true);
+    try {
+      const r = (await packetService.boxCode(partId, code, { silent: true })).data.data;
+      if (r.ok) setBoxes([...boxes, code]);
+      else setNote({ same: r.same, code, text: r.message, fields: r.fields });
+    } catch (e) {
+      setNote({ text: errText(e) });
+    } finally {
+      setChecking(false);
+      setTyped("");
+    }
+  };
+  return (
+    <div className="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-navy-700">
+      <Field label={`Scan the supplier's code on each box (${boxes.length} of ${need ?? "—"})`} required
+        hint="Gun or keyboard: scan, then Enter. One box = one packet, in order.">
+        <input className={inputCls(false, "w-full font-mono")} value={typed} onChange={(e) => setTyped(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+          disabled={need != null && boxes.length >= need} placeholder={checking ? "Checking…" : "Scan box code"} autoFocus />
+      </Field>
+      {boxes.length > 0 && (
+        <ol className="max-h-40 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-100 text-[12.5px] dark:divide-navy-800 dark:border-navy-800">
+          {boxes.map((c, i) => (
+            <li key={c} className="flex items-center justify-between gap-2 px-2.5 py-1.5">
+              <span className="min-w-0 truncate"><b className="mr-2 text-slate-400">Box {i + 1}</b><span className="font-mono">{c}</span></span>
+              <button type="button" className="shrink-0 text-[11px] text-rose-600 hover:underline" onClick={() => setBoxes(boxes.filter((x) => x !== c))}>Remove</button>
+            </li>
+          ))}
+        </ol>
+      )}
+      {need != null && boxes.length > need && <p className="text-[12px] text-amber-700">{boxes.length - need} more code{boxes.length - need === 1 ? "" : "s"} than packets — remove the extra.</p>}
+      {note && (
+        <div role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+          <p>{note.text}</p>
+          {note.same && (
+            <button type="button" className="mt-1.5 font-semibold text-toyotared hover:underline" onClick={() => onSame(note.code, note.fields)}>
+              Same code on every box — map it to the part and keep the stock loose →
+            </button>
+          )}
+        </div>
+      )}
+      <button type="button" className="text-[12px] text-slate-500 hover:underline" onClick={() => onSame(null)}>
+        The code is the same on every box
+      </button>
+    </div>
+  );
+}
+
+// The supplier's code is the same on every box: map it to the part (its item
+// code picked out of a QR of several fields); the stock stays loose.
+function KeepLoose({ part, receiptId, first, onBack, onDone }) {
+  const [typed, setTyped] = useState(first?.code || "");
+  const [fields, setFields] = useState(first?.fields || null);
+  const [pick, setPick] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const args = useMemo(() => ({
-    kind, packet_qty: kind === "PACKET" ? Number(size) || undefined : undefined,
-    count: count === "" ? undefined : Number(count), last_smaller: kind === "PACKET" && lastSmaller,
-  }), [kind, size, count, lastSmaller]);
-  const ready = kind === "UNIT" || Number(size) > 0;
-  const [asked, setAsked] = useState(args);
-  useEffect(() => { const t = setTimeout(() => setAsked(args), 300); return () => clearTimeout(t); }, [args]);
-  const plan = useQuery({
-    queryKey: ["packets", "plan", receipt.id, asked],
-    queryFn: () => packetService.plan(receipt.id, asked, { silent: true }).then((r) => r.data.data),
-    enabled: ready,
-    retry: false,
-  });
-  const make = async () => {
+  const code = typed.trim();
+  const several = (fields || []).length > 1;
+  const save = async () => {
+    if (!code) return;
     setBusy(true);
     setError(null);
     try {
-      const r = await packetService.pack(receipt.id, args);
+      const r = await packetService.keepLoose(part.id, { code, map_code: pick || undefined, receipt_id: receiptId });
       toast.success(r.data.message);
-      onMade(r.data.data);
+      onDone(r.data.data);
     } catch (e) {
+      const errs = e?.response?.data?.errors;
+      if (errs?.fields) setFields(errs.fields);
       setError(errText(e));
     } finally {
       setBusy(false);
     }
   };
-  const p = plan.data;
-  const unit = receipt.uom || "";
   return (
-    <Shell title="Make QR labels" onClose={onClose} size="xl"
+    <div className="space-y-3 rounded-xl border-2 border-amber-300 bg-amber-50/40 p-3 dark:border-amber-500/40 dark:bg-amber-500/5">
+      <p className="text-[13px] font-semibold text-slate-800 dark:text-white">Same supplier code on every box</p>
+      <p className="text-[12px] text-slate-600 dark:text-slate-300">
+        The code is mapped to {part.part_no}, so scanning it on Scan Part names the part. No label is made and the stock stays loose —
+        it is issued by scanning the code and entering the quantity (no FIFO between the boxes).
+      </p>
+      <Field label="Supplier's code" required>
+        <input className={inputCls(false, "w-full font-mono")} value={typed} autoFocus={!first}
+          onChange={(e) => { setTyped(e.target.value); setFields(null); setPick(""); }} placeholder="Scan one box" />
+      </Field>
+      {several && (
+        <div>
+          <p className="mb-1 text-[12px] font-semibold text-slate-600 dark:text-slate-300">Which part of the code is the item code? <span className="font-normal text-slate-400">(lot / qty change box to box)</span></p>
+          <div className="flex flex-wrap gap-1.5">
+            {fields.map((f) => (
+              <button key={f} type="button" onClick={() => setPick(f)} aria-pressed={pick === f}
+                className={`rounded-full border px-2.5 py-1 font-mono text-[12px] ${pick === f ? "border-toyotared bg-toyotared/10 text-toyotared" : "border-slate-200 text-slate-600 dark:border-navy-700 dark:text-slate-300"}`}>
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-[12.5px] text-rose-700">{error}</p>}
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" className="btn-secondary py-1.5 text-[12.5px]" onClick={onBack}>Back</button>
+        <button type="button" className="btn-primary py-1.5 text-[12.5px]" onClick={save} disabled={!code || (several && !pick) || busy}>
+          {busy ? "Mapping…" : "Map code, keep stock loose"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose }) {
+  const part = receipt ? receipt.part : old.part;
+  const unit = (receipt ? receipt.uom : old.part.uom) || "";
+  const [kind, setKind] = useState("PACKET");
+  const [size, setSize] = useState("");
+  const [count, setCount] = useState("");
+  const [counted, setCounted] = useState("");
+  const [lastSmaller, setLastSmaller] = useState(false);
+  const [labels, setLabels] = useState("OURS");          // OURS | SUPPLIER
+  const [boxes, setBoxes] = useState([]);
+  const [same, setSame] = useState(null);               // { code, fields } while mapping a same-on-every-box code
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const args = useMemo(() => ({
+    kind, packet_qty: kind === "PACKET" ? Number(size) || undefined : undefined,
+    last_smaller: kind === "PACKET" && lastSmaller,
+    ...(receipt ? { count: count === "" ? undefined : Number(count) } : { counted_qty: Number(counted) || undefined }),
+  }), [kind, size, count, counted, lastSmaller, receipt]);
+  const ready = (kind === "UNIT" || Number(size) > 0) && (Boolean(receipt) || Number(counted) > 0);
+  const [asked, setAsked] = useState(args);
+  useEffect(() => { const t = setTimeout(() => setAsked(args), 300); return () => clearTimeout(t); }, [args]);
+  const plan = useQuery({
+    queryKey: ["packets", "plan", receipt ? `r${receipt.id}` : `p${part.id}`, asked],
+    queryFn: () => (receipt ? packetService.plan(receipt.id, asked, { silent: true })
+      : packetService.oldStockPlan(part.id, asked, { silent: true })).then((r) => r.data.data),
+    enabled: ready && (Boolean(receipt) || Number(asked.counted_qty) > 0),
+    retry: false,
+  });
+  const p = plan.data;
+  const supplier = labels === "SUPPLIER";
+  const boxesOk = !supplier || (p && boxes.length === p.count);
+  const make = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const body = { ...args, supplier_codes: supplier ? boxes : undefined };
+      const r = await (receipt ? packetService.pack(receipt.id, body) : packetService.oldStockPack(part.id, body));
+      toast.success(r.data.message);
+      onMade(r.data.data);
+    } catch (e) {
+      const errs = e?.response?.data?.errors;
+      if (errs?.code === "SAME_CODE") setSame({ code: errs.scanned, fields: errs.fields });
+      setError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const short = !receipt && Number(counted) > 0 && Number(counted) < Number(old.to_label);
+  return (
+    <Shell title={receipt ? "Make QR labels" : "Label old stock"} onClose={onClose} size="xl"
       footer={<>
         <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
-        <button type="button" className="btn-primary" onClick={make} disabled={!ready || !p || plan.isError || busy}>
-          <Package size={15} aria-hidden="true" /> {busy ? "Making…" : p ? `Make ${p.count} label${p.count === 1 ? "" : "s"}` : "Make labels"}
-        </button>
-      </>}>
-      <ReceiptFacts r={receipt} />
-      <div className="grid grid-cols-2 gap-2">
-        {[["PACKET", "Small parts packet", "Nuts, bolts, washers … many in one packet, one QR"],
-          ["UNIT", "Individual part", "Each piece its own QR"]].map(([k, title, sub]) => (
-          <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k}
-            className={`rounded-xl border-2 p-3 text-left transition ${kind === k ? "border-toyotared bg-toyotared/5" : "border-slate-200 hover:border-slate-300 dark:border-navy-700"}`}>
-            <span className="block text-[14px] font-bold text-slate-800 dark:text-white">{title}</span>
-            <span className="block text-[12px] text-slate-500">{sub}</span>
+        {!same && (
+          <button type="button" className="btn-primary" onClick={make} disabled={!ready || !p || plan.isError || !boxesOk || busy}>
+            <Package size={15} aria-hidden="true" /> {busy ? "Making…" : !p ? "Make labels"
+              : supplier ? `Make ${p.count} packet${p.count === 1 ? "" : "s"} — no printing`
+                : `Make ${p.count} label${p.count === 1 ? "" : "s"}`}
           </button>
-        ))}
-      </div>
+        )}
+      </>}>
+      {receipt ? <ReceiptFacts r={receipt} /> : <OldFacts row={old} />}
+      {!receipt && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Counted on the shelf" required hint={`The app has ${num(old.to_label)} ${unit} without a label`}>
+            <span className="flex gap-2">
+              <input type="number" min="0" step="any" inputMode="decimal" className={inputCls(false, "w-full text-lg font-semibold")}
+                value={counted} onChange={(e) => setCounted(e.target.value)} autoFocus placeholder="Count it" />
+              <button type="button" className="btn-secondary shrink-0 px-2.5 text-[12px]" onClick={() => setCounted(String(old.to_label))}>Same as app</button>
+            </span>
+          </Field>
+          {short && (
+            <p className="self-end rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+              {num(Number(old.to_label) - Number(counted))} {unit} stays without a label. If the shelf really holds less than the app, put the stock right (stock count).
+            </p>
+          )}
+        </div>
+      )}
+      <Choice value={kind} onChange={setKind} options={[
+        ["PACKET", "Small parts packet", "Nuts, bolts, washers … many in one packet, one QR"],
+        ["UNIT", "Individual part", "Each piece its own QR"]]} />
       <div className="grid gap-3 sm:grid-cols-3">
         {kind === "PACKET" && (
           <Field label="Quantity per packet" required hint="Any number — not fixed">
             <input type="number" min="0" step="any" inputMode="decimal" className={inputCls(false, "w-full text-lg font-semibold")}
-              value={size} onChange={(e) => setSize(e.target.value)} autoFocus placeholder="e.g. 20" />
+              value={size} onChange={(e) => setSize(e.target.value)} autoFocus={Boolean(receipt)} placeholder="e.g. 20" />
           </Field>
         )}
-        <Field label={kind === "PACKET" ? "Number of packets" : "Number of labels"} hint="Blank = all that fit">
-          <input type="number" min="1" step="1" inputMode="numeric" className={inputCls(false, "w-full")}
-            value={count} onChange={(e) => setCount(e.target.value)} placeholder={p ? String(p.count - (p.last_qty ? 1 : 0)) : ""} />
-        </Field>
+        {receipt && (
+          <Field label={kind === "PACKET" ? "Number of packets" : "Number of labels"} hint="Blank = all that fit">
+            <input type="number" min="1" step="1" inputMode="numeric" className={inputCls(false, "w-full")}
+              value={count} onChange={(e) => setCount(e.target.value)} placeholder={p ? String(p.count - (p.last_qty ? 1 : 0)) : ""} />
+          </Field>
+        )}
         {kind === "PACKET" && (
           <label className="flex items-center gap-2 self-end pb-2 text-[13px] text-slate-600 dark:text-slate-300">
             <input type="checkbox" checked={lastSmaller} onChange={(e) => setLastSmaller(e.target.checked)} />
@@ -182,14 +369,26 @@ export function MakeLabelsDialog({ receipt, onClose, onMade }) {
         )}
       </div>
       <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 p-3 dark:border-navy-700 sm:grid-cols-4">
-        <Fact label="Left to pack">{p ? `${num(p.packable)} ${unit}` : `${num(receipt.to_pack)} ${unit}`}</Fact>
+        <Fact label={receipt ? "Left to pack" : "Counted"}>{p ? `${num(p.packable)} ${unit}` : receipt ? `${num(receipt.to_pack)} ${unit}` : "—"}</Fact>
         <Fact label={kind === "PACKET" ? "Packets" : "Labels"}>{p ? `${p.count}${p.last_qty ? ` (last of ${num(p.last_qty)})` : ""}` : "—"}</Fact>
         <Fact label="Packed now">{p ? `${num(p.total)} ${unit}` : "—"}</Fact>
         <Fact label="Stays loose">{p ? `${num(p.loose_after)} ${unit}` : "—"}</Fact>
       </div>
+      <Choice value={labels} onChange={(v) => { setLabels(v); setSame(null); }} options={[
+        ["OURS", "Print our QR labels", "One label per packet, printed next"],
+        ["SUPPLIER", "Supplier's label is on the box", "No printing — scan each box's own QR / barcode"]]} />
+      {supplier && (same ? (
+        <KeepLoose part={part} receiptId={receipt?.id} first={same.code ? same : null} onBack={() => setSame(null)}
+          onDone={(out) => onKeptLoose?.(out)} />
+      ) : (
+        <BoxCodes partId={part.id} need={p ? p.count : null} boxes={boxes} setBoxes={setBoxes}
+          onSame={(code, fields) => setSame({ code, fields })} />
+      ))}
       {plan.isError && ready && <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">{errText(plan.error)}</p>}
-      {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-[12.5px] text-rose-700">{error}</p>}
-      <p className="text-[12px] text-slate-500 dark:text-slate-400">Each label gets its own QR code. Making labels never changes stock.</p>
+      {error && !same && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-[12.5px] text-rose-700">{error}</p>}
+      <p className="text-[12px] text-slate-500 dark:text-slate-400">
+        {supplier ? "Each box scans as its own packet — oldest first, issued whole, once." : "Each label gets its own QR code."} Making labels never changes stock.
+      </p>
     </Shell>
   );
 }
@@ -307,91 +506,6 @@ export function CancelDialog({ packet, onClose, onDone }) {
         <input className={inputCls(false, "w-full")} maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />
       </Field>
       {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-[12.5px] text-rose-700">{error}</p>}
-    </Shell>
-  );
-}
-
-// ---- a batch of stock already on the shelf -----------------------------------------------------
-
-export function OpeningDialog({ storeCode, onClose, onMade }) {
-  const [typed, setTyped] = useState("");
-  const [q, setQ] = useState("");
-  const [part, setPart] = useState(null);
-  const [qty, setQty] = useState("");
-  const [remarks, setRemarks] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  useEffect(() => { const t = setTimeout(() => setQ(typed.trim()), 250); return () => clearTimeout(t); }, [typed]);
-  const found = useQuery({
-    queryKey: ["packets", "parts", storeCode, q],
-    queryFn: () => packetService.parts(storeCode, q, { silent: true }).then((r) => r.data.data),
-    enabled: q.length >= 2 && !part,
-  });
-  const why = !part ? "Pick the part" : !(Number(qty) > 0) ? "Enter the quantity" : Number(qty) > Number(part.loose) ? `Only ${part.loose} is loose` : null;
-  const make = async () => {
-    if (why) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await packetService.opening({ store_code: storeCode, part_id: part.id, qty: Number(qty), remarks: remarks.trim() || undefined });
-      toast.success(r.data.message);
-      onMade(r.data.data);
-    } catch (e) {
-      setError(errText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Shell title="Pack stock already on the shelf" onClose={onClose}
-      footer={<>
-        <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
-        <button type="button" className="btn-primary" onClick={make} disabled={Boolean(why) || busy}>
-          <Boxes size={15} aria-hidden="true" /> {busy ? "Making…" : "Make batch, then labels"}
-        </button>
-      </>}>
-      {!part ? (
-        <>
-          <Field label="Part" required>
-            <span className="relative block">
-              <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input className={inputCls(false, "w-full pl-8")} value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus placeholder="Part No., name, spec or model no." />
-            </span>
-          </Field>
-          <div className="max-h-64 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 dark:divide-navy-800 dark:border-navy-700">
-            {(found.data || []).map((p) => (
-              <button key={p.id} type="button" disabled={!(p.loose > 0)} onClick={() => { setPart(p); setQty(String(p.loose)); }}
-                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50 disabled:opacity-50 dark:hover:bg-navy-800">
-                <span className="min-w-0"><span className="block font-mono text-[13px] font-bold">{p.part_no}</span>
-                  <span className="block truncate text-[12px] text-slate-500">{p.part_name}</span></span>
-                <span className="shrink-0 text-right text-[12px] text-slate-500">Loose <b className="text-slate-800 dark:text-white">{num(p.loose)}</b> {p.uom}<br />of {num(p.on_hand)} on hand</span>
-              </button>
-            ))}
-            {q.length >= 2 && found.data && found.data.length === 0 && <p className="px-3 py-4 text-center text-[13px] text-slate-400">No part found</p>}
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 dark:bg-navy-950/40">
-            <span className="min-w-0"><span className="block font-mono text-[14px] font-bold">{part.part_no}</span>
-              <span className="block truncate text-[12px] text-slate-500">{part.part_name}</span></span>
-            <button type="button" className="text-[12px] font-semibold text-toyotared hover:underline" onClick={() => setPart(null)}>Change</button>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Quantity to pack" required hint={`Loose on the shelf: ${num(part.loose)} ${part.uom || ""}`}>
-              <input type="number" min="0" step="any" inputMode="decimal" className={inputCls(false, "w-full text-lg font-semibold")}
-                value={qty} onChange={(e) => setQty(e.target.value)} />
-            </Field>
-            <Field label="Remarks" hint="Optional">
-              <input className={inputCls(false, "w-full")} maxLength={255} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-            </Field>
-          </div>
-          <p className="text-[12px] text-slate-500 dark:text-slate-400">
-            This stock is the oldest, so its packets go out first (FIFO). Nothing is added to stock.
-          </p>
-        </>
-      )}
-      {(error || (why && part)) && <p role="alert" className={`rounded-lg px-3 py-2 text-[12.5px] ${error ? "bg-rose-50 text-rose-700" : "bg-slate-50 text-slate-500 dark:bg-navy-950/40"}`}>{error || why}</p>}
     </Shell>
   );
 }

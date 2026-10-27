@@ -96,6 +96,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
       verify={
         <Facts items={[
           { label: "Packet", value: packet.code, strong: true },
+          ...(packet.supplier_code ? [{ label: "Supplier label", value: packet.supplier_code }] : []),
           { label: "Part No.", value: part.part_no, strong: true },
           { label: "Description", value: part.part_name },
           { label: packet.kind === "UNIT" ? "Individual part" : "Packet qty (whole)", value: qtyText, strong: true },

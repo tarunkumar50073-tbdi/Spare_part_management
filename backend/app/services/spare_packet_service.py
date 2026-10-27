@@ -12,6 +12,17 @@ The store chose (27 Oct 2026):
   * packet or individual unit is chosen when the labels are made, receipt by
     receipt — "label banate waqt supervisor chune".
 
+And on 27 Oct 2026, later:
+  * the stock already on the shelf gets labels too, rack by rack — the Old
+    stock list (old_stock): count, pack, print. A receipt row from before the
+    receipts were first read is old stock, never a receipt to verify;
+  * a box that comes with the supplier's own QR / barcode gets no label of
+    ours — "uske qr/bar ko map karenge apne part k saath". If every box's code
+    differs, each box is a packet carrying that code (supplier_code: FIFO and
+    one issue, as our labels); if the code is the same on every box, a box
+    cannot be told apart, so the code is mapped to the part (Map to Part) and
+    the stock stays loose, issued by scanning it with a quantity.
+
 Invariants kept here and in SpareStockService:
   * a receipt's packets never hold more than it was verified at (nor than it
     received), and all AVAILABLE packets of a part never more than its on hand;
@@ -22,6 +33,7 @@ Invariants kept here and in SpareStockService:
     packets needs a recorded reason.
 """
 import math
+import re
 import secrets
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -31,8 +43,10 @@ from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
 from app.models.base import utcnow
+from app.models.app_setting import AppSetting
 from app.models.label_print_audit import LabelPrintAudit
 from app.models.part import Part
+from app.models.part_barcode import PartBarcode
 from app.models.receiving_register import ReceivingRegister
 from app.models.spare_packet import SpareBatch, SparePacket
 from app.models.spare_stock import SpareStock, SpareStockLedger
@@ -46,6 +60,18 @@ _ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"     # no 0 / O / 1 / I to misread
 MAX_PER_CALL = 500
 MAX_QTY = Decimal("1000000")
 PAGE_SIZE, MAX_PAGE_SIZE = 25, 100
+# When receipts started being kept (app_settings): the first time the receipts
+# were read. A receipt row from before is old stock on the shelf.
+SINCE_KEY = "spare_packets_receipts_since"
+SUPPLIER_CODE_MAX = 255
+# A box's code that is the same on every box (it names the part already, or two
+# boxes were scanned alike): the screen offers to map it to the part instead.
+SAME_CODE = "SAME_CODE"
+# The Old stock list's states: nothing labelled yet; some labelled, more left;
+# all of it labelled (or waiting in a receipt to be packed); and the part's
+# supplier code is mapped, so its loose stock scans as it is.
+OLD_TODO, OLD_PARTLY, OLD_DONE, OLD_RECEIPT, OLD_SUPPLIER = "TODO", "PARTLY", "DONE", "RECEIPT", "SUPPLIER"
+OLD_SHOW = {"todo": (OLD_TODO, OLD_PARTLY), "done": (OLD_DONE, OLD_RECEIPT, OLD_SUPPLIER)}
 
 
 def _token(n=8):
@@ -104,6 +130,17 @@ def normalize_code(code):
 
 def is_packet_code(code):
     return normalize_code(code).startswith(CODE_PREFIX)
+
+
+def rack_of(location):
+    """The rack a location is on — its first part: "R14-S1-B1 (2)" -> "R14"."""
+    text = (location or "").strip().upper()
+    return re.split(r"[-/ ]", text)[0] if text else "No location"
+
+
+def _natural(text):
+    """"R2" before "R10": the digits compared as numbers."""
+    return [(0, int(t), "") if t.isdigit() else (1, 0, t) for t in re.split(r"(\d+)", (text or "").upper()) if t]
 
 
 class SparePacketService:
@@ -175,15 +212,37 @@ class SparePacketService:
         db.session.flush()
         return receipt
 
+    @staticmethod
+    def receipts_since():
+        """When receipts started being kept on this database: saved the first
+        time it is asked (the receipts list's first read), or the first receipt
+        batch made, if that was earlier. Stock received before is old stock —
+        packed from the Old stock list, never a receipt to verify (it may be
+        long issued)."""
+        saved = AppSetting.get_value(SINCE_KEY)
+        if saved:
+            return datetime.fromisoformat(saved)
+        first = (db.session.query(func.min(SpareBatch.created_at))
+                 .filter(SpareBatch.source != "OPENING").scalar())
+        now = utcnow()
+        if first is not None and first.tzinfo is None:
+            first = first.replace(tzinfo=timezone.utc)
+        since = min(first, now) if first is not None else now
+        AppSetting.set_value(SINCE_KEY, since.isoformat(), "SYSTEM")
+        return since
+
     def sync_receipts(self, store_code):
         """A receipt for every RECEIPT ledger row of the store's parts that has
-        none yet — the ones posted before receipts existed, and any other
-        receipt row. Safe to run again and again (one receipt per ledger row)."""
+        none yet and came in since receipts are kept (receipts_since) — one an
+        ERP GRN post missed, or another receipt row. Safe to run again and
+        again (one receipt per ledger row)."""
+        since = self.receipts_since()
         missing = (SpareStockLedger.query
                    .join(Part, Part.id == SpareStockLedger.part_id)
                    .outerjoin(SpareBatch, SpareBatch.ledger_id == SpareStockLedger.id)
                    .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "RECEIPT",
-                           SpareStockLedger.qty_delta > 0, SpareBatch.id.is_(None))
+                           SpareStockLedger.qty_delta > 0, SpareBatch.id.is_(None),
+                           SpareStockLedger.created_at >= since)
                    .order_by(SpareStockLedger.id).limit(2000).all())
         made = 0
         for ledger in missing:
@@ -261,6 +320,8 @@ class SparePacketService:
         packets' quantities, and what stays loose. Nothing is written."""
         if receipt.verify_status not in ("VERIFIED", "MISMATCH"):
             raise BadRequestError("Verify the receipt physically first — labels come after the count")
+        if receipt.loose_note:
+            raise BadRequestError(f"This receipt is kept loose: {receipt.loose_note}")
         verified = float(receipt.verified_qty if receipt.verified_qty is not None else 0)
         packable = round(min(verified, float(receipt.qty)) - self._packed_of(receipt.id), 2)
         if packable <= 0:
@@ -291,16 +352,21 @@ class SparePacketService:
             raise BadRequestError(f"At most {MAX_PER_CALL} labels at a time")
         return {"packable": packable, "sizes": sizes, "loose_after": rest}
 
-    def pack(self, receipt_id, kind, packet_qty=None, count=None, last_smaller=False, user=None):
+    def pack(self, receipt_id, kind, packet_qty=None, count=None, last_smaller=False, user=None,
+             supplier_codes=None):
         """Make the receipt's packets (or individual units), each with its own
         QR code. Stock does not change: the packets are part of what is on
-        hand, never more than is loose."""
+        hand, never more than is loose. `supplier_codes`: the boxes came with
+        the supplier's own label — one code read off each box, in packet
+        order; no label of ours is printed for them."""
         kind = (kind or "").upper()
         receipt = self._receipt(receipt_id)
         with atomic():
             self._lock_stock(receipt.part_id)
             db.session.refresh(receipt)
             plan = self.plan(receipt, kind, packet_qty, count, last_smaller)
+            boxes = (self._box_codes(supplier_codes, len(plan["sizes"]), receipt.part)
+                     if supplier_codes is not None else None)
             total = float(sum(plan["sizes"]))
             figs = self.figures(receipt.part_id)
             if total > figs["loose"] + 1e-9:
@@ -311,11 +377,12 @@ class SparePacketService:
             seq = (db.session.query(func.coalesce(func.max(SparePacket.seq), 0))
                    .filter(SparePacket.batch_id == receipt.id).scalar() or 0)
             made = []
-            for size in plan["sizes"]:
+            for i, size in enumerate(plan["sizes"]):
                 seq += 1
                 p = SparePacket(code=self._new_code(), kind=kind, batch_id=receipt.id, part_id=receipt.part_id,
                                 seq=seq, qty=size, uom=receipt.uom or receipt.part.uom,
-                                location=receipt.part.location, status="AVAILABLE", created_by=_who(user))
+                                location=receipt.part.location, status="AVAILABLE", created_by=_who(user),
+                                supplier_code=boxes[i] if boxes else None)
                 db.session.add(p)
                 made.append(p)
             db.session.flush()
@@ -338,6 +405,300 @@ class SparePacketService:
                                       "can be cancelled")
         db.session.refresh(packet)
         return self.packet_dict(packet)
+
+    # ---- the supplier's own label ----------------------------------------------------------
+
+    @staticmethod
+    def _names_part(code):
+        """The part a whole read names today — an active mapping, a Part No. or
+        a part's own barcode — or None."""
+        from app.services.barcode_service import BarcodeService
+        bs = BarcodeService()
+        mapping = bs.pb_repo.get_active_by_code(code)
+        return mapping.part if mapping else bs.part_repo.get_by_scan_code(code)
+
+    def _code_problem(self, code, part):
+        """(message, same) when a box's code cannot be that box's own code:
+        `same` = it is the part's code (the same on every box: keep it loose)."""
+        if is_packet_code(code):
+            return "That is one of our packet labels (SPK-…), not the supplier's code", False
+        if len(code) > SUPPLIER_CODE_MAX:
+            return f"The code is longer than {SUPPLIER_CODE_MAX} characters", False
+        boxed = SparePacket.query.filter_by(supplier_code=code, status="AVAILABLE").first()
+        if boxed is not None:
+            return f"This code is already on packet {boxed.code} ({boxed.part.part_no}) on the shelf", False
+        named = self._names_part(code)
+        if named is not None:
+            if named.id == part.id:
+                return (f"This code is {part.part_no}'s own code (its Part No. or a code mapped to it) — the same on "
+                        "every box, so a box cannot be told apart. Keep the stock loose: it is issued by scanning "
+                        "this code with a quantity.", True)
+            return f"This code belongs to another part, {named.part_no}", False
+        return None, False
+
+    def check_box_code(self, part_id, code):
+        """What the screen says as each box's code is scanned: ok, or why not
+        (same = the part's own code, so keep the stock loose instead)."""
+        part = self._part(part_id)
+        code = (code or "").strip()
+        if not code:
+            raise BadRequestError("Scan the code on the box")
+        message, same = self._code_problem(code, part)
+        return {"code": code, "ok": message is None, "message": message, "same": same,
+                "fields": self._mappable(code)}
+
+    def _box_codes(self, codes, n, part):
+        """The boxes' codes, one per packet, each its box's own."""
+        codes = [str(c).strip() if c is not None else "" for c in (codes or [])]
+        if len(codes) != n or not all(codes):
+            raise BadRequestError(f"Scan the supplier's code on every box: {n} box{'es' if n != 1 else ''}, "
+                                  f"{sum(1 for c in codes if c)} scanned")
+        first = {}
+        for i, code in enumerate(codes):
+            if code in first:
+                raise BadRequestError(
+                    f"Box {i + 1} has the same code as box {first[code] + 1} — the supplier's code is the same on "
+                    "every box, so a box cannot be told apart. Keep the stock loose (the code is mapped to the "
+                    "part and issued with a quantity), or print our labels.",
+                    errors={"code": SAME_CODE, "scanned": code, "fields": self._mappable(code)})
+            first[code] = i
+            message, same = self._code_problem(code, part)
+            if message:
+                raise BadRequestError(f"Box {i + 1}: {message}",
+                                      errors={"code": SAME_CODE if same else "BAD_CODE", "scanned": code,
+                                              "fields": self._mappable(code)})
+        return codes
+
+    @staticmethod
+    def _mappable(code):
+        """What of a read can be mapped to a part: the whole read, and each of
+        its fields (a supplier QR "ITEM|LOT|QTY") — none longer than a mapping
+        holds."""
+        from app.services.barcode_service import SCAN_CODE_MAX, scan_fields
+        out = [code] if len(code) <= SCAN_CODE_MAX else []
+        out += [f for f in scan_fields(code) if f != code and len(f) <= SCAN_CODE_MAX]
+        return out
+
+    def keep_loose(self, part_id, scanned, map_code=None, receipt_id=None, user=None):
+        """The supplier's code is the same on every box: map it to the part, so
+        scanning it names the part (Map to Part) — the stock stays loose and is
+        issued with a quantity. A code that names the part already needs no
+        mapping; one naming another part is refused. With `receipt_id`, that
+        receipt is marked kept loose — nothing left to pack."""
+        from app.services.barcode_service import BarcodeService
+        part = self._part(part_id)
+        scanned = (scanned or "").strip()
+        if not scanned:
+            raise BadRequestError("Scan the code on the box")
+        if is_packet_code(scanned):
+            raise BadRequestError("That is one of our packet labels (SPK-…), not the supplier's code")
+        receipt = None
+        if receipt_id is not None:
+            receipt = self._receipt(receipt_id)
+            if receipt.part_id != part.id:
+                raise BadRequestError("That receipt is of another part")
+            if receipt.verify_status not in ("VERIFIED", "MISMATCH"):
+                raise BadRequestError("Verify the receipt physically first — labels come after the count")
+        bs = BarcodeService()
+        named = self._names_part(scanned)
+        if named is None:
+            field = bs._field_match(scanned)
+            named = self._names_part(field) if field else None
+        if named is not None and named.id != part.id:
+            raise BadRequestError(f"This code belongs to another part, {named.part_no} — it cannot be "
+                                  f"mapped to {part.part_no}")
+        mapped = None
+        with atomic():
+            if named is None:
+                fields = self._mappable(scanned)
+                # A read of one field maps as it is; of several (ITEM|LOT|QTY), the
+                # item code is picked — the whole read would change lot to lot.
+                choice = (map_code or "").strip() or (fields[0] if len(fields) == 1 else "")
+                if choice not in fields:
+                    raise BadRequestError("Pick the part's item code out of the scanned code",
+                                          errors={"code": "PICK_FIELD", "fields": fields})
+                bs.map_supplier_barcode(part.id, choice, user=_who(user))
+                mapped = choice
+            if receipt is not None:
+                shown = mapped or scanned
+                receipt.loose_note = (f"Supplier code {shown[:80]} is the same on every box — kept loose, "
+                                      "issued by scanning it with a quantity")[:255]
+        return {"mapped": mapped, "already": named is not None, "part": self._part_dict(part),
+                "receipt": self.receipt_dict(receipt) if receipt is not None else None}
+
+    def reopen(self, receipt_id):
+        """Undo keep_loose on a receipt: it can be packed again (the code stays mapped)."""
+        receipt = self._receipt(receipt_id)
+        with atomic():
+            receipt.loose_note = None
+        return self.receipt_dict(receipt)
+
+    # ---- old stock on the shelf -------------------------------------------------------------
+
+    def _old_figures(self, part_ids=None, store_code=None):
+        """{part id: (packed available, packets ever, waiting in receipts)} —
+        waiting = what open receipts (not OPENING, not kept loose) still have
+        to pack: that stock gets its labels in the Receipts tab."""
+        def scope(q, col):
+            if part_ids is not None:
+                return q.filter(col.in_(part_ids))
+            return q.join(Part, Part.id == col).filter(Part.store_code == store_code)
+
+        packed = dict(scope(db.session.query(SparePacket.part_id, func.sum(SparePacket.qty))
+                            .filter(SparePacket.status == "AVAILABLE"), SparePacket.part_id)
+                      .group_by(SparePacket.part_id).all())
+        ever = dict(scope(db.session.query(SparePacket.part_id, func.count(SparePacket.id))
+                          .filter(SparePacket.status != "CANCELLED"), SparePacket.part_id)
+                    .group_by(SparePacket.part_id).all())
+        in_batch = dict(scope(db.session.query(SparePacket.batch_id, func.sum(SparePacket.qty))
+                              .filter(SparePacket.status != "CANCELLED"), SparePacket.part_id)
+                        .group_by(SparePacket.batch_id).all())
+        waiting = {}
+        batches = scope(SpareBatch.query.filter(SpareBatch.source != "OPENING", SpareBatch.loose_note.is_(None)),
+                        SpareBatch.part_id).all()
+        for b in batches:
+            limit = float(b.qty) if b.verify_status == "PENDING" else min(float(b.verified_qty or 0), float(b.qty))
+            left = round(limit - float(in_batch.get(b.id) or 0), 2)
+            if left > 0:
+                waiting[b.part_id] = round(waiting.get(b.part_id, 0) + left, 2)
+        ids = set(packed) | set(ever) | set(waiting)
+        return {pid: (float(packed.get(pid) or 0), int(ever.get(pid) or 0), float(waiting.get(pid) or 0))
+                for pid in ids}
+
+    @staticmethod
+    def _old_row(on_hand, packed, ever, waiting, supplier):
+        loose = max(round(on_hand - packed, 2), 0.0)
+        wait = min(waiting, loose)
+        todo = round(loose - wait, 2)
+        if todo > 0:
+            state = OLD_PARTLY if ever else (OLD_SUPPLIER if supplier else OLD_TODO)
+        else:
+            state = OLD_RECEIPT if wait > 0 else OLD_DONE
+        return {"on_hand": _n(on_hand), "packed_available": _n(packed), "loose": _n(loose),
+                "waiting_in_receipts": _n(wait), "to_label": _n(todo), "packets_made": ever, "state": state}
+
+    def old_figures(self, part_id):
+        part = self._part(part_id)
+        packed, ever, waiting = self._old_figures([part.id]).get(part.id, (0.0, 0, 0.0))
+        supplier = PartBarcode.query.filter_by(part_id=part.id, source="SUPPLIER", is_active=True).first()
+        return self._old_row(self._on_hand(part.id), packed, ever, waiting, supplier is not None)
+
+    def old_stock(self, store_code, section_id=None, rack=None, q=None, show="todo", page=1, page_size=50):
+        """The Old stock list: every active part with stock on the shelf, rack
+        by rack (section, rack, location, Part No.), what of it has no label
+        yet (to_label = loose - what waits in a receipt) and its state, with
+        the progress of the section / rack picked. `show`: todo (nothing or
+        part labelled), done, or all."""
+        query = (db.session.query(Part, SpareStock.qty_on_hand)
+                 .join(SpareStock, SpareStock.part_id == Part.id)
+                 .filter(Part.store_code == store_code, Part.is_active.is_(True), SpareStock.qty_on_hand > 0))
+        if section_id not in (None, ""):
+            if not str(section_id).strip().isdigit():
+                raise BadRequestError("section_id must be a whole number")
+            query = query.filter(Part.section_id == int(section_id))
+        text = (q or "").strip()
+        if text:
+            like = f"%{text}%"
+            query = query.filter(or_(Part.part_no.ilike(like), Part.part_name.ilike(like),
+                                     Part.location.ilike(like), Part.specification.ilike(like)))
+        found = query.all()
+        figs = self._old_figures(store_code=store_code)
+        supplier = {pid for (pid,) in db.session.query(PartBarcode.part_id)
+                    .join(Part, Part.id == PartBarcode.part_id)
+                    .filter(Part.store_code == store_code, PartBarcode.source == "SUPPLIER",
+                            PartBarcode.is_active.is_(True)).distinct()}
+        sections = {s.id: s.name for s in Section.query.all()}
+        rows, racks = [], {}
+        wanted_rack = (rack or "").strip().upper() or None
+        for part, on_hand in found:
+            packed, ever, waiting = figs.get(part.id, (0.0, 0, 0.0))
+            row = self._old_row(float(on_hand or 0), packed, ever, waiting, part.id in supplier)
+            r = rack_of(part.location)
+            tally = racks.setdefault(r, {"rack": r, "parts": 0, "to_do": 0})
+            tally["parts"] += 1
+            tally["to_do"] += row["state"] in OLD_SHOW["todo"]
+            if wanted_rack and r != wanted_rack:
+                continue
+            rows.append({"part": {"id": part.id, "part_no": part.part_no, "part_name": part.part_name,
+                                  "uom": part.uom, "location": part.location,
+                                  "section": sections.get(part.section_id), "section_id": part.section_id},
+                         "rack": r, **row})
+        rows.sort(key=lambda x: ((x["part"]["section"] or "~").lower(), _natural(x["rack"]),
+                                 _natural(x["part"]["location"]), x["part"]["part_no"] or ""))
+        summary = {"parts": len(rows),
+                   "to_do": sum(1 for x in rows if x["state"] == OLD_TODO),
+                   "partly": sum(1 for x in rows if x["state"] == OLD_PARTLY),
+                   "done": sum(1 for x in rows if x["state"] in OLD_SHOW["done"]),
+                   "qty_to_label": _n(round(sum(x["to_label"] for x in rows), 2))}
+        if show in OLD_SHOW:
+            rows = [x for x in rows if x["state"] in OLD_SHOW[show]]
+        size = max(1, min(int(page_size or 50), MAX_PAGE_SIZE))
+        page = max(1, int(page or 1))
+        return {"rows": rows[(page - 1) * size: page * size], "total": len(rows), "page": page,
+                "pages": -(-len(rows) // size), "page_size": size, "summary": summary,
+                "racks": sorted(racks.values(), key=lambda t: _natural(t["rack"]))}
+
+    @staticmethod
+    def old_stock_sections(store_code):
+        """[{id, name}] of the sections holding the store's shelf stock."""
+        rows = (db.session.query(Section.id, Section.name)
+                .join(Part, Part.section_id == Section.id)
+                .join(SpareStock, SpareStock.part_id == Part.id)
+                .filter(Part.store_code == store_code, Part.is_active.is_(True), SpareStock.qty_on_hand > 0)
+                .distinct().all())
+        return [{"id": i, "name": n} for i, n in sorted(rows, key=lambda r: (r[1] or "").lower())]
+
+    def _old_plan(self, part, counted, kind, packet_qty, last_smaller):
+        """How `counted` of the part's unlabelled shelf stock would be packed —
+        a plan of an opening batch not yet made."""
+        figs = self.old_figures(part.id)
+        if float(counted) > figs["to_label"] + 1e-9:
+            wait = figs["waiting_in_receipts"]
+            raise BadRequestError(
+                f"Counted {_n(counted)} but the app has {figs['to_label']:g} {part.uom or ''} of {part.part_no} "
+                f"without a label (on hand {figs['on_hand']:g}, in packets {figs['packed_available']:g}"
+                + (f", waiting in receipts {wait:g}" if wait else "")
+                + ") — put the extra stock right first (stock count), then label it")
+        draft = SpareBatch(verify_status="VERIFIED", verified_qty=counted, qty=counted, part_id=part.id)
+        return self.plan(draft, kind, packet_qty, None, last_smaller), figs
+
+    def old_stock_plan(self, part_id, counted_qty, kind, packet_qty=None, last_smaller=False):
+        part = self._part(part_id)
+        counted = _qty(counted_qty, "Counted on the shelf")
+        plan, figs = self._old_plan(part, counted, (kind or "").upper(), packet_qty, last_smaller)
+        return {"figures": figs, **self._plan_out(plan)}
+
+    @staticmethod
+    def _plan_out(plan):
+        sizes = plan["sizes"]
+        last = sizes[-1] if len(sizes) > 1 and sizes[-1] != sizes[0] else None
+        return {"packable": _n(plan["packable"]), "count": len(sizes), "packet_qty": _n(sizes[0]),
+                "last_qty": _n(last), "total": _n(sum(sizes)), "loose_after": _n(plan["loose_after"])}
+
+    def old_stock_pack(self, part_id, counted_qty, kind, packet_qty=None, last_smaller=False, user=None,
+                       supplier_codes=None, remarks=None):
+        """Label old stock: what was counted on the shelf is packed as an
+        OPENING batch of exactly what goes into packets (so nothing of it is
+        left "to pack" in the Receipts tab); the rest stays loose. No stock
+        moves."""
+        part = self._part(part_id)
+        counted = _qty(counted_qty, "Counted on the shelf")
+        kind = (kind or "").upper()
+        with atomic():
+            self._lock_stock(part.id)
+            plan, _ = self._old_plan(part, counted, kind, packet_qty, last_smaller)
+            sizes = plan["sizes"]
+            smaller = len(sizes) > 1 and sizes[-1] != sizes[0]
+            note = _text(remarks, 120, "Remarks")
+            opening = self.opening_receipt(
+                part.id, sum(sizes), user=user,
+                remarks=f"Old stock on the shelf: counted {_n(counted)}, packed {_n(sum(sizes))}"
+                        + (f" — {note}" if note else ""))
+            out = self.pack(opening["id"], kind, packet_qty=sizes[0], count=len(sizes) - smaller,
+                            last_smaller=smaller, user=user, supplier_codes=supplier_codes)
+        out["counted"] = _n(counted)
+        out["figures"] = self.old_figures(part.id)
+        return out
 
     # ---- FIFO and issue ---------------------------------------------------------------------
 
@@ -505,6 +866,7 @@ class SparePacketService:
             like = f"%{text}%"
             query = query.filter(or_(Part.part_no.ilike(like), Part.part_name.ilike(like),
                                      SparePacket.code.ilike(like), SpareBatch.receipt_no.ilike(like),
+                                     SparePacket.supplier_code.ilike(like),
                                      SpareBatch.grn_no.ilike(like), SparePacket.department.ilike(like),
                                      SparePacket.issued_to.ilike(like)))
         order = ((SparePacket.issued_at.desc(), SparePacket.id.desc()) if issued else
@@ -552,14 +914,14 @@ class SparePacketService:
         issued_qty = float(db.session.query(func.coalesce(func.sum(SparePacket.qty), 0))
                            .filter(SparePacket.batch_id == r.id, SparePacket.status == "ISSUED").scalar() or 0)
         verified = float(r.verified_qty) if r.verified_qty is not None else None
-        limit = min(verified, float(r.qty)) if verified is not None else 0.0
+        limit = min(verified, float(r.qty)) if verified is not None and not r.loose_note else 0.0
         return {
             "id": r.id, "receipt_no": r.receipt_no, "source": r.source, "store_code": r.store_code,
             "part": SparePacketService._part_dict(r.part), "received_on": _iso(r.received_on),
             "qty": _n(r.qty), "uom": r.uom or r.part.uom, "grn_no": r.grn_no, "gate_entry_no": r.gate_entry_no,
             "gate_entry_dt": _iso(r.gate_entry_dt), "invoice_no": r.invoice_no, "supplier_name": r.supplier_name,
             "verify_status": r.verify_status, "verified_qty": _n(r.verified_qty), "verified_by": r.verified_by,
-            "verified_at": _iso(r.verified_at), "verify_remarks": r.verify_remarks,
+            "verified_at": _iso(r.verified_at), "verify_remarks": r.verify_remarks, "loose_note": r.loose_note,
             "packed_qty": _n(packed), "issued_qty": _n(issued_qty),
             "to_pack": _n(round(max(limit - packed, 0), 2)),
             "packets": {"available": counts.get("AVAILABLE", 0), "issued": counts.get("ISSUED", 0),
@@ -574,7 +936,8 @@ class SparePacketService:
         r = p.batch
         return {
             "id": p.id, "code": p.code, "kind": p.kind, "seq": p.seq, "qty": _n(p.qty), "uom": p.uom,
-            "location": p.location, "status": p.status, "part": SparePacketService._part_dict(p.part),
+            "location": p.location, "status": p.status, "supplier_code": p.supplier_code,
+            "part": SparePacketService._part_dict(p.part),
             "receipt": {"id": r.id, "receipt_no": r.receipt_no, "source": r.source, "received_on": _iso(r.received_on),
                         "grn_no": r.grn_no, "gate_entry_no": r.gate_entry_no, "supplier_name": r.supplier_name},
             "created_by": p.created_by, "created_at": _iso(p.created_at),
@@ -593,6 +956,13 @@ class SparePacketService:
         if r is None:
             raise NotFoundError(f"Receipt {receipt_id} not found")
         return r
+
+    @staticmethod
+    def _part(part_id):
+        part = db.session.get(Part, int(part_id)) if str(part_id).strip().isdigit() else None
+        if part is None or not part.is_active:
+            raise NotFoundError(f"Part {part_id} not found")
+        return part
 
     @staticmethod
     def _packet(code):

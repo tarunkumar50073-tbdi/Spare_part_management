@@ -187,6 +187,12 @@ class BarcodeService:
         from app.services.spare_packet_service import is_packet_code, normalize_code
         if is_packet_code(code):
             return self._resolve_packet(store_code, normalize_code(code), scan_source, scan_mode, user)
+        # A box that came with the supplier's own label is a packet carrying that
+        # code (27 Oct 2026): the whole read, exactly as scanned, names it — the
+        # one on the shelf, else the last one issued (so a second scan says so).
+        boxed = self._boxed_packet(code)
+        if boxed is not None:
+            return self._resolve_packet(store_code, boxed.code, scan_source, scan_mode, user, scanned=code)
 
         # A bin sheet QR ends in " | description" since 17 Oct 2026 (the store: a
         # scan should say what the part is); only the text before it names the
@@ -267,14 +273,24 @@ class BarcodeService:
         payload.update(self._data_status(part))
         return payload
 
-    def _resolve_packet(self, store_code, code, scan_source, scan_mode, user):
-        """A packet QR: the packet's part as any scan returns it, plus `packet`
-        (its quantity, receipt, status and FIFO standing). An unknown packet
-        code is FAILED, not UNKNOWN_BARCODE — it must never be offered "Map to
-        Part"."""
+    @staticmethod
+    def _boxed_packet(code):
+        """The packet whose box carries this supplier code, or None."""
+        from app.models.spare_packet import SparePacket
+        from sqlalchemy import case
+        return (SparePacket.query.filter(SparePacket.supplier_code == code, SparePacket.status != "CANCELLED")
+                .order_by(case((SparePacket.status == "AVAILABLE", 0), else_=1), SparePacket.id.desc()).first())
+
+    def _resolve_packet(self, store_code, code, scan_source, scan_mode, user, scanned=None):
+        """A packet QR (or a box's supplier code, `scanned`): the packet's part
+        as any scan returns it, plus `packet` (its quantity, receipt, status and
+        FIFO standing). An unknown packet code is FAILED, not UNKNOWN_BARCODE —
+        it must never be offered "Map to Part"."""
         from app.models.spare_packet import SparePacket
         from app.services.spare_packet_service import SparePacketService
         packet = SparePacket.query.filter_by(code=code).first()
+        if scanned is not None:
+            code = scanned[:SCAN_CODE_MAX]          # the audit keeps what was read, at its width
         if packet is None:
             self._audit(code, "FAILED", scan_source, scan_mode, user, store_code)
             raise self._scan_failure(NotFoundError, f"No packet found for '{code}'", "FAILED", code)
@@ -289,12 +305,12 @@ class BarcodeService:
                 NotFoundError, f"Part '{part.part_no}' is inactive", "INACTIVE_PART", code)
         audit = self._audit(code, "SUCCESS", scan_source, scan_mode, user, store_code, part_id=part.id)
         payload = self.spare_service.get_for_part(part.id)
-        payload["scanned_code"] = code
+        payload["scanned_code"] = scanned or code
         payload["resolved_by"] = "PACKET"
         payload["scan_mode"] = scan_mode
         payload["scan_id"] = audit.id
         payload.update(self._data_status(part))
-        payload["packet"] = SparePacketService().get(code)
+        payload["packet"] = SparePacketService().get(packet.code)
         return payload
 
     def _field_match(self, code):

@@ -13,6 +13,7 @@ import pytest
 
 from app.extensions import db
 from app.models.app_setting import AppSetting
+from app.models.base import utcnow
 from app.models.label_print_audit import LabelPrintAudit
 from app.models.part import Part
 from app.models.receiving_register import ReceivingRegister
@@ -309,3 +310,157 @@ def test_api_rights_and_a_packet_issue_takes_no_quantity(app):
     assert c.post(f"/api/v1/spare-packets/packets/{pa[0]['code']}/issue",
                   json={"department": DEPT, "issued_to": "Ravi"}).status_code == 400
     assert _on_hand(p) == 280
+
+
+# ---- old stock on the shelf, rack by rack (27 Oct 2026) ---------------------------------------------
+
+def _old_part(qty, location, tag):
+    p = _part(qty, name=f"OLDSTK {tag}")
+    p.location = location
+    db.session.commit()
+    return p
+
+
+def test_old_stock_is_listed_rack_by_rack_and_labelled_in_one_step():
+    tag = f"T{_seq['n']}"
+    far = _old_part(7, "R10-S1-B1", tag)
+    near = _old_part(50, "R2-S3-B4", tag)
+    out = svc.old_stock(STORE, q=f"OLDSTK {tag}")
+    assert [(r["part"]["id"], r["rack"], r["state"], r["to_label"]) for r in out["rows"]] == [
+        (near.id, "R2", "TODO", 50), (far.id, "R10", "TODO", 7)]               # R2 before R10
+    assert out["summary"] == {"parts": 2, "to_do": 2, "partly": 0, "done": 0, "qty_to_label": 57}
+    assert [r["part"]["id"] for r in svc.old_stock(STORE, q=f"OLDSTK {tag}", rack="r10")["rows"]] == [far.id]
+
+    plan = svc.old_stock_plan(near.id, 50, "PACKET", packet_qty=20)
+    assert (plan["count"], plan["total"], plan["loose_after"]) == (2, 40, 10)
+    made = svc.old_stock_pack(near.id, 50, "PACKET", packet_qty=20, last_smaller=True, user="sup")
+    assert [x["qty"] for x in made["packets"]] == [20, 20, 10]
+    batch = db.session.get(SpareBatch, made["packets"][0]["receipt"]["id"])
+    assert (batch.source, float(batch.qty), batch.verify_status) == ("OPENING", 50, "VERIFIED")
+    assert batch.received_on == COUNTED_ON.astimezone().date()                 # the shelf's count date: oldest
+    assert made["figures"]["state"] == "DONE" and _on_hand(near) == 50         # labelling moved no stock
+
+    with pytest.raises(BadRequestError, match="Counted 9 but the app has 7"):
+        svc.old_stock_pack(far.id, 9, "UNIT", user="sup")
+    made = svc.old_stock_pack(far.id, 5, "UNIT", user="sup")                   # the shelf had less
+    assert len(made["packets"]) == 5 and made["figures"]["to_label"] == 2
+    assert made["figures"]["state"] == "PARTLY"
+    done = svc.old_stock(STORE, q=f"OLDSTK {tag}", show="done")["rows"]
+    assert [r["part"]["id"] for r in done] == [near.id]
+    # The opening batch is exactly what was packed: nothing of it waits "to pack" as a receipt.
+    assert svc.receipt_dict(batch)["to_pack"] == 0
+
+
+def test_a_receipt_waiting_to_be_packed_is_not_old_stock():
+    tag = f"T{_seq['n']}"
+    p = _old_part(0, "R5-S1-B1", tag)
+    _receive(p, "GRN-OLD1", date(2026, 10, 26), 30)
+    row = svc.old_stock(STORE, q=f"OLDSTK {tag}", show="all")["rows"][0]
+    assert (row["on_hand"], row["waiting_in_receipts"], row["to_label"], row["state"]) == (30, 30, 0, "RECEIPT")
+    with pytest.raises(BadRequestError, match="waiting in receipts 30"):
+        svc.old_stock_plan(p.id, 30, "PACKET", packet_qty=10)
+
+
+def test_receipt_rows_from_before_receipts_were_kept_stay_old_stock():
+    p = _part()
+    a = _receive(p, "GRN-SINCE1", date(2026, 10, 26), 10)
+    since = svc.receipts_since()
+    ledger = db.session.get(SpareStockLedger, a.ledger_id)
+    db.session.delete(a)
+    ledger.created_at = datetime(2026, 9, 2, tzinfo=timezone.utc)              # long before
+    db.session.commit()
+    svc.sync_receipts(STORE)
+    assert SpareBatch.query.filter_by(ledger_id=ledger.id).first() is None
+    ledger.created_at = max(utcnow(), since)                                   # one the GRN post missed
+    db.session.commit()
+    svc.sync_receipts(STORE)
+    assert SpareBatch.query.filter_by(ledger_id=ledger.id).count() == 1
+
+
+# ---- the supplier's own label on the box (27 Oct 2026) ----------------------------------------------
+
+def _verified(qty, grn):
+    p = _part()
+    r = _receive(p, grn, date(2026, 10, 26), qty)
+    svc.verify(r.id, qty, user="sup")
+    return p, r
+
+
+def test_boxes_with_their_own_supplier_codes_are_packets_that_scan_as_themselves():
+    p, r = _verified(60, "GRN-BOX1")
+    boxes = [f"BOLTCO|{p.part_no}X|LOT9|BOX{i}" for i in (1, 2, 3)]
+    with pytest.raises(BadRequestError, match="3 boxes, 2 scanned"):
+        svc.pack(r.id, "PACKET", packet_qty=20, supplier_codes=boxes[:2])
+    with pytest.raises(BadRequestError, match="Box 3 has the same code as box 1") as exc:
+        svc.pack(r.id, "PACKET", packet_qty=20, supplier_codes=[boxes[0], boxes[1], boxes[0]])
+    assert exc.value.errors["code"] == "SAME_CODE"
+    with pytest.raises(BadRequestError, match="own code") as exc:
+        svc.pack(r.id, "PACKET", packet_qty=20, supplier_codes=[boxes[0], boxes[1], p.part_no])
+    assert exc.value.errors["code"] == "SAME_CODE"
+    made = svc.pack(r.id, "PACKET", packet_qty=20, supplier_codes=boxes, user="sup")["packets"]
+    assert [x["supplier_code"] for x in made] == boxes and all(x["code"].startswith("SPK-") for x in made)
+
+    out = BarcodeService().resolve(STORE, f"  {boxes[1]} ", user="tester")
+    assert out["resolved_by"] == "PACKET" and out["packet"]["code"] == made[1]["code"]
+    assert out["scanned_code"] == boxes[1]
+    assert svc.check_box_code(p.id, boxes[1])["ok"] is False                   # on a box on the shelf already
+    _issue(made[0]["code"])
+    again = BarcodeService().resolve(STORE, boxes[0], user="tester")["packet"]
+    assert again["status"] == "ISSUED"                                         # a second scan says so
+    assert _on_hand(p) == 40
+
+
+def test_the_same_code_on_every_box_is_mapped_to_the_part_and_the_receipt_kept_loose():
+    p, r = _verified(40, "GRN-SAME1")
+    code = f"VENDOR-{p.part_no}-77"
+    assert svc.check_box_code(p.id, code) == {"code": code, "ok": True, "message": None, "same": False,
+                                             "fields": [code]}
+    out = svc.keep_loose(p.id, code, receipt_id=r.id, user="sup")
+    assert (out["mapped"], out["already"], out["receipt"]["to_pack"]) == (code, False, 0)
+    assert "kept loose" in out["receipt"]["loose_note"]
+    with pytest.raises(BadRequestError, match="kept loose"):
+        svc.plan(db.session.get(SpareBatch, r.id), "PACKET", packet_qty=10)
+    scan = BarcodeService().resolve(STORE, code, user="tester")
+    assert (scan["part_id"], scan["resolved_by"], scan.get("packet")) == (p.id, "SUPPLIER", None)
+    assert svc.check_box_code(p.id, code)["same"] is True
+    assert svc.keep_loose(p.id, code, user="sup")["already"] is True           # nothing more to map
+    assert svc.reopen(r.id)["to_pack"] == 40
+
+    # A supplier QR of several fields: its item code is picked, never the whole read.
+    q, _ = _verified(10, "GRN-SAME2")
+    item = f"ITM{q.part_no}"
+    with pytest.raises(BadRequestError, match="Pick the part's item code") as exc:
+        svc.keep_loose(q.id, f"{item}|LOT5|10")
+    assert exc.value.errors["fields"] == [f"{item}|LOT5|10", item, "LOT5"]
+    svc.keep_loose(q.id, f"{item}|LOT5|10", map_code=item, user="sup")
+    assert BarcodeService().resolve(STORE, f"{item}|LOT6|25", user="tester")["part_id"] == q.id
+    with pytest.raises(BadRequestError, match="belongs to another part"):
+        svc.keep_loose(p.id, item)
+
+
+def test_old_stock_and_supplier_code_api_rights(app):
+    tag = f"T{_seq['n']}"
+    p = _old_part(12, "R7-S1-B1", tag)
+    viewer = _user({"spare_packets": {"view": True}})
+    maker = _user({"spare_packets": {"view": True, "create": True}})
+    c = app.test_client()
+
+    def as_(u):
+        with c.session_transaction() as s:
+            s["user_id"] = u.id
+
+    as_(viewer)
+    body = c.get("/api/v1/spare-packets/old-stock",
+                 query_string={"store_code": STORE, "q": f"OLDSTK {tag}"}).get_json()["data"]
+    assert [r["part"]["id"] for r in body["rows"]] == [p.id] and isinstance(body["sections"], list)
+    assert c.post(f"/api/v1/spare-packets/old-stock/{p.id}/plan",
+                  json={"counted_qty": 12, "kind": "PACKET", "packet_qty": 6}).get_json()["data"]["count"] == 2
+    assert c.post(f"/api/v1/spare-packets/old-stock/{p.id}/pack",
+                  json={"counted_qty": 12, "kind": "PACKET", "packet_qty": 6}).status_code == 403
+    assert c.post(f"/api/v1/spare-packets/parts/{p.id}/keep-loose", json={"code": "ZZ-1"}).status_code == 403
+    as_(maker)
+    r = c.post(f"/api/v1/spare-packets/old-stock/{p.id}/pack",
+               json={"counted_qty": 12, "kind": "PACKET", "packet_qty": 6, "supplier_codes": [f"B-{tag}-1", f"B-{tag}-2"]})
+    assert r.status_code == 201 and "nothing to print" in r.get_json()["message"]
+    assert c.post(f"/api/v1/spare-packets/old-stock/{p.id}/pack",
+                  json={"counted_qty": 1, "kind": "UNIT", "supplier_codes": "B-3"}).status_code == 400

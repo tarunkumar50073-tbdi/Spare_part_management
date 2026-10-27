@@ -9,7 +9,8 @@ OPENING batch made from stock already on the shelf. Its received_on (the GRN
 date) is the FIFO key, never the day a label was printed. The supervisor
 verifies it physically before any label is made.
 
-A PACKET is what one QR label stands for: a packet of small parts (packet qty
+A PACKET is what one QR label stands for (or, when the box came with the
+supplier's own QR / barcode, that code — supplier_code): a packet of small parts (packet qty
 chosen when it is made — never a fixed 20) or one individually tracked unit
 (kind UNIT, qty 1). Making packets and printing labels never change stock:
 stock came in once, with the receipt; a packet only says where part of it is.
@@ -57,6 +58,10 @@ class SpareBatch(BaseModel):
     verified_by = db.Column(db.String(60), nullable=True)
     verified_at = db.Column(db.DateTime(timezone=True), nullable=True)
     verify_remarks = db.Column(db.String(255), nullable=True)
+    # Left loose on purpose: the supplier's code is the same on every box, so a
+    # box cannot be told apart — the code was mapped to the part and the stock
+    # is issued by scanning it with a quantity. Nothing is left to pack.
+    loose_note = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(60), nullable=True)
 
     part = db.relationship("Part", lazy="joined")
@@ -80,6 +85,10 @@ class SparePacket(BaseModel):
     uom = db.Column(db.String(10), nullable=True)
     location = db.Column(db.String(60), nullable=True)                # the part's location when made
     status = db.Column(db.String(10), nullable=False, default="AVAILABLE", index=True)
+    # The box came with the supplier's own QR / barcode, so no label of ours was
+    # printed: the code read off that box, which scans as this packet. Never
+    # shared by two packets that are not cancelled.
+    supplier_code = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(60), nullable=True)
     # Issued: the whole packet, once, with the ISSUE ledger row it made.
     issued_at = db.Column(db.DateTime(timezone=True), nullable=True)

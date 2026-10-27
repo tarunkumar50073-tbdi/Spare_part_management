@@ -12,7 +12,17 @@ GET    /receipts                   store_code, status (PENDING | TO_PACK | PACKE
 POST   /receipts/opening           store_code, part_id, qty, remarks — a batch of stock already on the shelf
 POST   /receipts/<id>/verify       counted_qty, remarks
 POST   /receipts/<id>/plan         kind, packet_qty, count, last_smaller — what would be made (nothing written)
-POST   /receipts/<id>/pack         kind, packet_qty, count, last_smaller
+POST   /receipts/<id>/pack         kind, packet_qty, count, last_smaller, supplier_codes (one per box,
+                                   when the boxes carry the supplier's own label — nothing to print)
+POST   /receipts/<id>/reopen       a receipt kept loose can be packed again (update)
+GET    /old-stock                  store_code, section_id, rack, q, show (todo | done | all), page, page_size
+                                   — the shelf stock still without a label, rack by rack
+GET    /old-stock/<part_id>        one part's figures (on hand, in packets, waiting in receipts, to label)
+POST   /old-stock/<part_id>/plan   counted_qty, kind, packet_qty, last_smaller — nothing written
+POST   /old-stock/<part_id>/pack   counted_qty, kind, packet_qty, last_smaller, supplier_codes, remarks
+POST   /parts/<part_id>/box-code   code — can this supplier code be its box's own? (nothing written)
+POST   /parts/<part_id>/keep-loose code, map_code, receipt_id — the supplier code is the same on every
+                                   box: map it to the part (Map to Part); the stock stays loose
 GET    /parts                      store_code, q — parts with their loose quantity (for an opening batch)
 GET    /parts/<part_id>/fifo       the part's available packets in issue order
 GET    /packets                    store_code, status, q, page, page_size
@@ -77,6 +87,31 @@ def _packet(code):
     return p
 
 
+def _part(part_id):
+    part = db.session.get(Part, part_id)
+    if part is None:
+        raise NotFoundError(f"Part {part_id} not found")
+    require_store_access(part.store_code)
+    return part
+
+
+def _codes(data):
+    codes = data.get("supplier_codes")
+    if codes is None:
+        return None
+    if not isinstance(codes, list):
+        raise BadRequestError("supplier_codes must be a list — one code per box")
+    return codes
+
+
+def _made(out):
+    n = len(out["packets"])
+    word = "label" if out["packets"] and out["packets"][0]["kind"] == "UNIT" else "packet"
+    if out["packets"] and out["packets"][0].get("supplier_code"):
+        return f"{n} {word}{'s' if n != 1 else ''} made — the supplier's labels are on them, nothing to print"
+    return f"{n} {word}{'s' if n != 1 else ''} made — print their QR labels"
+
+
 def _page():
     return request.args.get("page", 1, type=int), request.args.get("page_size", 25, type=int)
 
@@ -132,11 +167,84 @@ def plan(receipt_id):
 @permission_required(RIGHT, "create")
 def pack(receipt_id):
     r = _receipt(receipt_id)
-    out = service.pack(receipt_id, user=_who(), **_plan_args(_body()))
-    n = len(out["packets"])
-    word = "label" if out["packets"] and out["packets"][0]["kind"] == "UNIT" else "packet"
+    data = _body()
+    out = service.pack(receipt_id, user=_who(), supplier_codes=_codes(data), **_plan_args(data))
     publish("stock", {"part_id": r.part_id, "action": "pack"})
-    return success_response(out, f"{n} {word}{'s' if n != 1 else ''} made — print their QR labels", status_code=201)
+    return success_response(out, _made(out), status_code=201)
+
+
+@bp.route("/receipts/<int:receipt_id>/reopen", methods=["POST"])
+@permission_required(RIGHT, "update")
+def reopen(receipt_id):
+    _receipt(receipt_id)
+    return success_response(service.reopen(receipt_id), "The receipt can be packed again")
+
+
+@bp.route("/old-stock", methods=["GET"])
+@permission_required(RIGHT, "view")
+def old_stock():
+    page = request.args.get("page", 1, type=int)
+    size = request.args.get("page_size", 50, type=int)
+    store = _store()
+    out = service.old_stock(store, section_id=request.args.get("section_id"), rack=request.args.get("rack"),
+                            q=request.args.get("q"), show=(request.args.get("show") or "todo").lower(),
+                            page=page, page_size=size)
+    out["sections"] = service.old_stock_sections(store)
+    return success_response(out)
+
+
+@bp.route("/old-stock/<int:part_id>", methods=["GET"])
+@permission_required(RIGHT, "view")
+def old_stock_part(part_id):
+    part = _part(part_id)
+    return success_response({"part": service._part_dict(part), **service.old_figures(part.id)})
+
+
+def _old_args(data):
+    return dict(kind=(data.get("kind") or "").upper(), packet_qty=data.get("packet_qty"),
+                last_smaller=bool(data.get("last_smaller")))
+
+
+@bp.route("/old-stock/<int:part_id>/plan", methods=["POST"])
+@permission_required(RIGHT, "view")
+def old_stock_plan(part_id):
+    part = _part(part_id)
+    data = _body()
+    return success_response(service.old_stock_plan(part.id, data.get("counted_qty"), **_old_args(data)))
+
+
+@bp.route("/old-stock/<int:part_id>/pack", methods=["POST"])
+@permission_required(RIGHT, "create")
+def old_stock_pack(part_id):
+    part = _part(part_id)
+    data = _body()
+    out = service.old_stock_pack(part.id, data.get("counted_qty"), user=_who(), supplier_codes=_codes(data),
+                                 remarks=data.get("remarks"), **_old_args(data))
+    publish("stock", {"part_id": part.id, "action": "pack"})
+    return success_response(out, _made(out), status_code=201)
+
+
+@bp.route("/parts/<int:part_id>/box-code", methods=["POST"])
+@permission_required(RIGHT, "view")
+def box_code(part_id):
+    part = _part(part_id)
+    return success_response(service.check_box_code(part.id, _body().get("code")))
+
+
+@bp.route("/parts/<int:part_id>/keep-loose", methods=["POST"])
+@permission_required(RIGHT, "create")
+def keep_loose(part_id):
+    part = _part(part_id)
+    data = _body()
+    receipt_id = data.get("receipt_id")
+    if receipt_id is not None:
+        _receipt(receipt_id)
+    out = service.keep_loose(part.id, data.get("code"), map_code=data.get("map_code"), receipt_id=receipt_id,
+                             user=_who())
+    shown = out["mapped"]
+    return success_response(out, (f"Supplier code {shown} mapped to {out['part']['part_no']}" if shown else
+                                  f"The code already names {out['part']['part_no']}")
+                            + " — the stock stays loose; scan the code and enter the quantity to issue")
 
 
 @bp.route("/parts", methods=["GET"])
