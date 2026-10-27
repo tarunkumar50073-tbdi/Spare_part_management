@@ -339,3 +339,21 @@ def test_a_discontinued_part_needs_no_levels():
         rows = DataQualityService().parts(STORE, key, section_id=sec.id)
         ids = {r["part_id"] for r in (rows["rows"] if isinstance(rows, dict) else rows)}
         assert live.id in ids and gone.id not in ids, key
+
+
+def test_a_reorder_level_of_0_is_the_stores_choice_not_a_fault():
+    """27 Oct 2026: "jinke reorder 0 h wo 0 hi rhenge" — a 0 reorder level is
+    listed for reference (info), never under Reorder outside min-max."""
+    n = _next()
+    store = Store.query.filter_by(code=STORE).first()
+    sec = Section(store_id=store.id, name=f"DQ Zero Section {n}")
+    db.session.add(sec)
+    db.session.commit()
+    zero = _part(sec, "ZERO", 1, min_stock_level=2, reorder_level=0, max_stock_level=4, unit_price=1)
+    low = _part(sec, "LOW", 1, min_stock_level=2, reorder_level=1, max_stock_level=4, unit_price=1)
+    c = _hits(DataQualityService().summary(STORE, section_id=sec.id))
+    assert c["zero_reorder"]["severity"] == "info" and c["zero_reorder"]["count"] == 1
+    rows = DataQualityService().parts(STORE, "reorder_outside_min_max", section_id=sec.id)
+    ids = {r["part_id"] for r in (rows["rows"] if isinstance(rows, dict) else rows)}
+    assert ids == {low.id} and zero.id not in ids
+

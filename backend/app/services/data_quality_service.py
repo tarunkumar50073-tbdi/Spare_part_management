@@ -35,9 +35,11 @@ CHECKS = (
     ("missing_reorder", "No reorder level", "warning", "reorder_level",
      "No reorder level, so the part never shows the Reorder status. A reorder level of 0 is "
      "listed under \"Reorder level is 0\"."),
-    ("zero_reorder", "Reorder level is 0", "warning", "reorder_level",
-     "Reorder level is stored as 0. Stock status ignores a 0, so the part never shows Reorder. "
-     "It counts as filled in the completeness figure (the dashboard's rule)."),
+    # The store keeps a reorder level of 0 on purpose where it has one (27 Oct
+    # 2026: "jinke reorder 0 h wo 0 hi rhenge"): listed for reference, not a fault.
+    ("zero_reorder", "Reorder level is 0", "info", "reorder_level",
+     "Reorder level is 0 — kept 0 on purpose by the store, so the part never shows the Reorder status "
+     "(Below Minimum still shows). Listed for reference only."),
     ("missing_rate", "No rate", "warning", "unit_price",
      "No rate, so the part's stock cannot be valued. A rate of 0 is listed under \"Rate is 0\"."),
     ("zero_rate", "Rate is 0", "warning", "unit_price",
@@ -48,7 +50,8 @@ CHECKS = (
     ("never_counted", "Never counted", "warning", None,
      "No physical count recorded. The quantity is unknown, not zero — count it on Store Stock."),
     ("reorder_outside_min_max", "Reorder outside min–max", "warning", "reorder_level",
-     "Reorder level is below the minimum or above the maximum (checked only where a maximum is set)."),
+     "Reorder level is below the minimum or above the maximum (checked only where a maximum is set; "
+     "a reorder level of 0 is the store's own choice and is not checked)."),
     ("min_greater_than_max", "Minimum above maximum", "warning", "max_stock_level",
      "Minimum is higher than the maximum, so one of the two is wrong (checked only where a maximum is set)."),
     ("missing_barcode", "No barcode", "info", None,
@@ -233,7 +236,7 @@ class DataQualityService:
             if r["qty_on_hand"] is None:
                 hits["never_counted"].add(pid)
             # Only a set maximum makes a band to fall outside of; min 0 is a floor.
-            if levels and ro is not None and mx and not (mn <= ro <= mx):
+            if levels and ro and mx and not (mn <= ro <= mx):
                 hits["reorder_outside_min_max"].add(pid)
             if levels and mx and mn > mx:
                 hits["min_greater_than_max"].add(pid)
