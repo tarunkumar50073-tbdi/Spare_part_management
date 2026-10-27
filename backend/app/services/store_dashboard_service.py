@@ -289,7 +289,17 @@ class StoreDashboardService:
         return counts
 
     def get_last_erp_sync(self):
-        latest = db.session.query(func.max(self.erp_stock_repo.model.synced_at)).scalar()
+        """When ERP data last arrived: the newest of ERP's stock push (erp_stock
+        — ERP stopped calling that API on 10 Aug 2026) and the ERP mirror sync
+        (erp_sync_service), which rewrites the GRN register and the gate entries
+        every run, so their newest created_at is that run's time. The header
+        said 10 Aug while GRNs were arriving daily (the store, 27 Oct 2026)."""
+        from app.models.gate_entry import GateEntry
+        from app.models.receiving_register import ReceivingRegister
+        stamps = [db.session.query(func.max(col)).scalar() for col in (
+            self.erp_stock_repo.model.synced_at, ReceivingRegister.created_at, GateEntry.created_at)]
+        stamps = [s if s.tzinfo else s.replace(tzinfo=timezone.utc) for s in stamps if s is not None]
+        latest = max(stamps) if stamps else None
         return latest.isoformat() if latest else None
 
     def get_alerts(self):
