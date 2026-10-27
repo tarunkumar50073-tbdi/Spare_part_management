@@ -196,6 +196,9 @@ def test_no_alert_for_a_type_with_nothing_to_report(store):
 
 
 def test_state_alerts_stale_snapshot_and_sync_error(store, monkeypatch):
+    from app.models.app_setting import AppSetting
+    from app.services.erp_sync_service import SYNC_STATUS_KEY
+    AppSetting.set_value(SYNC_STATUS_KEY, {}, "test")       # no run saved by another machine
     s, sec = store
     healthy = _part(s, sec, "H", 5, mn=2, mx=10, rate=3)
     synced = _now() - timedelta(days=3)

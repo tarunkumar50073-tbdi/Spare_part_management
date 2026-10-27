@@ -181,7 +181,9 @@ class ERPControlService:
             # Whether this server process actually started the poller — a
             # configured interval means nothing if credentials were missing at start.
             "poller_running": bool(ERPSyncService._poller_started),
-            "status_in_memory": True,
+            # The server's poller, seen through the run it saved (another machine).
+            "poller_elsewhere": bool(st.get("saved_by_other_machine") and st.get("poll_seconds")),
+            "status_in_memory": not st.get("saved_by_other_machine"),
             "note": IN_MEMORY_NOTE,
             "mirrors": {
                 "gate_entries": self._mirror(GateEntry, GateEntry.item_code, GateEntry.gate_entry_dt,

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
+import toast from "react-hot-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight, Boxes, ClipboardList, CloudUpload, Database, DatabaseZap, FileSpreadsheet, Info, Network,
@@ -131,13 +132,79 @@ function StatusCard({ icon, tone, title, chip, rows, foot }) {
 
 const when = (iso, hours, suffix = "ago") => (iso ? `${stamp(iso)} (${age(hours)} ${suffix})` : null);
 
+// Every ERP table the app reads, and whether it is up to date: ERP's own
+// newest record next to the app's last read (the store, 27 Oct 2026: "erp api
+// me jo bhi data milta h wo upto date chahiye turant upload hona chahiye").
+// A table whose newest record in ERP is old is ERP's to update, not the app's.
+const ERP_TABLES = [
+  ["gate_entry", "Gate entry", "termsdb.gate_entry"],
+  ["receiving_register", "GRN register (srv_report)", "termsdb.srv_report"],
+  ["erp_stock", "ERP stock", "termsdb.current_stock"],
+  ["line_rejection", "Line rejection", "termsdb.line_rejection_report"],
+  ["rgp_lines", "RGP (returnable gate pass)", "termsdb.challan_register"],
+];
+
+function ErpTables({ sync, canRead, onRead, reading }) {
+  const tables = sync.tables || {};
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <div className="card p-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
+        <div>
+          <p className="text-sm font-semibold text-slate-800 dark:text-white">ERP data in the app</p>
+          <p className="text-[11px] text-slate-400">
+            Read only from ERP{every(sync.poll_seconds) ? `, every ${every(sync.poll_seconds)}` : ""}
+            {sync.last_sync_at ? ` · last read ${stamp(sync.last_sync_at)}` : ""}
+          </p>
+        </div>
+        {canRead && (
+          <button type="button" className="btn-primary text-[12.5px]" onClick={onRead} disabled={reading}>
+            <RefreshCw size={14} className={reading ? "animate-spin" : ""} aria-hidden="true" /> {reading ? "Reading ERP…" : "Read ERP now"}
+          </button>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-[12.5px]">
+          <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
+            <tr><th className="px-3 py-2">ERP table</th><th className="px-3 py-2">Newest in ERP</th><th className="px-3 py-2 text-right">Rows read</th><th className="px-3 py-2">Last read</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+            {ERP_TABLES.map(([key, label, src]) => {
+              const t = tables[key];
+              const latest = t?.erp_latest || null;
+              const old = latest && /^\d{4}-\d{2}-\d{2}/.test(latest) && latest.slice(0, 10) < today
+                && (Date.parse(today) - Date.parse(latest.slice(0, 10))) / 86_400_000 > 7;
+              return (
+                <tr key={key} className="text-slate-700 dark:text-slate-200">
+                  <td className="px-3 py-2"><div className="font-semibold">{label}</div><div className="font-mono text-[10.5px] text-slate-400">{src}</div></td>
+                  <td className="px-3 py-2">
+                    {latest ? <span className={old ? "font-semibold text-amber-700" : ""}>{latest.slice(0, 16)}</span> : "—"}
+                    {old && <div className="text-[10.5px] text-amber-700">Old in ERP itself — ERP / IT updates this table</div>}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular">{t?.rows != null ? num(t.rows) : "—"}</td>
+                  <td className="px-3 py-2">
+                    {!t ? <span className="text-slate-400">Not read yet</span>
+                      : t.ok ? <span className="text-emerald-700">OK · {t.seconds}s</span>
+                        : <span className="text-rose-600" title={t.error}>Failed: {String(t.error || "").slice(0, 80)}</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function StatusCards({ d }) {
   const sync = d.db_sync;
   const snap = d.stock_snapshot;
   const box = d.ledger_inbox;
   const wb = d.write_back;
   const lastRun = sync.last_result
-    ? `Gate ${num(sync.last_result.gate_entry)} · GRN ${num(sync.last_result.receiving_register)} rows`
+    ? `Gate ${num(sync.last_result.gate_entry)} · GRN ${num(sync.last_result.receiving_register)}`
+      + (sync.last_result.erp_stock != null ? ` · Stock ${num(sync.last_result.erp_stock)}` : "") + " rows"
     : "—";
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -146,8 +213,8 @@ function StatusCards({ d }) {
         rows={[
           ["Last sync", when(sync.last_sync_at, sync.last_sync_age_hours)
             || (sync.configured ? "None since the server started" : "—")],
-          ["Automatic poll", sync.poller_running
-            ? (every(sync.poll_seconds) ? `Every ${every(sync.poll_seconds)}` : "Running")
+          ["Automatic poll", sync.poller_running || sync.poller_elsewhere
+            ? `${every(sync.poll_seconds) ? `Every ${every(sync.poll_seconds)}` : "Running"}${sync.poller_elsewhere ? " (on the server)" : ""}`
             : "Not running"],
           ["Window", sync.since_days ? `Last ${num(sync.since_days)} days` : "Full history"],
           ["Last run", lastRun],
@@ -605,6 +672,17 @@ export default function ErpControlCenter() {
   const confirm = useConfirm();
   const qc = useQueryClient();
   const [pushResult, setPushResult] = useState(null);
+  const [reading, setReading] = useState(false);
+  const readNow = async () => {
+    setReading(true);
+    try {
+      const r = await erpControlService.syncNow();
+      toast.success(r.data.message);
+      qc.invalidateQueries();
+    } catch { /* the api interceptor toasts */ } finally {
+      setReading(false);
+    }
+  };
 
   const q = useQuery({
     queryKey: ["stock", "erp-control", code],
@@ -702,6 +780,7 @@ export default function ErpControlCenter() {
             </p>
           )}
           <StatusCards d={d} />
+          <ErpTables sync={d.db_sync} canRead={canPushErp} onRead={readNow} reading={reading} />
           <LastErrors errors={errorsOf(d)} />
           <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
             <PendingMovements wb={d.write_back} onOpen={openPart} />

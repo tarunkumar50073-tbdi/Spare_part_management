@@ -43,7 +43,9 @@ def erp_db_sync():
         result = sync_service.sync_all()
     except ERPDBNotConfigured:
         return success_response({"configured": False}, "ERP DB is not configured — set ERP_DB_* to enable the sync")
-    total = sum(result.values())
+    if "skipped" in result:
+        return success_response({"configured": True, "synced": result}, result["skipped"])
+    total = sum(v for v in result.values() if isinstance(v, (int, float)))
     return success_response({"configured": True, "synced": result}, f"{total} row(s) synced from ERP")
 
 

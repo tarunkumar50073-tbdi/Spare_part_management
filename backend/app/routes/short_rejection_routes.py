@@ -64,3 +64,46 @@ def export():
     code = _store_code()
     buf, name, mimetype = service.export(code, request.args.get("format"), **_filters())
     return send_file(buf, as_attachment=True, download_name=name, mimetype=mimetype)
+
+
+@bp.route("/line-rejections", methods=["GET"])
+@permission_required("short_rejection", "view")
+def line_rejections():
+    """ERP's line rejection return slips (read from ERP with every ERP read,
+    27 Oct 2026), newest first: this store's parts, or all=1 for every item.
+    q matches slip no., item, description or party; from / to the slip date."""
+    from datetime import date as _date
+    from sqlalchemy import func, or_
+    from app.extensions import db
+    from app.models.erp_line_rejection import ErpLineRejection as L
+    from app.models.part import Part
+    store = (request.args.get("store_code") or "").strip()
+    if not store:
+        raise BadRequestError("store_code is required")
+    require_store_access(store)
+    query = L.query
+    if request.args.get("all") not in ("1", "true"):
+        mine = db.session.query(func.upper(func.trim(Part.part_no))).filter(Part.store_code == store)
+        query = query.filter(func.upper(func.trim(L.item_cd)).in_(mine))
+    text_ = (request.args.get("q") or "").strip()
+    if text_:
+        like = f"%{text_}%"
+        query = query.filter(or_(L.return_slip_no.ilike(like), L.item_cd.ilike(like), L.item_desc.ilike(like),
+                                 L.party_name.ilike(like)))
+    for key, op in (("from", "__ge__"), ("to", "__le__")):
+        v = request.args.get(key)
+        if v:
+            try:
+                query = query.filter(getattr(L.return_slip_date, op)(_date.fromisoformat(v)))
+            except ValueError:
+                raise BadRequestError(f"{key} must be a date (YYYY-MM-DD)") from None
+    rows = query.order_by(L.return_slip_date.desc(), L.erp_id.desc()).limit(1000).all()
+    last = db.session.query(func.max(L.synced_at)).scalar()
+    return success_response({
+        "rows": [{"slip_no": r.return_slip_no, "date": r.return_slip_date.isoformat() if r.return_slip_date else None,
+                  "time": r.return_slip_time, "item_cd": r.item_cd, "item_desc": r.item_desc, "uom": r.uom,
+                  "qty": float(r.return_qty) if r.return_qty is not None else None, "from": r.return_from_name,
+                  "party": r.party_name, "ref_doc_no": r.ref_doc_no} for r in rows],
+        "total_in_erp": L.query.count(), "synced_at": last.isoformat() if last else None,
+    })
+

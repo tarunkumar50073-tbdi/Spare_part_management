@@ -180,6 +180,9 @@ def test_snapshot_synced_when_fresh(quiet_erp):
 
 
 def test_db_sync_states(app, quiet_erp, monkeypatch):
+    from app.models.app_setting import AppSetting
+    from app.services.erp_sync_service import SYNC_STATUS_KEY
+    AppSetting.set_value(SYNC_STATUS_KEY, {}, "test")       # no run saved by another machine
     code = _store()
     assert ERPControlService().status(code)["db_sync"]["state"] == "NOT_CONFIGURED"
 

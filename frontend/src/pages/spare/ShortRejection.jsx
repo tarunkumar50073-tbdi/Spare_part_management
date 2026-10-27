@@ -3,7 +3,7 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   CalendarClock, CalendarRange, Database, FileDown, FileText, Inbox, IndianRupee, Info, PackageMinus,
-  PackageSearch, PackageX, Search, TriangleAlert, Truck, Unplug, X,
+  PackageSearch, PackageX, Search, TriangleAlert, Truck, Undo2, Unplug, X,
 } from "lucide-react";
 import CardHead from "../../components/CardHead.jsx";
 import ErrorState from "../../components/ErrorState.jsx";
@@ -35,6 +35,8 @@ import ShortMailDialog from "../../components/spare/ShortMailDialog.jsx";
 const TABS = [
   { key: "short", label: "Short", icon: PackageMinus },
   { key: "rejection", label: "Rejection", icon: PackageX },
+  // ERP's line rejection return slips (read with every ERP read, 27 Oct 2026).
+  { key: "line", label: "Line rejection", icon: Undo2 },
 ];
 const TYPES = [
   { key: "srv", label: "SRV Rejection" },
@@ -265,7 +267,7 @@ export default function ShortRejection() {
           {q.isFetching && d && <span className="text-[11px] text-slate-400">Updating…</span>}
           {/* The mail to RQC to punch a rejection — on the Rejection tab only
               (25 Oct 2026: "short me bhi rejection mail dikha rha h"). */}
-          {canRejections && tab !== "short" && (
+          {canRejections && tab === "rejection" && (
             <Link to="/rejection-requests" className="btn-secondary text-[12.5px]">Rejection mail →</Link>
           )}
           {/* The mail to Purchase for material received short — on the Short
@@ -277,7 +279,7 @@ export default function ShortRejection() {
       </div>
 
       <div role="tablist" aria-label="Short or rejection"
-        className="grid w-full grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-navy-800 dark:bg-navy-900 sm:inline-grid sm:w-auto">
+        className="grid w-full grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-navy-800 dark:bg-navy-900 sm:inline-grid sm:w-auto">
         {TABS.map((t) => {
           const on = tab === t.key;
           return (
@@ -294,7 +296,8 @@ export default function ShortRejection() {
         })}
       </div>
 
-      <div id="sr-panel" role="tabpanel" aria-labelledby={`sr-tab-${tab}`} className="space-y-5">
+      {tab === "line" && <LineRejections storeCode={code} />}
+      <div id="sr-panel" role="tabpanel" aria-labelledby={`sr-tab-${tab}`} className={`space-y-5 ${tab === "line" ? "hidden" : ""}`}>
         {/* No note on how days are counted for a kind that has no list at all. */}
         <ErpBanner asOf={d?.data_as_of} kind={kind} basis={unreadable ? null : d?.basis} closuresKnown={d?.closures_known}
           gap={d?.window?.not_held} notGiven={d?.not_given || NO_ROWS} />
@@ -931,6 +934,63 @@ function Loading() {
       <div className="card space-y-2">
         {[0, 1, 2, 3, 4].map((i) => <div key={i} className="skeleton h-9 w-full" />)}
       </div>
+    </div>
+  );
+}
+
+// ERP's line rejection return slips — read from ERP with every ERP read, never
+// typed here. This store's parts by default (the table is mostly child parts).
+function LineRejections({ storeCode }) {
+  const [all, setAll] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [q, setQ] = useState("");
+  useEffect(() => { const t = setTimeout(() => setQ(typed.trim()), 300); return () => clearTimeout(t); }, [typed]);
+  const list = useQuery({
+    queryKey: ["short-rejection", "line", storeCode, all, q],
+    queryFn: () => shortRejectionService.lineRejections({ store_code: storeCode, all: all ? 1 : undefined, q: q || undefined },
+      { silent: true }).then((r) => r.data.data),
+    enabled: Boolean(storeCode),
+  });
+  const d = list.data;
+  return (
+    <div className="card p-0" role="tabpanel" aria-labelledby="sr-tab-line">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
+        <div className="flex flex-wrap items-center gap-1">
+          {[[false, "This store's parts"], [true, "All items"]].map(([v, label]) => (
+            <button key={label} type="button" onClick={() => setAll(v)} aria-pressed={all === v}
+              className={`rounded-full px-3 py-1 text-[12px] font-semibold ${all === v ? "bg-navy-900 text-white dark:bg-white dark:text-navy-900" : "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300"}`}>
+              {label}
+            </button>
+          ))}
+          {d && <span className="ml-2 text-[11px] text-slate-400">{d.rows.length} slip line{d.rows.length === 1 ? "" : "s"} · {d.total_in_erp} in ERP · read {d.synced_at ? new Date(d.synced_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "not yet"}</span>}
+        </div>
+        <span className="relative">
+          <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input className="input-field w-64 py-1.5 pl-8 text-[13px]" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Slip no., item, party…" />
+        </span>
+      </div>
+      {list.isError ? <div className="p-4"><ErrorState title="Line rejections did not load" message={list.error?.response?.data?.message || list.error?.message} onRetry={() => list.refetch()} /></div> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-left text-[12.5px]">
+            <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
+              <tr>{["Date", "Return slip", "Item", "Qty", "From", "Party"].map((h) => <th key={h} className={`px-3 py-2.5 font-semibold ${h === "Qty" ? "text-right" : ""}`}>{h}</th>)}</tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+              {(d?.rows || []).map((r, i) => (
+                <tr key={`${r.slip_no}-${r.item_cd}-${i}`} className="align-top text-slate-700 dark:text-slate-200">
+                  <td className="whitespace-nowrap px-3 py-2.5">{r.date ? new Date(`${r.date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}<div className="text-[11px] text-slate-400">{r.time}</div></td>
+                  <td className="px-3 py-2.5 font-mono">{r.slip_no}</td>
+                  <td className="px-3 py-2.5"><div className="font-mono font-semibold">{r.item_cd}</div><div className="max-w-[280px] truncate text-[11px] text-slate-400" title={r.item_desc}>{r.item_desc}</div></td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{r.qty ?? "—"} {r.uom}</td>
+                  <td className="px-3 py-2.5">{r.from}</td>
+                  <td className="px-3 py-2.5">{r.party}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {d && d.rows.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">{all || q ? "No line rejection matches." : "No line rejection of this store's parts in ERP — see All items."}</p>}
+        </div>
+      )}
     </div>
   );
 }

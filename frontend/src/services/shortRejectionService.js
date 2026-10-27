@@ -12,6 +12,8 @@ import { downloadFile } from "../utils/download.js";
 export const shortRejectionService = {
   // -> { kind, label, available, summary, lines, totals, data_as_of, not_given, basis, window, filters, title }
   get: (params, config) => api.get("/short-rejection", { params, ...config }),
+  // ERP's line rejection return slips: store_code, all (1 = every item), q, from, to.
+  lineRejections: (params, config) => api.get("/short-rejection/line-rejections", { params, ...config }),
   // The same kind, period and filters as ONE file — format=excel (sheets
   // "Supplier-wise" and "Lines") | pdf — saved under `filename`.
   exportFile: (params, format, filename) =>

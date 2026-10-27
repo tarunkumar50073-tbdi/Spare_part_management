@@ -51,6 +51,7 @@ from app.models.challan_register import ChallanRegister, ChallanLink, ChallanHis
 from app.models.rejection_request import RejectionRequest, RejectionHistory
 from app.models.spare_packet import SpareBatch, SparePacket
 from app.models.job_work import ErpRgpLine, RgpReturnLink
+from app.models.erp_line_rejection import ErpLineRejection
 
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",
