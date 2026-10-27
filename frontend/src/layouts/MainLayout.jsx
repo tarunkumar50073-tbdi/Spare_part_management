@@ -17,7 +17,6 @@ const TITLES = {
   "/gate-entry": "Gate Entry",
   "/srvs": "SRV Workflow",
   "/put-away": "Pending Rack Allocation",
-  "/put-away-check": "Put-away Check",
   "/holding-area": "Holding Area",
   "/store-stock": "Store Stock",
   "/scan-part": "Scan Part",

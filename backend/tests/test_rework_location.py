@@ -137,14 +137,3 @@ def _login(client, perms):
     return u
 
 
-def test_routes_accept_the_rework_bin(client):
-    user = _login(client, {"scan_part": {"view": True, "edit": True}, "store_stock": {"edit": True}})
-    p = _part()
-    put = client.post("/api/v1/spare-stock/put-away/record",
-                      json={"part_id": p.id, "scanned_location": "R2-S6-B35"})
-    assert put.status_code == 201, put.get_json()
-    body = put.get_json()["data"]
-    assert (body["location"], body["location_kind"], body["put_by"]) == (REWORK, "rework", user.username)
-    slot = client.post("/api/v1/spare-stock/put-away/record",
-                       json={"part_id": p.id, "scanned_location": "R2-S6-B35(2)"})
-    assert slot.status_code == 400 and "(rework)" in slot.get_json()["message"]

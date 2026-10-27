@@ -10,7 +10,7 @@ from flask import Blueprint, request
 from app.routes._spare_common import require_part_store, store_code_arg
 from app.services.scan_result_service import ScanResultService
 from app.utils.response import success_response
-from app.utils.authz import SPARE_INSTALL_VIEW, SPARE_STOCK_VIEW, permission_required
+from app.utils.authz import SPARE_STOCK_VIEW, permission_required
 
 bp = Blueprint("spare_scan", __name__, url_prefix="/api/v1/spare-flow")
 service = ScanResultService()
@@ -21,8 +21,7 @@ TIMELINE_LIMIT_MAX = 2000
 
 
 @bp.route("/parts/<int:part_id>/scan-result", methods=["GET"])
-# The line user\'s Confirm Installation shows the part it confirms.
-@permission_required(SPARE_INSTALL_VIEW, "view")
+@permission_required(SPARE_STOCK_VIEW, "view")
 def scan_result(part_id):
     """Everything the Scan Part workstation renders for one part (spec 22)."""
     require_part_store(part_id)

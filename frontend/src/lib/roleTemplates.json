@@ -1,11 +1,11 @@
 {
-  "about": "Ready-made rights for a new login, picked at the top of the User Management form (store's request of 17 Oct 2026: \"template bana de\" — one pick of a type and all its rights fall into place). The store approved the six types and their screens on 17 Oct 2026; the Kiosk device type went the same day with the kiosk itself (\"management k according manual detail fill karke issuance karna time waste h\"), leaving five. A sixth, the read-only Part Search Kiosk for the kiosk outside the store, joined on 25 Oct 2026. Each right was checked against the screens the person uses and the endpoints those screens call; `why` says which. This one file is read by the User Management screen (lib/roleTemplates.js) and by the backend test (backend/tests/test_role_templates.py), which signs in as each template and calls those endpoints. Keys are backend/app/models/user.py PERMISSION_MODULES. Rights are CRUD since 24 Oct 2026 (view = read only, create = add new, update = change, delete = remove / cancel); any write carries view, and only the actions a screen has (MODULE_ACTIONS) are ever true. Each old edit became every write its screen has, so a template does what it did before.",
+  "about": "Ready-made rights for a new login, picked at the top of the User Management form (store's request of 17 Oct 2026: \"template bana de\" — one pick of a type and all its rights fall into place). The store approved the six types and their screens on 17 Oct 2026; the Kiosk device type went the same day with the kiosk itself (\"management k according manual detail fill karke issuance karna time waste h\"), leaving five. A sixth, the read-only Part Search Kiosk for the kiosk outside the store, joined on 25 Oct 2026; the Line User type (Confirm Installation only) went on 27 Oct 2026 with that screen (\"haan teeno hata de\"), leaving five. Each right was checked against the screens the person uses and the endpoints those screens call; `why` says which. This one file is read by the User Management screen (lib/roleTemplates.js) and by the backend test (backend/tests/test_role_templates.py), which signs in as each template and calls those endpoints. Keys are backend/app/models/user.py PERMISSION_MODULES. Rights are CRUD since 24 Oct 2026 (view = read only, create = add new, update = change, delete = remove / cancel); any write carries view, and only the actions a screen has (MODULE_ACTIONS) are ever true. Each old edit became every write its screen has, so a template does what it did before.",
   "templates": [
     {
       "key": "store_staff",
       "label": "Store Staff",
       "short": "Store Staff",
-      "description": "Issue, return and receive on Scan Part, stock count, put-away, reports.",
+      "description": "Issue, return and receive on Scan Part, stock count, reports.",
       "role": "STORE_USER",
       "stores": ["MAINTENANCE"],
       "permissions": {
@@ -24,7 +24,6 @@
         "receiving": { "view": true, "create": false, "update": false, "delete": false },
         "short_rejection": { "view": true, "create": false, "update": false, "delete": false },
         "inventory_control": { "view": true, "create": false, "update": false, "delete": false },
-        "put_away_check": { "view": true, "create": true, "update": false, "delete": false },
         "work_queue": { "view": true, "create": false, "update": false, "delete": false }
       },
       "why": {
@@ -40,7 +39,6 @@
         "receiving": "Receiving & GRN (GET /receiving-monitor, /erp-grn/preview); posting a GRN line to stock needs an edit right",
         "short_rejection": "Short & Rejection (GET /short-rejection)",
         "inventory_control": "Critical · Reorder · Excess (GET /inventory-control)",
-        "put_away_check": "Put-away Check, on its own and as Scan Part's mode (POST /spare-stock/put-away/record)",
         "work_queue": "Work Queue (GET /spare-flow/queues, /erp-grn/preview)",
         "part_ledger": "Part Ledger screen (/spare-part-history)",
         "employees": "Employee Master, read only (GET /employees)",
@@ -77,7 +75,6 @@
         "receiving": { "view": true, "create": false, "update": false, "delete": false },
         "short_rejection": { "view": true, "create": false, "update": false, "delete": false },
         "inventory_control": { "view": true, "create": false, "update": false, "delete": false },
-        "put_away_check": { "view": true, "create": true, "update": false, "delete": false },
         "work_queue": { "view": true, "create": false, "update": false, "delete": false },
         "data_quality": { "view": true, "create": false, "update": true, "delete": false },
         "erp_control": { "view": true, "create": false, "update": false, "delete": false }
@@ -90,7 +87,6 @@
         "receiving": "as Store Staff",
         "short_rejection": "as Store Staff",
         "inventory_control": "as Store Staff",
-        "put_away_check": "as Store Staff",
         "work_queue": "as Store Staff",
         "data_quality": "Data Quality: the missing Max / Min / Rate / Location list and its quick fixes (GET /data-quality, PUT /parts/:id)",
         "erp_control": "ERP Control Center (GET /erp-control/status); its ERP push needs the Store Stock edit right",
@@ -109,20 +105,6 @@
         "rejection_request": "as Store Staff",
         "short_mail": "as Store Staff",
         "spare_packets": "Packets & QR Labels: verify a receipt physically, make packets / unit labels, print and reprint them, cancel one made by mistake (POST /spare-packets/...) — added 27 Oct 2026"
-      }
-    },
-    {
-      "key": "line_user",
-      "label": "Line User (Maintenance / Tool Room)",
-      "short": "Line User",
-      "description": "Only Confirm Installation: fill the line / machine / die of a part issued to the floor.",
-      "role": "STORE_USER",
-      "stores": ["MAINTENANCE"],
-      "permissions": {
-        "install_confirm": { "view": true, "create": false, "update": true, "delete": false }
-      },
-      "why": {
-        "install_confirm": "Confirm Installation (POST /spare-stock/issues/:id/confirm; its Line / Machine / Die pick-lists, GET /equipment, accept this right too). Its lists GET /spare-stock/pending-confirmations, /installations and /spare-flow/parts/:id/scan-result need only the store."
       }
     },
     {
@@ -150,7 +132,6 @@
         "receiving": { "view": true, "create": false, "update": false, "delete": false },
         "short_rejection": { "view": true, "create": false, "update": false, "delete": false },
         "inventory_control": { "view": true, "create": false, "update": false, "delete": false },
-        "put_away_check": { "view": true, "create": false, "update": false, "delete": false },
         "erp_control": { "view": true, "create": false, "update": false, "delete": false }
       },
       "why": {
@@ -164,7 +145,6 @@
         "receiving": "Receiving & GRN, read (no posting)",
         "short_rejection": "Short & Rejection",
         "inventory_control": "Critical · Reorder · Excess (GET /inventory-control)",
-        "put_away_check": "Put-away Check, view only: no put-away is recorded",
         "erp_control": "ERP Control Center (GET /erp-control/status), no push",
         "reports": "Reports + their Excel / PDF downloads",
         "audit_trail": "Audit Trail (GET /audit-logs)",

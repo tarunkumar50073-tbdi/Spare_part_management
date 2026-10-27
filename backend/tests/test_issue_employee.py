@@ -162,7 +162,6 @@ def test_issue_lists_carry_mobile_and_code():
 
     scan = ScanResultService()
     assert pick(scan.build(p.id)["open_issues"]) == want
-    assert pick(scan.queues("MAINTENANCE")["awaiting_confirmation"]) == want
 
 
 def test_timeline_names_the_person_and_code_but_never_the_mobile():

@@ -453,7 +453,7 @@ def test_installations_route_is_gated_like_pending_confirmations(make, client, a
     assert statuses() == [401, 401]                                        # not signed in
     _as(client, make.user(["MAINTENANCE"], {"scan_part": {"edit": True}}))
     assert statuses() == [403, 403]                                        # not this store
-    _as(client, make.user([code], {"install_confirm": {"edit": True}}))   # a line user
+    _as(client, make.user([code], {"scan_part": {"view": True}}))         # a Scan Part user
     assert statuses() == [200, 200]
     assert statuses(query="") == [400, 400]                                # store_code required
     # No module right at all: the store alone no longer reads these (security
@@ -464,6 +464,6 @@ def test_installations_route_is_gated_like_pending_confirmations(make, client, a
         sess.clear()
     assert statuses(headers={"X-API-Key": app.config["API_KEY"]}) == [200, 200]   # the machine caller
 
-    _as(client, make.user([code], {"install_confirm": {"edit": True}}))
+    _as(client, make.user([code], {"scan_part": {"view": True}}))
     r = client.get(f"/api/v1/spare-stock/installations?store_code={code}&q=MC-G&limit=5")
     assert [x["id"] for x in r.get_json()["data"]] == [lid]

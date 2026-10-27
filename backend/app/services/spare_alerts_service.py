@@ -25,15 +25,13 @@ from datetime import datetime, timezone
 from urllib.parse import quote, urlencode
 
 from sqlalchemy import func
-from sqlalchemy.orm import contains_eager
 
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.part import Part
-from app.models.spare_stock import SpareStockLedger
 from app.models.store import Store
 from app.services.spare_dashboard_service import STALE_AFTER_HOURS, SpareDashboardService
-from app.services.spare_stock_service import SpareStockService, awaiting_confirmation_clause
+from app.services.spare_stock_service import SpareStockService
 from app.utils.exceptions import BadRequestError, NotFoundError
 
 SEVERITIES = ("critical", "warning", "info")
@@ -43,12 +41,8 @@ _RANK = {s: i for i, s in enumerate(SEVERITIES)}
 CRITICAL_STATUSES = ("Out of Stock", "Below Minimum")
 # Per-part zero-stock alerts under the critical headline: the dearest to restock.
 TOP_ZERO_STOCK = 5
-# Per-issue confirmation alerts: the longest-waiting ones. Past this the
-# headline alert carries the count and Scan Part holds the full queue.
-MAX_ISSUE_ALERTS = 10
-# An ISSUE still waiting for the user's line / machine confirmation is the
-# Waiting list's own rule (spare_stock_service.awaiting_confirmation_clause) —
-# kept in one place, so the bell never counts a different set than the list.
+# No "issues awaiting confirmation" alert: the line user's Confirm Installation
+# was taken out on 27 Oct 2026 — the store's work ends at the issue.
 
 OMITTED = [
     {"type": "count_due",
@@ -185,7 +179,6 @@ class SpareAlertsService:
         out = []
         out += self._critical(store_code, att["zero_stock"], att["below_min"], ov["critical_parts"])
         out += self._erp_sync(ov["erp"]["db_sync"], now)
-        out += self._confirmations(store_code, now)
         out += self._reorder(att["reorder"])
         out += self._excess(store_code, att["excess"])
         out += self._erp_grn(ov["receiving_pending"], now)
@@ -332,67 +325,6 @@ class SpareAlertsService:
         return out
 
     # ------------------------------------------------------------------ flows
-
-    @staticmethod
-    def _confirmation_queue(store_code):
-        """(count, longest-waiting rows) of the Scan Part confirmation queue —
-        the same filter as SpareStockService.pending_confirmations, but counted
-        in SQL and only the listed rows loaded, with their part in the same
-        query rather than one lazy load per row."""
-        base = (db.session.query(SpareStockLedger)
-                .join(Part, Part.id == SpareStockLedger.part_id)
-                .filter(Part.store_code == store_code, awaiting_confirmation_clause()))
-        n = base.with_entities(func.count(SpareStockLedger.id)).scalar() or 0
-        if not n:
-            return 0, []
-        rows = (base.options(contains_eager(SpareStockLedger.part))
-                .order_by(SpareStockLedger.created_at.asc(), SpareStockLedger.id.asc())
-                .limit(MAX_ISSUE_ALERTS).all())
-        # A partly returned issue still waits for the rest (16 Oct 2026): the
-        # line says how much came back, so "3 issued" is not read as 3 out.
-        returned = SpareStockService._returned_qty_map([r.id for r in rows])
-        return n, [{
-            "id": r.id, "part_id": r.part_id,
-            "part_no": r.part.part_no, "part_name": r.part.part_name,
-            "qty": abs(float(r.qty_delta)), "returned_qty": returned.get(r.id, 0.0),
-            "uom": r.part.uom, "department": r.department,
-            "issued_to": r.issued_to, "issued_by": r.created_by, "issued_at": r.created_at,
-        } for r in rows]
-
-    def _confirmations(self, store_code, now):
-        # The queue Scan Part works through, so the count here is the number
-        # of rows the user finds there.
-        n, queue = self._confirmation_queue(store_code)
-        if not n:
-            return []
-        oldest = _age(_hours_since(queue[0]["issued_at"], now))
-        listed = len(queue)
-        msg = "Issued by the store; where each was fitted (line / machine) is not confirmed yet."
-        if oldest:
-            msg += f" Oldest waiting {oldest}."
-        if n > listed:
-            msg += f" The {listed} longest waiting are listed below."
-        action = _go("Confirm on Scan Part", "/scan-part", "scan_part")
-        out = [_alert("confirm_pending", "warning", "confirm_pending",
-                      f"{_count(n, 'issue')} awaiting user confirmation", msg, n, action=action)]
-        for r in queue:
-            hours = _hours_since(r["issued_at"], now)
-            who = " / ".join(x for x in (r["department"], r["issued_to"]) if x)
-            text = f"{_qty(r['qty'])} {r['uom'] or ''}".rstrip() + " issued" + (f" to {who}" if who else "")
-            if r["issued_by"]:
-                text += f" by {r['issued_by']}"
-            if r["returned_qty"] > 0:
-                still_out = round(r["qty"] - r["returned_qty"], 2)
-                text += f" ({_qty(r['returned_qty'])} returned, {_qty(still_out)} still out)"
-            text += f", waiting {_age(hours)}." if hours is not None else "."
-            out.append(_alert(
-                f"confirm_pending:{r['id']}", "warning", "confirm_pending_issue",
-                f"Confirm issue of {r['part_no'] or 'a part'}"
-                + (f" ({r['part_name']})" if r["part_name"] else ""),
-                text, part=r if r["part_id"] else None, at=_iso(r["issued_at"]),
-                parent="confirm_pending", age_hours=hours, ledger_id=r["id"], action=action,
-            ))
-        return out
 
     # ------------------------------------------------ held, not issuable
     #

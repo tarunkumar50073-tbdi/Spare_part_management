@@ -35,7 +35,7 @@ _seq = {"n": 0}
 
 # Issuance first; receiving (receive / GRN / quality) is read from ERP.
 ACTION_ORDER = [
-    "ISSUE", "RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN", "UPDATE_INSTALLATION", "RGP_OUT",
+    "ISSUE", "RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN", "RGP_OUT",
     "PRINT_LABEL", "UPDATE_LOCATION", "HISTORY",
 ]
 
@@ -182,7 +182,7 @@ def test_with_supplier_offers_rgp_return_and_never_issue():
     assert [a["key"] for a in r["actions"]] == ACTION_ORDER      # every key, in order
     assert acts["RGP_RETURN"]["enabled"] and acts["RGP_RETURN"]["count"] == 1
     assert not acts["ISSUE"]["enabled"] and acts["ISSUE"]["reason"] == "No stock available to issue"
-    for key in ("RETURN", "UPDATE_INSTALLATION", "INSPECT", "RGP_GRN"):
+    for key in ("RETURN", "INSPECT", "RGP_GRN"):
         assert not acts[key]["enabled"] and acts[key]["reason"]
     assert "no direct RGP" in acts["RGP_OUT"]["reason"]
     assert acts["HISTORY"]["enabled"] and acts["UPDATE_LOCATION"]["enabled"]
@@ -560,7 +560,7 @@ def test_queues_list_and_count_the_stores_open_work(queue_store):
 
     q = ScanResultService().queues(code)
     assert q["counts"] == {"quality": 2, "inspection": 1, "with_supplier": 1,
-                           "rgp_grn_pending": 1, "awaiting_confirmation": 1}
+                           "rgp_grn_pending": 1}          # no line / machine queue since 27 Oct 2026
     assert q["quality"][0]["grn_no"] == first                      # oldest GRN first
     assert q["quality"][0]["state"] == "QUALITY_PENDING" and q["quality"][0]["age_days"] == 6
     assert all(r["part_no"] == p.part_no for r in q["quality"] + q["inspection"])
@@ -568,7 +568,7 @@ def test_queues_list_and_count_the_stores_open_work(queue_store):
     assert q["inspection"][0]["id"] == open_ret.id
     assert q["with_supplier"][0]["qty_with_supplier"] == 1.0
     assert q["rgp_grn_pending"][0]["qty_grn_pending"] == 2.0
-    assert q["awaiting_confirmation"][0]["part_no"] == p.part_no
+    assert "awaiting_confirmation" not in q                      # no line / machine queue (27 Oct 2026)
 
 
 # ---- part drawer + traceability ---------------------------------------------------

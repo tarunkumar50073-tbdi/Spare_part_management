@@ -70,8 +70,6 @@ const ConsumptionAnalytics = React.lazy(() => import("./pages/spare/ConsumptionA
 const DataQuality = React.lazy(() => import("./pages/spare/DataQuality.jsx"));
 const NotificationCenter = React.lazy(() => import("./pages/spare/NotificationCenter.jsx"));
 const WorkQueue = React.lazy(() => import("./pages/spare/WorkQueue.jsx"));
-const ConfirmInstallation = React.lazy(() => import("./pages/spare/ConfirmInstallation.jsx"));
-const PutAwayCheck = React.lazy(() => import("./pages/spare/PutAwayCheck.jsx"));
 const EmployeeMaster = React.lazy(() => import("./pages/EmployeeMaster.jsx"));
 const EquipmentMaster = React.lazy(() => import("./pages/EquipmentMaster.jsx"));
 const ActionTracker = React.lazy(() => import("./pages/spare/ActionTracker.jsx"));
@@ -152,13 +150,6 @@ export function ScrollToTop() {
   return null;
 }
 
-// Put-away Check is the third mode of Scan Part's header now. Its own address
-// still works: it lands there for whoever can open Scan Part, and stays a page
-// of its own for a user who holds Store Stock but not Scan Part.
-function PutAwayCheckRoute() {
-  const { user } = useAuth();
-  return can(user, "scan_part") ? <Navigate to="/scan-part?mode=putaway" replace /> : <PutAwayCheck />;
-}
 
 // The Issuance Report was its own screen for a day (17 Oct 2026); it is one
 // report with Consumption again since 18 Oct 2026 ("issuance and consumption
@@ -260,9 +251,7 @@ function AuthenticatedApp() {
           {/* Supplier barcodes are seen and mapped on Scan Part now (each
               part's Barcodes panel, which Issue mode shows) — redirect so
               existing links/bookmarks keep working. (It went to the Receive &
-              Lot Tag mode, removed on 17 Oct 2026 with the lot tags.) Issue is
-              named, so a terminal last left in Put-away Check — which has no
-              Barcodes panel — still lands where the barcodes are. */}
+              Lot Tag mode, removed on 17 Oct 2026 with the lot tags.) */}
           <Route path="/supplier-barcodes" element={<Navigate to="/scan-part?mode=issue" replace />} />
           <Route path="/scan-audit" element={<RequirePermission mod="scan_audit"><ScanAudit /></RequirePermission>} />
           <Route path="/spare-part-history" element={<RequirePermission mod="part_ledger"><SparePartHistory /></RequirePermission>} />
@@ -302,8 +291,12 @@ function AuthenticatedApp() {
           <Route path="/notifications" element={<RequirePermission mod="notifications"><NotificationCenter /></RequirePermission>} />
           {/* QR traceability: every open receipt / return / RGP / issue awaiting a step. */}
           <Route path="/work-queue" element={<RequirePermission mod="work_queue"><WorkQueue /></RequirePermission>} />
-          <Route path="/confirm-installation" element={<RequirePermission mod="install_confirm"><ConfirmInstallation /></RequirePermission>} />
-          <Route path="/put-away-check" element={<RequirePermission mod="put_away_check"><PutAwayCheckRoute /></RequirePermission>} />
+          {/* Confirm Installation and Put-away Check were taken out on 27 Oct
+              2026 ("haan teeno hata de"): the store's work ends at the issue,
+              and no tag is put at a rack for a put-away scan. Old links land on
+              Scan Part. */}
+          <Route path="/confirm-installation" element={<Navigate to="/scan-part" replace />} />
+          <Route path="/put-away-check" element={<Navigate to="/scan-part" replace />} />
           {/* Summary of issues · owner · target — the management view of the store. */}
           <Route path="/action-tracker" element={<RequirePermission mod="action_tracker"><ActionTracker /></RequirePermission>} />
           {/* Email & Notifications — administrators only; each page gates itself
@@ -333,15 +326,14 @@ function AuthenticatedApp() {
 // the store was hidden. Waits for the store list rather than guessing, because
 // the active store is only known once it has loaded.
 //
-// A login without the Spare Parts Store dashboard right — the Line User and
-// Live Board templates (store's role templates, 17 Oct 2026) — would land on
+// A login without the Spare Parts Store dashboard right — the Live Board and
+// Part Search Kiosk templates (store's role templates, 17 Oct 2026) — would land on
 // "Access restricted" there. It goes to the first screen it may open instead,
 // in this order, and to All Services when it may open none of them. That is
 // also where an old Kiosk device login (the kiosk was taken out on 17 Oct 2026)
 // now lands: its only right opens no screen any more.
 const FIRST_SCREENS = [
   { to: "/scan-part", mod: "scan_part" },
-  { to: "/confirm-installation", mod: "install_confirm" },
   { to: "/live-dashboard", mod: "live_dashboard" },
   { to: "/part-search", mod: "part_kiosk" },
   { to: "/store-stock-spare", mod: "store_stock" },

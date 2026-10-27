@@ -25,7 +25,6 @@ PERMISSION_MODULES = [
     {"key": "notifications", "label": "Notification Center"},
     {"key": "store_stock", "label": "Store Stock (count / edit)"},
     {"key": "inventory_control", "label": "Critical · Reorder · Excess"},
-    {"key": "put_away_check", "label": "Put-away Check"},
     {"key": "scan_part", "label": "Scan Part — issue / receive / return"},
     {"key": "work_queue", "label": "Work Queue"},
     {"key": "consumption", "label": "Issuance & Consumption"},
@@ -36,13 +35,11 @@ PERMISSION_MODULES = [
     # fill karke issuance karna time waste h" — the store). A "kiosk" key an old
     # login still has stored is simply never asked for, and drops off the next
     # time that login's rights are saved (set_permissions keeps known keys only).
-    # Stage-2 only: a line user may confirm where an issued part was fitted
-    # (line / machine / die + how much was used) WITHOUT the full issue /
-    # receive / return rights that scan_part carries. There is no per-part QR to
-    # re-scan (we print bin sheets, not part labels), so the confirm
-    # screen is a list of parts already issued, not a scanner. The confirm
-    # endpoint accepts this right OR scan_part edit; it still needs store access.
-    {"key": "install_confirm", "label": "Confirm Installation — line / machine (user)"},
+    # No "put_away_check" or "install_confirm" right any more: Put-away Check
+    # (it needed a QR at the rack, and the store puts no tag there) and the line
+    # user's Confirm Installation were taken out on 27 Oct 2026 ("haan teeno
+    # hata de" — the store's work ends at the issue). Old keys drop off the next
+    # time a login's rights are saved, as the kiosk right's did.
     {"key": "part_ledger", "label": "Part Ledger"},
     {"key": "erp_gap", "label": "ERP vs Physical Gap"},
     {"key": "erp_control", "label": "ERP Control Center"},
@@ -103,12 +100,10 @@ MODULE_ACTIONS = {
     "spare_store": _R, "action_tracker": _R, "notifications": _R,
     "store_stock": _RCU,          # C put-away record, GRN post · E count, stock / ERP-stock import, ERP sync
     "inventory_control": _R,
-    "put_away_check": _RC,        # C put-away record
     "scan_part": _RCUD,           # C issue, return, RGP out, labels · E location, inspection, RGP GRN · D cancel RGP
     "work_queue": _R, "consumption": _R,
     "receiving": _RC,             # C post ERP GRN lines to stock
     "short_rejection": _R,
-    "install_confirm": _RU,       # E confirm the line / machine of an issue
     "part_ledger": _R, "erp_gap": _R,
     "erp_control": _RU,           # E sync with ERP
     "part_master": _RCUD,         # C new part / import · E edit, photo · D delete
@@ -157,7 +152,6 @@ SPLIT_RIGHTS = {
     "receiving": "spare_store",
     "short_rejection": "spare_store",
     "inventory_control": "store_stock",
-    "put_away_check": "store_stock",
     "work_queue": "scan_part",
     "erp_control": "erp_gap",
     "data_quality": "part_master",

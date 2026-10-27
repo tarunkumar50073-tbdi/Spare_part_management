@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { Ban } from "lucide-react";
 import { ACTIONS } from "../../lib/scanStatus.js";
 import IssueForm from "./forms/IssueForm.jsx";
-import InstallForm from "./forms/InstallForm.jsx";
 import ReturnForm from "./forms/ReturnForm.jsx";
 import InspectForm from "./forms/InspectForm.jsx";
 import RgpOutForm from "./forms/RgpOutForm.jsx";
@@ -43,7 +42,6 @@ import { FlowStepContext } from "./forms/flow.js";
 
 const FORMS = {
   ISSUE: IssueForm,
-  UPDATE_INSTALLATION: InstallForm,
   RETURN: ReturnForm,
   INSPECT: InspectForm,
   RGP_OUT: RgpOutForm,

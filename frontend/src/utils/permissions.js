@@ -14,7 +14,7 @@ const WRITES = ["create", "update", "delete"];
 // a right on one of them to read the spare stock (security audit, 24 Oct 2026).
 export const SPARE_STOCK_VIEW = [
   "spare_store", "live_dashboard", "action_tracker", "notifications", "store_stock",
-  "inventory_control", "put_away_check", "scan_part", "work_queue", "consumption",
+  "inventory_control", "scan_part", "work_queue", "consumption",
   "receiving", "short_rejection", "part_ledger", "erp_gap", "erp_control", "part_master",
   "data_quality", "supplier_barcodes", "reports", "challan_register",
 ];

@@ -23,11 +23,9 @@ export function FormShell({
   flow, verify, children, onCancel, onReview, reviewLabel = "Review", reviewIcon: ReviewIcon = ArrowRight,
   blocked = false, editRight = null, right = "update",
 }) {
-  // Saving needs Scan Part edit — or the form's own right: the install update
-  // saves with Confirm Installation edit too (the confirm endpoint accepts it),
-  // so a Line User login is not shown "View only" with no Confirm button on the
-  // one screen it is for (store's role templates, 17 Oct 2026). Both hooks always
-  // run; with no editRight the second asks the same as the first.
+  // Saving needs Scan Part edit — or the form's own right (`editRight`), when a
+  // form is saved with another one. Both hooks always run; with no editRight
+  // the second asks the same as the first.
   // `right` is the form's CRUD action (24 Oct 2026): "create" for an issue,
   // return or RGP out, "update" for the rest.
   const mayScan = useCan("scan_part", right);

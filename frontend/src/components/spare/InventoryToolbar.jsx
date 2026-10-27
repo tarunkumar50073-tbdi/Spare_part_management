@@ -93,7 +93,7 @@ export function SavedViews({ current, onApply, canSave }) {
   );
 }
 
-export function BulkBar({ count, onExport, onPrintBins, printing, canPrint, onClear }) {
+export function BulkBar({ count, onExport, onClear }) {
   if (!count) return null;
   return (
     <div role="region" aria-label="Selected parts"
@@ -102,13 +102,6 @@ export function BulkBar({ count, onExport, onPrintBins, printing, canPrint, onCl
       <button type="button" onClick={onExport} className="btn-secondary py-1 text-[13px]">
         <FileDown size={14} aria-hidden="true" /> Export selected
       </button>
-      {canPrint && onPrintBins && (
-        <button type="button" onClick={onPrintBins} disabled={printing || count > 300}
-          title={count > 300 ? "Up to 300 parts per print job" : "Print one laminated QR sheet per bin — selected parts grouped by rack location"}
-          className="btn-secondary py-1 text-[13px] disabled:opacity-40">
-          <LayoutGrid size={14} aria-hidden="true" /> Bin sheets
-        </button>
-      )}
       <button type="button" onClick={onClear} className="ml-auto text-xs font-medium text-slate-500 hover:text-toyotared">
         Clear selection
       </button>

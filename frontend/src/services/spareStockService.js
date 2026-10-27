@@ -103,12 +103,10 @@ export const spareStockService = {
   // Qty with it since the lot tags went (17 Oct 2026). data = { gate_entry_no,
   // gate_entry_dt, gate_entry_time, qty, uom }, all null when ERP has no gate
   // entry for the part. silent: the screen says so itself.
-  latestLot: (partId) => api.get(`/spare-stock/parts/${partId}/latest-lot`, { silent: true }),
   // Record a confirmed put-away (Confirm Put Away). payload: { part_id,
   // scanned_location, gate_entry_no?, qty } — qty null when Lot Qty was left
   // empty. Returns the saved record (location, gate_entry_no, qty, put_by,
   // confirmed_at) for the "Put Away Successful" screen.
-  putAwayRecord: (payload) => api.post("/spare-stock/put-away/record", payload),
   returnables: (storeCode) => api.get("/spare-stock/returnables", { params: { store_code: storeCode } }),
   reorder: (storeCode) => api.get("/spare-stock/reorder", { params: { store_code: storeCode } }),
   erpPending: (storeCode) => api.get("/spare-stock/erp-sync/pending", { params: { store_code: storeCode } }),

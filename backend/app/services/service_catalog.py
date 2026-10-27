@@ -40,21 +40,6 @@ SERVICES = [
      "category": "Inventory", "icon": "📋", "mod": "scan_part",
      "keywords": ["queue", "grn", "quality", "inspection", "return", "rgp", "rework",
                   "supplier", "pending", "confirmation"]},
-    # Line user's focused Stage-2 screen — see the parts already issued and fill
-    # in the line / machine / die they were fitted on. No scanner (no per-part
-    # QR); the right is install_confirm, granted on its own.
-    {"key": "confirm_installation", "title": "Confirm Installation", "route": "/confirm-installation",
-     "category": "Inventory", "icon": "🔧", "mod": "install_confirm",
-     "keywords": ["confirm", "installation", "install", "line", "machine", "die", "fitted",
-                  "fitter", "issued to me", "where used", "lagaya", "line machine bharo"]},
-    # Put-away check: type / search the part no. then scan the bin's location QR
-    # -> Right / Wrong Location, so a part is never shelved in the wrong bin (no
-    # mixing); the lot qty comes from the part's latest ERP gate entry.
-    {"key": "put_away_check", "title": "Put-away Check", "route": "/put-away-check",
-     "category": "Inventory", "icon": "📍", "mod": "store_stock",
-     "keywords": ["put away", "putaway", "put-away", "location", "bin", "shelf", "rack",
-                  "wrong location", "right location", "mixing", "verify", "check", "rakhna",
-                  "sahi jagah", "galat location", "bin check"]},
     {"key": "store_stock", "title": "Store Stock", "route": "/store-stock-spare",
      "category": "Inventory", "icon": "📦", "mod": "store_stock",
      "keywords": ["stock", "count", "counting", "opening", "quantity", "qty", "in stock",

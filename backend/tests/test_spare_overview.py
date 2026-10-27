@@ -80,7 +80,7 @@ def test_overview_figures_for_a_section(seeded):
     assert att["below_min"]["severity"] == "critical"
     assert att["reorder"]["severity"] == "warning"
     assert att["excess"]["value"] == 1000.0                       # 20 over max x 50
-    assert att["confirm_pending"]["count"] == 0 and att["confirm_pending"]["severity"] == "ok"
+    assert "confirm_pending" not in att                           # Confirm Installation taken out
     # Store-level only: a section screen never quotes the store's SRVs / ERP queue.
     assert "srv_pending" not in att and "erp_pending" not in att
 

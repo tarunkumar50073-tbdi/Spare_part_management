@@ -118,12 +118,8 @@ const NAV_BY_STORE = {
         // waste h" (the store).
         { to: "/scan-part", label: "Scan Part", short: "Scan", icon: ScanBarcode, mod: "scan_part" },
         { to: "/work-queue", label: "Work Queue", icon: ClipboardList, mod: "work_queue" },
-        { to: "/confirm-installation", label: "Confirm Installation", short: "Install", icon: Wrench, mod: "install_confirm" },
         // Job work returns waiting for their ERP RGP, and the link (27 Oct 2026).
         { to: "/job-work", label: "Job Work & RGP", short: "Job Work", icon: Hammer, mod: "scan_part" },
-        // Inside Scan Part's header for whoever can open Scan Part; this row is
-        // only for a user who cannot (`unless`).
-        { to: "/put-away-check", label: "Put-away Check", short: "Put-away", icon: PackageCheck, mod: "put_away_check", unless: "scan_part" },
         { to: "/store-stock-spare", label: "Store Stock", short: "Stock", icon: Package, mod: "store_stock" },
       ],
     },
@@ -527,8 +523,8 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           hides / shows this menu — the control lives on the menu bar itself. */}
       <div className={`border-b border-white/10 ${collapsed ? "px-2 py-3" : "px-4 py-4"}`}>
         <div className={`flex gap-2 ${collapsed ? "flex-col items-center" : "items-center justify-between"}`}>
-          {/* A login that may not open the store dashboard (Line User and
-              Live Board templates, 17 Oct 2026) goes Home to "/", which lands it
+          {/* A login that may not open the store dashboard (Live Board and
+              Part Search Kiosk templates) goes Home to "/", which lands it
               on its own first screen (App.jsx StoreHome), not "Access restricted". */}
           <NavLink
             to={activeCode === "MAINTENANCE" && !can(user, "spare_store") ? "/" : storeHome(activeCode)}

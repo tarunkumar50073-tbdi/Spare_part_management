@@ -563,7 +563,6 @@ class ScanResultService:
             ("RGP_RETURN", n_rgp_back > 0, n_rgp_back, "Nothing is with a supplier for rework"),
             ("INSPECT", n_inspect > 0, n_inspect, "No returned material is waiting for inspection"),
             ("RETURN", n_out > 0, n_out, nothing_out),
-            ("UPDATE_INSTALLATION", n_out > 0, n_out, nothing_out),
             ("RGP_OUT", n_rgp_out > 0, n_rgp_out,
              "RGP is only for returned material on hold or damaged — there is no direct RGP"),
             ("REPRINT_LABEL" if printed_count else "PRINT_LABEL", True,
@@ -1126,17 +1125,14 @@ class ScanResultService:
                          for g in rgps if g.qty_with_supplier > 0]
         grn_pending = [self._with_part(self._rgp_dict(g, today), g.part)
                        for g in rgps if g.qty_grn_pending > 0]
-        awaiting = self.stock.pending_confirmations(store_code)
         return {
             "quality": quality,
             "inspection": inspection,
             "with_supplier": with_supplier,
             "rgp_grn_pending": grn_pending,
-            "awaiting_confirmation": awaiting,
             "counts": {
                 "quality": len(quality), "inspection": len(inspection),
                 "with_supplier": len(with_supplier), "rgp_grn_pending": len(grn_pending),
-                "awaiting_confirmation": len(awaiting),
             },
             # How current the ERP GRN mirror behind `quality` is.
             "erp": self.erp_grn.mirror_freshness(),

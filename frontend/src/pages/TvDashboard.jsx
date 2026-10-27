@@ -565,7 +565,7 @@ function AgeRow({ b, max, since }) {
 const TRK_COLS = "grid items-center gap-x-[1vh] grid-cols-[minmax(0,1.5fr)_4.6vh_7.4vh_minmax(0,1.2fr)_5.6vh] landscape:grid-cols-[minmax(0,1.5fr)_7vh_11vh_minmax(0,1.3fr)_minmax(0,1fr)_8vh_8vh]";
 // Shorter names for the half-height wall rows; landscape shows the full label.
 const TRK_SHORT = {
-  srv_pending: "GRN / quality pending", confirm_pending: "Awaiting confirmation",
+  srv_pending: "GRN / quality pending",
   returns_pending: "Returns to inspect", erp_pending: "Not yet in ERP",
 };
 const SEV_RANK = { critical: 0, warning: 1, info: 2, ok: 3 };
@@ -790,11 +790,10 @@ export default function TvDashboard() {
     let alive = true;
     const load = async () => {
       let denied = false;
-      const [storeOv, erpGap, pending, flow] = await Promise.all([
+      const [storeOv, erpGap, flow] = await Promise.all([
         spareStockService.overview(STORE).then((r) => r.data?.data ?? null)
           .catch((e) => { denied = e?.response?.status === 403; return null; }),
         fetchData(spareStockService.erpGap(STORE)),
-        fetchData(spareStockService.pendingConfirmations(STORE)),
         fetchData(spareStockService.flow(STORE)),
       ]);
       const gapRows = asList(erpGap);
@@ -828,7 +827,7 @@ export default function TvDashboard() {
       }
       if (!alive) return;
       setOvDenied(denied);
-      setData((d) => ({ ...d, storeOv: ovObj, erpGap: gapRows, pending: asList(pending), flow: asObj(flow) }));
+      setData((d) => ({ ...d, storeOv: ovObj, erpGap: gapRows, flow: asObj(flow) }));
     };
     load();
     const id = setInterval(load, REFRESH_MS);
@@ -897,7 +896,6 @@ export default function TvDashboard() {
   // and says so — a 0 would read as "no material waiting".
   const srvUntracked = !receiving && P.flow ? P.flow.srv_total === 0 : false;
   const srvState = P.storeOv === undefined ? "loading" : srvCount == null && !srvUntracked ? "error" : "ok";
-  const confirmCount = (P.pending || NO_ROWS).length;
   const erp = P.storeOv?.erp ?? ov?.erp ?? null;
   const pendingErp = erp?.write?.pending ?? 0;
   // Money tied up above the maximum — (on-hand − max) × rate for each excess part.
@@ -1114,20 +1112,6 @@ export default function TvDashboard() {
       return { rows: list, error: !ok, ...(ok && opts.noteOf ? { note: opts.noteOf(list) } : {}) };
     },
   );
-  // The drill shows the very rows the ticker counted. Qty is what is still out
-  // with the user (outstanding_qty): an issue partly returned before anyone
-  // confirmed it waits too (Waiting list rule, 16 Oct 2026), and only the rest
-  // is left to confirm.
-  const openConfirmations = () => openStack({
-    kind: "txnList", title: "Awaiting user confirmation",
-    rows: (P.pending || NO_ROWS).map((x) => ({
-      id: x.id, at: x.issued_at, part_id: x.part_id, part_no: x.part_no,
-      part_name: Number(x.returned_qty) > 0 ? `${x.part_name || ""} · ${fmtInt(x.returned_qty)} of ${fmtInt(x.qty)} returned` : x.part_name,
-      txn_type: "ISSUE", qty_delta: -(x.outstanding_qty ?? x.qty ?? 0), balance_after: null,
-      department: x.department, machine: x.machine,
-    })),
-    note: `${fmtInt(confirmCount)} issue(s) the store has handed out but nobody has confirmed fitted yet — Stage 2 of the two-stage issue. The person who installs the part re-scans it (Scan Part → Confirm) to record the line/machine and mark it installed. Qty is what is still out with the user. Tap a row for that part's history.`,
-  });
   const openErpGap = () => openStack({
     kind: "erpGap", title: "Current Stock — ERP vs Physical", rows: erpRows, summary: erpSum, error: erpState === "error",
     note: snapWord
@@ -1276,7 +1260,7 @@ export default function TvDashboard() {
   // A tracker line opens the same drill as its tile / alert, where the board has one.
   const trackerOpen = {
     critical: openCritical, reorder: openReorder, excess: openExcess,
-    srv_pending: openSrv, erp_gap: openErpGap, confirm_pending: openConfirmations,
+    srv_pending: openSrv, erp_gap: openErpGap,
   };
 
   // Live Alerts — derived from the board's own real spare figures (there is no
@@ -1308,7 +1292,6 @@ export default function TvDashboard() {
     text: `${plural(critical, "part")} CRITICAL · ${fmtInt(zero)} zero stock · ${fmtInt(belowMin)} below minimum` });
   if (reorderN) liveAlerts.push({ color: STATUS.reorder, text: `${plural(reorderN, "part")} at reorder level`, onClick: openReorder });
   if (excess) liveAlerts.push({ color: STATUS.above, text: `${plural(excess, "part")} above maximum · ${fmtMoney(excessValue ?? excessValueRows)} tied up`, onClick: openExcess });
-  if (confirmCount) liveAlerts.push({ color: C.purple, text: `${plural(confirmCount, "issue")} awaiting user confirmation`, onClick: openConfirmations });
   // Said the way the store reads it (the store, 24 Oct 2026: "is line ko thik
   // meaning me likho" — "differ from the ERP 10 Aug snapshot" read as a puzzle):
   // the store's count against ERP's, which way each part is off, and that the

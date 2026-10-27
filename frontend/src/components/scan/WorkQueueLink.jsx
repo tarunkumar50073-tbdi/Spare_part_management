@@ -17,7 +17,6 @@ const COUNTS = [
   { key: "inspection", label: "Inspection" },
   { key: "with_supplier", label: "With supplier" },
   { key: "rgp_grn_pending", label: "RGP GRN" },
-  { key: "awaiting_confirmation", label: "Awaiting line / machine" },
 ];
 
 function WorkQueueLink({ storeCode }) {

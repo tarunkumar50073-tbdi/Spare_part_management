@@ -16,7 +16,7 @@ const markShown = () => { try { sessionStorage.setItem(SHOWN_KEY, "1"); } catch 
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN"));
 
 const ICON = {
-  critical: "🚨", reorder: "🛒", excess: "📦", srv_pending: "🧪", erp_gap: "⚖️", confirm_pending: "✅",
+  critical: "🚨", reorder: "🛒", excess: "📦", srv_pending: "🧪", erp_gap: "⚖️",
   returns_pending: "↩️", rgp_overdue: "🔧", no_rate: "💰", erp_pending: "🔄",
 };
 

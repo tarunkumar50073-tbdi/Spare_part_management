@@ -46,7 +46,6 @@ export const ACTIONS = {
   RGP_RETURN: { label: "RGP Return", icon: "Undo2", tone: "primary" },
   INSPECT: { label: "Inspection", icon: "ClipboardCheck", tone: "primary" },
   RETURN: { label: "Return", icon: "ArrowDownToLine", tone: "secondary" },
-  UPDATE_INSTALLATION: { label: "Update Line / Machine", icon: "Wrench", tone: "secondary" },
   RGP_OUT: { label: "RGP (Rework)", icon: "Truck", tone: "secondary" },
   PRINT_LABEL: { label: "Print Label", icon: "Printer", tone: "secondary" },
   REPRINT_LABEL: { label: "Reprint Label", icon: "Printer", tone: "secondary" },
@@ -113,17 +112,15 @@ export const LEGACY_REASON = {
 };
 export const reasonLabel = (r) => (r ? LEGACY_REASON[r] || r : "—");
 
-// Scan Part's ways of working (the switch at the top of the page). Issue (the
-// default): a scan opens the Issue form once the part is identified. Put-away
-// Check is a flow of its own — type / search the part, then scan the bin it goes
-// in — and asks for the right (`mod`) its own page always asked for.
-// URL ?mode=issue|putaway picks one; the last one is remembered per terminal.
+// Scan Part's ways of working (the switch at the top of the page shows when
+// there is more than one). Issue: a scan opens the Issue form once the part is
+// identified. Put-away Check was taken out on 27 Oct 2026 — it needed a QR at
+// the rack, and the store puts no tag there.
 // The Receive & Lot Tag mode (param "label") is gone: the store had the gate-entry
 // lot tags taken out on 17 Oct 2026 — management said they waste paper ("lot tag
 // bhi kah rhe h ki paper wastage h use hta do"). Scan Part opens Issue for it.
 export const SCAN_MODE = {
   ISSUE: { label: "Issue", icon: "ArrowUpFromLine", param: "issue" },
-  PUTAWAY: { label: "Put-away Check", icon: "PackageCheck", param: "putaway", mod: "put_away_check" },
 };
 
 // A part's barcodes (BarcodeService.list_part_barcodes source): its own QR —

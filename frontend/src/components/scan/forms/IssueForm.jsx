@@ -10,9 +10,9 @@ import PacketIssueForm from "./PacketIssueForm.jsx";
 import { clean, fmtQty, isStoreDepartment, qtyError, qtyOf, stepMin, useActionFlow, useDepartments } from "./flow.js";
 
 // ISSUE (spec 11): the store hands the part to a department + person. Only
-// what the store knows at the counter is asked — Line / Machine / Die are NOT
-// mandatory here; they are added to the same issue after installation
-// (Update Line / Machine). The quantity can never exceed what is available.
+// what the store knows at the counter is asked; the store's work ends at the
+// issue (no line / machine step since 27 Oct 2026). The quantity can never
+// exceed what is available.
 // Scanning is mainly for issuance: the workstation opens this form by itself
 // as soon as a part with stock is identified.
 // The person is picked by code or name from today's Maintenance / Tool Room
@@ -147,11 +147,10 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
         { label: "Available after issue", value: fmtQty(Math.round((available - payload.qty) * 100) / 100, part.uom) },
         { label: "Remarks", value: payload.remarks },
       ],
-      note: "Line / Machine / Die are added after installation — scan this part and choose Update Line / Machine.",
       confirmLabel: "Confirm Issue",
       submit: () => flow.run(
         () => spareFlowService.issue(part.id, payload),
-        `Issued ${fmtQty(payload.qty, part.uom)} to ${emp.name}${code} · ${department} — add Line / Machine / Die after installation`,
+        `Issued ${fmtQty(payload.qty, part.uom)} to ${emp.name}${code} · ${department}`,
       ),
     });
   };
@@ -190,7 +189,6 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
           {available > 0 ? ` By quantity, only the loose ${fmtQty(available, part.uom)}.` : " Nothing is loose."}
         </Note>
       )}
-      <Note>Line / Machine / Die can be added after installation.</Note>
     </FormShell>
   );
 }

@@ -81,9 +81,6 @@ TRACKER_ITEMS = (
     # queue were taken out on 17 Oct 2026 ("management k according manual detail
     # fill karke issuance karna time waste h" — the store). Parts are issued on
     # Scan Part; the part_requests rows stay in the database, unread.
-    {"key": "confirm_pending", "label": "Issues awaiting confirmation", "severity": "warning",
-     "action": "Confirm installation", "owner": "User department",
-     "link": {"label": "Confirm installation", "to": "/confirm-installation"}},
     {"key": "returns_pending", "label": "Returns awaiting inspection", "severity": "warning",
      "action": "Inspect returned parts", "owner": "Store",
      "link": {"label": "Open Work Queue", "to": "/work-queue"}},
@@ -398,8 +395,6 @@ class SpareManagementService:
         an administrator saved on it."""
         lines, to_restock = self._stock_lines(rows, names, agg, aging)
         readers = {
-            "confirm_pending": lambda: _line(
-                self.dashboard._pending_confirmations(store_code, section_id, section_ids)),
             "returns_pending": lambda: self._returns_line(store_code, section_id, section_ids),
             "rgp_overdue": lambda: _line(
                 self.dashboard._rgp(store_code, section_id, section_ids)["overdue"]),

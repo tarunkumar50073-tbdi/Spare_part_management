@@ -252,7 +252,7 @@ def test_tracker_figures_for_a_section(seeded):
     t = m["tracker"]
     # The store-only lines (the ERP queues) are left out of a section call.
     assert [it["key"] for it in t["items"]] == [
-        "critical", "reorder", "excess", "confirm_pending",
+        "critical", "reorder", "excess",
         "returns_pending", "rgp_overdue", "no_rate"]
     it = _items(m)
     here = [{"section_id": sec.id, "name": sec.name, "count": 2}]
@@ -279,13 +279,13 @@ def test_tracker_figures_for_a_section(seeded):
     no_rate = it["no_rate"]                                             # E and F
     assert (no_rate["count"], no_rate["severity"], no_rate["status"], no_rate["sections"]) == (2, "info", "OPEN", here)
     assert no_rate["detail"] == "Not valued — left out of stock value and excess"
-    for key in ("confirm_pending", "returns_pending", "rgp_overdue"):
+    for key in ("returns_pending", "rgp_overdue"):
         line = it[key]
         # A zero count is never a warning — it is simply "ok".
         assert (line["count"], line["status"], line["severity"]) == (0, "CLEAR", "ok")
         assert (line["value"], line["value_label"], line["detail"], line["sections"]) == (None, None, "", [])
 
-    assert t["summary"] == {"open": 4, "clear": 3, "overdue": 0, "critical_parts": 2,
+    assert t["summary"] == {"open": 4, "clear": 2, "overdue": 0, "critical_parts": 2,
                             "to_restock": 1220.0, "tied_up": 1000.0}
     # The restock money is the overview's, split by status.
     assert crit["value"] + it["reorder"]["value"] == t["summary"]["to_restock"]
@@ -325,7 +325,6 @@ def test_store_level_tracker_adds_the_store_only_lines(seeded):
     assert it["critical"]["value"] + it["reorder"]["value"] == pytest.approx(ov["value"]["to_restock"], abs=0.011)
     assert it["srv_pending"]["count"] == ov["receiving_pending"]["total"]
     assert it["erp_pending"]["count"] == att["erp_pending"]["count"]
-    assert it["confirm_pending"]["count"] == att["confirm_pending"]["count"]
     assert it["no_rate"]["count"] == ov["data_quality"]["missing_rate"]
     returns = ov["returns_pending"]
     assert it["returns_pending"]["count"] == returns["inspection"] + returns["hold"] + returns["damaged"]
@@ -660,8 +659,8 @@ def test_issues_and_put_aways_of_a_section():
 
     it = _items(m)
     assert "kiosk_open" not in it
-    # The four issues made at the counter wait for the fitter's confirmation.
-    assert (it["confirm_pending"]["count"], it["confirm_pending"]["status"]) == (4, "OPEN")
+    # No line waits for a fitter's confirmation since 27 Oct 2026.
+    assert "confirm_pending" not in it
 
 
 # ---- resilience ----
@@ -683,7 +682,7 @@ def test_one_unreadable_figure_does_not_fail_the_payload(seeded, monkeypatch):
     assert (rgp["count"], rgp["status"], rgp["overdue"], rgp["detail"]) == (None, "UNKNOWN", False, "")
     # The rest of the tracker still arrives; an unknown line is neither open nor clear.
     assert (it["critical"]["count"], it["returns_pending"]["status"]) == (2, "CLEAR")
-    assert (m["tracker"]["summary"]["open"], m["tracker"]["summary"]["clear"]) == (4, 2)
+    assert (m["tracker"]["summary"]["open"], m["tracker"]["summary"]["clear"]) == (4, 1)
 
     aging = m["excess_aging"]
     assert [b["key"] for b in aging["buckets"]] == BUCKETS

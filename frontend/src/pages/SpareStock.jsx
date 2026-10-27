@@ -18,8 +18,6 @@ import { NO_ROWS, invalidateStock, stockKeys, useStockList } from "../lib/stockQ
 import { useStores } from "../context/StoreContext.jsx";
 import { downloadFile } from "../utils/download.js";
 import { downloadXlsx } from "../utils/excel.js";
-import BinSheetPrintModal from "../components/label/BinSheetPrintModal.jsx";
-import BinPickerModal from "../components/label/BinPickerModal.jsx";
 import { storeService } from "../services/storeService.js";
 import { barcodeService } from "../services/barcodeService.js";
 import { GAP_FILTERS, STATUS_RANK, fmtDay, matchesGap, splitLocation, typeOf } from "../lib/inventory.js";
@@ -150,7 +148,6 @@ export default function SpareStock() {
   // Import (opening stock upload) is a store_stock write — hide it, and the
   // toolbar's Add button, from a view-only user; Template/Export stay visible.
   const canEditStock = useCan("store_stock", "update");   // E: count, upload
-  const canPrintBins = useCan("store_stock", "create");   // C: bin location sheets
   const confirm = useConfirm();
   const qc = useQueryClient();
   const { openPart } = usePartDrawer();
@@ -176,10 +173,6 @@ export default function SpareStock() {
   }, { replace: true });
   // Bulk selection, by part_id — kept across filter changes, cleared on demand.
   const [selected, setSelected] = useState(() => new Set());
-  // The selected parts whose labels are being printed (the bulk print dialog).
-  const [binParts, setBinParts] = useState(null);
-  // The whole store's parts while the bin picker ("print by bin / rack") is open.
-  const [pickParts, setPickParts] = useState(null);
   const [report, setReport] = useState(null);
   // Rows of the last upload skipped as an old template's figures: { rows, madeAt } or null.
   const [stale, setStale] = useState(null);
@@ -220,10 +213,6 @@ export default function SpareStock() {
   const { data: facts = {} } = useQuery({
     queryKey: stockKeys.facts(activeCode), enabled: on,
     queryFn: () => spareStockService.partFacts(activeCode).then((r) => r.data.data || {}),
-  });
-  const { data: labelConfig = null } = useQuery({
-    queryKey: ["label-config"], staleTime: 10 * 60_000,
-    queryFn: () => barcodeService.labelConfig().then((r) => r.data.data),
   });
   // After a write from this screen: refresh every stock view, here and on any
   // other open screen that reads the same cache.
@@ -375,44 +364,6 @@ export default function SpareStock() {
     downloadXlsx(`spare_stock_${slug}_${new Date().toISOString().slice(0, 10)}`,
       EXPORT_HEADERS, visible.map(toExportRow), (filter || "Filtered").slice(0, 28));
   };
-  // Labels are printed first and recorded only after the operator confirms
-  // they came out (source STORE_STOCK) — the dialog owns that flow, including
-  // which parts already carry a label and need a reprint reason.
-  const toPrintPart = (r) => ({
-    part_id: r.part_id, part_no: r.part_no, part_name: r.part_name, location: r.location,
-    // A part can have TWO locations — fresh (location) and rework (rework_location);
-    // both are tagged (the part shows in both bins, each row marked FRESH / REWORK).
-    rework_location: r.rework_location,
-    specification: r.specification,
-    // Section travels with the part so a bin tag is per section AND location —
-    // the same rack number exists in more than one section (R3 in Press and in
-    // Maintenance), and must not be merged onto one tag.
-    section_id: r.section_id, section_name: r.section_name,
-    min_stock_level: r.min_stock_level, max_stock_level: r.max_stock_level,
-  });
-  const selectedForPrint = () => selectedRows.map(toPrintPart);
-  const printBinSheets = () => {
-    if (!selectedRows.length || selectedRows.length > 300) return;
-    setBinParts(selectedForPrint());
-  };
-  // Every bin sheet for the parts currently in view (use the section filter):
-  // groups them by rack location and prints one 130x90 sheet per bin — no need
-  // to tick each part.
-  const printSectionBins = () => {
-    if (!visible.length) return;
-    setBinParts(visible.map(toPrintPart));
-  };
-  // Pick the bins (or whole racks) to print, from every bin of the store — the
-  // store asked (17 Oct 2026) for bin-wise tags: "location qr me bin wise bhi tag
-  // nikalne ka option add kar de", picked rack first, then the bin: "rack k ander
-  // se bin chunna h jaise R4 me B5". The whole store's list, not the filtered
-  // view, so any bin can be added; the page's section / rack filter is only
-  // where the picker starts.
-  const openBinPicker = () => {
-    if (!enriched.length) return;
-    setPickParts(enriched.map(toPrintPart));
-  };
-
   const dash = <span className="text-slate-300 dark:text-slate-600">—</span>;
   const columns = [
     { key: "part_no", label: "Part No", sortable: true },
@@ -613,26 +564,11 @@ export default function SpareStock() {
             sections={sections} types={types} racks={racks} section={section} type={type} rack={rack} gap={gap}
             onChange={setParam} active={filtersActive} onClear={() => applyView({})} />
           <div className="flex flex-wrap items-center gap-2">
-            {canPrintBins && (
-              <button type="button" onClick={openBinPicker} disabled={Boolean(binParts || pickParts) || !enriched.length}
-                title="Pick a section, a rack and its bins (e.g. R4 → B5) to print their 130×90 mm location sheets"
-                className="btn-secondary py-1 text-[13px] disabled:opacity-40">
-                <LayoutGrid size={14} aria-hidden="true" /> Bin sheets by rack / bin
-              </button>
-            )}
-            {(section || rack) && canPrintBins && (
-              <button type="button" onClick={printSectionBins} disabled={Boolean(binParts) || !visible.length}
-                title="Print one 130×90 mm location sheet per bin for the current filter (whole section or rack) — grouped by rack location"
-                className="btn-secondary py-1 text-[13px] disabled:opacity-40">
-                <LayoutGrid size={14} aria-hidden="true" /> All bin sheets ({visible.length.toLocaleString("en-IN")})
-              </button>
-            )}
             <SavedViews current={{ status: filter, section, type, gap }} onApply={applyView} canSave={filtersActive} />
           </div>
         </div>
         <div className="mb-3">
-          <BulkBar count={selected.size} onExport={exportSelected} onPrintBins={printBinSheets}
-            printing={Boolean(binParts)} canPrint={canPrintBins} onClear={() => setSelected(new Set())} />
+          <BulkBar count={selected.size} onExport={exportSelected} onClear={() => setSelected(new Set())} />
         </div>
         <Table
           columns={columns}
@@ -716,14 +652,6 @@ export default function SpareStock() {
       )}
 
       <UploadReportModal report={report} onClose={() => setReport(null)} />
-      {binParts && (
-        <BinSheetPrintModal parts={binParts} config={labelConfig}
-          onClose={() => setBinParts(null)} />
-      )}
-      {pickParts && (
-        <BinPickerModal parts={pickParts} initialSection={section} initialRack={rack} config={labelConfig}
-          onClose={() => setPickParts(null)} />
-      )}
     </div>
   );
 }

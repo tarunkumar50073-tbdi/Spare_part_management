@@ -25,7 +25,6 @@ import WorkQueueLink from "../components/scan/WorkQueueLink.jsx";
 import HistoryModal from "../components/scan/HistoryModal.jsx";
 import { scanIcon } from "../components/scan/scanIcons.js";
 import PartTimeline from "../components/spare/PartTimeline.jsx";
-import PutAwayCheck from "./spare/PutAwayCheck.jsx";
 import useScanWorkstation from "../hooks/useScanWorkstation.js";
 import { ACTIONS, SCAN_MODE } from "../lib/scanStatus.js";
 import { can } from "../utils/permissions.js";
@@ -42,8 +41,7 @@ import { can } from "../utils/permissions.js";
 //   RIGHT  the QR label as printed · the part's barcodes · where the quantity
 //          is · timeline · the next step again · Work Queue counts
 //
-// Two modes, switched at the top (URL ?mode=issue|putaway, remembered per
-// terminal):
+// One mode now (URL ?mode=issue still accepted):
 //
 //   Issue (default) — scanning is mainly for issuance: once a part is
 //   identified (gun, camera, search or manual) and it can be issued, the Issue
@@ -54,11 +52,8 @@ import { can } from "../utils/permissions.js";
 //   shows its status and the valid actions as before. A single part's QR label
 //   (Print / Reprint Label) is one of those actions.
 //
-//   Put-away Check — for shelving: type / search the part no., then scan the
-//   bin's QR; the screen says Right / Wrong Location and records the put-away
-//   with the lot qty of the part's latest ERP gate entry (pages/spare/
-//   PutAwayCheck, which owns the input while it is on). Shown to a user who
-//   holds the Store Stock right that screen always asked for.
+// There is no Put-away Check mode any more (27 Oct 2026, "haan teeno hata de"):
+// it needed a QR at the rack, and the store puts no tag there.
 //
 // There is no Receive & Lot Tag mode any more: management said the gate-entry
 // lot tags waste paper and the store had them taken out on 17 Oct 2026 ("lot
@@ -75,9 +70,8 @@ import { can } from "../utils/permissions.js";
 // Deep links: /scan-part?part=<id>[&action=<ACTION KEY>[&target=<document id>]]
 // opens that part (and that action's form with the document pre-selected,
 // instead of what the mode opens) — the Work Queue and the part drawer send the
-// operator here that way. &mode=issue|putaway switches the mode as well; a
-// mode that no longer exists (the old mode=label, with or without its &gate=)
-// opens Issue.
+// operator here that way. A mode that no longer exists (the old mode=label or
+// mode=putaway) opens Issue.
 
 // Search and Manual Entry are typed, so the scan audit records them as such.
 const TYPED = "MANUAL_ENTRY";
@@ -201,7 +195,7 @@ export default function ScanPart() {
   const { ident, failure, resolving, resolve, openById, clear, clearFailure, scanQuery } = useScanWorkstation(storeCode);
   // The modes this user may switch to: one that names a right needs it.
   const modes = useMemo(() => Object.keys(SCAN_MODE).filter((k) => can(user, SCAN_MODE[k].mod)), [user]);
-  // ISSUE | PUTAWAY (SCAN_MODE). A link's ?mode= wins over this terminal's last one.
+  // ISSUE (SCAN_MODE). A link's ?mode= wins over this terminal's last one.
   const [mode, setMode] = useState(() => {
     const wanted = linkMode(searchParams) || savedMode();
     return modes.includes(wanted) ? wanted : "ISSUE";
@@ -655,19 +649,6 @@ export default function ScanPart() {
     <StatusBar storeName={activeStore?.name} operator={user?.full_name || user?.username}
       mode={mode} modes={modes} onMode={onMode} />
   );
-
-  // Put-away Check: its own two steps (the part, typed or searched, then a
-  // scan of its bin). The part workstation is not on screen and the put-away
-  // panel owns the input. The Work Queue strip is left out: nothing in it is
-  // put-away work.
-  if (mode === "PUTAWAY") {
-    return (
-      <div className="space-y-4">
-        {statusBar}
-        <PutAwayCheck embedded />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4">

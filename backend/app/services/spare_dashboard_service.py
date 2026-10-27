@@ -29,10 +29,9 @@ from app.extensions import db
 from app.models.base import utcnow
 from app.models.part import Part
 from app.models.spare_flow import RETURN_OPEN, RGP_OPEN, SpareReturn, SpareRgp
-from app.models.spare_stock import SpareStockLedger
 from app.models.store import Section, Store
 from app.services.erp_grn_posting_service import ErpGrnPostingService
-from app.services.spare_stock_service import SpareStockService, awaiting_confirmation_clause
+from app.services.spare_stock_service import SpareStockService
 
 # Worst first — the order the health bar and the attention list read in.
 STATUS_ORDER = ("Out of Stock", "Below Minimum", "Reorder", "Above Maximum", "Healthy", "Discontinued",
@@ -306,14 +305,6 @@ class SpareDashboardService:
         items[0]["value"] = _money(agg["restock_value"])
         items[0]["value_label"] = "to restock all short parts to max"
 
-        confirm = self._pending_confirmations(store_code, section_id, section_ids)
-        items.append({
-            "key": "confirm_pending", "label": "Issues awaiting confirmation",
-            "severity": "warning" if confirm else "ok",
-            "hint": "Issued by the store, machine / line not yet confirmed by the user",
-            "count": confirm, "value": None, "value_label": None, "sections": [],
-            "action": {"label": "Confirm on Scan Part", "to": "/scan-part"},
-        })
         if store_level:
             # Spec 1: a spare has no separate SRV step. What this line used to
             # count (SRV records) is now the ERP GRN lines whose quality ERP
@@ -461,21 +452,6 @@ class SpareDashboardService:
         elif section_id is not None:
             rows = [r for r in rows if r.get("section_id") == section_id]
         return rows[:10]
-
-    @staticmethod
-    def _pending_confirmations(store_code, section_id, section_ids=None):
-        q = (db.session.query(func.count(SpareStockLedger.id))
-             .join(Part, Part.id == SpareStockLedger.part_id)
-             .filter(Part.store_code == store_code,
-                     # The Waiting list's own rule (partly returned, never
-                     # confirmed issues included — 16 Oct 2026), so the
-                     # dashboard, the management board, the bell and the list
-                     # never disagree.
-                     awaiting_confirmation_clause()))
-        scope = SpareDashboardService._scope_clause(section_id, section_ids)
-        if scope is not None:
-            q = q.filter(scope)
-        return q.scalar() or 0
 
     # ------------------------------------------------ held, not issuable
 

@@ -31,7 +31,6 @@ const TABS = [
   { key: "inspection", label: "Return Inspection", Icon: ClipboardCheck },
   { key: "with_supplier", label: "With Supplier", Icon: Truck },
   { key: "rgp_grn_pending", label: "RGP GRN Pending", Icon: PackageCheck },
-  { key: "awaiting_confirmation", label: "Awaiting Installation Confirmation", Icon: Wrench },
 ];
 
 // What an empty tab means — said plainly, so "nothing here" is never mistaken
@@ -41,7 +40,6 @@ const EMPTY = {
   inspection: "No returned part is waiting for the store inspection, on hold or damaged.",
   with_supplier: "No part is with a supplier for rework.",
   rgp_grn_pending: "No supplier return is waiting for its RGP GRN.",
-  awaiting_confirmation: "Every issued part has had its line / machine confirmed.",
 };
 
 const DAY_MS = 86_400_000;
@@ -347,52 +345,7 @@ function columnsFor(tab, { canAct, canViewReceiving, now }) {
     ];
   }
 
-  // awaiting_confirmation — pending_confirmations rows (ISSUE ledger rows).
-  return [
-    {
-      key: "issued_at", label: "Issued", sortable: true,
-      exportValue: (r) => fmtStamp(r.issued_at),
-      render: (r) => (
-        <div>
-          <div className="text-slate-700 dark:text-slate-200">{fmtStamp(r.issued_at)}</div>
-          <IssueAge at={r.issued_at} now={now} prefix="" />
-        </div>
-      ),
-    },
-    partCol,
-    // What is still out with the user, not the issued qty: an issue partly
-    // returned before anyone confirmed it waits here too (the Waiting list
-    // rule, 16 Oct 2026) — "2 out of 3 · 1 returned", as Confirm Installation
-    // and Scan Part show it. A row from an older server has no outstanding_qty.
-    {
-      key: "qty", label: "Qty out", align: "right", sortable: true,
-      sortValue: (r) => Number(r.outstanding_qty ?? r.qty ?? 0),
-      exportValue: (r) => Number(r.outstanding_qty ?? r.qty ?? 0),
-      render: (r) => (Number(r.returned_qty) > 0 ? (
-        <div className="whitespace-nowrap">
-          <span className="tabular">{num(r.outstanding_qty)}</span>
-          <span className="text-slate-500 dark:text-slate-400"> out of {num(r.qty)}</span>
-          <div className="text-[11px] text-slate-400">{num(r.returned_qty)} returned</div>
-        </div>
-      ) : num(r.qty)),
-    },
-    {
-      key: "department", label: "Department / issued to", sortable: true,
-      searchValue: (r) => `${r.department || ""} ${r.issued_to || ""}`,
-      exportValue: (r) => [r.department, r.issued_to].filter(Boolean).join(" · "),
-      render: (r) => [r.department, r.issued_to].filter(Boolean).join(" · ") || dash,
-    },
-    {
-      key: "_where", label: "Line / machine / die",
-      searchValue: whereUsed, exportValue: whereUsed,
-      render: (r) => whereUsed(r) || <span className="text-[11px] text-slate-400">Not given yet</span>,
-    },
-    {
-      key: "status", label: "Status", sortable: true,
-      render: (r) => <IssueStatusPill issue={r} />,
-    },
-    actionCol((r) => <ActionLink row={r} action="UPDATE_INSTALLATION" target={r.id} canAct={canAct} />),
-  ];
+  return [];
 }
 
 function QueueSkeleton() {

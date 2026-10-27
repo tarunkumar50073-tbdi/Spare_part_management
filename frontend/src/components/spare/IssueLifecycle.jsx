@@ -15,8 +15,10 @@ const DAY_MS = 86_400_000;
 export const OVERDUE_AFTER_MS = 2 * DAY_MS;
 
 export const ISSUE_STATUS = {
-  ISSUED_BY_STORE: { label: "Issued by store", badge: "badge-info" },
-  PENDING_USER_CONFIRMATION: { label: "Awaiting user confirmation", badge: "badge-warning" },
+  // No line / machine step follows an issue since 27 Oct 2026 (Confirm
+  // Installation taken out): a fresh issue simply reads "Issued".
+  ISSUED_BY_STORE: { label: "Issued", badge: "badge-info" },
+  PENDING_USER_CONFIRMATION: { label: "Issued", badge: "badge-info" },
   PARTIALLY_USED: { label: "Installed — partly used", badge: "badge-success" },
   INSTALLED: { label: "Installed", badge: "badge-success" },
   // A return is taken straight back into store stock (store rule, 14 Oct
@@ -37,13 +39,9 @@ export const AWAITING_CONFIRMATION_STATUSES = new Set([
   "ISSUED_BY_STORE", "PENDING_USER_CONFIRMATION", "PARTIALLY_RETURNED",
 ]);
 
-/** True while `issue` waits for Stage 2. A row that does not carry
- *  outstanding_qty is judged by its status and confirmed_at alone. */
-export const isAwaitingConfirmation = (issue) =>
-  Boolean(issue)
-  && !issue.confirmed_at
-  && AWAITING_CONFIRMATION_STATUSES.has(issue.status)
-  && (issue.outstanding_qty == null || Number(issue.outstanding_qty) > 0);
+// Nobody confirms an issue any more (27 Oct 2026, Confirm Installation taken
+// out), so nothing waits; kept for the callers that still ask.
+export const isAwaitingConfirmation = () => false;
 
 export const issueStatusLabel = (status) => {
   if (ISSUE_STATUS[status]) return ISSUE_STATUS[status].label;

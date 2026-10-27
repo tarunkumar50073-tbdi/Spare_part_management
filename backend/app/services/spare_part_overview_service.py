@@ -201,9 +201,6 @@ class SparePartOverviewService:
             add("info", "Never counted", "No physical count recorded — its status is unknown")
         elif st == "Discontinued":
             add("info", "Discontinued", "Marked not required any more — never reordered; its stock stays listed")
-        if pending_confirm:
-            add("warning", "Awaiting confirmation",
-                f"{pending_confirm} issue(s) not yet confirmed by the user (machine / line)")
         if row["last_counted_at"]:
             counted = _naive(datetime.fromisoformat(row["last_counted_at"]))
             days = (_naive(utcnow()) - counted).days

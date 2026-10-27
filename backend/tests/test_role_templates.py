@@ -77,7 +77,7 @@ def _can(perms, mod, action="view"):
 
 def test_the_templates_the_store_keeps():
     # The Part Search Kiosk joined on 25 Oct 2026 (the kiosk outside the store).
-    assert KEYS == ["store_staff", "store_supervisor", "line_user", "manager", "live_board", "part_kiosk"]
+    assert KEYS == ["store_staff", "store_supervisor", "manager", "live_board", "part_kiosk"]
     for t in TEMPLATES.values():
         assert t["label"] and t["short"] and t["description"], t["key"]
 
@@ -102,10 +102,9 @@ def test_template_is_well_formed(key):
 
 
 def test_narrow_templates_hold_only_their_one_screen():
-    assert set(TEMPLATES["line_user"]["permissions"]) == {"install_confirm"}
     assert set(TEMPLATES["live_board"]["permissions"]) == {"live_dashboard"}
     assert set(TEMPLATES["part_kiosk"]["permissions"]) == {"part_kiosk"}
-    for key in ("line_user", "live_board", "part_kiosk"):
+    for key in ("live_board", "part_kiosk"):
         perms = TEMPLATES[key]["permissions"]
         assert not _can(perms, "scan_part") and not _can(perms, "store_stock"), key
 
@@ -140,12 +139,11 @@ def _opens(key):
     return {path for path, mod, action in _gated_routes() if _can(perms, mod, action or "view")}
 
 
-WRITE_SCREENS = {"/scan-part", "/work-queue", "/confirm-installation",
+WRITE_SCREENS = {"/scan-part", "/work-queue",
                  "/parts", "/data-quality", "/departments"}
 
 
-def test_line_user_and_board_open_only_their_screen():
-    assert _opens("line_user") == {"/confirm-installation"}
+def test_board_and_kiosk_open_only_their_screen():
     assert _opens("live_board") == {"/live-dashboard"}
     assert _opens("part_kiosk") == {"/part-search"}
 
@@ -153,7 +151,7 @@ def test_line_user_and_board_open_only_their_screen():
 def test_staff_screens():
     opens = _opens("store_staff")
     assert {"/store/MAINTENANCE", "/scan-part", "/work-queue", "/store-stock-spare",
-            "/put-away-check", "/inventory-control", "/spare-part-history", "/reports", "/employees",
+            "/inventory-control", "/spare-part-history", "/reports", "/employees",
             "/receiving", "/consumption", "/action-tracker", "/rejection-requests"} <= opens
     assert not opens & {"/parts", "/equipment", "/data-quality", "/departments", "/scan-audit", "/audit-trail",
                         "/spare-erp-gap", "/erp-control", "/confirm-installation",
@@ -335,13 +333,9 @@ def _staff_allowed(w):
         ("get", "/api/v1/equipment?kind=LINE&active=1", None, "ok"),
         ("post", f"/api/v1/spare-stock/parts/{w['part']}/issue",
          {"qty": 1, "department": DEPT, "employee_id": w["person"]}, "ok"),
-        # Store Stock count, Put-away Check (the part picked, its latest gate
-        # entry's lot qty, the record), Critical · Reorder · Excess
+        # Store Stock count, Critical · Reorder · Excess
         ("put", f"/api/v1/spare-stock/parts/{w['part']}", {"qty_on_hand": 12, "txn_type": "ADJUSTMENT"}, "ok"),
         ("get", f"/api/v1/spare-stock/parts/{w['part']}", None, "ok"),
-        ("get", f"/api/v1/spare-stock/parts/{w['part']}/latest-lot", None, "ok"),
-        ("post", "/api/v1/spare-stock/put-away/record",
-         {"part_id": w["part"], "scanned_location": w["location"]}, "ok"),
         ("get", _q("/api/v1/inventory-control"), None, "ok"),
         # Employee / Line-Machine-Die masters (read), Reports
         ("get", "/api/v1/employees?active=1", None, "ok"),
@@ -402,32 +396,6 @@ def test_store_supervisor_reaches_its_screens(client, world):
     ])
 
 
-def test_line_user_only_confirms_installation(client, world):
-    c = _login_from_template(client, world, "line_user")
-    assert [s["code"] for s in c.get("/api/v1/stores").get_json()["data"]] == [STORE]
-    _check(c, [
-        ("get", _q("/api/v1/spare-stock/pending-confirmations"), None, "ok"),
-        ("get", _q("/api/v1/spare-stock/installations"), None, "ok"),
-        ("get", f"/api/v1/spare-flow/parts/{world['part']}/scan-result", None, "ok"),
-        ("get", "/api/v1/equipment?kind=MACHINE&active=1", None, "ok"),     # the pick-lists
-        ("post", f"/api/v1/spare-stock/issues/{world['issue']}/confirm",
-         {"line_name": "Seat Track", "line_no": "L2", "machine": "MC-9"}, "ok"),
-    ], [
-        ("post", f"/api/v1/spare-stock/parts/{world['part']}/issue", {"qty": 1, "department": DEPT}),
-        ("post", f"/api/v1/spare-stock/issues/{world['issue']}/return", {}),
-        ("put", f"/api/v1/spare-stock/parts/{world['part']}", {"qty_on_hand": 1}),   # stock count
-        ("get", _q("/api/v1/inventory-control"), None),
-        *[(m, u, b) for m, u, b, _ in DASHBOARD],
-        ("get", f"/api/v1/employees/lookup?mobile={world['mobile']}", None),
-        ("post", "/api/v1/equipment", {"kind": "MACHINE", "name": "New one"}),
-        ("get", _q("/api/v1/reports/catalog"), None),
-        *ADMIN_ONLY,
-    ])
-    row = db.session.get(SpareStockLedger, world["issue"])
-    db.session.refresh(row)
-    assert row.machine == "MC-9" and row.confirmed_at is not None
-
-
 def test_manager_sees_everything_and_changes_nothing(client, world):
     c = _login_from_template(client, world, "manager")
     _check(c, DASHBOARD + [
@@ -435,8 +403,6 @@ def test_manager_sees_everything_and_changes_nothing(client, world):
         ("get", _q("/api/v1/consumption-analytics"), None, "ok"),
         ("get", _q("/api/v1/inventory-control"), None, "ok"),
         ("get", _q("/api/v1/spare-stock"), None, "ok"),
-        # Put-away Check, view only: the part and its latest gate entry's lot qty
-        ("get", f"/api/v1/spare-stock/parts/{world['part']}/latest-lot", None, "ok"),
         ("get", f"/api/v1/spare-stock/parts/{world['part']}/history", None, "ok"),   # Part Ledger
         ("get", _q("/api/v1/erp-control/status"), None, "ok"),
         ("get", _q("/api/v1/spare-stock/erp-gap"), None, "ok"),
@@ -446,8 +412,6 @@ def test_manager_sees_everything_and_changes_nothing(client, world):
     ], [
         ("put", f"/api/v1/spare-stock/parts/{world['part']}", {"qty_on_hand": 1}),
         ("post", "/api/v1/challans", {"store_code": STORE}),
-        ("post", "/api/v1/spare-stock/put-away/record", {"part_id": world["part"],
-                                                         "scanned_location": world["location"]}),
         ("post", _q("/api/v1/spare-stock/erp-sync"), None),
         ("post", _q("/api/v1/spare-stock/import"), None),
         ("post", _q("/api/v1/erp-grn/post"), None),

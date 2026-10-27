@@ -39,7 +39,7 @@ TODAY = datetime.now().date()
 COUNTED_ON = datetime.now(timezone.utc) - timedelta(days=30)
 
 ACTION_ORDER = [
-    "ISSUE", "RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN", "UPDATE_INSTALLATION", "RGP_OUT",
+    "ISSUE", "RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN", "RGP_OUT",
     "PRINT_LABEL", "UPDATE_LOCATION", "HISTORY",
 ]
 

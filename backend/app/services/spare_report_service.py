@@ -47,7 +47,6 @@ from sqlalchemy import func, or_, select
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.part import Part
-from app.models.put_away_log import PutAwayLog
 from app.models.spare_flow import SpareReturn, SpareTransaction
 from app.models.spare_stock import LEGACY_RETURN_REASONS, RETURN_ROW_INSPECTED, SpareStockLedger
 from app.models.supplier import Supplier
@@ -79,23 +78,19 @@ EXCESS_COLUMNS = ("Section", "Part No", "Description", "Supplier", "Location", "
 ISSUE_COLUMNS = ("Date & Time", "Issue No", "Reference", "Part No", "Description", "Section", "Qty",
                  "Department", "Consumer", "Issued To", "Emp Code", "Mobile", "Issued By", "Status",
                  "Line", "Machine", "Die", "Used Qty", "Returned Qty", "Still Out")
-INSTALLATION_COLUMNS = ("Date & Time", "Issue No", "Part No", "Description", "Department",
-                        "Issued To", "Line", "Machine", "Die", "Used Qty", "Issued Qty",
-                        "Recorded By", "Entry")
 RETURN_COLUMNS = ("Date & Time", "Return No", "Issue No", "Part No", "Description", "Qty", "Reason",
                   "Returned By", "Department", "Recorded By", "Result")
-PUT_AWAY_COLUMNS = ("Date & Time", "Part No", "Description", "Location", "Lot Qty",
-                    "Gate Entry No", "Put By")
 RECEIPT_COLUMNS = ("Date", "GRN No", "Part No", "Description", "Section", "Qty", "Supplier",
                    "Rate", "Value")
 ERP_COLUMNS = ("Part No", "Description", "Location", "ERP Stock", "In Stock (Physical)",
                "Gap (Physical - ERP)", "Status")
 
-# How an issue's status reads (models/spare_stock.ISSUE_STATUSES), as on the
-# Confirm Installation screen.
+# How an issue's status reads (models/spare_stock.ISSUE_STATUSES). No line /
+# machine step follows an issue since 27 Oct 2026 (Confirm Installation taken
+# out), so a fresh issue reads "Issued", not "waiting".
 ISSUE_WORDS = {
-    "ISSUED_BY_STORE": "Waiting for installation",
-    "PENDING_USER_CONFIRMATION": "Waiting for installation",
+    "ISSUED_BY_STORE": "Issued",
+    "PENDING_USER_CONFIRMATION": "Issued",
     "INSTALLED": "Installed",
     "PARTIALLY_USED": "Partly used",
     "RETURNED": "Returned",
@@ -285,26 +280,6 @@ class SpareReportService:
             })
         return out
 
-    def _installation_register(self, store_code, win):
-        T, L = SpareTransaction, SpareStockLedger
-        rows = (db.session.query(T, L, Part)
-                .join(L, L.id == T.issue_id).join(Part, Part.id == L.part_id)
-                .filter(T.txn_type == "INSTALLATION", L.txn_type == "ISSUE",
-                        Part.store_code == store_code, *_in(T.created_at, win))
-                .order_by(T.created_at, T.id).all())
-        # An issue's first INSTALLATION entry is its installation; later ones update it.
-        firsts = {first for (first,) in
-                  db.session.query(func.min(T.id)).join(Part, Part.id == T.part_id)
-                  .filter(T.txn_type == "INSTALLATION", Part.store_code == store_code)
-                  .group_by(T.issue_id)}
-        return [{
-            "Date & Time": _stamp(t.created_at), "Issue No": issue.id, "Part No": part.part_no,
-            "Description": part.part_name, "Department": t.department, "Issued To": t.issued_to,
-            "Line": _line(t), "Machine": t.machine, "Die": t.die_no, "Used Qty": t.qty,
-            "Issued Qty": abs(float(issue.qty_delta)), "Recorded By": t.created_by,
-            "Entry": "Installation" if t.id in firsts else "Update",
-        } for t, issue, part in rows]
-
     def _return_register(self, store_code, win):
         R, L = SpareReturn, SpareStockLedger
         returns = (db.session.query(R, Part).join(Part, Part.id == R.part_id)
@@ -330,18 +305,6 @@ class SpareReportService:
         }) for e, part in direct]
         lines.sort(key=lambda line: line[:2])
         return [row for _, _, row in lines]
-
-    def _put_away_register(self, store_code, win):
-        rows = (db.session.query(PutAwayLog, Part).outerjoin(Part, Part.id == PutAwayLog.part_id)
-                .filter(PutAwayLog.store_code == store_code, *_in(PutAwayLog.created_at, win))
-                .order_by(PutAwayLog.created_at, PutAwayLog.id).all())
-        return [{
-            "Date & Time": _stamp(log.confirmed_at or log.created_at),
-            "Part No": log.part_no or (part.part_no if part else None),
-            "Description": part.part_name if part else None,
-            "Location": log.assigned_location, "Lot Qty": log.qty,
-            "Gate Entry No": log.gate_entry_no, "Put By": log.put_by,
-        } for log, part in rows]
 
     def _receipt_register(self, store_code, win):
         L, T = SpareStockLedger, SpareTransaction
@@ -388,15 +351,9 @@ class SpareReportService:
                "Every issue in the period: who took it (Department), who consumes it (Consumer, by the "
                "part's section), its status, where it was fitted and what is still out.",
                True, ISSUE_COLUMNS, _issue_register),
-        Report("installation_register", "Installation Register",
-               "Every installation and later update recorded in the period: line, machine, die and qty used.",
-               True, INSTALLATION_COLUMNS, _installation_register),
         Report("return_register", "Return Register",
                "Every part returned to the store in the period, against its issue, and where the qty went.",
                True, RETURN_COLUMNS, _return_register),
-        Report("put_away_register", "Put-away Register",
-               "Put-away confirmations in the period: part, location, lot quantity and who put it away.",
-               True, PUT_AWAY_COLUMNS, _put_away_register),
         Report("receipt_register", "Receipts (ERP GRN)",
                "Stock received in the period on ERP GRNs, with the supplier and the value at today's rate.",
                True, RECEIPT_COLUMNS, _receipt_register),

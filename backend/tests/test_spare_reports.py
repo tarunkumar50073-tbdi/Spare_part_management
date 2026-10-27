@@ -54,10 +54,8 @@ _seq = {"n": 0}
 # ki jarurat nhi" — the store, 14 Oct 2026). The Kiosk Part Requests report went
 # with the kiosk on 17 Oct 2026.
 SPARE_KEYS = ["stock_current", "reorder_list", "excess_list", "issue_register",
-              "installation_register", "return_register", "put_away_register",
-              "receipt_register", "erp_vs_physical"]
-DATED = {"issue_register", "installation_register", "return_register",
-         "put_away_register", "receipt_register"}
+              "return_register", "receipt_register", "erp_vs_physical"]
+DATED = {"issue_register", "return_register", "receipt_register"}
 
 
 def _n():
@@ -296,12 +294,6 @@ def test_a_wide_pdf_report_is_fitted_to_the_page(client, make, monkeypatch):
     description = table._cellvalues[1][report.columns.index("Description")]
     assert "\n" in description and description.replace("\n", " ") == words
 
-    narrow = c.get(f"/api/v1/reports/put_away_register/pdf?store_code={s.code}")
-    assert narrow.status_code == 200
-    doc, table = drawn[-1]
-    assert doc.leftMargin == doc.rightMargin == inch
-    assert not any("\n" in cell for row in table._cellvalues for cell in row)
-    assert {style.fontsize for row in table._cellStyles for style in row} == {8}
 
 
 def test_a_pdf_table_a_little_wider_than_the_page_moves_onto_narrow_margins(monkeypatch):
@@ -404,7 +396,7 @@ def test_issue_register_status_words(make):
     db.session.commit()
 
     rows = {r["Issue No"]: r for r in _rows(s, "issue_register")}
-    assert rows[waiting]["Status"] == "Waiting for installation"
+    assert rows[waiting]["Status"] == "Issued"
     assert (rows[waiting]["Emp Code"], rows[waiting]["Mobile"], rows[waiting]["Issued To"]) == (
         emp.employee_code, emp.mobile, emp.name)
     assert rows[waiting]["Reference"] == f"REQ-{_TAG}-1"
@@ -423,25 +415,6 @@ def test_issue_register_status_words(make):
 
 
 # ---- installation register: one row per journal entry -----------------------------------
-
-def test_installation_register_reads_the_journal(make):
-    s = make.store()
-    dept = make.department()
-    svc = SpareStockService()
-    p, lid = _issue(s, dept, issued_to="Ravi")
-    svc.confirm_installation(lid, line_name="Recliner", line_no="02", machine="MC-1", user="fitter.one")
-    svc.confirm_installation(lid, machine="MC-2", die_no="D-2", actual_qty=2, user="fitter.two")
-
-    rows = [r for r in _rows(s, "installation_register") if r["Issue No"] == lid]
-    assert [(r["Entry"], r["Machine"], r["Used Qty"], r["Recorded By"]) for r in rows] == [
-        ("Installation", "MC-1", 3, "fitter.one"), ("Update", "MC-2", 2, "fitter.two")]
-    assert all(r["Issued Qty"] == 3 and r["Part No"] == p.part_no and r["Issued To"] == "Ravi"
-               and r["Line"] == "Recliner 02" and r["Department"] == dept.name for r in rows)
-    assert rows[1]["Die"] == "D-2"
-    assert len(rows) == SpareTransaction.query.filter_by(issue_id=lid, txn_type="INSTALLATION").count()
-
-
-# ---- return register ---------------------------------------------------------------------
 
 def test_return_register_says_where_the_quantity_went(make):
     s = make.store()
@@ -683,14 +656,10 @@ def test_every_other_report_excel_is_the_plain_table(client, make):
 
 # ---- put-away, receipts ----------------------------------------------------------------------
 
-def test_put_away_and_receipts(make):
+def test_receipts(make):
     s = make.store()
     day = date(2025, 7, 1)
     p = _part(s, s.live, qty=5, location="R1-S1-B5(2)", unit_price=12)
-    db.session.add(
-        PutAwayLog(part_id=p.id, part_no=p.part_no, assigned_location=p.location,
-                   scanned_location="R1-S1-B5", gate_entry_no="GE-1", qty=4, store_code=s.code,
-                   put_by="putter", confirmed_at=_utc(day, 13), created_at=_utc(day, 13)))
     receipt = SpareStockLedger(part_id=p.id, qty_delta=3, balance_after=8, txn_type="RECEIPT",
                                status="ERP_GRN", reference=f"GRN-{_TAG}", created_at=_utc(day, 14))
     db.session.add(receipt)
@@ -698,10 +667,6 @@ def test_put_away_and_receipts(make):
     db.session.add(SpareTransaction(part_id=p.id, store_code=s.code, txn_type="GRN", qty=3,
                                     ledger_id=receipt.id, supplier_name="G R TRADERS", grn_no=f"GRN-{_TAG}"))
     db.session.commit()
-
-    put = _rows(s, "put_away_register", "2025-07-01", "2025-07-01")
-    assert [(r["Part No"], r["Location"], r["Lot Qty"], r["Gate Entry No"], r["Put By"]) for r in put] == [
-        (p.part_no, "R1-S1-B5(2)", 4, "GE-1", "putter")]
 
     receipts = _rows(s, "receipt_register", "2025-07-01", "2025-07-01")
     assert [(r["Date"], r["GRN No"], r["Qty"], r["Supplier"], r["Rate"], r["Value"], r["Section"])

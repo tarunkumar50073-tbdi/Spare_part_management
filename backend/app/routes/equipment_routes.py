@@ -22,11 +22,8 @@ service = EquipmentService()
 
 
 @bp.route("", methods=["GET"])
-# A line user confirming an installation picks the Line / Machine / Die here, so
-# install_confirm may read the list too (it still cannot add — that stays
-# scan_part / part_master edit; the floor can type a missing one as free text).
 # The master itself is the Part Master right's since 23 Oct 2026.
-@permission_required(("scan_part", "part_master", "install_confirm"), "view")
+@permission_required(("scan_part", "part_master"), "view")
 def list_equipment():
     """The install form loads its dropdowns from here (?kind=LINE/MACHINE/DIE)."""
     active = request.args.get("active")

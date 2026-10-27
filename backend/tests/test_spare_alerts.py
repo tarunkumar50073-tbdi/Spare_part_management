@@ -27,7 +27,7 @@ from app.models.srv import SRV
 from app.models.store import Section, Store
 from app.models.user import User, UserStoreAccess
 from app.services.erp_sync_service import ERPSyncService
-from app.services.spare_alerts_service import MAX_ISSUE_ALERTS, TOP_ZERO_STOCK, SpareAlertsService
+from app.services.spare_alerts_service import TOP_ZERO_STOCK, SpareAlertsService
 
 _seq = {"n": 0}
 
@@ -108,13 +108,13 @@ def test_alert_set_on_seeded_state(seeded):
 
     assert [x["id"] for x in res["alerts"]] == [
         "critical", f"zero_stock:{p['A'].id}", f"zero_stock:{p['A2'].id}",
-        "confirm_pending", f"confirm_pending:{pending.id}", "excess", "erp_snapshot_none",
+        "excess", "erp_snapshot_none",
         "erp_write_queue", "missing_rate",
     ]
     # Headlines only: the two zero-stock parts and the one issue listed under
     # their headlines are detail, not extra alerts. Zero stock and below
     # minimum are one critical headline, not two.
-    assert res["summary"] == {"critical": 1, "warning": 3, "info": 2, "total": 6}
+    assert res["summary"] == {"critical": 1, "warning": 2, "info": 2, "total": 5}
     assert res["generated_at"].endswith("+00:00")
     assert {o["type"] for o in res["omitted"]} == {"count_due"}
 
@@ -134,15 +134,9 @@ def test_alert_set_on_seeded_state(seeded):
     za2 = a[f"zero_stock:{p['A2'].id}"]
     assert za2["value"] is None and "no std rate" in za2["message"]
 
-    # Only the unconfirmed issue — the installed one is done.
-    c = a["confirm_pending"]
-    assert (c["severity"], c["count"]) == ("warning", 1)
-    assert c["action"] == {"label": "Confirm on Scan Part", "to": "/scan-part", "module": "scan_part"}
-    assert "Oldest waiting 3 days" in c["message"]
-    ci = a[f"confirm_pending:{pending.id}"]
-    assert (ci["part_id"], ci["parent"], ci["ledger_id"]) == (p["E"].id, "confirm_pending", pending.id)
-    assert ci["at"].endswith("+00:00") and 71.5 < ci["age_hours"] < 72.5
-    assert "1 NO issued to Maintenance / Ramesh" in ci["message"]
+    # No "awaiting confirmation" alert: Confirm Installation was taken out on
+    # 27 Oct 2026, so an unconfirmed issue waits for nobody.
+    assert not any(k.startswith("confirm_pending") for k in a)
 
     ex = a["excess"]
     assert (ex["severity"], ex["count"], ex["value"]) == ("warning", 2, 1000.0)
@@ -247,7 +241,7 @@ def test_other_counts_reorder_never_counted_missing_max(store):
     assert a["never_counted"]["action"]["to"] == "/store-stock-spare?status=Not%20Counted"
     assert a["missing_max"]["severity"] == "info" and a["missing_max"]["count"] == 1
     assert "srv_pending" not in a and "receipts_pending" not in a
-    assert a["confirm_pending"]["count"] == 1 and "waiting 5 h" in a[next(k for k in a if k.startswith("confirm_pending:"))]["message"]
+    assert not any(k.startswith("confirm_pending") for k in a)
     assert "critical" not in a and "excess" not in a
 
 
@@ -395,7 +389,8 @@ def test_per_item_alerts_are_capped(store):
     # More zero-stock parts than the per-part cap, each dearer than the last.
     zero = [_part(s, sec, f"Z{i}", 0, mn=1, mx=10, rate=10 * (i + 1)) for i in range(TOP_ZERO_STOCK + 2)]
     host = _part(s, sec, "H", 50, mn=1, mx=100, rate=1)
-    issues = [_issue(host, age_hours=10 + i) for i in range(MAX_ISSUE_ALERTS + 2)]
+    for i in range(12):
+        _issue(host, age_hours=10 + i)                  # issues raise no alert any more
 
     res = SpareAlertsService().alerts(s.code)
     ids = [x["id"] for x in res["alerts"]]
@@ -403,20 +398,13 @@ def test_per_item_alerts_are_capped(store):
     assert [x["part_id"] for x in per_part] == [z.id for z in reversed(zero)][:TOP_ZERO_STOCK]
     assert _by_id(res)["critical"]["count"] == TOP_ZERO_STOCK + 2
 
-    per_issue = [x for x in res["alerts"] if x["type"] == "confirm_pending_issue"]
-    assert len(per_issue) == MAX_ISSUE_ALERTS
-    # Longest waiting first.
-    assert [x["ledger_id"] for x in per_issue] == [r.id for r in reversed(issues)][:MAX_ISSUE_ALERTS]
-    head = _by_id(res)["confirm_pending"]
-    assert head["count"] == MAX_ISSUE_ALERTS + 2
-    assert f"The {MAX_ISSUE_ALERTS} longest waiting are listed below" in head["message"]
-    assert ids.index("confirm_pending") < ids.index(per_issue[0]["id"])
+    assert not [x for x in res["alerts"] if x["type"] == "confirm_pending_issue"]
 
-    # The summary does not move with the caps: one critical alert, one
-    # confirmation alert (plus the store's ERP states).
-    assert res["summary"] == {"critical": 1, "warning": 2, "info": 1, "total": 4}
+    # The summary does not move with the caps: one critical alert (plus the
+    # store's ERP states).
+    assert res["summary"] == {"critical": 1, "warning": 1, "info": 1, "total": 3}
     assert {x["id"] for x in res["alerts"] if not x["parent"]} == {
-        "critical", "confirm_pending", "erp_snapshot_none", "erp_write_queue"}
+        "critical", "erp_snapshot_none", "erp_write_queue"}
 
 
 # --------------------------------------------------------------- endpoint
@@ -454,7 +442,7 @@ def test_endpoint_is_store_scoped(client, seeded):
     r = c.get(f"/api/v1/spare-alerts?store_code={s.code}")
     assert r.status_code == 200
     body = r.get_json()["data"]
-    assert len(body["alerts"]) == 9 and body["summary"]["total"] == 6
+    assert len(body["alerts"]) == 7 and body["summary"]["total"] == 5
     assert body["store_code"] == s.code
 
 

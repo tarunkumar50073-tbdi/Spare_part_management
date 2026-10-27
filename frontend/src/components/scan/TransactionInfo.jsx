@@ -207,7 +207,7 @@ export default function TransactionInfo({ scan, canAct, onAction, collapsed = fa
                     {r.issued_to && <span className="font-normal text-slate-500"> → {r.issued_to}</span>}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {where || <span className="text-slate-400">Line / machine not recorded yet</span>}
+                    {where}
                   </p>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
                     <IssueStatusPill issue={r} />
@@ -216,7 +216,6 @@ export default function TransactionInfo({ scan, canAct, onAction, collapsed = fa
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <DocAction actionKey="RETURN" target={r.id} canAct={canAct} onAction={onAction} />
-                  <DocAction actionKey="UPDATE_INSTALLATION" target={r.id} canAct={canAct} onAction={onAction} />
                 </div>
               </div>
             );

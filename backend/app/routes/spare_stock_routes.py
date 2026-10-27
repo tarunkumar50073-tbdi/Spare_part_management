@@ -16,10 +16,9 @@ from app.services.stock_mis_report import daily_stock_report, stock_only_report
 from app.schemas.spare_stock_schema import (
     SpareStockSetSchema, SpareIssueSchema,
     SpareConfirmSchema, SpareLocationSchema, SpareReturnSchema,
-    PutAwayRecordSchema,
 )
 from app.utils.authz import permission_required, require_store_access
-from app.utils.authz import SPARE_INSTALL_VIEW, SPARE_STOCK_VIEW
+from app.utils.authz import SPARE_STOCK_VIEW
 from app.utils.event_bus import publish
 from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
@@ -416,37 +415,6 @@ def scan_lookup():
     return success_response(service.resolve_scan(_store_code(), request.args.get("code")))
 
 
-@bp.route("/parts/<int:part_id>/latest-lot", methods=["GET"])
-@permission_required(SPARE_STOCK_VIEW, "view")
-def latest_lot(part_id):
-    """The part's latest ERP gate entry and its lot qty — what Put-away Check
-    fills Lot Qty with since the lot tags went (17 Oct 2026; there is no tag
-    to scan, so the old /lot-qty lookup by a tag's gate entry no. is gone).
-    Read-only and store-scoped like the part scan; every value null when ERP
-    has no gate entry for the part."""
-    part = _require_part_store(part_id)
-    return success_response(service.latest_lot(part))
-
-
-@bp.route("/put-away/record", methods=["POST"])
-@permission_required(("store_stock", "put_away_check"), "create")
-def put_away_record():
-    """Record a confirmed put-away (Put-away Check → Confirm Put Away): the part
-    was physically shelved in one of its bins (fresh, or rework when it has one).
-    Guards that the scanned location is one of them, records the lot qty and its
-    gate entry no., and stamps who/when. Does not move stock."""
-    data = validate_payload(PutAwayRecordSchema(), request.get_json(force=True) or {})
-    part = _require_part_store(data["part_id"])
-    # Only a qty the body carries (a number, or null for "left empty") is
-    # passed; without one the service looks the gate entry's qty up.
-    extra = {"qty": data["qty"]} if "qty" in data else {}
-    row = service.record_put_away(
-        part, data["scanned_location"],
-        gate_entry_no=data.get("gate_entry_no"), user=_username(), **extra,
-    )
-    return success_response(row, "Put away confirmed", 201)
-
-
 @bp.route("/parts/<int:part_id>", methods=["PUT"])
 @permission_required("store_stock", "update")
 def set_quantity(part_id):
@@ -488,10 +456,10 @@ def issue_part(part_id):
 
 
 @bp.route("/issues/<int:ledger_id>/confirm", methods=["POST"])
-# Stage 2 is open to a line user holding only install_confirm, as well as to a
-# full scan_part user — issuing (Stage 1) stays scan_part-only. Store access is
-# still checked below against the part's store.
-@permission_required(("scan_part", "install_confirm"), "update")
+# Stage 2 — no screen asks for it since Confirm Installation and Scan Part's
+# Update Line / Machine were taken out (27 Oct 2026); kept for the data and
+# the history it reads. Store access is still checked below.
+@permission_required("scan_part", "update")
 def confirm_issue(ledger_id):
     """Stage 2 — the user at the line records line + machine + die + usage.
     Repeatable ("Update Line / Machine") while something of the issue is
@@ -517,21 +485,21 @@ def confirm_issue(ledger_id):
 
 
 @bp.route("/pending-confirmations", methods=["GET"])
-@permission_required(SPARE_INSTALL_VIEW, "view")
+@permission_required(SPARE_STOCK_VIEW, "view")
 def pending_confirmations():
     return success_response(service.pending_confirmations(
         _store_code(), limit=request.args.get("limit", type=int)))
 
 
 @bp.route("/parts/<int:part_id>/pending-confirmations", methods=["GET"])
-@permission_required(SPARE_INSTALL_VIEW, "view")
+@permission_required(SPARE_STOCK_VIEW, "view")
 def part_pending_confirmations(part_id):
     _require_part_store(part_id)
     return success_response(service.pending_confirmations_for_part(part_id))
 
 
 @bp.route("/installations", methods=["GET"])
-@permission_required(SPARE_INSTALL_VIEW, "view")
+@permission_required(SPARE_STOCK_VIEW, "view")
 def installations():
     """Issues already confirmed as installed — where each one is fitted now,
     newest confirmation first (q searches; limit 200 by default, at most

@@ -24,7 +24,6 @@ const ROLES = [
 const TEMPLATE_ICONS = {
   store_staff: ScanBarcode,
   store_supervisor: ClipboardCheck,
-  line_user: Wrench,
   manager: Eye,
   live_board: Tv,
 };

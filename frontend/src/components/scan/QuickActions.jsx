@@ -26,7 +26,7 @@ export const actionLabel = (a) => a.label || ACTIONS[a.key]?.label || a.key;
 // ("Return 3" = three issues still out). For print / history the server's
 // count means something else (prints made, events), so no badge there.
 const DOC_ACTIONS = new Set([
-  "RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN", "UPDATE_INSTALLATION", "RGP_OUT",
+  "RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN", "RGP_OUT",
 ]);
 
 const docCount = (a) => (DOC_ACTIONS.has(a.key) && Number(a.count) > 1 ? a.count : null);

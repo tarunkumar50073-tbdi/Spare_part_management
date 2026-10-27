@@ -565,7 +565,7 @@ def test_machine_view_places_a_die_only_installation(make):
     assert (register[on_die]["Status"], register[on_die]["Die"], register[on_die]["Machine"]) == (
         "Installed", "D-9", None)
     assert (register[nowhere]["Status"], register[waiting]["Status"]) == (
-        "Partly returned", "Waiting for installation")
+        "Partly returned", "Issued")
 
 
 def test_views_order_by_the_figures_shown(make):
@@ -1253,13 +1253,13 @@ def test_issue_list_on_the_floor(make, plant_at):
     ]
     assert _cut(rows, "Reference", "Issued To", "Line / Machine / Die", "Status") == [
         ("REQ-0001", "Ravi Kumar · 9876543210", "Recliner 02 / MC-1", "Installed"),
-        (None, None, "Not recorded yet", "Waiting for installation"),
+        (None, None, "Not recorded yet", "Issued"),
         (None, None, None, None),
         (None, None, "Recliner 02 / MC-2", "Installed"),
         (None, None, "MC-9", "Installed"),
         (None, None, None, "Cancelled"),
-        (None, None, "Not recorded yet", "Waiting for installation"),
-        (None, None, "Not recorded yet", "Waiting for installation"),
+        (None, None, "Not recorded yet", "Issued"),
+        (None, None, "Not recorded yet", "Issued"),
         (None, None, None, None),
         (None, None, None, None),
     ]

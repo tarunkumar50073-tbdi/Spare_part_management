@@ -65,21 +65,6 @@ def _waiting(code):
     return {r["id"]: r for r in SpareStockService().pending_confirmations(code)}
 
 
-def _counts(code):
-    """Every count of the Waiting queue the app shows, by where it shows."""
-    alerts = {a["id"]: a for a in SpareAlertsService().alerts(code)["alerts"]}
-    attention = {a["key"]: a for a in SpareDashboardService().overview(code)["attention"]}
-    tracker = {it["key"]: it for it in SpareManagementService().management(code)["tracker"]["items"]}
-    return {
-        "list": len(SpareStockService().pending_confirmations(code)),
-        "bell": alerts["confirm_pending"]["count"] if "confirm_pending" in alerts else 0,
-        "dashboard": attention["confirm_pending"]["count"],
-        "dashboard_helper": SpareDashboardService._pending_confirmations(code, None),
-        "management": tracker["confirm_pending"]["count"],
-        "work_queue": ScanResultService().queues(code)["counts"]["awaiting_confirmation"],
-    }
-
-
 def test_partial_return_before_confirmation_keeps_it_waiting(store):
     p = _part(store)
     lid = _issue(p, 3)
@@ -166,7 +151,10 @@ def test_cancelled_and_legacy_fully_returned_rows_never_wait(store):
     assert cancelled not in waiting and legacy not in waiting
 
 
-def test_every_count_agrees_with_the_list(store):
+def test_no_screen_counts_the_waiting_list_any_more(store):
+    """Confirm Installation was taken out on 27 Oct 2026 ("haan teeno hata de"):
+    the bell, the dashboard, the Live Board tracker and the Work Queue no longer
+    count issues waiting for a fitter. The list itself still reads."""
     code = store[0].code
     svc = SpareStockService()
     p, q = _part(store), _part(store)
@@ -180,19 +168,9 @@ def test_every_count_agrees_with_the_list(store):
     svc.return_item(all_back)
 
     assert set(_waiting(code)) == {plain, partly}
-    assert set(_counts(code).values()) == {2}
-
-    # The bell's line for the partly returned one says what is still out.
-    alerts = {a["id"]: a for a in SpareAlertsService().alerts(code)["alerts"]}
-    assert "1 returned, 2 still out" in alerts[f"confirm_pending:{partly}"]["message"]
-    # The Work Queue lists the same rows, with what is still out.
-    wq = {r["id"]: r for r in ScanResultService().queues(code)["awaiting_confirmation"]}
-    assert set(wq) == {plain, partly} and wq[partly]["outstanding_qty"] == 2
-    # ...and the fields its Qty column reads ("2 out of 3 · 1 returned").
-    assert (wq[partly]["qty"], wq[partly]["returned_qty"]) == (3, 1)
-    assert (wq[plain]["returned_qty"], wq[plain]["outstanding_qty"]) == (0, 1)
-
-    # The fitter confirms the 2: the list and every count go down together.
-    svc.confirm_installation(partly, machine="MC-5", actual_qty=2)
-    assert set(_waiting(code)) == {plain}
-    assert set(_counts(code).values()) == {1}
+    alerts = {a["id"] for a in SpareAlertsService().alerts(code)["alerts"]}
+    assert not any(a.startswith("confirm_pending") for a in alerts)
+    assert "confirm_pending" not in {a["key"] for a in SpareDashboardService().overview(code)["attention"]}
+    tracker = SpareManagementService().management(code)["tracker"]["items"]
+    assert "confirm_pending" not in {it["key"] for it in tracker}
+    assert "awaiting_confirmation" not in ScanResultService().queues(code)["counts"]

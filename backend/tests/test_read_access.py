@@ -46,10 +46,6 @@ def part(app):
 def test_the_spare_stock_needs_a_spare_store_right(app):
     q = {"store_code": STORE}
     assert _login(app).get("/api/v1/spare-stock", query_string=q).status_code == 403          # store only
-    line = _login(app, {"install_confirm": {"edit": True}})
-    assert line.get("/api/v1/spare-stock", query_string=q).status_code == 403
-    assert line.get("/api/v1/spare-stock/export", query_string=q).status_code == 403
-    assert line.get("/api/v1/spare-stock/installations", query_string=q).status_code == 200  # its own screen
     keeper = _login(app, {"store_stock": {"view": True}})
     assert keeper.get("/api/v1/spare-stock", query_string=q).status_code == 200
     assert keeper.get("/api/v1/spare-alerts", query_string=q).status_code == 200
