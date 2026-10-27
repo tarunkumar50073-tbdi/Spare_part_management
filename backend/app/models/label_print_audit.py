@@ -30,6 +30,9 @@ from app.models.base import BaseModel
 PRINT_SOURCES = (
     "SUPPLIER_BARCODE", "ERP_SEARCH", "MANUAL_ENTRY", "QR_SCAN", "REPRINT",
     "PART_MASTER", "STORE_STOCK", "GATE_ENTRY",
+    # A packet / individual-unit QR label (spare_packet.py, 27 Oct 2026):
+    # barcode_value = the packet code, reference = its receipt no.
+    "PACKET",
 )
 
 

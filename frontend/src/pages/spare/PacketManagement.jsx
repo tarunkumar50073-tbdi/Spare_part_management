@@ -1,0 +1,425 @@
+import React, { useEffect, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
+import { Boxes, CheckCircle2, ListOrdered, Package, Printer, QrCode, Search, Undo2, XCircle } from "lucide-react";
+import Modal from "../../components/Modal.jsx";
+import ErrorState from "../../components/ErrorState.jsx";
+import { useCan } from "../../components/Can.jsx";
+import { useStores } from "../../context/StoreContext.jsx";
+import { fmtDate, fmtStamp, num } from "../../lib/format.js";
+import { packetService } from "../../services/packetService.js";
+import {
+  CancelDialog, MakeLabelsDialog, OpeningDialog, PrintDialog, VerifyDialog, errText,
+} from "../../components/spare/PacketDialogs.jsx";
+
+// Packets & QR Labels — the store's spec of 27 Oct 2026: ERP gate entry ->
+// physical verification -> packet creation -> unique QR labels -> FIFO stock ->
+// issue of whole packets (on Scan Part).
+//
+//   Receipts      every batch that came in (an ERP GRN accepted by quality, or
+//                 stock already on the shelf made into a batch): verify it,
+//                 make its packets or unit labels, print them.
+//   Packets & FIFO the packets on the shelf, oldest receipt first — which to
+//                 issue next; reprint a label, cancel one made by mistake.
+//   Issued        the packets that went out: when, to whom, by whom, and any
+//                 FIFO exception's reason.
+//
+// Stock is never changed here: it came in when ERP accepted the GRN (as
+// before) and goes out when a packet's QR is scanned on Scan Part -> Issue.
+
+const TABS = [
+  { key: "receipts", label: "Receipts", icon: Package },
+  { key: "packets", label: "Packets & FIFO", icon: ListOrdered },
+  { key: "issued", label: "Issued", icon: Undo2 },
+];
+const RECEIPT_FILTERS = [
+  { key: "", label: "All" }, { key: "PENDING", label: "To verify" },
+  { key: "TO_PACK", label: "To pack" }, { key: "PACKED", label: "Packed" },
+];
+const VERIFY_PILL = {
+  PENDING: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
+  VERIFIED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
+  MISMATCH: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+};
+const STATUS_PILL = {
+  AVAILABLE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
+  ISSUED: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300",
+  CANCELLED: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+};
+
+function useDebounced(text, ms = 300) {
+  const [v, setV] = useState(text);
+  useEffect(() => { const t = setTimeout(() => setV(text.trim()), ms); return () => clearTimeout(t); }, [text, ms]);
+  return v;
+}
+
+function SearchBox({ value, onChange, placeholder }) {
+  return (
+    <span className="relative">
+      <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+      <input className="input-field w-72 py-1.5 pl-8 text-[13px]" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+    </span>
+  );
+}
+
+function Pager({ data, page, setPage }) {
+  if (!data || data.pages <= 1) return null;
+  return (
+    <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-2 text-[12px] dark:border-navy-800">
+      <span className="text-slate-400">Page {data.page} of {data.pages} · {num(data.total)}</span>
+      <button type="button" className="btn-secondary py-1 text-[12px]" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
+      <button type="button" className="btn-secondary py-1 text-[12px]" disabled={page >= data.pages} onClick={() => setPage(page + 1)}>Next</button>
+    </div>
+  );
+}
+
+const TH = ({ children, right }) => <th className={`whitespace-nowrap px-3 py-2.5 font-semibold ${right ? "text-right" : ""}`}>{children}</th>;
+const PartCell = ({ part }) => (
+  <td className="px-3 py-2.5"><div className="font-mono font-semibold">{part.part_no}</div>
+    <div className="max-w-[220px] truncate text-[11px] text-slate-400" title={part.part_name}>{part.part_name}</div></td>
+);
+
+export default function PacketManagement() {
+  const { activeCode } = useStores();
+  const [tab, setTab] = useState("receipts");
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-white"><QrCode size={20} aria-hidden="true" /> Packets &amp; QR Labels</h2>
+          <p className="mt-0.5 text-xs text-slate-400">
+            Verify what came in, pack it with its own QR labels, and issue the oldest first — a packet goes out whole on Scan Part → Issue.
+          </p>
+        </div>
+      </div>
+      <div role="tablist" aria-label="Packets"
+        className="inline-grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-navy-800 dark:bg-navy-900">
+        {TABS.map((t) => (
+          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}
+            className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${tab === t.key
+              ? "bg-toyotared text-white shadow-sm" : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-navy-800"}`}>
+            <t.icon size={15} aria-hidden="true" /> {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "receipts" && <ReceiptsTab storeCode={activeCode} />}
+      {tab === "packets" && <PacketsTab storeCode={activeCode} />}
+      {tab === "issued" && <IssuedTab storeCode={activeCode} />}
+    </div>
+  );
+}
+
+// ---- Receipts ----------------------------------------------------------------------------------
+
+function ReceiptsTab({ storeCode }) {
+  const canCreate = useCan("spare_packets", "create");
+  const qc = useQueryClient();
+  const [status, setStatus] = useState("");
+  const [typed, setTyped] = useState("");
+  const q = useDebounced(typed);
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [status, q]);
+  const [dialog, setDialog] = useState(null);           // { kind: VERIFY | MAKE | PRINT | OPENING, ... }
+  const list = useQuery({
+    queryKey: ["packets", "receipts", storeCode, status, q, page],
+    queryFn: () => packetService.receipts({ store_code: storeCode, status: status || undefined, q: q || undefined, page, page_size: 25 },
+      { silent: true }).then((r) => r.data.data),
+    enabled: Boolean(storeCode),
+    placeholderData: keepPreviousData,
+  });
+  const refresh = () => qc.invalidateQueries({ queryKey: ["packets"] });
+  // The receipt's labels not printed yet; a printed one is reprinted from
+  // Packets & FIFO, with a reason.
+  const printNew = async (r) => {
+    try {
+      const res = await packetService.packets({ store_code: storeCode, status: "AVAILABLE", q: r.receipt_no, page_size: 100 });
+      const rows = res.data.data.rows.filter((p) => p.receipt.id === r.id && !p.print_count);
+      if (rows.length) setDialog({ kind: "PRINT", packets: rows });
+      else toast("Every label of this receipt is printed — reprint one from Packets & FIFO");
+    } catch (e) {
+      toast.error(errText(e));
+    }
+  };
+  return (
+    <div className="card p-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
+        <div className="flex flex-wrap gap-1">
+          {RECEIPT_FILTERS.map((f) => (
+            <button key={f.key} type="button" onClick={() => setStatus(f.key)} aria-pressed={status === f.key}
+              className={`rounded-full px-3 py-1 text-[12px] font-semibold ${status === f.key ? "bg-navy-900 text-white dark:bg-white dark:text-navy-900" : "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300"}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchBox value={typed} onChange={setTyped} placeholder="Part, GRN, gate entry, supplier…" />
+          {canCreate && (
+            <button type="button" className="btn-secondary text-[12.5px]" onClick={() => setDialog({ kind: "OPENING" })}>
+              <Boxes size={14} aria-hidden="true" /> Pack shelf stock
+            </button>
+          )}
+        </div>
+      </div>
+      {list.isError ? <div className="p-4"><ErrorState title="Receipts did not load" message={errText(list.error)} onRetry={() => list.refetch()} /></div> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[980px] text-left text-[12.5px]">
+            <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
+              <tr><TH>Received</TH><TH>Part</TH><TH>GRN / Gate entry</TH><TH right>Received qty</TH><TH>Verification</TH><TH right>In packets</TH><TH right>To pack</TH><TH /></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+              {(list.data?.rows || []).map((r) => (
+                <tr key={r.id} className="align-top text-slate-700 dark:text-slate-200">
+                  <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(r.received_on)}</div><div className="text-[11px] text-slate-400">{r.receipt_no}</div></td>
+                  <PartCell part={r.part} />
+                  <td className="px-3 py-2.5">
+                    <div>{r.source === "OPENING" ? "Shelf stock" : r.grn_no || "—"}</div>
+                    <div className="max-w-[200px] truncate text-[11px] text-slate-400" title={r.supplier_name}>
+                      {[r.gate_entry_no && `GE ${r.gate_entry_no}`, r.supplier_name].filter(Boolean).join(" · ")}
+                    </div>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">{num(r.qty)} {r.uom}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={`badge ${VERIFY_PILL[r.verify_status]}`}>
+                      {r.verify_status === "PENDING" ? "To verify" : r.verify_status === "VERIFIED" ? `Verified ${num(r.verified_qty)}` : `Counted ${num(r.verified_qty)}`}
+                    </span>
+                    {r.verify_status === "MISMATCH" && <div className="mt-0.5 max-w-[180px] truncate text-[11px] text-rose-600" title={r.verify_remarks}>{r.verify_remarks}</div>}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">
+                    {num(r.packed_qty)}<div className="text-[11px] text-slate-400">{r.packets.available} on shelf · {r.packets.issued} issued</div>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{r.verify_status === "PENDING" ? "—" : num(r.to_pack)}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                    <div className="flex flex-col items-end gap-1">
+                      {canCreate && (r.verify_status === "PENDING" ? (
+                        <button type="button" className="btn-primary py-1 text-[12px]" onClick={() => setDialog({ kind: "VERIFY", receipt: r })}>
+                          <CheckCircle2 size={13} aria-hidden="true" /> Verify
+                        </button>
+                      ) : r.to_pack > 0 && (
+                        <button type="button" className="btn-primary py-1 text-[12px]" onClick={() => setDialog({ kind: "MAKE", receipt: r })}>
+                          <Package size={13} aria-hidden="true" /> Make labels
+                        </button>
+                      ))}
+                      {canCreate && r.packets.available > 0 && (
+                        <button type="button" className="text-[12px] font-semibold text-toyotared hover:underline"
+                          onClick={() => printNew(r)}>
+                          <Printer size={12} aria-hidden="true" className="mr-1 inline" />Print labels
+                        </button>
+                      )}
+                      {canCreate && r.verify_status !== "PENDING" && r.packed_qty === 0 && (
+                        <button type="button" className="text-[11px] text-slate-500 hover:underline" onClick={() => setDialog({ kind: "VERIFY", receipt: r })}>Recount</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {list.data && list.data.total === 0 && (
+            <p className="px-4 py-8 text-center text-sm text-slate-400">
+              {q || status ? "No receipt matches." : "No receipt yet — stock that ERP accepts on a GRN shows here."}
+            </p>
+          )}
+        </div>
+      )}
+      <Pager data={list.data} page={page} setPage={setPage} />
+      {!canCreate && <p className="border-t border-slate-100 px-4 py-2 text-[12px] text-amber-700 dark:border-navy-800">Verifying and making labels need the Packets &amp; QR Labels create right.</p>}
+
+      {dialog?.kind === "VERIFY" && (
+        <VerifyDialog receipt={dialog.receipt} onClose={() => setDialog(null)}
+          onDone={(r) => { refresh(); setDialog(r.to_pack > 0 ? { kind: "MAKE", receipt: r } : null); }} />
+      )}
+      {dialog?.kind === "MAKE" && (
+        <MakeLabelsDialog receipt={dialog.receipt} onClose={() => setDialog(null)}
+          onMade={(out) => { refresh(); setDialog({ kind: "PRINT", packets: out.packets }); }} />
+      )}
+      {dialog?.kind === "OPENING" && (
+        <OpeningDialog storeCode={storeCode} onClose={() => setDialog(null)}
+          onMade={(r) => { refresh(); setDialog({ kind: "MAKE", receipt: r }); }} />
+      )}
+      {dialog?.kind === "PRINT" && dialog.packets?.length > 0 && (
+        <PrintDialog packets={dialog.packets} onClose={() => setDialog(null)} onDone={refresh} />
+      )}
+    </div>
+  );
+}
+
+// ---- Packets & FIFO ------------------------------------------------------------------------------
+
+function PacketsTab({ storeCode }) {
+  const canReprint = useCan("spare_packets", "update");
+  const canPrint = useCan("spare_packets", "create");
+  const canCancel = useCan("spare_packets", "delete");
+  const qc = useQueryClient();
+  const [status, setStatus] = useState("AVAILABLE");
+  const [typed, setTyped] = useState("");
+  const q = useDebounced(typed);
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [status, q]);
+  const [dialog, setDialog] = useState(null);
+  const list = useQuery({
+    queryKey: ["packets", "list", storeCode, status, q, page],
+    queryFn: () => packetService.packets({ store_code: storeCode, status: status || undefined, q: q || undefined, page, page_size: 50 },
+      { silent: true }).then((r) => r.data.data),
+    enabled: Boolean(storeCode),
+    placeholderData: keepPreviousData,
+  });
+  const refresh = () => qc.invalidateQueries({ queryKey: ["packets"] });
+  return (
+    <div className="card p-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
+        <div className="flex flex-wrap gap-1">
+          {[["AVAILABLE", "On the shelf"], ["CANCELLED", "Cancelled"], ["", "All"]].map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setStatus(k)} aria-pressed={status === k}
+              className={`rounded-full px-3 py-1 text-[12px] font-semibold ${status === k ? "bg-navy-900 text-white dark:bg-white dark:text-navy-900" : "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <SearchBox value={typed} onChange={setTyped} placeholder="Part, packet code, receipt…" />
+      </div>
+      {list.isError ? <div className="p-4"><ErrorState title="Packets did not load" message={errText(list.error)} onRetry={() => list.refetch()} /></div> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[960px] text-left text-[12.5px]">
+            <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
+              <tr><TH>Part</TH><TH>Packet</TH><TH right>Qty</TH><TH>Received</TH><TH>Location</TH><TH>Status</TH><TH right>Labels</TH><TH /></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+              {(list.data?.rows || []).map((p) => (
+                <tr key={p.id} className="align-top text-slate-700 dark:text-slate-200">
+                  <PartCell part={p.part} />
+                  <td className="px-3 py-2.5"><div className="font-mono text-[12px] font-semibold">{p.code}</div>
+                    <div className="text-[11px] text-slate-400">{p.kind === "UNIT" ? "Individual" : "Packet"} #{p.seq}</div></td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{num(p.qty)} {p.uom}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(p.receipt.received_on)}</div><div className="text-[11px] text-slate-400">{p.receipt.receipt_no}</div></td>
+                  <td className="px-3 py-2.5">{p.location || "—"}</td>
+                  <td className="px-3 py-2.5"><span className={`badge ${STATUS_PILL[p.status]}`}>{p.status === "AVAILABLE" ? "On the shelf" : p.status.toLowerCase()}</span>
+                    {p.cancel_reason && <div className="mt-0.5 max-w-[160px] truncate text-[11px] text-slate-400" title={p.cancel_reason}>{p.cancel_reason}</div>}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">{p.print_count ? `${p.print_count}×` : <span className="text-amber-600">not printed</span>}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                    <div className="flex flex-col items-end gap-1">
+                      <button type="button" className="text-[12px] font-semibold text-navy-800 hover:underline dark:text-slate-200" onClick={() => setDialog({ kind: "FIFO", partId: p.part.id })}>
+                        <ListOrdered size={12} aria-hidden="true" className="mr-1 inline" />FIFO order
+                      </button>
+                      {p.status === "AVAILABLE" && (p.print_count ? canReprint : canPrint) && (
+                        <button type="button" className="text-[12px] font-semibold text-toyotared hover:underline"
+                          onClick={() => setDialog({ kind: "PRINT", packets: [p], reprint: Boolean(p.print_count) })}>
+                          <Printer size={12} aria-hidden="true" className="mr-1 inline" />{p.print_count ? "Reprint" : "Print"}
+                        </button>
+                      )}
+                      {p.status === "AVAILABLE" && canCancel && (
+                        <button type="button" className="text-[11px] text-rose-600 hover:underline" onClick={() => setDialog({ kind: "CANCEL", packet: p })}>
+                          <XCircle size={11} aria-hidden="true" className="mr-1 inline" />Cancel
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {list.data && list.data.total === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">{q ? "No packet matches." : "No packet here yet."}</p>}
+        </div>
+      )}
+      <Pager data={list.data} page={page} setPage={setPage} />
+      {dialog?.kind === "FIFO" && <FifoDialog partId={dialog.partId} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "PRINT" && <PrintDialog packets={dialog.packets} reprint={dialog.reprint} onClose={() => setDialog(null)} onDone={refresh} />}
+      {dialog?.kind === "CANCEL" && <CancelDialog packet={dialog.packet} onClose={() => setDialog(null)} onDone={refresh} />}
+    </div>
+  );
+}
+
+function FifoDialog({ partId, onClose }) {
+  const fifo = useQuery({
+    queryKey: ["packets", "fifo", partId],
+    queryFn: () => packetService.fifo(partId, { silent: true }).then((r) => r.data.data),
+  });
+  const d = fifo.data;
+  return (
+    <Modal open onClose={onClose} size="xl" title={d ? `${d.part.part_no} — issue order` : "Issue order"}
+      footer={<button type="button" className="btn-secondary" onClick={onClose}>Close</button>}>
+      {!d ? <p className="text-sm text-slate-400">{fifo.isError ? errText(fifo.error) : "Loading…"}</p> : (
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-3 rounded-lg bg-slate-50 p-3 text-center dark:bg-navy-950/40">
+            {[["On hand", d.on_hand], ["In packets", d.packed_available], ["Loose", d.loose]].map(([l, v]) => (
+              <div key={l}><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{l}</p>
+                <p className="text-lg font-bold tabular text-slate-800 dark:text-white">{num(v)} <span className="text-[12px] font-medium text-slate-400">{d.part.uom}</span></p></div>
+            ))}
+          </div>
+          <ol className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-navy-800 dark:border-navy-700">
+            {d.packets.map((p) => (
+              <li key={p.id} className={`flex items-center justify-between gap-3 px-3 py-2 ${p.issue_first ? "bg-emerald-50/60 dark:bg-emerald-500/5" : ""}`}>
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="w-6 text-right text-[12px] font-bold text-slate-400">{p.rank}</span>
+                  <span className="min-w-0"><span className="block font-mono text-[12.5px] font-semibold">{p.code}</span>
+                    <span className="block text-[11px] text-slate-400">Received {fmtDate(p.receipt.received_on)} · {p.receipt.receipt_no}</span></span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="text-[13px] font-semibold tabular">{num(p.qty)} {p.uom}</span>
+                  {p.issue_first && <span className="badge bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300">Issue first</span>}
+                </span>
+              </li>
+            ))}
+            {d.packets.length === 0 && <li className="px-3 py-6 text-center text-sm text-slate-400">No packet on the shelf.</li>}
+          </ol>
+          <p className="text-[12px] text-slate-500 dark:text-slate-400">Oldest receipt first. Scanning a newer packet on Scan Part asks for a reason.</p>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ---- Issued -----------------------------------------------------------------------------------------
+
+function IssuedTab({ storeCode }) {
+  const [typed, setTyped] = useState("");
+  const q = useDebounced(typed);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [q, from, to]);
+  const list = useQuery({
+    queryKey: ["packets", "issued", storeCode, q, from, to, page],
+    queryFn: () => packetService.issued({ store_code: storeCode, q: q || undefined, from: from || undefined, to: to || undefined, page, page_size: 50 },
+      { silent: true }).then((r) => r.data.data),
+    enabled: Boolean(storeCode),
+    placeholderData: keepPreviousData,
+  });
+  return (
+    <div className="card p-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-slate-500">
+          <input type="date" className="input-field py-1.5 text-[12.5px]" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" />
+          <span>to</span>
+          <input type="date" className="input-field py-1.5 text-[12.5px]" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To date" />
+        </div>
+        <SearchBox value={typed} onChange={setTyped} placeholder="Part, packet, department, person…" />
+      </div>
+      {list.isError ? <div className="p-4"><ErrorState title="The history did not load" message={errText(list.error)} onRetry={() => list.refetch()} /></div> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[960px] text-left text-[12.5px]">
+            <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
+              <tr><TH>Issued</TH><TH>Part</TH><TH>Packet</TH><TH right>Qty</TH><TH>Department · Issued to</TH><TH>Received</TH><TH>FIFO</TH></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+              {(list.data?.rows || []).map((p) => (
+                <tr key={p.id} className="align-top text-slate-700 dark:text-slate-200">
+                  <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtStamp(p.issued_at)}</div><div className="text-[11px] text-slate-400">by {p.issued_by}</div></td>
+                  <PartCell part={p.part} />
+                  <td className="px-3 py-2.5 font-mono text-[12px]">{p.code}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{num(p.qty)} {p.uom}</td>
+                  <td className="px-3 py-2.5"><div>{p.department}</div><div className="text-[11px] text-slate-400">{p.issued_to}</div></td>
+                  <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(p.receipt.received_on)}</div><div className="text-[11px] text-slate-400">{p.receipt.receipt_no}</div></td>
+                  <td className="px-3 py-2.5">{p.fifo_override_reason
+                    ? <span className="text-[12px] text-amber-700" title={p.fifo_override_reason}>Skipped: {p.fifo_override_reason}</span>
+                    : <span className="text-[12px] text-emerald-700">In order</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {list.data && list.data.total === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">No packet issued{q || from || to ? " that matches" : " yet"}.</p>}
+        </div>
+      )}
+      <Pager data={list.data} page={page} setPage={setPage} />
+    </div>
+  );
+}

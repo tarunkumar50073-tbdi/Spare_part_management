@@ -181,6 +181,13 @@ class BarcodeService:
             self._audit("", "FAILED", scan_source, scan_mode, user, store_code)
             raise self._scan_failure(BadRequestError, "No code scanned", "FAILED", "")
 
+        # A packet / individual-unit QR (spare_packet.py, 27 Oct 2026) names one
+        # packet: its part, plus the packet — Scan Part's Issue then issues it
+        # whole, once, oldest receipt first.
+        from app.services.spare_packet_service import is_packet_code, normalize_code
+        if is_packet_code(code):
+            return self._resolve_packet(store_code, normalize_code(code), scan_source, scan_mode, user)
+
         # A bin sheet QR ends in " | description" since 17 Oct 2026 (the store: a
         # scan should say what the part is); only the text before it names the
         # part (utils/bin_location.strip_scan_description). It is cut off before
@@ -258,6 +265,36 @@ class BarcodeService:
         payload["scan_mode"] = scan_mode
         payload["scan_id"] = audit.id
         payload.update(self._data_status(part))
+        return payload
+
+    def _resolve_packet(self, store_code, code, scan_source, scan_mode, user):
+        """A packet QR: the packet's part as any scan returns it, plus `packet`
+        (its quantity, receipt, status and FIFO standing). An unknown packet
+        code is FAILED, not UNKNOWN_BARCODE — it must never be offered "Map to
+        Part"."""
+        from app.models.spare_packet import SparePacket
+        from app.services.spare_packet_service import SparePacketService
+        packet = SparePacket.query.filter_by(code=code).first()
+        if packet is None:
+            self._audit(code, "FAILED", scan_source, scan_mode, user, store_code)
+            raise self._scan_failure(NotFoundError, f"No packet found for '{code}'", "FAILED", code)
+        part = packet.part
+        if part.store_code != store_code:
+            self._audit(code, "UNKNOWN_BARCODE", scan_source, scan_mode, user, store_code)
+            raise self._scan_failure(
+                NotFoundError, f"No part in this store for code '{code}'", "OTHER_STORE", code)
+        if not part.is_active:
+            self._audit(code, "INACTIVE_BARCODE", scan_source, scan_mode, user, store_code, part_id=part.id)
+            raise self._scan_failure(
+                NotFoundError, f"Part '{part.part_no}' is inactive", "INACTIVE_PART", code)
+        audit = self._audit(code, "SUCCESS", scan_source, scan_mode, user, store_code, part_id=part.id)
+        payload = self.spare_service.get_for_part(part.id)
+        payload["scanned_code"] = code
+        payload["resolved_by"] = "PACKET"
+        payload["scan_mode"] = scan_mode
+        payload["scan_id"] = audit.id
+        payload.update(self._data_status(part))
+        payload["packet"] = SparePacketService().get(code)
         return payload
 
     def _field_match(self, code):

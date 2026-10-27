@@ -22,6 +22,9 @@ os.environ["ERP_LEDGER_POLL_SECONDS"] = "0"
 # forgets to fake the mailer finds mail "not configured" instead of sending.
 for _key in ("SMTP_HOST", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD"):
     os.environ[_key] = ""
+# Since 25 Oct 2026 the laptop's .env forces the mail engine off (the server
+# runs it for the shared database). The tests switch it on and off themselves.
+os.environ["MAIL_ENGINE_FORCE_OFF"] = ""
 os.environ.setdefault("FLASK_ENV", "development")
 # Deterministic shared key so the authz tests can exercise the machine caller
 # without depending on whatever .env holds.

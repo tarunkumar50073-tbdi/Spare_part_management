@@ -75,6 +75,9 @@ PERMISSION_MODULES = [
     # The mail to Purchase for material received short (25 Oct 2026) — its own
     # right, apart from the Rejection Mail's ("alag alag ho").
     {"key": "short_mail", "label": "Short Mail (Purchase)"},
+    # Receipt batches -> physical verification -> packets / units with their own
+    # QR labels, FIFO (27 Oct 2026). Issuing a packet stays Scan Part's right.
+    {"key": "spare_packets", "label": "Packets & QR Labels"},
     {"key": "vehicle_in_out", "label": "Vehicle In / Out"},
     {"key": "admin", "label": "Admin — user management"},
     # Child Parts Store write screens (put-away, holding transfer, daily count,
@@ -119,6 +122,7 @@ MODULE_ACTIONS = {
     "challan_register": _RCUD,    # C new challan · E edit, invoice / GRN links · D cancel
     "rejection_request": _RCU,    # C new request · E settings, mail draft
     "short_mail": _RCU,           # C make a short mail · E its To / CC
+    "spare_packets": _RCUD,       # C verify a receipt, make packets, print labels · E reprint · D cancel a packet
     "vehicle_in_out": _R, "admin": _R,
     "child_store": _RCU,          # C RGP, count submit · E put-away, transfer, resolve, count import
 }

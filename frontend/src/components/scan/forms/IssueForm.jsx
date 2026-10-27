@@ -6,6 +6,7 @@ import { spareFlowService } from "../../../services/spareFlowService.js";
 import { num } from "../../../lib/format.js";
 import { partBins } from "../../../utils/binLocation.js";
 import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
+import PacketIssueForm from "./PacketIssueForm.jsx";
 import { clean, fmtQty, isStoreDepartment, qtyError, qtyOf, stepMin, useActionFlow, useDepartments } from "./flow.js";
 
 // ISSUE (spec 11): the store hands the part to a department + person. Only
@@ -50,10 +51,23 @@ function IssuedTo({ emp }) {
   );
 }
 
-export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
+// A packet / unit QR (27 Oct 2026) issues that whole packet; anything else is
+// an issue by quantity, of the loose stock only.
+export default function IssueForm(props) {
+  return props.scan.packet
+    ? <PacketIssueForm key={props.scan.packet.code} {...props} />
+    : <QtyIssueForm {...props} />;
+}
+
+function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
   const uid = useId();
   const { part } = scan;
-  const available = qtyOf(scan.buckets?.available);
+  // What sits in QR-labelled packets goes out a whole packet at a time, by
+  // scanning the packet; by quantity only the loose stock (the server refuses
+  // more).
+  const packed = Number(scan.packets?.packed_available) || 0;
+  const onShelf = qtyOf(scan.buckets?.available);
+  const available = packed > 0 ? Math.max(0, Math.min(onShelf, Number(scan.packets.loose) || 0)) : onShelf;
   const flow = useActionFlow(onDone);
   const { data: depts } = useDepartments();
   const [startQty] = useState(() => stepMin(available));
@@ -171,6 +185,12 @@ export default function IssueForm({ scan, source, onDone, onCancel, onDirty }) {
             className="input-field" placeholder="Optional" />
         </Field>
       </div>
+      {packed > 0 && (
+        <Note tone="warn">
+          {fmtQty(packed, part.uom)} of this part is in QR-labelled packets — scan a packet&apos;s QR to issue a whole packet.
+          {available > 0 ? ` By quantity, only the loose ${fmtQty(available, part.uom)}.` : " Nothing is loose."}
+        </Note>
+      )}
       <Note>Line / Machine / Die can be added after installation.</Note>
     </FormShell>
   );

@@ -598,7 +598,8 @@ export default function ScanPart() {
               </button>
             </header>
             <div className="p-4">
-              <ActionForm actionKey={action.key} scan={scan} target={action.target} source={ident.source}
+              <ActionForm actionKey={action.key} scan={ident.packet ? { ...scan, packet: ident.packet } : scan}
+                target={action.target} source={ident.source}
                 onDone={onDone} onCancel={cancelAction} onStep={setFormStep} onDirty={setDirty} />
             </div>
           </section>

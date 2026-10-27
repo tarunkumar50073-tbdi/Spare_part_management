@@ -17,6 +17,7 @@
         "reports": { "view": true, "create": false, "update": false, "delete": false },
         "rejection_request": { "view": true, "create": true, "update": true, "delete": false },
         "short_mail": { "view": true, "create": true, "update": true, "delete": false },
+        "spare_packets": { "view": true, "create": false, "update": false, "delete": false },
         "action_tracker": { "view": true, "create": false, "update": false, "delete": false },
         "notifications": { "view": true, "create": false, "update": false, "delete": false },
         "consumption": { "view": true, "create": false, "update": false, "delete": false },
@@ -30,6 +31,7 @@
         "spare_store": "Spare Parts Store dashboard + sections (GET /dashboard/spare/overview + /management)",
         "rejection_request": "Rejection Mail: the mail to RQC to punch an SRV / line rejection, as an Outlook draft (POST /rejection-requests, GET /:id/mail) — added 22 Oct 2026",
         "short_mail": "Short Mail: the mail to Purchase for material received short against an invoice, as an Outlook draft (POST /short-mail/draft) — added 25 Oct 2026",
+        "spare_packets": "Packets & QR Labels, read only: receipts, packets in FIFO order, issued packets (GET /spare-packets/...); a packet is issued on Scan Part — added 27 Oct 2026",
         "scan_part": "Scan Part (issue / return / move / part QR label) (POST /spare-stock/parts/:id/issue, /issues/:id/return, /barcode/print); the Work Queue's actions",
         "store_stock": "Store Stock count + upload (PUT /spare-stock/parts/:id)",
         "action_tracker": "Action Tracker (GET /dashboard/spare/management) — its own right since 23 Oct 2026, like the seven below",
@@ -68,6 +70,7 @@
         "challan_register": { "view": true, "create": true, "update": true, "delete": true },
         "rejection_request": { "view": true, "create": true, "update": true, "delete": false },
         "short_mail": { "view": true, "create": true, "update": true, "delete": false },
+        "spare_packets": { "view": true, "create": true, "update": true, "delete": true },
         "action_tracker": { "view": true, "create": false, "update": false, "delete": false },
         "notifications": { "view": true, "create": false, "update": false, "delete": false },
         "consumption": { "view": true, "create": false, "update": false, "delete": false },
@@ -104,7 +107,8 @@
         "employees": "Employee Master edit + Excel import (PUT /employees/:id, POST /employees/import)",
         "challan_register": "Urgent Challan Register: enter an urgent challan, link its invoice and GRN, cancel (GET / POST /challans, /challans/:id/invoices, /grn) — added 22 Oct 2026",
         "rejection_request": "as Store Staff",
-        "short_mail": "as Store Staff"
+        "short_mail": "as Store Staff",
+        "spare_packets": "Packets & QR Labels: verify a receipt physically, make packets / unit labels, print and reprint them, cancel one made by mistake (POST /spare-packets/...) — added 27 Oct 2026"
       }
     },
     {
@@ -139,6 +143,7 @@
         "challan_register": { "view": true, "create": false, "update": false, "delete": false },
         "rejection_request": { "view": true, "create": false, "update": false, "delete": false },
         "short_mail": { "view": true, "create": false, "update": false, "delete": false },
+        "spare_packets": { "view": true, "create": false, "update": false, "delete": false },
         "action_tracker": { "view": true, "create": false, "update": false, "delete": false },
         "notifications": { "view": true, "create": false, "update": false, "delete": false },
         "consumption": { "view": true, "create": false, "update": false, "delete": false },
@@ -166,7 +171,8 @@
         "live_dashboard": "Live Board link in the sidebar (/live-dashboard)",
         "challan_register": "Urgent Challan Register, read only: tiles, ageing, list, history, Excel (GET /challans, /challans/dashboard)",
         "rejection_request": "Rejection Mail, read only: the mails made (GET /rejection-requests)",
-        "short_mail": "Short Mail, read only: who it goes to (GET /short-mail/settings)"
+        "short_mail": "Short Mail, read only: who it goes to (GET /short-mail/settings)",
+        "spare_packets": "Packets & QR Labels, read only (GET /spare-packets/...)"
       }
     },
     {

@@ -6,7 +6,7 @@ import {
   ClipboardList, Clock3, Container, Factory, FileChartColumn, FileText, Grid3x3, History, LayoutDashboard,
   Mail, Mails, Send, Settings2, Workflow, Package, PanelLeftClose, PanelLeftOpen, Scale,
   Bell, Inbox, PackageCheck, PackageX, ScanBarcode, ScanSearch, ScrollText, Search, ServerCog, Settings, ShieldCheck, Siren,
-  Store, TrafficCone, TrendingUp, Truck, UserCog, Users, Warehouse, Wrench, FileClock, Undo2,
+  Store, TrafficCone, TrendingUp, Truck, UserCog, Users, Warehouse, Wrench, FileClock, Undo2, QrCode,
 } from "lucide-react";
 import Glyph, { sectionIcon } from "./Glyph.jsx";
 import IconTile from "./IconTile.jsx";
@@ -140,6 +140,7 @@ const NAV_BY_STORE = {
       label: "Receiving",
       items: [
         { to: "/receiving", label: "Receiving & GRN", short: "GRN", icon: PackageCheck, mod: "receiving" },
+        { to: "/spare-packets", label: "Packets & QR Labels", short: "Packets & QR", icon: QrCode, mod: "spare_packets" },
         // Which supplier sent short / had a rejection, since how many days (17 Oct 2026).
         { to: "/short-rejection", label: "Short & Rejection", short: "Short / Reject", icon: PackageX, mod: "short_rejection" },
         // Urgent spares in on a supplier challan before the PO / invoice (21 Oct 2026).

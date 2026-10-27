@@ -490,6 +490,11 @@ class ScanResultService:
                 and printed_loc.strip() != (part.location or "").strip()),
         }
 
+    @staticmethod
+    def _packet_figures(part_id):
+        from app.services.spare_packet_service import SparePacketService
+        return SparePacketService().figures(part_id)
+
     def _barcodes(self, part):
         """Every code that reaches this part — the internal QR first, then the
         supplier barcodes mapped to it (BarcodeService.list_part_barcodes
@@ -638,6 +643,9 @@ class ScanResultService:
             # count the newest ERP GRN suggests (Print Label for material in hand).
             "barcodes": self._barcodes(part),
             "label_qty_hint": self._label_qty_hint(erp_lines),
+            # On hand split into what is in QR-labelled packets and what is
+            # loose (spare_packet.py): an issue by quantity takes loose only.
+            "packets": self._packet_figures(part.id),
             "timeline": {"rows": history[:SCAN_TIMELINE_ROWS],
                          "has_more": len(history) > SCAN_TIMELINE_ROWS},
         }

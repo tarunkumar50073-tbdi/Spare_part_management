@@ -69,6 +69,9 @@ export default function useScanWorkstation(storeCode) {
         partId: d.part_id, via, source: identSource(via, d.resolved_by),
         code: d.scanned_code ?? code, resolvedBy: d.resolved_by, origin: "SCAN",
         dataStatus: d.data_status || null,
+        // A packet / unit QR (27 Oct 2026): the packet itself — Issue then
+        // issues it whole (forms/PacketIssueForm).
+        packet: d.packet || null,
       });
       // Re-scanning the part already on screen must show it as it is NOW.
       qc.invalidateQueries({ queryKey: scanResultKey(d.part_id) });

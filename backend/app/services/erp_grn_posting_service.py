@@ -300,6 +300,11 @@ class ErpGrnPostingService:
                     supplier_name=line["ven_name"], ven_cd=line["ven_cd"], grn_no=line["grn_no"],
                     invoice_no=line["invoice_no"], remarks=remarks,
                 )
+                # The receipt batch its packets / QR labels and FIFO date hang
+                # on (spare_packet.py) — made with the stock, in the same go.
+                if ledger is not None:
+                    from app.services.spare_packet_service import SparePacketService
+                    SparePacketService().receipt_for_ledger(ledger, user=user)
             done.append({"part_id": line["part_id"], "part_no": line["part_no"],
                          "grn_no": line["grn_no"], "qty": qty})
         return {"posted": done, "skipped_off": False}

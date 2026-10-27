@@ -62,6 +62,7 @@ const ReceivingMonitor = React.lazy(() => import("./pages/spare/ReceivingMonitor
 const ShortRejection = React.lazy(() => import("./pages/spare/ShortRejection.jsx"));
 const ChallanRegister = React.lazy(() => import("./pages/spare/ChallanRegister.jsx"));
 const RejectionRequests = React.lazy(() => import("./pages/spare/RejectionRequests.jsx"));
+const PacketManagement = React.lazy(() => import("./pages/spare/PacketManagement.jsx"));
 const InventoryControl = React.lazy(() => import("./pages/spare/InventoryControl.jsx"));
 const ConsumptionAnalytics = React.lazy(() => import("./pages/spare/ConsumptionAnalytics.jsx"));
 const DataQuality = React.lazy(() => import("./pages/spare/DataQuality.jsx"));
@@ -286,6 +287,7 @@ function AuthenticatedApp() {
           <Route path="/challans" element={<RequirePermission mod="challan_register"><ChallanRegister /></RequirePermission>} />
           {/* The one mail to RQC to punch an SRV / line rejection (22 Oct 2026). */}
           <Route path="/rejection-requests" element={<RequirePermission mod="rejection_request"><RejectionRequests /></RequirePermission>} />
+          <Route path="/spare-packets" element={<RequirePermission mod="spare_packets"><PacketManagement /></RequirePermission>} />
           <Route path="/inventory-control" element={<RequirePermission mod="inventory_control"><InventoryControl /></RequirePermission>} />
           {/* The Issuance & Consumption Report — one report again since 18 Oct 2026
               ("ye kaam merge me bhi ho sakta h"), behind the spare_store right;

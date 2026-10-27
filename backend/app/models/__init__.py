@@ -49,6 +49,7 @@ from app.models.part_request import PartRequest
 from app.models.email_engine import EmailMessage, EmailAttachment, EmailAttempt, NotificationState
 from app.models.challan_register import ChallanRegister, ChallanLink, ChallanHistory
 from app.models.rejection_request import RejectionRequest, RejectionHistory
+from app.models.spare_packet import SpareBatch, SparePacket
 
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",

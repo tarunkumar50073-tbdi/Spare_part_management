@@ -364,6 +364,16 @@ class SpareStockService:
         row = self.repo.get_or_create(part_id)
         before = float(row.qty_on_hand or 0)
         delta = round(new_qty - before, 2)
+        # Stock in AVAILABLE packets is part of on hand (spare_packet.py): no
+        # write — a count, an RGP, an issue by quantity — may take on hand
+        # below it, or a labelled packet would stand for stock that is gone.
+        if delta < 0:
+            from app.services.spare_packet_service import SparePacketService
+            packed = SparePacketService.packed_available(part_id)
+            if packed > 0 and new_qty < packed - 1e-9:
+                raise BadRequestError(
+                    f"{packed:g} of this part is in packets with QR labels — stock cannot go below that. "
+                    "Issue a packet by scanning its QR, or cancel the packet first.")
 
         row.qty_on_hand = new_qty
         if counted:
@@ -459,7 +469,8 @@ class SpareStockService:
 
     def issue(self, part_id, qty, department, machine=None, returnable=False,
               reference=None, remarks=None, user=None, issued_to=None, status=None,
-              scanned_code=None, scan_source=None, employee_id=None, issued_to_mobile=None):
+              scanned_code=None, scan_source=None, employee_id=None, issued_to_mobile=None,
+              from_packet=False):
         """Stage 1 of the two-stage issue: the store issues a spare to a
         department + person. Machine/line are NOT required here — the store may
         not know where it will be fitted; the user confirms those later
@@ -509,6 +520,17 @@ class SpareStockService:
             on_hand = float(row.qty_on_hand or 0)
             if qty > on_hand:
                 raise BadRequestError(f"Cannot issue {qty:g}: only {on_hand:g} on hand")
+            # By quantity only the loose stock: what is in packets goes out a
+            # whole packet at a time, by its QR (from_packet — the packet
+            # issue, which has already taken its packet off the available ones).
+            if not from_packet:
+                from app.services.spare_packet_service import SparePacketService
+                packed = SparePacketService.packed_available(part.id)
+                loose = round(on_hand - packed, 2)
+                if packed > 0 and qty > loose + 1e-9:
+                    raise BadRequestError(
+                        f"{packed:g} {part.uom or ''} of {part.part_no} is in packets — scan a packet's QR to issue "
+                        f"a whole packet." + (f" Loose on the shelf: {loose:g}." if loose > 0 else ""))
             row, _, ledger = self._write(
                 part.id, round(on_hand - qty, 2), "ISSUE",
                 reference=reference, remarks=remarks, user=user,
