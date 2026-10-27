@@ -1,7 +1,7 @@
 import React, { useId, useMemo, useState } from "react";
 import { ArrowDownToLine } from "lucide-react";
 import QtyStepper from "../../QtyStepper.jsx";
-import EmployeeLookup from "../../EmployeeLookup.jsx";
+import PersonPicker from "../../PersonPicker.jsx";
 import { spareFlowService } from "../../../services/spareFlowService.js";
 import { RETURN_REASONS } from "../../../lib/scanStatus.js";
 import { fmtStamp, num } from "../../../lib/format.js";
@@ -136,8 +136,8 @@ export default function ReturnForm({ scan, target, onDone, onCancel }) {
               </select>
             </Field>
             <div className="space-y-2 sm:col-span-2">
-              <EmployeeLookup value={returner} onChange={setReturner} required={false}
-                defaultDepartment={issue.department || undefined} label="Returned by — mobile no. (optional)" />
+              <PersonPicker value={returner} onChange={setReturner} required={false}
+                label="Returned by — code or name (optional)" />
               {!byEmp && (
                 <Field label="Or type who handed it back" htmlFor={`${uid}-by`}>
                   <input id={`${uid}-by`} value={returnedBy} maxLength={80} onChange={(e) => setReturnedBy(e.target.value)}

@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useState } from "react";
 import { ArrowUpFromLine, IdCard } from "lucide-react";
-import EmployeeLookup from "../../EmployeeLookup.jsx";
+import PersonPicker from "../../PersonPicker.jsx";
 import { packetService } from "../../../services/packetService.js";
 import { fmtDate, fmtStamp } from "../../../lib/format.js";
 import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
@@ -45,9 +45,9 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
 
   const errors = {
-    person: emp ? null : person.mobile
-      ? "A part is issued only to an active person on the Employee Master"
-      : "Enter the mobile number of the person taking the packet",
+    person: emp ? null : person.typed?.trim()
+      ? "Pick the person from the list — a part is issued only to someone on today's roster"
+      : "Pick the person taking the packet (code or name)",
     department: !department ? "Choose the department"
       : isStoreDepartment(department) ? "The store hands parts out — choose the department the part is for"
         : depts && !depts.some((d) => d.name === department) ? `${department} is not in the Department master — choose one` : null,
@@ -63,7 +63,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     if (!valid) return;
     const payload = {
       department, remarks: clean(remarks), employee_id: emp.id, issued_to: emp.name,
-      issued_to_mobile: emp.mobile, override_reason: older ? reason.trim() : undefined,
+      override_reason: older ? reason.trim() : undefined,
       scan_source: source || undefined,
     };
     const code = emp.employee_code ? ` (${emp.employee_code})` : "";
@@ -75,7 +75,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
         { label: "Issued to", value: emp.name },
         { label: "Employee code", value: emp.employee_code },
         { label: "Department", value: department },
-        { label: "Mobile", value: `+91 ${emp.mobile}` },
+        { label: "Shift", value: emp.shift },
         { label: "Received", value: `${fmtDate(packet.receipt.received_on)} · ${packet.receipt.receipt_no}` },
         { label: "From location", value: packet.location || part.location },
         older ? { label: "FIFO skipped", value: reason.trim() } : null,
@@ -125,7 +125,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
               </Field>
             </div>
           )}
-          <EmployeeLookup value={person} onChange={pickPerson} defaultDepartment={department || undefined} error={show("person")} />
+          <PersonPicker value={person} onChange={pickPerson} error={show("person")} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Issued to (person)">
               {emp ? (
@@ -136,7 +136,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
                 </p>
               ) : (
                 <p className="flex min-h-[42px] items-center rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400 dark:border-navy-700">
-                  Fills in from the mobile number
+                  Fills in when the person is picked
                 </p>
               )}
             </Field>

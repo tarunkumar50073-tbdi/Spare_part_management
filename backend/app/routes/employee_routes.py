@@ -32,6 +32,16 @@ def lookup():
     return success_response(service.lookup(request.args.get("mobile")))
 
 
+@bp.route("/on-duty", methods=["GET"])
+@permission_required(("scan_part", "employees"), "view")
+def on_duty():
+    """Today's people from the Maintenance and Tool Room rosters, each with his
+    shift badge; q = code or name; refresh=1 reads the rosters again now."""
+    from app.services.roster_service import RosterService
+    return success_response(RosterService().on_duty(q=request.args.get("q"),
+                                                    force=request.args.get("refresh") in ("1", "true")))
+
+
 @bp.route("", methods=["GET"])
 @permission_required(("scan_part", "employees"), "view")
 def list_employees():

@@ -8,6 +8,11 @@ export const employeeService = {
   // (e.g. { silent: true } where the form shows its own message).
   lookup: (mobile, config = {}) => api.get("/employees/lookup", { params: { mobile }, ...config }),
   list: (params, config = {}) => api.get("/employees", { params, ...config }),
+  // Today's people from the Maintenance and Tool Room rosters, each with his
+  // shift badge: { rows, date, rosters: [{ source, department, ok, error, on_duty, marked }] }.
+  // refresh: read the rosters again now (else at most once a minute).
+  onDuty: ({ q, refresh } = {}, config = {}) =>
+    api.get("/employees/on-duty", { params: { q: q || undefined, refresh: refresh ? 1 : undefined }, ...config }),
   // { mobile, name, employee_code?, department, designation?, company? }.
   // `config` as for lookup — the counter's quick-add shows its own message.
   create: (payload, config = {}) => api.post("/employees", payload, config),

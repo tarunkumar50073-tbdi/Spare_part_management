@@ -8,7 +8,7 @@ class EmployeeCreateSchema(Schema):
     class Meta:
         unknown = EXCLUDE
 
-    mobile = fields.String(required=True, validate=validate.Length(min=10, max=20))
+    mobile = fields.String(allow_none=True, validate=validate.Length(max=20))
     name = fields.String(required=True, validate=validate.Length(min=1, max=80))
     employee_code = fields.String(allow_none=True, validate=validate.Length(max=30))
     department = fields.String(required=True, validate=validate.Length(min=1, max=40))
@@ -20,7 +20,7 @@ class EmployeeUpdateSchema(Schema):
     class Meta:
         unknown = EXCLUDE
 
-    mobile = fields.String(validate=validate.Length(min=10, max=20))
+    mobile = fields.String(allow_none=True, validate=validate.Length(max=20))
     name = fields.String(validate=validate.Length(min=1, max=80))
     employee_code = fields.String(allow_none=True, validate=validate.Length(max=30))
     department = fields.String(validate=validate.Length(min=1, max=40))

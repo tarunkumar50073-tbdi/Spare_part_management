@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useState } from "react";
 import { ArrowUpFromLine, IdCard } from "lucide-react";
 import QtyStepper from "../../QtyStepper.jsx";
-import EmployeeLookup from "../../EmployeeLookup.jsx";
+import PersonPicker from "../../PersonPicker.jsx";
 import { spareFlowService } from "../../../services/spareFlowService.js";
 import { num } from "../../../lib/format.js";
 import { partBins } from "../../../utils/binLocation.js";
@@ -15,11 +15,11 @@ import { clean, fmtQty, isStoreDepartment, qtyError, qtyOf, stepMin, useActionFl
 // (Update Line / Machine). The quantity can never exceed what is available.
 // Scanning is mainly for issuance: the workstation opens this form by itself
 // as soon as a part with stock is identified.
-// The person is found by mobile number on the Employee master: the operator
-// types only the number, the name and code fill in, and the Department is
-// pre-filled from the person's record (still a choice — the part may be for
-// another department). A number not on the master is added right there
-// first; a part is never issued to someone off the master or marked inactive.
+// The person is picked by code or name from today's Maintenance / Tool Room
+// rosters (PersonPicker — no mobile number since 27 Oct 2026), and the
+// Department is pre-filled from the person's record (still a choice — the part
+// may be for another department); a part is never issued to someone off the
+// master or marked inactive.
 // The store is never the department: it hands parts out ("issuance me store
 // dikha rha h jabki store to issue karta h" — the store, 18 Oct 2026). Its
 // staff are on the master as Store, so their record fills nothing in and the
@@ -33,7 +33,7 @@ function IssuedTo({ emp }) {
   if (!emp) {
     return (
       <p className="flex min-h-[42px] items-center rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400 dark:border-navy-700">
-        Fills in from the mobile number
+        Fills in when the person is picked
       </p>
     );
   }
@@ -107,9 +107,9 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
   const storeRecord = Boolean(emp) && isStoreDepartment(emp.department);
   const storeText = storeRecord ? `${emp.name}'s record says ${emp.department} — choose the department the part is for` : null;
   const errors = {
-    person: emp ? null : person.mobile
-      ? "A part is issued only to an active person on the Employee Master"
-      : "Enter the mobile number of the person taking the part",
+    person: emp ? null : person.typed?.trim()
+      ? "Pick the person from the list — a part is issued only to someone on today's roster"
+      : "Pick the person taking the part (code or name)",
     qty: available <= 0
       ? "Nothing available to issue"
       : qtyError(qty, { max: available, maxText: `Only ${fmtQty(available, part.uom)} available — cannot issue more` }),
@@ -131,7 +131,7 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
     if (!valid) return;
     const payload = {
       qty: qtyOf(qty), department, remarks: clean(remarks),
-      employee_id: emp.id, issued_to: emp.name, issued_to_mobile: emp.mobile,
+      employee_id: emp.id, issued_to: emp.name,
       scan_source: source || undefined,
     };
     const code = emp.employee_code ? ` (${emp.employee_code})` : "";
@@ -142,7 +142,7 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
         { label: "Issued to", value: emp.name },
         { label: "Employee code", value: emp.employee_code },
         { label: "Department", value: department },
-        { label: "Mobile", value: `+91 ${emp.mobile}` },
+        { label: "Shift", value: emp.shift },
         ...binFacts({ label: "From location", value: part.location }),
         { label: "Available after issue", value: fmtQty(Math.round((available - payload.qty) * 100) / 100, part.uom) },
         { label: "Remarks", value: payload.remarks },
@@ -166,8 +166,7 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
           { label: "Available qty", value: fmtQty(available, part.uom), strong: true },
         ]} />
       }>
-      <EmployeeLookup value={person} onChange={pickPerson} defaultDepartment={department || undefined}
-        error={show("person")} />
+      <PersonPicker value={person} onChange={pickPerson} error={show("person")} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Issued to (person)">
           <IssuedTo emp={emp} />

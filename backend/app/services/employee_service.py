@@ -71,14 +71,16 @@ class EmployeeService:
 
     def _clean(self, data, current=None):
         out = {}
-        if "mobile" in data or current is None:
-            norm = normalise_mobile(data.get("mobile"))
-            if not norm:
-                raise BadRequestError("Enter a valid 10-digit mobile number")
+        if "mobile" in data:
+            # Optional since 27 Oct 2026 (the store: "mobile number ki jarurat nhi").
+            raw = str(data.get("mobile") or "").strip()
+            norm = normalise_mobile(raw) if raw else None
+            if raw and not norm:
+                raise BadRequestError("Enter a valid 10-digit mobile number, or leave it blank")
             clash = Employee.query.filter(Employee.mobile == norm)
             if current is not None:
                 clash = clash.filter(Employee.id != current.id)
-            other = clash.first()
+            other = clash.first() if norm else None
             if other:
                 raise ConflictError(f"Mobile {norm} is already {other.name}'s")
             out["mobile"] = norm
@@ -125,6 +127,10 @@ class EmployeeService:
         emp = db.session.get(Employee, emp_id)
         if emp is None:
             raise NotFoundError(f"Employee {emp_id} not found")
+        if emp.source:
+            # The roster owns him: a change here would be undone at the next read.
+            where = "Maintenance" if emp.source == "MAINTENANCE" else "Tool Room"
+            raise BadRequestError(f"{emp.name} comes from the {where} roster — change him in the {where} app")
         clean = self._clean({k: v for k, v in (data or {}).items() if k in EDITABLE}, current=emp)
         for k, v in clean.items():
             setattr(emp, k, v)

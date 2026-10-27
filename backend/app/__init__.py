@@ -368,6 +368,7 @@ def create_app(env_name=None):
             db.create_all()
             _patch_schema()
             _add_late_columns()
+            _relax_late_nullable()
             _split_rights()
             _crud_rights()
             # Portable (ORM + a plain UPDATE), so it runs on every dialect — not
@@ -468,7 +469,31 @@ LATE_COLUMNS = (
     # A receipt left loose on purpose — the supplier's code is the same on every
     # box, so it was mapped to the part instead of packed (27 Oct 2026).
     ("spare_batches", "loose_note", "VARCHAR(255)"),
+    # A person kept from the Maintenance / Tool Room roster: which roster, and
+    # his id there (27 Oct 2026, roster_service).
+    ("employees", "source", "VARCHAR(12)"),
+    ("employees", "external_id", "VARCHAR(40)"),
 )
+
+# Columns made optional after a database was created (PostgreSQL only; SQLite
+# is only ever made fresh from the models now). A roster person often has no
+# mobile number on record (27 Oct 2026).
+LATE_NULLABLE = (
+    ("employees", "mobile"),
+)
+
+
+def _relax_late_nullable():
+    """Drop NOT NULL from each LATE_NULLABLE column that still has it."""
+    from sqlalchemy import inspect, text
+    if db.engine.dialect.name != "postgresql":
+        return
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    for table, col in LATE_NULLABLE:
+        if table in tables and any(c["name"] == col and not c["nullable"] for c in inspector.get_columns(table)):
+            db.session.execute(text(f"ALTER TABLE {table} ALTER COLUMN {col} DROP NOT NULL"))
+            db.session.commit()
 
 
 def _add_late_columns():

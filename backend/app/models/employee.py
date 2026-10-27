@@ -1,4 +1,10 @@
-"""Employee master — the people spare parts are issued to, found by mobile no.
+"""Employee master — the people spare parts are issued to.
+
+Since 27 Oct 2026 the people come from the Maintenance and Tool Room rosters
+(roster_service: source + external_id) and are picked at the counter by code or
+name — "mobile number ki jarurat nhi ... meri app me hta de mobile number wala"
+(the store). Mobile is kept only if the roster has one; it is optional. The
+older text below is how the master began.
 
 At the store counter the operator types only the taker's mobile number; name,
 employee code and department come from this master. A number not on it opens a
@@ -33,7 +39,7 @@ def normalise_mobile(raw):
 class Employee(BaseModel):
     __tablename__ = "employees"
 
-    mobile = db.Column(db.String(10), nullable=False, unique=True, index=True)
+    mobile = db.Column(db.String(10), nullable=True, unique=True, index=True)
     name = db.Column(db.String(80), nullable=False)
     employee_code = db.Column(db.String(30), nullable=True, unique=True, index=True)
     # A name from the Department master (kept as text like the ledger's
@@ -43,6 +49,10 @@ class Employee(BaseModel):
     # Contract / vendor staff: whose company the person works for.
     company = db.Column(db.String(80), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    # Where the person comes from: MAINTENANCE / TOOL_ROOM (the roster, read
+    # only — edited there) with his id in that roster; None = added here.
+    source = db.Column(db.String(12), nullable=True, index=True)
+    external_id = db.Column(db.String(40), nullable=True)
     created_by = db.Column(db.String(60), nullable=True)
     updated_by = db.Column(db.String(60), nullable=True)
 
@@ -51,7 +61,7 @@ class Employee(BaseModel):
             "id": self.id, "mobile": self.mobile, "name": self.name,
             "employee_code": self.employee_code, "department": self.department,
             "designation": self.designation, "company": self.company,
-            "is_active": self.is_active, "created_by": self.created_by,
+            "is_active": self.is_active, "source": self.source, "created_by": self.created_by,
             "updated_by": self.updated_by,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
