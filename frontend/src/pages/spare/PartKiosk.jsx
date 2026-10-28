@@ -1,7 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { ArrowLeft, ChevronLeft, ChevronRight, ImageOff, Layers, MapPin, PackageCheck, PackageX, Search, X } from "lucide-react";
+import {
+  ArrowLeft, ChevronLeft, ChevronRight, Hourglass, ImageOff, Layers, MapPin, PackageCheck, PackageX, Search,
+  CircleHelp, X,
+} from "lucide-react";
 import IconTile from "../../components/IconTile.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useTheme } from "../../context/ThemeContext.jsx";
@@ -24,42 +27,79 @@ import { partKioskService } from "../../services/partKioskService.js";
 // IDLE_MS untouched so the next person starts afresh. A kiosk login stays
 // signed in (AuthContext deviceOnly); anyone who may open the store gets a way
 // back to it.
+//
+// Polished for the touchscreen on 28 Oct 2026 (the store's kiosk brief): the
+// same two screens and search; photos that never crop or break (a failed one
+// shows "No Photo Available"), one stock word read the same on the card and
+// the part screen — Available (green), Out of Stock (red), Stock not counted
+// yet (grey), and material waiting for quality at the gate apart (amber) —
+// and the rack / bin set large, since the kiosk is for finding the part.
 
 const STORE = "MAINTENANCE";
 const IDLE_MS = 2 * 60 * 1000;
 const PER_PAGE = 24;
 
-function Availability({ part }) {
-  return part.available ? (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[13px] font-bold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30">
-      <PackageCheck size={15} aria-hidden="true" /> Available · {num(part.qty)} {part.uom}
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[13px] font-bold text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30">
-      <PackageX size={15} aria-hidden="true" /> Not available
-    </span>
-  );
-}
-
-function Details({ part }) {
-  const spec = [part.specification, part.model_no && `Model ${part.model_no}`].filter(Boolean).join(" · ");
-  return (
-    <>
-      {spec && <span className="block text-[13px] text-slate-500 dark:text-slate-400">{spec}</span>}
-      <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-semibold text-slate-600 dark:text-slate-300">
-        <span className="inline-flex items-center gap-1"><MapPin size={14} aria-hidden="true" className="text-toyotared" />{part.location || "No location"}</span>
-        {part.rework_location && <span className="inline-flex items-center gap-1 font-normal text-slate-500">Rework: {part.rework_location}</span>}
-        {part.section && <span className="inline-flex items-center gap-1 font-normal"><Layers size={13} aria-hidden="true" />{part.section}</span>}
-      </span>
-    </>
-  );
-}
-
 // The top bar's tile button and hover (Topbar.jsx), so the kiosk's Back and
-// Home read like the rest of the app.
+// Home read like the rest of the app — 44 px, a finger's width.
+const TILE = 44;
 const TILE_BTN = "group relative inline-flex shrink-0 items-center justify-center rounded-[11px] "
   + "focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/50";
 const TILE_HOVER = "transition group-hover:brightness-125 group-hover:-translate-y-px";
+
+// One stock word for a part, the same on its card and its screen. A part
+// never counted is not "out of stock": nobody knows (an older server sends no
+// `counted`, and its 0 reads as out of stock, as before).
+const TONE = {
+  ok: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30",
+  out: "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30",
+  unknown: "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-navy-800 dark:text-slate-300 dark:ring-navy-700",
+};
+function stockOf(part) {
+  if (part.available) return { tone: "ok", Icon: PackageCheck, word: "Available" };
+  if (part.counted === false) return { tone: "unknown", Icon: CircleHelp, word: "Stock not counted yet" };
+  return { tone: "out", Icon: PackageX, word: "Out of Stock" };
+}
+
+function StockBadge({ part }) {
+  const s = stockOf(part);
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-bold ring-1 ${TONE[s.tone]}`}>
+      <s.Icon size={15} aria-hidden="true" /> {s.word}{part.available ? ` · ${num(part.qty)} ${part.uom || ""}` : ""}
+    </span>
+  );
+}
+
+// Labelled at the gate, waiting for quality — not stock yet (spare_packets
+// QC_PENDING); shown only when there is some.
+function QcWaiting({ part, big = false }) {
+  if (!(Number(part.qc_pending) > 0)) return null;
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full bg-amber-50 font-bold text-amber-800 ring-1 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:ring-amber-500/30 ${big ? "px-3 py-1.5 text-sm" : "px-2.5 py-1 text-[12.5px]"}`}>
+      <Hourglass size={big ? 16 : 14} aria-hidden="true" /> {num(part.qc_pending)} {part.uom || ""} waiting for quality check
+    </span>
+  );
+}
+
+function NoPhoto({ big = false }) {
+  return (
+    <span className="flex flex-col items-center justify-center gap-1.5 text-slate-400 dark:text-slate-500">
+      <ImageOff size={big ? 56 : 32} aria-hidden="true" />
+      <span className={big ? "text-base font-semibold" : "text-xs font-medium"}>No Photo Available</span>
+    </span>
+  );
+}
+
+// A part photo, whole (object-contain); one that fails to load shows the
+// placeholder instead of a broken image. Keyed by its address by the caller,
+// so a new photo gets a fresh try.
+function Photo({ src, alt, big = false, className = "" }) {
+  const [bad, setBad] = useState(false);
+  if (!src || bad) return <NoPhoto big={big} />;
+  return (
+    <img src={src} alt={alt} loading={big ? "eager" : "lazy"} decoding="async" draggable={false}
+      onError={() => setBad(true)} className={`h-full w-full object-contain ${className}`} />
+  );
+}
 
 export default function PartKiosk() {
   const { user } = useAuth();
@@ -120,9 +160,11 @@ export default function PartKiosk() {
 
   // The search stays on top; a picked part fills the rest of the same screen
   // (the store's kiosk picture, 25 Oct 2026: "jahan part search kiya and select
-  // kiya wahi par puri screen khule"), so the page is exactly one screen high.
+  // kiya wahi par puri screen khule"), so the page is exactly one screen high —
+  // the visible one (dvh), so nothing hides under browser bars on a touch
+  // screen. Never wider than the screen.
   return (
-    <div className={`flex flex-col bg-slate-50 dark:bg-navy-950 ${open ? "h-screen overflow-hidden" : "min-h-screen"}`}>
+    <div className={`flex flex-col overflow-x-hidden bg-slate-50 dark:bg-navy-950 ${open ? "h-dvh overflow-y-hidden" : "min-h-dvh"}`}>
       <header className="sticky top-0 z-20 shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-navy-800 dark:bg-navy-900/95">
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
           <div className="flex items-center justify-between gap-3">
@@ -138,12 +180,12 @@ export default function PartKiosk() {
                     kar"). */}
                 {canBack && (
                   <button type="button" onClick={() => navigate(-1)} title="Back" aria-label="Go back" className={TILE_BTN}>
-                    <IconTile emoji="⬅️" color="#94a3b8" size={36} light={!dark} className={TILE_HOVER} />
+                    <IconTile emoji="⬅️" color="#94a3b8" size={TILE} light={!dark} className={TILE_HOVER} />
                   </button>
                 )}
                 <button type="button" onClick={() => navigate(`/store/${STORE}`)} title="Main dashboard"
                   aria-label="Go to the main dashboard" className={TILE_BTN}>
-                  <IconTile emoji="🏠" color="#60a5fa" size={36} light={!dark} className={TILE_HOVER} />
+                  <IconTile emoji="🏠" color="#60a5fa" size={TILE} light={!dark} className={TILE_HOVER} />
                 </button>
               </span>
             )}
@@ -156,7 +198,7 @@ export default function PartKiosk() {
               className="w-full rounded-2xl border-2 border-slate-200 bg-white py-4 pl-14 pr-14 text-xl text-slate-900 shadow-sm outline-none transition focus:border-toyotared dark:border-navy-700 dark:bg-navy-900 dark:text-white" />
             {typed && (
               <button type="button" onClick={clear} aria-label="Clear the search"
-                className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-navy-800">
+                className="absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-navy-800">
                 <X size={22} aria-hidden="true" />
               </button>
             )}
@@ -185,39 +227,15 @@ export default function PartKiosk() {
           <p className="py-20 text-center text-lg font-semibold text-slate-500 dark:text-slate-400">No part found for &ldquo;{q}&rdquo;</p>
         ) : (
           <>
-            <p className="mb-3 text-[13px] font-medium text-slate-500 dark:text-slate-400">{num(total)} part{total === 1 ? "" : "s"} found</p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {rows.map((p) => {
-                const thumb = partService.imageUrl(p, true);
-                return (
-                  <button key={p.id} type="button" onClick={() => { listY.current = window.scrollY; setOpen(p); }}
-                    className="card flex flex-col overflow-hidden p-0 text-left transition hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared">
-                    <span className="relative flex aspect-[4/3] w-full items-center justify-center bg-slate-100 dark:bg-navy-800">
-                      {thumb ? (
-                        <img src={thumb} alt={`Photo of ${p.part_no}`} loading="lazy" className="h-full w-full object-contain" />
-                      ) : (
-                        <span className="flex flex-col items-center gap-1 text-slate-400"><ImageOff size={34} aria-hidden="true" /><span className="text-xs">No photo yet</span></span>
-                      )}
-                      {p.photos?.length > 1 && (
-                        <span className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white">{p.photos.length} photos</span>
-                      )}
-                    </span>
-                    <span className="flex flex-1 flex-col gap-1 p-3">
-                      <span className="font-mono text-lg font-bold text-slate-900 dark:text-white">{p.part_no}</span>
-                      <span className="line-clamp-2 text-[15px] font-medium text-slate-700 dark:text-slate-200">{p.part_name}</span>
-                      <Details part={p} />
-                      <span className="mt-2 flex flex-wrap items-center gap-2">
-                        <Availability part={p} />
-                        {p.discontinued && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-navy-800">Discontinued</span>}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+            <p className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">{num(total)} part{total === 1 ? "" : "s"} found</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+              {rows.map((p) => (
+                <PartCard key={p.id} part={p} onOpen={() => { listY.current = window.scrollY; setOpen(p); }} />
+              ))}
             </div>
             {search.hasNextPage && (
               <div className="mt-5 text-center">
-                <button type="button" className="btn-secondary px-6 py-3 text-base" disabled={search.isFetchingNextPage}
+                <button type="button" className="btn-secondary min-h-[44px] px-6 py-3 text-base" disabled={search.isFetchingNextPage}
                   onClick={() => search.fetchNextPage()}>
                   {search.isFetchingNextPage ? "Loading…" : "Show more parts"}
                 </button>
@@ -231,14 +249,67 @@ export default function PartKiosk() {
   );
 }
 
+// One search result: the photo on a clean white box of the same height on
+// every card, then Part No., description, spec / model, where it sits and its
+// stock — what the floor reads to pick the right part.
+function PartCard({ part: p, onOpen }) {
+  const thumb = partService.imageUrl(p, true);
+  const spec = [p.specification, p.model_no && `Model ${p.model_no}`].filter(Boolean).join(" · ");
+  return (
+    <button type="button" onClick={onOpen}
+      className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared dark:border-navy-800 dark:bg-navy-900">
+      {/* The photo sits inside the box (absolute), so a tall photo can never
+          stretch the box past 4:3 and every card keeps the same height. */}
+      <span className="relative block aspect-[4/3] w-full shrink-0 overflow-hidden border-b border-slate-100 bg-white dark:border-navy-800 dark:bg-navy-900">
+        <span className="absolute inset-2 flex items-center justify-center">
+          <Photo key={thumb || "none"} src={thumb} alt={`Photo of ${p.part_no}`} />
+        </span>
+        {p.photos?.length > 1 && (
+          <span className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white">{p.photos.length} photos</span>
+        )}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1 p-3.5">
+        <span className="truncate font-mono text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">{p.part_no}</span>
+        <span className="line-clamp-2 text-[15px] font-semibold leading-snug text-slate-700 dark:text-slate-200" title={p.part_name}>{p.part_name}</span>
+        {spec && <span className="line-clamp-1 text-[13px] text-slate-500 dark:text-slate-400" title={spec}>{spec}</span>}
+        <span className="mt-auto flex min-w-0 flex-col gap-2 pt-2">
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+            <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-slate-50 px-2 py-1 ring-1 ring-slate-200 dark:bg-navy-800 dark:ring-navy-700">
+              <MapPin size={14} aria-hidden="true" className="shrink-0 text-toyotared" />
+              <span className={`truncate font-mono font-bold ${p.location ? "text-slate-800 dark:text-slate-100" : "font-sans font-medium text-slate-400"}`}>
+                {p.location || "No location"}
+              </span>
+            </span>
+            {p.section && (
+              <span className="inline-flex min-w-0 items-center gap-1 text-slate-500 dark:text-slate-400">
+                <Layers size={13} aria-hidden="true" className="shrink-0" /><span className="truncate">{p.section}</span>
+              </span>
+            )}
+          </span>
+          {p.rework_location && <span className="truncate text-[12px] text-slate-500 dark:text-slate-400">Rework: {p.rework_location}</span>}
+          <span className="flex flex-wrap items-center gap-1.5">
+            <StockBadge part={p} />
+            <QcWaiting part={p} />
+            {p.discontinued && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-navy-800">Discontinued</span>}
+          </span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
 // The picked part, filling the screen under the search: its photo as big as the
-// room allows, every angle a tap away, and its stock and place in large type
-// beside it (below it on an upright screen). Back, Escape, a new search or the
-// idle reset bring the list back.
+// room allows, every angle a tap away, and beside it (below it on an upright
+// screen) Part No., description, spec / model, stock and — large — its rack /
+// bin and section. With no photo the photo box stays small and the details
+// take the room. Back, Escape, a new search or the idle reset bring the list
+// back.
 function PartScreen({ part, onBack }) {
   const photos = partService.photosOf(part);
   const [n, setN] = useState(0);
   const step = (d) => setN((i) => (i + d + photos.length) % photos.length);
+  const hasPhoto = photos.length > 0;
+  const stock = stockOf(part);
 
   useEffect(() => {
     const key = (e) => {
@@ -252,31 +323,32 @@ function PartScreen({ part, onBack }) {
   }, [onBack, photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const spec = [part.specification, part.model_no && `Model ${part.model_no}`].filter(Boolean).join(" · ");
+  const big = partService.imageUrl(part, false, n);
   return (
     <section aria-label={`${part.part_no} — ${part.part_name}`}
       className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-3 px-4 pt-4 sm:px-6">
         <button type="button" onClick={onBack}
-          className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-navy-900 px-5 py-3 text-base font-bold text-white hover:bg-navy-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared dark:bg-white dark:text-navy-900">
+          className="inline-flex h-11 shrink-0 items-center gap-2 rounded-[11px] bg-navy-900 px-5 text-base font-bold text-white hover:bg-navy-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared dark:bg-white dark:text-navy-900">
           <ArrowLeft size={20} aria-hidden="true" /> Back to results
         </button>
-        <span className="min-w-0 truncate font-mono text-xl font-extrabold text-slate-900 dark:text-white sm:text-2xl">{part.part_no}</span>
+        {/* On an upright screen the details sit under the photo: the Part No.
+            is said up here too. */}
+        <span className="min-w-0 truncate font-mono text-xl font-extrabold text-slate-900 dark:text-white landscape:hidden">{part.part_no}</span>
       </div>
 
       {/* Side by side on a wide screen; on an upright kiosk screen the photo
           takes the full width on top and the details sit under it. */}
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 sm:p-6 landscape:flex-row">
-        {/* The photo — as large as the screen leaves room for. */}
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
-          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200 dark:bg-navy-900 dark:ring-navy-800">
-            {photos.length ? (
-              <img src={partService.imageUrl(part, false, n)} alt={`Photo ${n + 1} of ${part.part_no}`}
-                className="h-full w-full object-contain" draggable={false} />
-            ) : (
-              <span className="flex flex-col items-center gap-2 text-slate-400">
-                <ImageOff size={72} aria-hidden="true" /><span className="text-lg font-semibold">No photo yet</span>
-              </span>
-            )}
+        {/* The photo — as large as the screen leaves room for; a small box
+            when there is none. */}
+        {/* Upright, the photo keeps at least a third of the screen and the
+            details scroll when a small screen has no more room. */}
+        <div className={hasPhoto ? "flex min-h-[35vh] flex-1 flex-col gap-3 landscape:min-h-0"
+          : "flex shrink-0 flex-col landscape:w-[34%]"}>
+          <div className={`relative flex items-center justify-center overflow-hidden rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 dark:bg-navy-900 dark:ring-navy-800 ${hasPhoto
+            ? "min-h-0 flex-1" : "aspect-[4/3] max-h-[30vh] w-full landscape:max-h-none"}`}>
+            <Photo key={big || "none"} src={big} alt={`Photo ${n + 1} of ${part.part_no}`} big />
             {photos.length > 1 && (
               <>
                 <button type="button" onClick={() => step(-1)} aria-label="Previous photo"
@@ -297,48 +369,59 @@ function PartScreen({ part, onBack }) {
             <div className="flex shrink-0 justify-center gap-3">
               {photos.map((name, i) => (
                 <button key={name} type="button" onClick={() => setN(i)} aria-pressed={i === n} aria-label={`Show photo ${i + 1}`}
-                  className={`h-20 w-20 overflow-hidden rounded-xl transition ${i === n
+                  className={`flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl bg-white p-1 transition dark:bg-navy-900 ${i === n
                     ? "ring-4 ring-toyotared ring-offset-2 dark:ring-offset-navy-950"
                     : "opacity-70 ring-1 ring-slate-300 hover:opacity-100 dark:ring-navy-700"}`}>
-                  <img src={partService.imageUrl(part, true, i)} alt="" className="h-full w-full object-cover" />
+                  <Photo key={name} src={partService.imageUrl(part, true, i)} alt="" />
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* What it is, how many, where — readable from a step away. */}
-        <div className="flex shrink-0 flex-col gap-4 rounded-2xl bg-white p-5 ring-1 ring-slate-200 dark:bg-navy-900 dark:ring-navy-800 landscape:w-[340px] landscape:lg:w-[380px] landscape:xl:w-[440px]">
-          <div>
-            <p className="text-2xl font-bold leading-snug text-slate-900 dark:text-white">{part.part_name}</p>
+        {/* What it is, how many, where — readable from a step away, in the
+            order the floor asks: which part, is it there, where is it. */}
+        <div className={`flex min-h-0 flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 dark:bg-navy-900 dark:ring-navy-800 ${hasPhoto
+          ? "landscape:shrink-0 landscape:w-[360px] landscape:lg:w-[400px] landscape:xl:w-[460px]" : "flex-1 landscape:self-start"}`}>
+          <div className="min-w-0">
+            <p className="break-all font-mono text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">{part.part_no}</p>
+            <p className="mt-1 text-2xl font-bold leading-snug text-slate-800 dark:text-slate-100">{part.part_name}</p>
             {spec && <p className="mt-1 text-lg text-slate-500 dark:text-slate-400">{spec}</p>}
           </div>
-          <div className={`rounded-2xl px-5 py-4 ${part.available
-            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30"
-            : "bg-rose-50 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30"}`}>
+
+          <div className={`rounded-2xl px-5 py-4 ring-1 ${TONE[stock.tone]}`}>
             <p className="flex items-center gap-2 text-lg font-bold">
-              {part.available ? <PackageCheck size={24} aria-hidden="true" /> : <PackageX size={24} aria-hidden="true" />}
-              {part.available ? "Available" : "Not available"}
+              <stock.Icon size={24} aria-hidden="true" /> {stock.word}
             </p>
             {part.available && (
               <p className="mt-1 text-4xl font-extrabold tabular">{num(part.qty)} <span className="text-xl font-bold">{part.uom}</span></p>
             )}
           </div>
-          <div className="space-y-3 text-lg">
-            <p className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-100">
-              <MapPin size={22} aria-hidden="true" className="shrink-0 text-toyotared" />
-              {part.location || "No location"}
+          <QcWaiting part={part} big />
+
+          {/* Where to find it — the reason the kiosk is there. */}
+          <div className="rounded-2xl bg-slate-50 px-5 py-4 ring-1 ring-slate-200 dark:bg-navy-950/60 dark:ring-navy-800">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Rack / Bin</p>
+            <p className="mt-1 flex items-center gap-2">
+              <MapPin size={28} aria-hidden="true" className="shrink-0 text-toyotared" />
+              {part.location
+                ? <span className="break-all font-mono text-3xl font-extrabold text-slate-900 dark:text-white">{part.location}</span>
+                : <span className="text-lg font-semibold text-slate-400">Location not recorded</span>}
             </p>
-            {part.rework_location && <p className="pl-8 text-base text-slate-500 dark:text-slate-400">Rework: {part.rework_location}</p>}
-            {part.section && (
-              <p className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+            {part.rework_location && <p className="mt-1 pl-9 text-base text-slate-500 dark:text-slate-400">Rework: {part.rework_location}</p>}
+          </div>
+
+          {part.section && (
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Store / Department</p>
+              <p className="mt-1 flex items-center gap-2 text-lg font-semibold text-slate-700 dark:text-slate-200">
                 <Layers size={20} aria-hidden="true" className="shrink-0" />{part.section}
               </p>
-            )}
-            {part.discontinued && (
-              <p className="inline-block rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-500 dark:bg-navy-800">Discontinued</p>
-            )}
-          </div>
+            </div>
+          )}
+          {part.discontinued && (
+            <p className="self-start rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-500 dark:bg-navy-800">Discontinued</p>
+          )}
         </div>
       </div>
     </section>

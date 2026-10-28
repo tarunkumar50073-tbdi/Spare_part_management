@@ -129,3 +129,35 @@ def test_kiosk_right_is_read_only_and_opens_nothing_else(app, make):
     assert c.get(URL, query_string={"store_code": code, "q": "bear"}).status_code == 403
     as_(nobody)
     assert c.get(URL, query_string={"store_code": code, "q": "bear"}).status_code == 403
+
+
+def test_stock_reads_honestly_not_counted_out_of_stock_and_waiting_for_qc(make):
+    """The kiosk polish (28 Oct 2026): a part never counted is "not counted",
+    never "out of stock"; a counted 0 or a negative is out of stock and no
+    negative is shown; what came in at the gate and waits for quality is said
+    apart and never added to the stock."""
+    from datetime import date
+    from app.models.spare_packet import SpareBatch, SparePacket
+    from app.models.spare_stock import SpareStock
+    code, sec = make.store()
+    never = make.part(code, sec, name="KIOSK NEVER COUNTED", qty=None)
+    zero = make.part(code, sec, name="KIOSK ZERO", qty=0)
+    minus = make.part(code, sec, name="KIOSK MINUS", qty=0)
+    SpareStock.query.filter_by(part_id=minus.id).update({"qty_on_hand": -3})
+    gate = make.part(code, sec, name="KIOSK AT GATE", qty=2)
+    batch = SpareBatch(receipt_no=f"RCP-K{gate.id}", store_code=code, part_id=gate.id, source="GATE",
+                       received_on=date(2026, 10, 28), qty=5, uom="NOS")
+    db.session.add(batch)
+    db.session.flush()
+    for i, status in enumerate(("QC_PENDING", "QC_PENDING", "CANCELLED"), start=1):
+        db.session.add(SparePacket(code=f"TBK{gate.id}-{i:02d}", kind="UNIT", batch_id=batch.id, part_id=gate.id,
+                                   seq=i, qty=1, uom="NOS", status=status))
+    db.session.commit()
+    rows = {r["part_name"]: r for r in svc.search(code, "kiosk")["rows"]}
+    assert (rows["KIOSK NEVER COUNTED"]["counted"], rows["KIOSK NEVER COUNTED"]["qty"],
+            rows["KIOSK NEVER COUNTED"]["available"]) == (False, None, False)
+    assert (rows["KIOSK ZERO"]["counted"], rows["KIOSK ZERO"]["qty"], rows["KIOSK ZERO"]["available"]) == (True, 0, False)
+    assert (rows["KIOSK MINUS"]["qty"], rows["KIOSK MINUS"]["available"]) == (0, False)
+    g = rows["KIOSK AT GATE"]
+    assert (g["qty"], g["available"], g["qc_pending"]) == (2, True, 2)       # 2 waiting, not added; cancelled left out
+    assert rows["KIOSK ZERO"]["qc_pending"] == 0
