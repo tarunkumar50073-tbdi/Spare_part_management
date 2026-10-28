@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { ArrowLeft, ChevronLeft, ChevronRight, ImageOff, Layers, MapPin, PackageCheck, PackageX, Search, X } from "lucide-react";
+import IconTile from "../../components/IconTile.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { useTheme } from "../../context/ThemeContext.jsx";
 import { can } from "../../utils/permissions.js";
 import { num } from "../../lib/format.js";
 import { partService } from "../../services/partService.js";
@@ -52,9 +54,18 @@ function Details({ part }) {
   );
 }
 
+// The top bar's tile button and hover (Topbar.jsx), so the kiosk's Back and
+// Home read like the rest of the app.
+const TILE_BTN = "group relative inline-flex shrink-0 items-center justify-center rounded-[11px] "
+  + "focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared/50";
+const TILE_HOVER = "transition group-hover:brightness-125 group-hover:-translate-y-px";
+
 export default function PartKiosk() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { dark } = useTheme() || {};
+  let canBack = false;
+  try { canBack = (window.history.state?.idx ?? 0) > 0; } catch { canBack = false; }
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
@@ -109,9 +120,23 @@ export default function PartKiosk() {
               <h1 className="min-w-0 truncate text-xl font-extrabold text-slate-900 dark:text-white sm:text-2xl">Spare Part Search</h1>
             </div>
             {can(user, "spare_store") && (
-              <button type="button" className="btn-secondary shrink-0" onClick={() => navigate(`/store/${STORE}`)}>
-                <ArrowLeft size={15} aria-hidden="true" /> Main Dashboard
-              </button>
+              <span className="flex shrink-0 items-center gap-2">
+                {/* Back to the screen it was opened from, and Home to the main
+                    dashboard — the top bar's own tiles (the store, 28 Oct 2026:
+                    "jahan se ise khola usi par nhi jata", "icon app me jo
+                    already h usi type k use kar"). Back only when there is an
+                    in-app page to go back to (a kiosk opened straight here has
+                    none). */}
+                {canBack && (
+                  <button type="button" onClick={() => navigate(-1)} title="Back" aria-label="Go back" className={TILE_BTN}>
+                    <IconTile emoji="⬅️" color="#94a3b8" size={36} light={!dark} className={TILE_HOVER} />
+                  </button>
+                )}
+                <button type="button" onClick={() => navigate(`/store/${STORE}`)} title="Main dashboard"
+                  aria-label="Go to the main dashboard" className={TILE_BTN}>
+                  <IconTile emoji="🏠" color="#60a5fa" size={36} light={!dark} className={TILE_HOVER} />
+                </button>
+              </span>
             )}
           </div>
           <div className="relative mt-3">
