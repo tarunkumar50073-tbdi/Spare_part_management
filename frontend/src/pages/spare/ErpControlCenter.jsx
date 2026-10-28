@@ -69,7 +69,19 @@ function StateChip({ tone = "off", label }) {
 }
 
 // State -> [tone, label]. Labels say what the state means, not the enum.
+// The newest write into any ERP copy, "data written …" — for a machine that
+// does not read ERP itself (the server does), so it has no run of its own.
+function newestWrite(sync) {
+  const w = Object.values(sync.held || {}).filter((h) => h?.written_at)
+    .sort((a, b) => (a.written_at < b.written_at ? 1 : -1))[0];
+  return w ? `Data written ${when(w.written_at, w.written_age_hours)} (by the server)` : null;
+}
+
 function syncChip(s) {
+  // No run here, but the server keeps writing the copies: say so, not "not run".
+  const w = s.state === "NEVER_RUN" && Object.values(s.held || {}).some((h) => h?.written_age_hours != null
+    && h.written_age_hours <= 1);
+  if (w) return ["ok", "Read by the server"];
   switch (s.state) {
     case "OK": return ["ok", `Synced · ${age(s.last_sync_age_hours)} ago`];
     case "ERROR": return ["bad", "Error on last run"];
@@ -145,6 +157,12 @@ const ERP_TABLES = [
 
 function ErpTables({ sync }) {
   const tables = sync.tables || {};
+  // What each ERP copy in the app holds, from its own table — known on every
+  // machine, while the read status is known only where ERP was read (the
+  // server). So the page shows the data even before the server saves a status.
+  const held = sync.held || {};
+  const written = Object.values(held).filter((h) => h?.written_at)
+    .sort((a, b) => (a.written_at < b.written_at ? 1 : -1))[0];
   const today = new Date().toISOString().slice(0, 10);
   return (
     <div className="card p-0">
@@ -153,18 +171,22 @@ function ErpTables({ sync }) {
           <p className="text-sm font-semibold text-slate-800 dark:text-white">ERP data in the app</p>
           <p className="text-[11px] text-slate-400">
             Read only from ERP, by itself{every(sync.poll_seconds) ? ` every ${every(sync.poll_seconds)}` : ""} — no button needed
-            {sync.last_sync_at ? ` · last read ${stamp(sync.last_sync_at)}` : ""}
+            {sync.last_sync_at ? ` · last read ${stamp(sync.last_sync_at)}`
+              : written ? ` · data last written ${stamp(written.written_at)}` : ""}
           </p>
         </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] text-left text-[12.5px]">
           <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
-            <tr><th className="px-3 py-2">ERP table</th><th className="px-3 py-2">Newest in ERP</th><th className="px-3 py-2 text-right">Rows read</th><th className="px-3 py-2">Last read</th></tr>
+            <tr><th className="px-3 py-2">ERP table</th><th className="px-3 py-2">Newest in ERP</th><th className="px-3 py-2">In the app</th><th className="px-3 py-2 text-right">Rows read</th><th className="px-3 py-2">Last read</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
             {ERP_TABLES.map(([key, label, src]) => {
               const t = tables[key];
+              const h = held[key];
+              // Written more than a day ago: the copy is not being refreshed.
+              const staleCopy = h?.written_age_hours != null && h.written_age_hours > 24;
               const latest = t?.erp_latest || null;
               const old = latest && /^\d{4}-\d{2}-\d{2}/.test(latest) && latest.slice(0, 10) < today
                 && (Date.parse(today) - Date.parse(latest.slice(0, 10))) / 86_400_000 > 7;
@@ -175,9 +197,21 @@ function ErpTables({ sync }) {
                     {latest ? <span className={old ? "font-semibold text-amber-700" : ""}>{latest.slice(0, 16)}</span> : "—"}
                     {old && <div className="text-[10.5px] text-amber-700">Old in ERP itself — ERP / IT updates this table</div>}
                   </td>
+                  <td className="px-3 py-2">
+                    {h?.rows ? (
+                      <>
+                        <div className="tabular">{num(h.rows)} rows</div>
+                        {h.newest && <div className="text-[10.5px] text-slate-400">newest {h.newest.slice(0, 10)}</div>}
+                      </>
+                    ) : <span className="text-slate-400">Nothing yet</span>}
+                  </td>
                   <td className="px-3 py-2 text-right tabular">{t?.rows != null ? num(t.rows) : "—"}</td>
                   <td className="px-3 py-2">
-                    {!t ? <span className="text-slate-400">Not read yet</span>
+                    {!t && h?.written_at ? (
+                      <span className={staleCopy ? "font-semibold text-amber-700" : "text-emerald-700"}>
+                        Written {stamp(h.written_at)}{staleCopy ? ` (${age(h.written_age_hours)} ago)` : ""}
+                      </span>
+                    ) : !t ? <span className="text-slate-400">Not read yet</span>
                       : t.ok ? <span className="text-emerald-700">OK · {t.seconds}s</span>
                         : <span className="text-rose-600" title={t.error}>Failed: {String(t.error || "").slice(0, 80)}</span>}
                   </td>
@@ -206,6 +240,7 @@ function StatusCards({ d }) {
         icon={DatabaseZap} tone="blue" title="ERP database sync" chip={syncChip(sync)}
         rows={[
           ["Last sync", when(sync.last_sync_at, sync.last_sync_age_hours)
+            || newestWrite(sync)
             || (sync.configured ? "None since the server started" : "—")],
           ["Automatic poll", sync.poller_running || sync.poller_elsewhere
             ? `${every(sync.poll_seconds) ? `Every ${every(sync.poll_seconds)}` : "Running"}${sync.poller_elsewhere ? " (on the server)" : ""}`

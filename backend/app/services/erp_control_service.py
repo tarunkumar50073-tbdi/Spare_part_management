@@ -18,8 +18,10 @@ from flask import current_app
 from sqlalchemy import and_, func
 
 from app.extensions import db
+from app.models.erp_line_rejection import ErpLineRejection
 from app.models.erp_stock import ERPStock
 from app.models.gate_entry import GateEntry
+from app.models.job_work import ErpRgpLine
 from app.models.part import Part
 from app.models.receiving_register import ReceivingRegister
 from app.models.spare_stock import ERP_ORIGIN_RECEIPT_STATUSES, SpareStock, SpareStockLedger
@@ -185,6 +187,7 @@ class ERPControlService:
             "poller_elsewhere": bool(st.get("saved_by_other_machine") and st.get("poll_seconds")),
             "status_in_memory": not st.get("saved_by_other_machine"),
             "note": IN_MEMORY_NOTE,
+            "held": self._held(now),
             "mirrors": {
                 "gate_entries": self._mirror(GateEntry, GateEntry.item_code, GateEntry.gate_entry_dt,
                                              part_nos, today),
@@ -192,6 +195,38 @@ class ERPControlService:
                                                    ReceivingRegister.grn_date, part_nos, today),
             },
         }
+
+    @staticmethod
+    def _held(now):
+        """What each ERP copy in the app holds, read from its own table — rows,
+        its newest record and when it was last written. The read status above
+        is only known to the machine that read ERP (the server); this is what
+        every machine sees, so the page is never empty while the data is there
+        (the store, 28 Oct 2026: "ye khali kyu dikha rha h erp ka data")."""
+        tables = {
+            "gate_entry": (GateEntry, GateEntry.gate_entry_dt, GateEntry.created_at),
+            "receiving_register": (ReceivingRegister, ReceivingRegister.grn_date, ReceivingRegister.created_at),
+            "erp_stock": (ERPStock, ERPStock.synced_at, ERPStock.synced_at),
+            "line_rejection": (ErpLineRejection, ErpLineRejection.return_slip_date, ErpLineRejection.synced_at),
+            "rgp_lines": (ErpRgpLine, ErpRgpLine.challan_date, ErpRgpLine.synced_at),
+        }
+        out = {}
+        for key, (model, newest_col, written_col) in tables.items():
+            try:
+                rows, newest, written = db.session.query(
+                    func.count(model.id), func.max(newest_col), func.max(written_col)).one()
+            except Exception:  # noqa: BLE001 — one missing table must not hide the rest
+                db.session.rollback()
+                out[key] = None
+                continue
+            out[key] = {
+                "rows": rows,
+                "newest": (_iso(newest) if isinstance(newest, datetime)
+                           else newest.isoformat() if newest else None),
+                "written_at": _iso(written),
+                "written_age_hours": _age_hours(written, now),
+            }
+        return out
 
     @staticmethod
     def _store_part_nos(store_code):

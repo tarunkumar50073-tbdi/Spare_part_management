@@ -318,3 +318,27 @@ def test_mirror_matches_store_parts_case_insensitively(quiet_erp):
         # The gate mirror is shared plant-wide; leave it as the other tests expect.
         db.session.delete(row)
         db.session.commit()
+
+
+def test_held_shows_each_erp_copy_from_its_own_table(quiet_erp):
+    """28 Oct 2026: "ye khali kyu dikha rha h erp ka data" — the laptop does not
+    read ERP (the server does), so its read status was empty while the copies
+    were full. `held` reads each copy's own table: every machine sees it."""
+    code = _store()
+    p = _part(code)
+    _erp(p, 5, age=timedelta(hours=3))
+    row = GateEntry(store_code="CHILD_PART", gate_entry_no=f"G-HELD-{p.id}", item_code=p.part_no,
+                    gate_entry_dt=utcnow().date(), qty=1)
+    db.session.add(row)
+    db.session.commit()
+    try:
+        held = ERPControlService().status(code)["db_sync"]["held"]
+        assert set(held) == {"gate_entry", "receiving_register", "erp_stock", "line_rejection", "rgp_lines"}
+        gate = held["gate_entry"]
+        assert gate["rows"] >= 1 and gate["newest"] >= utcnow().date().isoformat()
+        assert gate["written_at"] and gate["written_age_hours"] < 1
+        assert held["erp_stock"]["rows"] >= 1 and held["erp_stock"]["written_at"]
+    finally:
+        # The gate mirror is shared plant-wide; leave it as the other tests expect.
+        db.session.delete(row)
+        db.session.commit()
