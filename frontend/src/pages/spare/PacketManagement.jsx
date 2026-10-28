@@ -16,10 +16,13 @@ import {
 // physical verification -> packet creation -> unique QR labels -> FIFO stock ->
 // issue of whole packets (on Scan Part).
 //
-//   Receipts      every batch that came in (an ERP GRN accepted by quality, or
-//                 stock already on the shelf made into a batch): verify it,
-//                 make its packets or unit labels, print them — or take the
-//                 supplier's own box labels instead of ours.
+//   Receipts      every batch that came in — a spare part's ERP gate entry as
+//                 the material arrives (28 Oct 2026: "gate entry k baad store
+//                 verification k baad hi nikal de"), an ERP GRN accepted by
+//                 quality with no gate receipt, or stock already on the shelf
+//                 made into a batch: verify it, make its packets or unit
+//                 labels, print them — or take the supplier's own box labels.
+//                 A gate receipt's labels wait for ERP's QC before issue.
 //   Old stock     the stock already on the shelf with no label, rack by rack
 //                 (27 Oct 2026: "jo store me old stock pada h uske qr code bhi
 //                 niklenge"): count it, pack it, print.
@@ -28,8 +31,9 @@ import {
 //   Issued        the packets that went out: when, to whom, by whom, and any
 //                 FIFO exception's reason.
 //
-// Stock is never changed here: it came in when ERP accepted the GRN (as
-// before) and goes out when a packet's QR is scanned on Scan Part -> Issue.
+// Stock is never changed here: it comes in when ERP accepts the GRN (ERP's own
+// process — "store stock to erp api se update hoga") and goes out when a
+// packet's QR is scanned on Scan Part -> Issue.
 
 const TABS = [
   { key: "receipts", label: "Receipts", icon: Package },
@@ -47,6 +51,9 @@ const VERIFY_PILL = {
   MISMATCH: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
 };
 const STATUS_PILL = {
+  // A gate entry receipt's label made before ERP's QC (28 Oct 2026): printed,
+  // never issued, until ERP accepts the GRN.
+  QC_PENDING: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
   AVAILABLE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
   ISSUED: "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300",
   CANCELLED: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
@@ -120,6 +127,8 @@ export default function PacketManagement() {
 // The labels to print after packets are made: ours only — a box that carries
 // the supplier's own label needs none.
 const printable = (packets) => (packets || []).filter((p) => !p.supplier_code);
+const STATUS_WORD = { AVAILABLE: "On the shelf", QC_PENDING: "Waiting for QC" };
+const LABELLED = new Set(["AVAILABLE", "QC_PENDING"]);
 
 function ReceiptsTab({ storeCode }) {
   const canCreate = useCan("spare_packets", "create");
@@ -143,8 +152,8 @@ function ReceiptsTab({ storeCode }) {
   // Packets & FIFO, with a reason.
   const printNew = async (r) => {
     try {
-      const res = await packetService.packets({ store_code: storeCode, status: "AVAILABLE", q: r.receipt_no, page_size: 100 });
-      const rows = printable(res.data.data.rows.filter((p) => p.receipt.id === r.id && !p.print_count));
+      const res = await packetService.packets({ store_code: storeCode, q: r.receipt_no, page_size: 100 });
+      const rows = printable(res.data.data.rows.filter((p) => p.receipt.id === r.id && LABELLED.has(p.status) && !p.print_count));
       if (rows.length) setDialog({ kind: "PRINT", packets: rows });
       else toast("Every label of this receipt is printed (or on the supplier's label) — reprint one from Packets & FIFO");
     } catch (e) {
@@ -190,7 +199,9 @@ function ReceiptsTab({ storeCode }) {
                   <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(r.received_on)}</div><div className="text-[11px] text-slate-400">{r.receipt_no}</div></td>
                   <PartCell part={r.part} />
                   <td className="px-3 py-2.5">
-                    <div>{r.source === "OPENING" ? "Shelf stock" : r.grn_no || "—"}</div>
+                    <div>{r.source === "OPENING" ? "Shelf stock" : r.grn_no || (r.source === "GATE" ? "Gate entry" : "—")}</div>
+                    {r.qc === "QC_PENDING" && <span className="badge mt-0.5 bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200" title="Labels can be made and printed now; they are issued once ERP accepts the GRN">QC pending in ERP</span>}
+                    {r.qc === "ACCEPTED" && <span className="badge mt-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300">Accepted {num(r.accepted_qty)} in ERP</span>}
                     <div className="max-w-[200px] truncate text-[11px] text-slate-400" title={r.supplier_name}>
                       {[r.gate_entry_no && `GE ${r.gate_entry_no}`, r.supplier_name].filter(Boolean).join(" · ")}
                     </div>
@@ -203,7 +214,7 @@ function ReceiptsTab({ storeCode }) {
                     {r.verify_status === "MISMATCH" && <div className="mt-0.5 max-w-[180px] truncate text-[11px] text-rose-600" title={r.verify_remarks}>{r.verify_remarks}</div>}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">
-                    {num(r.packed_qty)}<div className="text-[11px] text-slate-400">{r.packets.available} on shelf · {r.packets.issued} issued</div>
+                    {num(r.packed_qty)}<div className="text-[11px] text-slate-400">{r.packets.qc_pending ? `${r.packets.qc_pending} waiting for QC · ` : ""}{r.packets.available} on shelf · {r.packets.issued} issued</div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">
                     {r.loose_note ? <span className="badge bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-200" title={r.loose_note}>Kept loose</span>
@@ -220,7 +231,7 @@ function ReceiptsTab({ storeCode }) {
                           <Package size={13} aria-hidden="true" /> Make labels
                         </button>
                       ))}
-                      {canCreate && r.packets.available > 0 && (
+                      {canCreate && (r.packets.available > 0 || r.packets.qc_pending > 0) && (
                         <button type="button" className="text-[12px] font-semibold text-toyotared hover:underline"
                           onClick={() => printNew(r)}>
                           <Printer size={12} aria-hidden="true" className="mr-1 inline" />Print labels
@@ -243,7 +254,7 @@ function ReceiptsTab({ storeCode }) {
           </table>
           {list.data && list.data.total === 0 && (
             <p className="px-4 py-8 text-center text-sm text-slate-400">
-              {q || status ? "No receipt matches." : "No receipt yet — stock that ERP accepts on a GRN shows here. Stock already on the shelf is labelled from Old stock."}
+              {q || status ? "No receipt matches." : "No receipt yet — a spare part's ERP gate entry shows here as the material arrives. Stock already on the shelf is labelled from Old stock."}
             </p>
           )}
         </div>
@@ -424,7 +435,7 @@ function PacketsTab({ storeCode }) {
     <div className="card p-0">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
         <div className="flex flex-wrap gap-1">
-          {[["AVAILABLE", "On the shelf"], ["CANCELLED", "Cancelled"], ["", "All"]].map(([k, label]) => (
+          {[["AVAILABLE", "On the shelf"], ["QC_PENDING", "Waiting for QC"], ["CANCELLED", "Cancelled"], ["", "All"]].map(([k, label]) => (
             <button key={k} type="button" onClick={() => setStatus(k)} aria-pressed={status === k}
               className={`rounded-full px-3 py-1 text-[12px] font-semibold ${status === k ? "bg-navy-900 text-white dark:bg-white dark:text-navy-900" : "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300"}`}>
               {label}
@@ -449,7 +460,7 @@ function PacketsTab({ storeCode }) {
                   <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{num(p.qty)} {p.uom}</td>
                   <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(p.receipt.received_on)}</div><div className="text-[11px] text-slate-400">{p.receipt.receipt_no}</div></td>
                   <td className="px-3 py-2.5">{p.location || "—"}</td>
-                  <td className="px-3 py-2.5"><span className={`badge ${STATUS_PILL[p.status]}`}>{p.status === "AVAILABLE" ? "On the shelf" : p.status.toLowerCase()}</span>
+                  <td className="px-3 py-2.5"><span className={`badge ${STATUS_PILL[p.status]}`}>{STATUS_WORD[p.status] || p.status.toLowerCase()}</span>
                     {p.cancel_reason && <div className="mt-0.5 max-w-[160px] truncate text-[11px] text-slate-400" title={p.cancel_reason}>{p.cancel_reason}</div>}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">{p.print_count ? `${p.print_count}×`
                     : p.supplier_code ? <span className="text-sky-700 dark:text-sky-300">supplier's</span> : <span className="text-amber-600">not printed</span>}</td>
@@ -458,13 +469,13 @@ function PacketsTab({ storeCode }) {
                       <button type="button" className="text-[12px] font-semibold text-navy-800 hover:underline dark:text-slate-200" onClick={() => setDialog({ kind: "FIFO", partId: p.part.id })}>
                         <ListOrdered size={12} aria-hidden="true" className="mr-1 inline" />FIFO order
                       </button>
-                      {p.status === "AVAILABLE" && (p.print_count ? canReprint : canPrint) && (
+                      {LABELLED.has(p.status) && (p.print_count ? canReprint : canPrint) && (
                         <button type="button" className="text-[12px] font-semibold text-toyotared hover:underline"
                           onClick={() => setDialog({ kind: "PRINT", packets: [p], reprint: Boolean(p.print_count) })}>
                           <Printer size={12} aria-hidden="true" className="mr-1 inline" />{p.print_count ? "Reprint" : "Print"}
                         </button>
                       )}
-                      {p.status === "AVAILABLE" && canCancel && (
+                      {LABELLED.has(p.status) && canCancel && (
                         <button type="button" className="text-[11px] text-rose-600 hover:underline" onClick={() => setDialog({ kind: "CANCEL", packet: p })}>
                           <XCircle size={11} aria-hidden="true" className="mr-1 inline" />Cancel
                         </button>

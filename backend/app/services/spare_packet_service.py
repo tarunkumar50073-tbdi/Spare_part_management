@@ -23,6 +23,14 @@ And on 27 Oct 2026, later:
     cannot be told apart, so the code is mapped to the part (Map to Part) and
     the stock stays loose, issued by scanning it with a quantity.
 
+And on 28 Oct 2026: labels after the gate entry, not after ERP's QC — "gate
+entry k baad store verification k baad hi (QR) nikal de"; "store stock to erp
+api se update hoga jo erp ka process h". A spare part's ERP gate entry is a
+receipt (source GATE, receipts_from_gate) to verify and label at once; its
+packets wait as QC_PENDING — printed, never issued — until ERP accepts the GRN,
+which finds the gate receipt (receipt_for_ledger) and puts them on the shelf,
+or cancels what QC did not accept. Stock still moves only with ERP.
+
 Invariants kept here and in SpareStockService:
   * a receipt's packets never hold more than it was verified at (nor than it
     received), and all AVAILABLE packets of a part never more than its on hand;
@@ -44,6 +52,7 @@ from sqlalchemy.exc import IntegrityError
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.app_setting import AppSetting
+from app.models.gate_entry import GateEntry
 from app.models.label_print_audit import LabelPrintAudit
 from app.models.part import Part
 from app.models.part_barcode import PartBarcode
@@ -63,6 +72,12 @@ PAGE_SIZE, MAX_PAGE_SIZE = 25, 100
 # When receipts started being kept (app_settings): the first time the receipts
 # were read. A receipt row from before is old stock on the shelf.
 SINCE_KEY = "spare_packets_receipts_since"
+# Who made a gate entry receipt, and who put / cancelled its labels at ERP's QC.
+GATE_BY, QC_BY = "ERP-GATE", "ERP-QC"
+GATE_LOCK_KEY = 72620281
+# A packet that still waits for ERP's QC (a gate entry receipt not accepted yet)
+# can be printed and cancelled, but never issued.
+LABELLED = ("AVAILABLE", "QC_PENDING")
 SUPPLIER_CODE_MAX = 255
 # A box's code that is the same on every box (it names the part already, or two
 # boxes were scanned alike): the screen offers to map it to the part instead.
@@ -197,6 +212,10 @@ class SparePacketService:
                   .filter(func.upper(func.trim(ReceivingRegister.grn_no)) == key,
                           func.upper(func.trim(ReceivingRegister.item_cd)) == (part.part_no or "").strip().upper())
                   .order_by(ReceivingRegister.grn_date).first())
+        if erp:
+            gate = self._gate_receipt_for(part, ledger, rr)
+            if gate is not None:
+                return gate
         received_on = (rr.grn_date if rr and rr.grn_date else None) or _plant_date(ledger.created_at) or date.today()
         receipt = SpareBatch(
             receipt_no=self._new_receipt_no(), store_code=part.store_code, part_id=part.id,
@@ -211,6 +230,132 @@ class SparePacketService:
         db.session.add(receipt)
         db.session.flush()
         return receipt
+
+    # ---- receipts from the gate entry (28 Oct 2026) ------------------------------------
+
+    @staticmethod
+    def _gate_lock():
+        """Two readers making gate receipts at once (the server's ERP read and a
+        Receipts screen) take turns on PostgreSQL; SQLite has one writer anyway."""
+        from sqlalchemy import text
+        if db.engine.dialect.name == "postgresql":
+            db.session.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": GATE_LOCK_KEY})
+
+    def receipts_from_gate(self, store_code, part_ids=None, since=None):
+        """A receipt for every ERP gate entry of the store's active parts since
+        receipts are kept that has none yet (one per gate entry no. + part, its
+        lines added up). Nothing in stock moves: the stock still comes when ERP
+        accepts the GRN (ErpGrnPostingService), which then finds this receipt.
+        Returns how many were made."""
+        since_day = _plant_date(since or self.receipts_since())
+        G = GateEntry
+        q = (db.session.query(G.gate_entry_no, func.min(G.gate_entry_dt), func.sum(G.qty), func.max(G.ven_cd),
+                              func.max(G.ven_name), func.max(G.bill_no), Part.id)
+             .join(Part, func.upper(func.trim(Part.part_no)) == func.upper(func.trim(G.item_code)))
+             .filter(Part.store_code == store_code, Part.is_active.is_(True), G.gate_entry_no.isnot(None),
+                     G.gate_entry_dt >= since_day, G.qty > 0)
+             .group_by(G.gate_entry_no, Part.id))
+        if part_ids:
+            q = q.filter(Part.id.in_(part_ids))
+        have = {(pid, (no or "").strip().upper()) for pid, no in db.session.query(SpareBatch.part_id, SpareBatch.gate_entry_no)
+                .filter(SpareBatch.source == "GATE")}
+        made = 0
+        for no, day, qty, ven_cd, ven_name, bill, pid in q.all():
+            key = (pid, (no or "").strip().upper())
+            if key in have:
+                continue
+            with atomic():
+                self._gate_lock()
+                taken = SpareBatch.query.filter(SpareBatch.source == "GATE", SpareBatch.part_id == pid,
+                                                func.upper(func.trim(SpareBatch.gate_entry_no)) == key[1]).first()
+                if taken is None:
+                    part = db.session.get(Part, pid)
+                    db.session.add(SpareBatch(
+                        receipt_no=self._new_receipt_no(), store_code=store_code, part_id=pid, source="GATE",
+                        received_on=day, qty=qty, uom=part.uom, gate_entry_no=no.strip(), gate_entry_dt=day,
+                        invoice_no=bill, supplier_name=ven_name, ven_cd=ven_cd, created_by=GATE_BY))
+                    db.session.flush()
+                    made += 1
+            have.add(key)
+        return made
+
+    def _gate_receipt_for(self, part, ledger, rr):
+        """The gate entry receipt an accepted ERP GRN line belongs to: the one
+        that already holds this GRN, else the part's oldest one not yet tied to
+        a GRN from on / before the GRN date — the same supplier and quantity
+        first. Tied to it, the labels made before QC go on the shelf, or are
+        cancelled for what ERP did not accept. None when there is none."""
+        grn = (ledger.reference or "").strip()
+        found = (SpareBatch.query.filter(SpareBatch.source == "GATE", SpareBatch.part_id == part.id,
+                                         func.upper(func.trim(SpareBatch.grn_no)) == grn.upper()).first()
+                 if grn else None)
+        if found is None:
+            saved = AppSetting.get_value(SINCE_KEY)
+            if saved:
+                self.receipts_from_gate(part.store_code, part_ids=[part.id], since=datetime.fromisoformat(saved))
+            grn_day = (rr.grn_date if rr and rr.grn_date else None) or _plant_date(ledger.created_at)
+            cands = [c for c in SpareBatch.query.filter(SpareBatch.source == "GATE", SpareBatch.part_id == part.id,
+                                                        SpareBatch.grn_no.is_(None)).all()
+                     if not grn_day or not c.gate_entry_dt or c.gate_entry_dt <= grn_day]
+            if not cands:
+                return None
+            ven = ((rr.ven_cd if rr else None) or "").strip().upper()
+            name = ((rr.ven_name if rr else None) or "").strip().upper()
+            want = float(rr.receipt_qty) if rr is not None and rr.receipt_qty is not None else None
+
+            def fit(c):
+                same = (ven and (c.ven_cd or "").strip().upper() == ven) or (
+                    name and (c.supplier_name or "").strip().upper() == name)
+                return (not same, want is None or float(c.qty) != want, c.gate_entry_dt or date.max, c.id)
+
+            found = min(cands, key=fit)
+            found.grn_no = grn or None
+            if not found.invoice_no and rr is not None:
+                found.invoice_no = rr.challan_no
+            if found.ledger_id is None and not SpareBatch.query.filter_by(ledger_id=ledger.id).first():
+                found.ledger_id = ledger.id
+            db.session.flush()
+        self._release_gate_packets(found)
+        return found
+
+    @staticmethod
+    def _accepted(receipt):
+        """What ERP accepted into stock on a gate receipt's GRN (all its posts)."""
+        if receipt.source != "GATE" or not receipt.grn_no:
+            return None
+        L = SpareStockLedger
+        v = (db.session.query(func.coalesce(func.sum(L.qty_delta), 0))
+             .filter(L.part_id == receipt.part_id, L.txn_type == "RECEIPT", L.status == "ERP_GRN",
+                     func.upper(func.trim(L.reference)) == receipt.grn_no.strip().upper()).scalar())
+        return float(v or 0)
+
+    def _cap(self, receipt):
+        """The most a receipt's packets may hold: what came in — for a gate
+        receipt ERP has accepted, what ERP accepted."""
+        accepted = self._accepted(receipt)
+        return float(receipt.qty) if accepted is None else min(float(receipt.qty), accepted)
+
+    def _release_gate_packets(self, receipt):
+        """ERP accepted the GRN: the gate receipt's packets waiting for QC go on
+        the shelf, oldest first, as far as the accepted quantity goes; the rest
+        are cancelled — QC did not accept that much."""
+        accepted = self._accepted(receipt) or 0.0
+        live = float(db.session.query(func.coalesce(func.sum(SparePacket.qty), 0))
+                     .filter(SparePacket.batch_id == receipt.id, SparePacket.status.in_(("AVAILABLE", "ISSUED")))
+                     .scalar() or 0)
+        waiting = (SparePacket.query.filter_by(batch_id=receipt.id, status="QC_PENDING")
+                   .order_by(SparePacket.seq).all())
+        for p in waiting:
+            if live + float(p.qty) <= accepted + 1e-9:
+                p.status = "AVAILABLE"
+                live += float(p.qty)
+            else:
+                p.status = "CANCELLED"
+                p.cancelled_at = utcnow()
+                p.cancelled_by = QC_BY
+                p.cancel_reason = (f"Not accepted in ERP QC — GRN {receipt.grn_no}: "
+                                   f"{accepted:g} of {float(receipt.qty):g} accepted")[:255]
+        db.session.flush()
 
     @staticmethod
     def receipts_since():
@@ -323,7 +468,7 @@ class SparePacketService:
         if receipt.loose_note:
             raise BadRequestError(f"This receipt is kept loose: {receipt.loose_note}")
         verified = float(receipt.verified_qty if receipt.verified_qty is not None else 0)
-        packable = round(min(verified, float(receipt.qty)) - self._packed_of(receipt.id), 2)
+        packable = round(min(verified, self._cap(receipt)) - self._packed_of(receipt.id), 2)
         if packable <= 0:
             raise BadRequestError("Everything verified on this receipt is already packed")
         if kind == "UNIT":
@@ -369,7 +514,10 @@ class SparePacketService:
                      if supplier_codes is not None else None)
             total = float(sum(plan["sizes"]))
             figs = self.figures(receipt.part_id)
-            if total > figs["loose"] + 1e-9:
+            # A gate entry receipt ERP has not accepted yet is not in stock:
+            # its labels wait for QC, and take nothing from the shelf.
+            before_qc = receipt.source == "GATE" and not receipt.grn_no
+            if not before_qc and total > figs["loose"] + 1e-9:
                 raise BadRequestError(
                     f"Only {figs['loose']:g} of {receipt.part.part_no} is loose on the shelf "
                     f"(on hand {figs['on_hand']:g}, in packets {figs['packed_available']:g}) — "
@@ -381,7 +529,8 @@ class SparePacketService:
                 seq += 1
                 p = SparePacket(code=self._new_code(), kind=kind, batch_id=receipt.id, part_id=receipt.part_id,
                                 seq=seq, qty=size, uom=receipt.uom or receipt.part.uom,
-                                location=receipt.part.location, status="AVAILABLE", created_by=_who(user),
+                                location=receipt.part.location, status="QC_PENDING" if before_qc else "AVAILABLE",
+                                created_by=_who(user),
                                 supplier_code=boxes[i] if boxes else None)
                 db.session.add(p)
                 made.append(p)
@@ -397,7 +546,7 @@ class SparePacketService:
             raise BadRequestError("Say why the packet is cancelled")
         packet = self._packet(code)
         with atomic():
-            done = (SparePacket.query.filter_by(id=packet.id, status="AVAILABLE")
+            done = (SparePacket.query.filter(SparePacket.id == packet.id, SparePacket.status.in_(LABELLED))
                     .update({"status": "CANCELLED", "cancelled_at": utcnow(), "cancelled_by": _who(user),
                              "cancel_reason": reason}, synchronize_session=False))
             if not done:
@@ -548,16 +697,18 @@ class SparePacketService:
                             .filter(SparePacket.status == "AVAILABLE"), SparePacket.part_id)
                       .group_by(SparePacket.part_id).all())
         ever = dict(scope(db.session.query(SparePacket.part_id, func.count(SparePacket.id))
-                          .filter(SparePacket.status != "CANCELLED"), SparePacket.part_id)
+                          .filter(SparePacket.status.in_(("AVAILABLE", "ISSUED"))), SparePacket.part_id)
                     .group_by(SparePacket.part_id).all())
         in_batch = dict(scope(db.session.query(SparePacket.batch_id, func.sum(SparePacket.qty))
                               .filter(SparePacket.status != "CANCELLED"), SparePacket.part_id)
                         .group_by(SparePacket.batch_id).all())
         waiting = {}
-        batches = scope(SpareBatch.query.filter(SpareBatch.source != "OPENING", SpareBatch.loose_note.is_(None)),
-                        SpareBatch.part_id).all()
+        batches = scope(SpareBatch.query.filter(
+            SpareBatch.source != "OPENING", SpareBatch.loose_note.is_(None),
+            or_(SpareBatch.source != "GATE", SpareBatch.grn_no.isnot(None))), SpareBatch.part_id).all()
         for b in batches:
-            limit = float(b.qty) if b.verify_status == "PENDING" else min(float(b.verified_qty or 0), float(b.qty))
+            cap = self._cap(b)
+            limit = cap if b.verify_status == "PENDING" else min(float(b.verified_qty or 0), cap)
             left = round(limit - float(in_batch.get(b.id) or 0), 2)
             if left > 0:
                 waiting[b.part_id] = round(waiting.get(b.part_id, 0) + left, 2)
@@ -741,6 +892,9 @@ class SparePacketService:
         a reason, kept on the packet."""
         from app.services.spare_stock_service import SpareStockService
         packet = self._packet(code)
+        if packet.status == "QC_PENDING":
+            raise BadRequestError(f"Packet {packet.code} waits for quality (QC) in ERP — it can be issued once ERP "
+                                  "accepts its GRN")
         if packet.status != "AVAILABLE":
             when = packet.issued_at.astimezone().strftime("%d-%b-%Y %H:%M") if packet.issued_at else ""
             raise BadRequestError(
@@ -800,7 +954,7 @@ class SparePacketService:
         missing = [c for c in codes if c not in found]
         if missing:
             raise NotFoundError(f"No packet {missing[0]}")
-        not_available = [p.code for p in packets if p.status != "AVAILABLE"]
+        not_available = [p.code for p in packets if p.status not in LABELLED]
         if not_available:
             raise BadRequestError(f"Packet {not_available[0]} is not available — its label is not printed")
         printed = [p.code for p in packets if p.print_count and not reprint]
@@ -825,6 +979,7 @@ class SparePacketService:
         and still to pack. status: PENDING (not verified), TO_PACK (verified,
         something left to pack), PACKED, or blank for all."""
         self.sync_receipts(store_code)
+        self.receipts_from_gate(store_code)
         query = SpareBatch.query.join(Part, Part.id == SpareBatch.part_id).filter(
             SpareBatch.store_code == store_code)
         text = (q or "").strip()
@@ -915,7 +1070,9 @@ class SparePacketService:
         issued_qty = float(db.session.query(func.coalesce(func.sum(SparePacket.qty), 0))
                            .filter(SparePacket.batch_id == r.id, SparePacket.status == "ISSUED").scalar() or 0)
         verified = float(r.verified_qty) if r.verified_qty is not None else None
-        limit = min(verified, float(r.qty)) if verified is not None and not r.loose_note else 0.0
+        accepted = self._accepted(r)
+        cap = float(r.qty) if accepted is None else min(float(r.qty), accepted)
+        limit = min(verified, cap) if verified is not None and not r.loose_note else 0.0
         return {
             "id": r.id, "receipt_no": r.receipt_no, "source": r.source, "store_code": r.store_code,
             "part": SparePacketService._part_dict(r.part), "received_on": _iso(r.received_on),
@@ -926,7 +1083,11 @@ class SparePacketService:
             "packed_qty": _n(packed), "issued_qty": _n(issued_qty),
             "to_pack": _n(round(max(limit - packed, 0), 2)),
             "packets": {"available": counts.get("AVAILABLE", 0), "issued": counts.get("ISSUED", 0),
-                        "cancelled": counts.get("CANCELLED", 0)},
+                        "cancelled": counts.get("CANCELLED", 0), "qc_pending": counts.get("QC_PENDING", 0)},
+            # A gate entry receipt: QC_PENDING until ERP accepts its GRN, then
+            # ACCEPTED with what was accepted. None for any other receipt.
+            "qc": (None if r.source != "GATE" else "ACCEPTED" if r.grn_no else "QC_PENDING"),
+            "accepted_qty": _n(accepted) if accepted is not None else None,
             "created_by": r.created_by, "created_at": _iso(r.created_at),
         }
 

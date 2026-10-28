@@ -106,7 +106,9 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
       }>
       {!available ? (
         <Note tone="warn">
-          {packet.status === "ISSUED"
+          {packet.status === "QC_PENDING"
+            ? `This ${what} waits for quality (QC) in ERP — it can be issued once ERP accepts its GRN.`
+            : packet.status === "ISSUED"
             ? `This ${what} was already issued${packet.issued_at ? ` on ${fmtStamp(packet.issued_at)}` : ""}${packet.department ? ` to ${packet.department}` : ""}${packet.issued_to ? ` · ${packet.issued_to}` : ""}. It cannot be issued again.`
             : `This ${what} was cancelled${packet.cancel_reason ? ` (${packet.cancel_reason})` : ""} — it cannot be issued. Remove its label.`}
         </Note>

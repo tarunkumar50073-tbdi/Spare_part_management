@@ -23,10 +23,15 @@ the rest is loose: loose = on hand - packed available, never below zero
 from app.extensions import db
 from app.models.base import BaseModel
 
-RECEIPT_SOURCES = ("ERP_GRN", "RECEIPT", "OPENING")
+# GATE: made from the ERP gate entry as the material arrives (the store, 28 Oct
+# 2026: "gate entry k baad store verification k baad hi (QR) nikal de") — the
+# store verifies it and prints its labels before ERP's QC; its packets wait as
+# QC_PENDING (never issued) until ERP accepts the GRN, which then finds this
+# receipt and puts them on the shelf, or cancels what QC did not accept.
+RECEIPT_SOURCES = ("ERP_GRN", "RECEIPT", "OPENING", "GATE")
 VERIFY_STATES = ("PENDING", "VERIFIED", "MISMATCH")
 PACKET_KINDS = ("PACKET", "UNIT")
-PACKET_STATES = ("AVAILABLE", "ISSUED", "CANCELLED")
+PACKET_STATES = ("QC_PENDING", "AVAILABLE", "ISSUED", "CANCELLED")
 
 
 class SpareBatch(BaseModel):
