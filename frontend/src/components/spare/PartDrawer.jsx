@@ -34,6 +34,7 @@ const SEV = {
 const TXN_TONE = {
   OPENING: "text-slate-500", RECEIPT: "text-emerald-600", ISSUE: "text-rose-600",
   RETURN: "text-amber-600", ADJUSTMENT: "text-blue-600", INSTALLATION: "text-indigo-600 dark:text-indigo-400",
+  JOB_WORK_OUT: "text-violet-600 dark:text-violet-400",
 };
 
 function Section({ title, icon: Icon, children, aside }) {

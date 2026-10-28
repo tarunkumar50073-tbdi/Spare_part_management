@@ -19,8 +19,12 @@ from app.models.base import BaseModel
 # ADJUSTMENT is a correction to that; RECEIPT adds new stock; ISSUE draws it to
 # a department/machine; RETURN brings stock back to the shelf — a returnable
 # tool/die, or a part the user department could not fit and sent back on a
-# store return slip.
-TXN_TYPES = ("OPENING", "RECEIPT", "ISSUE", "RETURN", "ADJUSTMENT")
+# store return slip. JOB_WORK_OUT takes a new part out of store stock to a
+# vendor for coating / job work: ERP's returnable challan made from the issue
+# slip in the vendor's name (the store, 27-28 Oct 2026) — not consumption; the
+# vendor's GRN brings it back as a RECEIPT. A positive JOB_WORK_OUT row puts a
+# wrongly taken one back (JobWorkService.post_stock_out).
+TXN_TYPES = ("OPENING", "RECEIPT", "ISSUE", "RETURN", "ADJUSTMENT", "JOB_WORK_OUT")
 
 # Two-stage issue lifecycle: the store issues to a department + person (Stage 1,
 # no machine known yet), then the user who fits the part confirms the line +

@@ -389,6 +389,7 @@ const TXN_LABEL = {
   RECEIPT: { label: "Added to Stock", icon: ArrowDownToLine, tone: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
   ISSUE: { label: "Part Issued", icon: ArrowUpFromLine, tone: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300" },
   ADJUSTMENT: { label: "Stock Corrected", icon: Pencil, tone: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
+  JOB_WORK_OUT: { label: "Sent for Job Work", icon: ArrowUpFromLine, tone: "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300" },
 };
 
 const ACTIVITY_COLUMNS = [

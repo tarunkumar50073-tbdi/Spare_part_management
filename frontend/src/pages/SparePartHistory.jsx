@@ -21,7 +21,7 @@ const fmt = (v) => (v == null || v === "" ? "—" : v);
 // ERP "Stock Ledger (Valuation)" helpers — the app ledger stores qty + running
 // balance per movement; rate/value use the part's single current standard rate
 // (unit_price) until ERP feeds real per-transaction rates.
-const DOC_TYPE = { OPENING: "OP", RECEIPT: "RC", ISSUE: "IS", RETURN: "RT", ADJUSTMENT: "AD" };
+const DOC_TYPE = { OPENING: "OP", RECEIPT: "RC", ISSUE: "IS", RETURN: "RT", ADJUSTMENT: "AD", JOB_WORK_OUT: "JW" };
 // What a movement was, in words. A RECEIPT row is written only when stock
 // really becomes available — the qty quality accepted on an ERP GRN, read from
 // ERP and added once (status ERP_GRN, reference = GRN no.), the RGP GRN of
@@ -32,7 +32,8 @@ const DOC_TYPE = { OPENING: "OP", RECEIPT: "RC", ISSUE: "IS", RETURN: "RT", ADJU
 // SpareReturnService.TAKEN_BACK_REMARK writes — and before it, when the store
 // inspection passed it Good. The row's status / remark say which (models/
 // spare_stock.py); older rows keep the plain word.
-const MOVEMENT = { OPENING: "Opening", RECEIPT: "Receipt", ISSUE: "Issue", RETURN: "Return", ADJUSTMENT: "Adjustment" };
+const MOVEMENT = { OPENING: "Opening", RECEIPT: "Receipt", ISSUE: "Issue", RETURN: "Return", ADJUSTMENT: "Adjustment",
+  JOB_WORK_OUT: "Sent for job work" };
 const TAKEN_BACK = "Taken back into stock on return — no inspection (store rule)";
 const movementOf = (r) => {
   if (r.txn_type === "RECEIPT" && r.status === "ERP_GRN") return "Receipt (ERP GRN)";

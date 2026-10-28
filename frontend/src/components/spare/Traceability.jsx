@@ -39,6 +39,8 @@ const LEDGER_EVENT = {
   ISSUE: { label: "Issued", icon: ArrowUpFromLine, tone: PILL.red },
   RETURN: { label: "Returned", icon: Undo2, tone: PILL.amber },
   ADJUSTMENT: { label: "Corrected", icon: Pencil, tone: PILL.amber },
+  // A new part sent from stock for coating / job work on its ERP challan.
+  JOB_WORK_OUT: { label: "Sent for job work", icon: ArrowUpFromLine, tone: PILL.amber },
 };
 
 // Stock-ins of the QR flow are RECEIPT / RETURN rows told apart by their

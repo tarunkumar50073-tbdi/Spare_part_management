@@ -24,11 +24,23 @@ This service:
     person has unlinked is never linked by itself again. One line belongs to
     one return (unique), the link names who (or "Auto") saved it.
 
+A NEW part sent from store stock (no job work return holds its line, and
+the challan carries the issue slip no. in doc_no — ERP took it out of its stock
+by that slip) leaves store stock too (the store, 27-28 Oct 2026: "store person
+erp me issue slip daalta h supplier k naam ki and us issue slip se rgp bna
+deta h"): a JOB_WORK_OUT ledger row, reference = the challan no. The vendor's
+GRN brings it back like any GRN (ErpGrnPostingService). Same switch and
+start date as the GRN posting; never for a part not counted, or a challan on /
+before its count (the count already holds it). Should the line turn out to be
+a used part (a return linked later), be cancelled in ERP or vanish from it, the
+qty is put back — unless a count since has taken it in (post_stock_out()).
+
 The app never creates, edits, approves or cancels an RGP. When ERP cannot be
 read, the returns and links stay as they are and the failure is shown (and
 logged) with when the last good read was.
 """
 import logging
+import re
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, or_
@@ -40,6 +52,7 @@ from app.models.base import utcnow
 from app.models.job_work import ErpRgpLine, RgpReturnLink
 from app.models.part import Part
 from app.models.spare_flow import SpareReturn
+from app.models.spare_stock import SpareStock, SpareStockLedger
 from app.utils.db_tx import atomic
 from app.utils.exceptions import BadRequestError, NotFoundError
 
@@ -52,6 +65,23 @@ SETTING_KEY = "erp_rgp_sync"
 # Returns a store person unlinked: auto_link() leaves them to the person.
 MANUAL_KEY = "erp_rgp_manual_returns"
 AUTO_BY = "Auto (ERP challan)"
+# A new part's move out of store stock on its challan (post_stock_out).
+JOB_WORK_OUT = "JOB_WORK_OUT"
+OUT_BY = "ERP-CHALLAN"
+_ISSUE_SLIP = re.compile(r"IS\d+")
+STOCK_STATES = {
+    "OUT": "Taken out of store stock",
+    "WILL_OUT": "Goes out of store stock at the next ERP read",
+    "SHORT": "Check: store stock is less than the challan qty",
+    "USED_PART": "Used part (job work return) — stock not moved",
+    "NO_SLIP": "No issue slip on the challan — stock not moved",
+    "NOT_COUNTED": "Part never counted — stock not moved",
+    "BEFORE_COUNT": "On / before the part's count — already in it",
+    "BEFORE_FROM": "Before the auto-stock start date",
+    "OFF": "Auto stock from ERP is switched off",
+    "CANCELLED": "Cancelled in ERP",
+    "NOT_IN_MASTER": "Not in the Part Master",
+}
 # An RGP made a day before the return is booked (the return written late) still matches.
 DATE_SLACK = timedelta(days=1)
 STATES = {
@@ -157,7 +187,8 @@ class JobWorkService:
                         updated += 1
                     line.synced_at = now
                 # Out of scope now (the RGP type's non-spare lines read before
-                # 27 Oct 2026) or gone from ERP: dropped unless a return holds it.
+                # 27 Oct 2026) or gone from ERP: dropped unless a return holds it
+                # (a new part's move out of stock is put back by post_stock_out).
                 held = self._linked_ids()
                 dropped = 0
                 for key, line in known.items():
@@ -165,8 +196,10 @@ class JobWorkService:
                         db.session.delete(line)
                         dropped += 1
             linked = self.auto_link()
+            moved = self.post_stock_out()
             state = {**state, "ok": True, "last_ok_at": now.isoformat(), "last_error": None, "last_error_at": None,
-                     "lines": len(rows), "added": added, "updated": updated, "dropped": dropped, "auto_linked": linked}
+                     "lines": len(rows), "added": added, "updated": updated, "dropped": dropped, "auto_linked": linked,
+                     "stock_out": moved["out"], "stock_back": moved["back"]}
         except Exception as exc:  # noqa: BLE001 — ERP down, not set up, table renamed: shown, not fatal
             db.session.rollback()
             logger.warning("ERP RGP read failed: %s: %s", type(exc).__name__, exc)
@@ -213,6 +246,141 @@ class JobWorkService:
             n += 1
             logger.info("Job work return %s linked by itself to challan %s · %s", ret.return_no, line.challan_no, line.item_cd)
         return n
+
+    # ---- a new part out of store stock -------------------------------------------------------
+
+    @staticmethod
+    def _key(challan_no):
+        return (challan_no or "").strip().upper()
+
+    @classmethod
+    def _out_so_far(cls, part_ids):
+        """(part_id, CHALLAN NO.) -> (qty out of store stock now, plant date of
+        the latest move) from the JOB_WORK_OUT rows."""
+        if not part_ids:
+            return {}
+        from app.services.erp_grn_posting_service import _plant_date
+        L = SpareStockLedger
+        rows = (db.session.query(L.part_id, L.reference, func.sum(L.qty_delta), func.max(L.created_at))
+                .filter(L.part_id.in_(part_ids), L.txn_type == JOB_WORK_OUT)
+                .group_by(L.part_id, L.reference))
+        out = {}
+        for pid, ref, total, last in rows:
+            key = (pid, cls._key(ref))
+            qty, prev = out.get(key, (0.0, None))
+            dates = [d for d in (prev, _plant_date(last)) if d]
+            out[key] = (round(qty - float(total or 0), 2), max(dates) if dates else None)
+        return out
+
+    def _stock_plan(self):
+        """What each challan line should have done to store stock, and what it
+        has: [{line, part, state, want, have, last}] plus the moves left behind by
+        lines no longer read ({line: None}). `want` None = leave as it is."""
+        from app.services.erp_grn_posting_service import ErpGrnPostingService, _as_date
+        grn = ErpGrnPostingService()
+        cfg = grn.settings()
+        from_date = _as_date(cfg.get("from_date"))
+        lines = ErpRgpLine.query.all()
+        # Only the parts a challan names, or that something already went out for.
+        codes = {self._key(l.item_cd) for l in lines} or {""}
+        moved_ids = {pid for (pid,) in db.session.query(SpareStockLedger.part_id)
+                     .filter(SpareStockLedger.txn_type == JOB_WORK_OUT).distinct()}
+        parts = {self._key(p.part_no): p for p in Part.query.filter(
+            Part.store_code == SPARE_STORE,
+            or_(func.upper(func.trim(Part.part_no)).in_(codes), Part.id.in_(moved_ids or {-1})))}
+        part_ids = [p.id for p in parts.values()]
+        held = self._linked_ids()
+        base = grn._baseline(part_ids)
+        done = self._out_so_far(part_ids)
+        plan, seen = [], set()
+        for l in lines:
+            p = parts.get(self._key(l.item_cd))
+            qty = float(l.qty or 0)
+            want = None
+            if p is None:
+                state = "NOT_IN_MASTER"
+            elif (l.status or "") == "CANCEL":
+                state, want = "CANCELLED", 0.0
+            elif l.id in held:
+                state, want = "USED_PART", 0.0
+            elif not _ISSUE_SLIP.search((l.doc_no or "").upper()):
+                state, want = "NO_SLIP", 0.0
+            else:
+                day, counted = base.get(p.id, (None, False))
+                if not counted:
+                    state = "NOT_COUNTED"
+                elif day and l.challan_date and l.challan_date <= day:
+                    state = "BEFORE_COUNT"
+                elif from_date and l.challan_date and l.challan_date < from_date:
+                    state = "BEFORE_FROM"
+                elif not cfg.get("enabled"):
+                    state = "OFF"
+                else:
+                    state, want = "OUT", qty
+            have, last = done.get((p.id, self._key(l.challan_no)), (0.0, None)) if p else (0.0, None)
+            if p is not None:
+                seen.add((p.id, self._key(l.challan_no)))
+            plan.append({"line": l, "part": p, "state": state, "want": want, "have": have, "last": last,
+                         "counted_on": base.get(p.id, (None, False))[0] if p else None})
+        by_id = {p.id: p for p in parts.values()}
+        for (pid, key), (have, last) in done.items():
+            if (pid, key) not in seen and have:
+                plan.append({"line": None, "challan_no": key, "part": by_id.get(pid), "state": "GONE",
+                             "want": 0.0, "have": have, "last": last, "counted_on": base.get(pid, (None, False))[0]})
+        return plan
+
+    def post_stock_out(self, user=OUT_BY):
+        """Bring store stock in line with the challans: take a new part out
+        (want > have), put back what should not be out (want < have) unless a
+        count since the move has taken it in. Each part is its own transaction,
+        re-read inside it. Store stock is never taken below zero: such a line
+        waits as SHORT. Returns {"out": n, "back": n}."""
+        moved = {"out": 0, "back": 0}
+        for item in self._stock_plan():
+            p, want, have = item["part"], item["want"], item["have"]
+            if p is None or want is None:
+                continue
+            diff = round(want - have, 2)
+            if diff == 0:
+                continue
+            if diff < 0 and item["last"] and item["counted_on"] and item["counted_on"] >= item["last"]:
+                continue   # counted after it went out: the count holds it now
+            l = item["line"]
+            challan = l.challan_no if l is not None else item["challan_no"]
+            try:
+                with atomic():
+                    first = SpareStock.query.filter_by(part_id=p.id).first()
+                    if first is None:
+                        continue
+                    self.stock_svc._lock(SpareStock, first.id)
+                    now_have = self._out_so_far([p.id]).get((p.id, self._key(challan)), (0.0, None))[0]
+                    diff = round(want - now_have, 2)
+                    row = SpareStock.query.filter_by(part_id=p.id).first()
+                    on_hand = float(row.qty_on_hand or 0)
+                    if diff == 0 or (diff > 0 and on_hand + 1e-9 < diff):
+                        continue
+                    if diff > 0:
+                        why = (f"Sent for job work on ERP challan {challan}"
+                               + (f" to {l.party_name}" if l is not None and l.party_name else "")
+                               + (f" — issue slip {l.doc_no}" if l is not None and l.doc_no else ""))
+                    else:
+                        why = (f"Back to store stock: ERP challan {challan} "
+                               + {"USED_PART": "is a used part's (job work return)",
+                                  "CANCELLED": "was cancelled in ERP",
+                                  "NO_SLIP": "has no issue slip any more",
+                                  "GONE": "is no longer in ERP"}.get(item["state"], "changed qty in ERP"))
+                    self.stock_svc._write(p.id, round(on_hand - diff, 2), JOB_WORK_OUT,
+                                          reference=_txt(challan, 80), remarks=why[:255], user=user)
+                moved["out" if diff > 0 else "back"] += 1
+            except BadRequestError as exc:   # e.g. stock held in labelled packets
+                db.session.rollback()
+                logger.info("Job work stock move for %s on %s left: %s", p.part_no, challan, exc)
+        return moved
+
+    @property
+    def stock_svc(self):
+        from app.services.spare_stock_service import SpareStockService
+        return SpareStockService()
 
     # ---- the returns and their RGP ------------------------------------------------------------
 
@@ -305,6 +473,7 @@ class JobWorkService:
         except IntegrityError:
             db.session.rollback()
             raise BadRequestError("That RGP or this return was just linked from another screen") from None
+        self.post_stock_out()      # a line taken out as a new part goes back at once
         return {**self._return_dict(ret), "link": self._link_dict(RgpReturnLink.query.filter_by(return_id=ret.id).first())}
 
     def unlink(self, return_id, user=None):
@@ -319,6 +488,7 @@ class JobWorkService:
         manual = list(AppSetting.get_value(MANUAL_KEY, []) or [])
         if ret.id not in manual:
             AppSetting.set_value(MANUAL_KEY, manual + [ret.id], _txt(user, 60) or "STORE")
+        self.post_stock_out()      # the line is a new part's now, if it has an issue slip
         return self._return_dict(ret)
 
     def lines(self, q=None, limit=200):
@@ -334,7 +504,19 @@ class JobWorkService:
             RgpReturnLink.rgp_line_id.in_([r.id for r in rows] or [-1]))}
         rets = {r.id: r.return_no for r in SpareReturn.query.filter(
             SpareReturn.id.in_([l.return_id for l in links.values()] or [-1]))}
-        return {"rows": [{**self._line_dict(r), "linked_return": rets.get(links[r.id].return_id) if r.id in links else None}
+        stock = {}
+        for item in self._stock_plan():
+            if item["line"] is None:
+                continue
+            state = item["state"]
+            if state == "OUT" and item["have"] < (item["want"] or 0):
+                on_hand = (SpareStock.query.filter_by(part_id=item["part"].id).with_entities(SpareStock.qty_on_hand)
+                           .scalar() or 0)
+                state = "SHORT" if float(on_hand) + 1e-9 < item["want"] - item["have"] else "WILL_OUT"
+            stock[item["line"].id] = {"stock_state": state, "stock_label": STOCK_STATES.get(state, state),
+                                      "stock_out_qty": item["have"]}
+        return {"rows": [{**self._line_dict(r), **stock.get(r.id, {}),
+                          "linked_return": rets.get(links[r.id].return_id) if r.id in links else None}
                          for r in rows], "sync": self.status()}
 
     # ---- shapes ---------------------------------------------------------------------------------

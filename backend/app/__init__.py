@@ -369,6 +369,7 @@ def create_app(env_name=None):
             _patch_schema()
             _add_late_columns()
             _relax_late_nullable()
+            _widen_late_checks()
             _split_rights()
             _crud_rights()
             # Portable (ORM + a plain UPDATE), so it runs on every dialect — not
@@ -504,6 +505,27 @@ def _relax_late_nullable():
         if table in tables and any(c["name"] == col and not c["nullable"] for c in inspector.get_columns(table)):
             db.session.execute(text(f"ALTER TABLE {table} ALTER COLUMN {col} DROP NOT NULL"))
             db.session.commit()
+
+
+def _widen_late_checks():
+    """A CHECK constraint whose list of values grew after a database was made
+    (PostgreSQL only; SQLite is only ever made fresh from the models): the
+    ledger's movement types gained JOB_WORK_OUT on 28 Oct 2026. Re-made only
+    when a value is missing, so a boot after it changes nothing."""
+    from sqlalchemy import text
+    from app.models.spare_stock import TXN_TYPES
+    if db.engine.dialect.name != "postgresql":
+        return
+    for table, name, col, values in (("spare_stock_ledger", "ck_spare_stock_ledger_txn_type", "txn_type", TXN_TYPES),):
+        found = db.session.execute(text(
+            "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid "
+            "WHERE t.relname = :t AND c.conname = :n"), {"t": table, "n": name}).scalar()
+        if found is None or all(f"'{v}'" in found for v in values):
+            continue
+        listed = ", ".join(f"'{v}'" for v in values)
+        db.session.execute(text(f"ALTER TABLE {table} DROP CONSTRAINT {name}"))
+        db.session.execute(text(f"ALTER TABLE {table} ADD CONSTRAINT {name} CHECK ({col} IN ({listed}))"))
+        db.session.commit()
 
 
 def _add_late_columns():

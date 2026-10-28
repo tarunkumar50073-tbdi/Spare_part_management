@@ -24,6 +24,15 @@ import { jobWorkService } from "../../services/jobWorkService.js";
 //                 return each is on
 
 const TABS = [{ key: "returns", label: "Job work returns" }, { key: "rgp", label: "ERP challans" }];
+
+// What a challan did to store stock (JobWorkService.STOCK_STATES, 28 Oct 2026):
+// a new part sent from stock goes out of it; a used part, a challan with no
+// issue slip, or one the part's count already holds moves nothing.
+const STOCK_PILL = {
+  OUT: "badge-info", WILL_OUT: "badge-info", SHORT: "badge-danger", USED_PART: "badge-success",
+  NO_SLIP: "badge-neutral", NOT_COUNTED: "badge-warning", BEFORE_COUNT: "badge-neutral", BEFORE_FROM: "badge-neutral",
+  OFF: "badge-warning", CANCELLED: "badge-neutral", NOT_IN_MASTER: "badge-neutral",
+};
 const STATES = [
   { key: "", label: "All" },
   { key: "PENDING_RGP", label: "Pending RGP" },
@@ -83,7 +92,8 @@ export default function JobWork() {
       <div className="min-w-0">
         <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-white"><Hammer size={20} aria-hidden="true" /> Job Work &amp; RGP</h2>
         <p className="mt-0.5 text-xs text-slate-400">
-          Parts brought back for job work wait here (not stock) until the returnable challan made in ERP (General FOC, from the issue slip) is linked — the app links it by itself. The app only reads ERP — it never makes a challan.
+          Parts brought back for job work wait here (not stock) until the returnable challan made in ERP (General FOC, from the issue slip) is linked — the app links it by itself.
+          A new part sent from store stock on a challan with an issue slip goes out of store stock by itself, and comes back on the vendor's GRN. The app only reads ERP — it never makes a challan.
           A job work return is made on Scan Part → Return → Job work.
         </p>
       </div>
@@ -278,7 +288,7 @@ function RgpTab() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-[12.5px]">
               <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
-                <tr><TH>Challan</TH><TH>Issue slip</TH><TH>Part No</TH><TH right>Qty</TH><TH>Party</TH><TH>ERP status</TH><TH>Target</TH><TH>Linked return</TH></tr>
+                <tr><TH>Challan</TH><TH>Issue slip</TH><TH>Part No</TH><TH right>Qty</TH><TH>Party</TH><TH>ERP status</TH><TH>Target</TH><TH>Linked return</TH><TH>Store stock</TH></tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
                 {(d?.rows || []).map((l) => (
@@ -291,6 +301,11 @@ function RgpTab() {
                     <td className="px-3 py-2.5">{l.status}</td>
                     <td className="whitespace-nowrap px-3 py-2.5">{l.target_date ? fmtDate(l.target_date) : "—"}</td>
                     <td className="px-3 py-2.5">{l.linked_return || <span className="text-slate-400">—</span>}</td>
+                    <td className="px-3 py-2.5">
+                      {l.stock_state
+                        ? <span className={`badge ${STOCK_PILL[l.stock_state] || "badge-neutral"}`} title={l.stock_label}>{l.stock_label}</span>
+                        : <span className="text-slate-400">—</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>

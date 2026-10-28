@@ -960,6 +960,13 @@ class ScanResultService:
             kind, title, detail = "OPENING", "Opening stock", f"Counted {balance} on the shelf"
         elif t == "ADJUSTMENT":
             kind, title, detail = "STOCK_ADJUSTMENT", f"Stock adjusted {delta:+g}", f"Corrected to {balance}"
+        elif t == "JOB_WORK_OUT":
+            # A new part sent from stock to a vendor on its ERP challan, or
+            # one put back when the challan turned out not to be that.
+            kind = "JOB_WORK_OUT"
+            title = (f"Sent for job work – challan {led.reference}" if delta < 0
+                     else f"Back to store stock – challan {led.reference}")
+            detail = led.remarks
         elif t == "RECEIPT" and led.status in ERP_ORIGIN_RECEIPT_STATUSES:
             kind, title, detail = "STOCK_AVAILABLE", "Added to store stock", f"{balance} available after this"
         elif t == "RECEIPT":
