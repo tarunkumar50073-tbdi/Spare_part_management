@@ -65,19 +65,22 @@ export default function PartKiosk() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { dark } = useTheme() || {};
-  // Back only when opened from a screen other than the main dashboard: from
-  // the main dashboard (or straight on the kiosk) Home is the way back, and a
-  // second button going to the same place read as Back not working (the
-  // store, 28 Oct 2026).
   const location = useLocation();
   const [from] = useState(() => pageBefore(location.pathname));
   const home = `/store/${STORE}`;
   let inApp = false;
   try { inApp = (window.history.state?.idx ?? 0) > 0; } catch { inApp = false; }
-  const canBack = inApp && Boolean(from) && from !== home && from !== "/";
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
+  // Back is one step back (the store, 28 Oct 2026: both tiles went to the main
+  // dashboard): an open part goes back to its search list; the list goes back
+  // to the screen the Kiosk was opened from. With no part open and opened from
+  // the main dashboard (or straight on the kiosk) only Home shows — a second
+  // tile to the same place read as Back not working.
+  const leaves = inApp && Boolean(from) && from !== home && from !== "/";
+  const canBack = Boolean(open) || leaves;
+  const back = () => (open ? setOpen(null) : navigate(-1));
   const input = useRef(null);
   // Where the list was scrolled when a part was opened, to come back to it.
   const listY = useRef(0);
@@ -130,13 +133,13 @@ export default function PartKiosk() {
             </div>
             {can(user, "spare_store") && (
               <span className="flex shrink-0 items-center gap-2">
-                {/* Back to the screen it was opened from, and Home to the main
-                    dashboard — the top bar's own tiles (the store, 28 Oct 2026:
-                    "jahan se ise khola usi par nhi jata", "icon app me jo
-                    already h usi type k use kar"). Back only when opened from
-                    another screen than the main dashboard (canBack). */}
+                {/* Back one step and Home to the main dashboard — the top
+                    bar's own tiles (the store, 28 Oct 2026: "jahan se ise khola
+                    usi par nhi jata", "icon app me jo already h usi type k use
+                    kar"). */}
                 {canBack && (
-                  <button type="button" onClick={() => navigate(-1)} title="Back" aria-label="Go back" className={TILE_BTN}>
+                  <button type="button" onClick={back} title={open ? "Back to the list" : "Back"}
+                    aria-label={open ? "Back to the list" : "Go back"} className={TILE_BTN}>
                     <IconTile emoji="⬅️" color="#94a3b8" size={36} light={!dark} className={TILE_HOVER} />
                   </button>
                 )}
