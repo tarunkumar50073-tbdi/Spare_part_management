@@ -302,10 +302,9 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
   // me preview ka option bhi hona chahiye"): a sample code — each real label
   // gets its own — at the size picked here, which the print step keeps.
   const ls = useLabelSize();
-  const sampleQty = kind === "UNIT" ? 1 : Number(size) > 0 ? Number(size) : null;
   const sample = useMemo(() => packetLabelsHtml([{
-    code: "SPK-SAMPLE01", kind, qty: sampleQty, uom: unit, location: part.location, part,
-  }], { size: ls.size }), [kind, sampleQty, unit, part, ls.size.w, ls.size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+    code: "SPK-SAMPLE01", kind, uom: unit, location: part.location, part,
+  }], { size: ls.size }), [kind, unit, part, ls.size.w, ls.size.h]); // eslint-disable-line react-hooks/exhaustive-deps
   const boxesOk = !supplier || (p && boxes.length === p.count);
   const make = async () => {
     setBusy(true);
@@ -391,7 +390,7 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
           <LabelSizePicker ls={ls} />
           <LabelPreview html={sample} size={ls.size} sizeOk={ls.sizeOk} />
           <p className="text-[11.5px] text-slate-500 dark:text-slate-400">
-            A sample — each label gets its own QR code{sampleQty == null ? "; the qty shows once the quantity per packet is typed" : ""}. The size picked here is the one the print step uses.
+            A sample — each label gets its own QR code. The size picked here is the one the print step uses.
           </p>
         </div>
       )}

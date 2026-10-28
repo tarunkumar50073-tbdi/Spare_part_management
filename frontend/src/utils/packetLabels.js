@@ -3,9 +3,11 @@
 // scans as itself; the label shows, as text, the Part No., description, the
 // part's specification and model no. (the store, 28 Oct 2026: "qr me spec /
 // model no bhi aana chahiye"), the packet quantity and the storage location —
-// never a price. A single-unit label carries no quantity line ("1 nos
-// individual nhi aana chahiye"). The code is printed small under the QR, for
-// reading out if the QR is damaged. The QR's own white border is two modules —
+// never a price. No quantity line on any label ("1 nos individual nhi aana
+// chahiye" … "qr me qty-nos ye nhi chahiye"), and the spec / model are bold
+// like the Part No. ("code no. k saath spec/model bhi bold kar de", 28 Oct
+// 2026). The code is printed small under the QR, for reading out if the QR is
+// damaged. The QR's own white border is two modules —
 // the label's margin adds the rest — so a small label's QR stays big enough
 // to scan.
 //
@@ -16,19 +18,12 @@
 // — rather than shrinking every line to dust:
 //   FULL   (height 42 mm and up) every line, the description over two lines
 //   MID    (30 to 42 mm)          description on one line, spec and model on one
-//   SMALL  (under 30 mm)          Part No., spec / model, quantity, location
+//   SMALL  (under 30 mm)          Part No., spec / model, location
 import { qrSvgString } from "./barcodeRender.js";
 
 const esc = (s) => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-const qtyText = (p) => {
-  // A preview before the packet quantity is typed shows the line, unfilled.
-  if (p.kind !== "UNIT" && (p.qty == null || p.qty === "")) return `Qty — ${p.uom || ""}`.trim();
-  const q = Number(p.qty);
-  const n = Number.isInteger(q) ? q : q.toFixed(2);
-  return p.kind === "UNIT" ? "" : `Qty ${n} ${p.uom || ""}`.trim();
-};
 
 // The sizes offered on the print dialog, smallest first (mm).
 export const LABEL_SIZES = [
@@ -43,9 +38,9 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 // Type sizes (pt) of each tier at its reference size, grown or shrunk a little
 // with the label actually picked.
 const TIERS = {
-  FULL: { ref: [100, 50], code: 6, pn: 13, ds: 8.5, sp: 8.5, qty: 11, loc: 10, dsLines: 2 },
-  MID: { ref: [75, 38], code: 5.5, pn: 11, ds: 7.5, sp: 7.5, qty: 9, loc: 8.5, dsLines: 1 },
-  SMALL: { ref: [50, 25], code: 5, pn: 9, ds: 0, sp: 6.5, qty: 7.5, loc: 7, dsLines: 0 },
+  FULL: { ref: [100, 50], code: 6, pn: 13, ds: 8.5, sp: 8.5, loc: 10, dsLines: 2 },
+  MID: { ref: [75, 38], code: 5.5, pn: 11, ds: 7.5, sp: 7.5, loc: 8.5, dsLines: 1 },
+  SMALL: { ref: [50, 25], code: 5, pn: 9, ds: 0, sp: 6.5, loc: 7, dsLines: 0 },
 };
 
 export function labelTier(h) {
@@ -60,14 +55,12 @@ function face(p, tier) {
   const specLines = tier === "FULL"
     ? [spec, model].filter(Boolean)
     : [[part.specification, part.model_no].filter(Boolean).join(" · ")].filter(Boolean);
-  const qty = qtyText(p);
   return `<div class="lbl">
     <div class="q">${qrSvgString(p.code, { size: 200, quiet: 2 })}<div class="code">${esc(p.code)}</div></div>
     <div class="t">
       <div class="pn">${esc(part.part_no)}</div>
       ${t.dsLines ? `<div class="ds">${esc(part.part_name)}</div>` : ""}
       ${specLines.map((s) => `<div class="sp">${esc(s)}</div>`).join("")}
-      ${qty ? `<div class="qty">${esc(qty)}</div>` : ""}
       ${p.location ? `<div class="loc">${esc(p.location)}</div>` : ""}
     </div>
   </div>`;
@@ -102,9 +95,8 @@ export function packetLabelsHtml(packets, { size, zoom } = {}) {
     .pn { font-weight: 700; overflow-wrap: anywhere; line-height: 1.05; font-size: ${pt(t.pn)}pt; }
     .ds { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: ${t.dsLines || 1};
           line-height: 1.15; margin-top: 0.7mm; overflow-wrap: anywhere; font-size: ${pt(t.ds || 7)}pt; }
-    .sp { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 0.5mm; line-height: 1.1;
+    .sp { font-weight: 700; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 0.5mm; line-height: 1.1;
           font-size: ${pt(t.sp)}pt; }
-    .qty { font-weight: 700; margin-top: 0.8mm; font-size: ${pt(t.qty)}pt; }
     .loc { font-weight: 700; margin-top: 0.6mm; overflow-wrap: anywhere; font-size: ${pt(t.loc)}pt; }
     ${fit}
   </style></head><body>${packets.map((p) => face(p, tier)).join("")}</body></html>`;
