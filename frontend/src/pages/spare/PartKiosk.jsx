@@ -121,9 +121,16 @@ export default function PartKiosk() {
   const leaves = inApp && Boolean(from) && from !== home && from !== "/";
   const canBack = !open && leaves;
   const input = useRef(null);
-  // Where the list was scrolled when a part was opened, to come back to it.
-  const listY = useRef(0);
-  useEffect(() => { if (!open) window.scrollTo(0, listY.current); }, [open]);
+  // A part opens at the top of the screen, and Back to results comes back to
+  // the search bar, not to the card it was opened from (the store, 28 Oct
+  // 2026: "back to result jaaye to search bar par hi jaaye niche jis part par
+  // khola us par nhi").
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    window.scrollTo(0, 0);
+    if (!open) input.current?.focus({ preventScroll: true });
+  }, [open]);
 
   useEffect(() => {
     const t = setTimeout(() => setQ(typed.trim()), 300);
@@ -135,7 +142,7 @@ export default function PartKiosk() {
     let timer;
     const reset = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => { setTyped(""); setQ(""); listY.current = 0; setOpen(null); window.scrollTo(0, 0); }, IDLE_MS);
+      timer = setTimeout(() => { setTyped(""); setQ(""); setOpen(null); window.scrollTo(0, 0); }, IDLE_MS);
     };
     const events = ["pointerdown", "keydown", "touchstart", "wheel"];
     events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
@@ -155,7 +162,7 @@ export default function PartKiosk() {
   const rows = (search.data?.pages || []).flatMap((p) => p.rows);
   const total = search.data?.pages?.[0]?.total ?? 0;
   // A new search (typed or cleared) brings the list back in place of the part.
-  const type = (text) => { setTyped(text); listY.current = 0; setOpen(null); };
+  const type = (text) => { setTyped(text); setOpen(null); };
   const clear = () => { type(""); setQ(""); input.current?.focus(); };
 
   // The search stays on top; a picked part fills the rest of the same screen
@@ -164,7 +171,10 @@ export default function PartKiosk() {
   // the visible one (dvh), so nothing hides under browser bars on a touch
   // screen. Never wider than the screen.
   return (
-    <div className={`flex flex-col overflow-x-hidden bg-slate-50 dark:bg-navy-950 ${open ? "h-dvh overflow-y-hidden" : "min-h-dvh"}`}>
+    // overflow-x-clip, never -hidden: hidden makes this box a scroll box, and
+    // the sticky search bar then scrolled away with the list (28 Oct 2026:
+    // "scroll karne par search wala hissa chup jata h").
+    <div className={`flex flex-col overflow-x-clip bg-slate-50 dark:bg-navy-950 ${open ? "h-dvh overflow-y-clip" : "min-h-dvh"}`}>
       <header className="sticky top-0 z-20 shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-navy-800 dark:bg-navy-900/95">
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
           <div className="flex items-center justify-between gap-3">
@@ -240,7 +250,7 @@ export default function PartKiosk() {
             <p className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">{num(total)} part{total === 1 ? "" : "s"} found</p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {rows.map((p) => (
-                <PartCard key={p.id} part={p} onOpen={() => { listY.current = window.scrollY; setOpen(p); }} />
+                <PartCard key={p.id} part={p} onOpen={() => setOpen(p)} />
               ))}
             </div>
             {search.hasNextPage && (
