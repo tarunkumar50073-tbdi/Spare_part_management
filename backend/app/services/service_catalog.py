@@ -36,6 +36,21 @@ SERVICES = [
      "keywords": ["scan", "barcode", "qr", "gun", "camera", "issue", "receive", "return",
                   "location", "confirm", "installation", "rgp", "rework", "inspection",
                   "supplier barcode", "mapping", "label"]},
+    # The screens below were in the sidebar but not here, so Store Saathi
+    # could not name them: "qr lable print karne h" got Reports and Scan Part
+    # (28 Oct 2026). No "stock" / "issue" words — the assistant matches by
+    # substring, and those would pull these into every stock question.
+    {"key": "spare_packets", "title": "Packets & QR Labels", "route": "/spare-packets",
+     "category": "Inventory", "icon": "🏷️", "mod": "spare_packets",
+     "keywords": ["qr label", "qr code", "label print", "print label", "sticker", "tag", "packet",
+                  "packing", "fifo", "box label", "supplier label", "gate entry qr", "receipt"]},
+    {"key": "job_work", "title": "Job Work & RGP", "route": "/job-work",
+     "category": "Inventory", "icon": "🛠️", "mod": "scan_part",
+     "keywords": ["job work", "jobwork", "rgp", "challan", "coating", "isuzu", "oerlikon", "returnable",
+                  "foc", "repair", "vendor"]},
+    {"key": "part_kiosk", "title": "Part Search Kiosk", "route": "/part-search",
+     "category": "Inventory", "icon": "🔎", "mod": "part_kiosk",
+     "keywords": ["part search", "kiosk", "find part", "photo", "kahan rakha", "kaha rakha", "dhoondo"]},
     {"key": "work_queue", "title": "Work Queue", "route": "/work-queue",
      "category": "Inventory", "icon": "📋", "mod": "scan_part",
      "keywords": ["queue", "grn", "quality", "inspection", "return", "rgp", "rework",
@@ -62,6 +77,9 @@ SERVICES = [
     {"key": "scan_audit", "title": "Scan Audit", "route": "/scan-audit",
      "category": "Masters", "icon": "🧾", "mod": "scan_audit",
      "keywords": ["scan", "audit", "log", "scan history", "who scanned"]},
+    {"key": "audit_trail", "title": "Audit Trail", "route": "/audit-trail",
+     "category": "Masters", "icon": "🗂️", "mod": "audit_trail",
+     "keywords": ["audit trail", "change history", "who changed", "edit history", "kisne badla", "changes"]},
     {"key": "departments", "title": "Department Emails", "route": "/departments",
      "category": "Email & Notifications", "icon": "✉️", "mod": "departments",
      "keywords": ["department", "email", "reorder mail", "notification", "recipient", "dept"]},
@@ -168,6 +186,12 @@ SERVICES = [
      "category": "System", "icon": "⚙️", "admin": True,
      "keywords": ["settings", "config", "label", "barcode label", "store visibility",
                   "system status", "gear"]},
+    {"key": "rights_matrix", "title": "Rights Matrix", "route": "/rights-matrix",
+     "category": "System", "icon": "🔐", "admin": True,
+     "keywords": ["rights matrix", "access", "screen rights", "kisko kya right", "view edit"]},
+    {"key": "data_browser", "title": "Data Browser", "route": "/data-browser",
+     "category": "System", "icon": "🗄️", "admin": True,
+     "keywords": ["data browser", "database", "table", "raw data", "db"]},
 ]
 
 # The order categories appear in the launcher's tab strip.

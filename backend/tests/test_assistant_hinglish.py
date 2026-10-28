@@ -365,3 +365,59 @@ def test_discontinued_parts_are_asked_for():
         assert set(_titles(d)) == {"CNTR9001", "CNTR9002"}
     # A discontinued part at zero is not "out of stock".
     assert "CNTR9002" not in _titles(b.ask("kya kya khatam hai"))
+
+
+# ---- a job to do names its screen (28 Oct 2026) ----------------------------------------------------
+
+def _anyone():
+    """A store person who may open every screen (the suggestions hide a screen a user may not open)."""
+    return SimpleNamespace(is_admin=False, can=lambda mod, action="view": True, can_access_store=lambda code: True)
+
+
+def _screens(d):
+    return [s["title"] for s in d["suggestions"]]
+
+
+@pytest.mark.parametrize("q", ["qr lable print karne h", "lable print karne h", "qr label print",
+                               "label kaise print kare", "qr code nikalna hai", "sticker print karna hai"])
+def test_a_label_job_names_packets_and_qr_labels(bot, q):
+    """ "qr lable print karne h" got "stock data nahi mila" and Reports / Scan Part:
+    Packets & QR Labels was not in the bot's screen list at all."""
+    d = bot.ask(q, user=_anyone())
+    assert "Packets & QR Labels" in _screens(d), (q, d)
+    assert "Reports" not in _screens(d), (q, d)
+    assert "stock data" not in d["answer"], (q, d["answer"])
+
+
+@pytest.mark.parametrize("q, first", [
+    ("qr lable print karne h", "Packets & QR Labels"),
+    ("job work ka challan kahan milega", "Job Work & RGP"),
+    ("coating ke liye part bhejna hai kaise", "Job Work & RGP"),
+    ("audit trail kahan milega", "Audit Trail"),
+])
+def test_the_screen_asked_for_comes_first(bot, q, first):
+    d = bot.ask(q, user=_anyone())
+    assert d["answer"].startswith("Ye screen kaam aayegi"), (q, d["answer"])
+    assert _screens(d)[0] == first, (q, _screens(d))
+
+
+def test_every_sidebar_screen_is_in_the_bots_screen_list():
+    """Store Saathi keeps up with the app (the store, 28 Oct 2026: "jo bhi
+    update app me ho rhe h wo saath saath store bot m bhi update hote rhen"): a
+    screen in the sidebar the bot cannot name fails here."""
+    import pathlib
+    import re
+    from app.services.service_catalog import SERVICES
+    side = (pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src" / "components" / "Sidebar.jsx")
+    text = side.read_text(encoding="utf-8")
+    # The Spare build's menus: the shared group, the Spare store's own, System
+    # and Email — not the Child Part store's.
+    spare = text[text.index("const SHARED_GROUPS"):text.index("CHILD_PART: [")] +         text[text.index("MAINTENANCE: ["):text.index("const navFor")]
+    routes = re.findall(r'\{ to: "([^"]+)", label: "[^"]+"', spare)
+    assert len(routes) > 30
+    known = {s["route"].split("?")[0] for s in SERVICES}
+    assert [r for r in routes if r.split("?")[0] not in known] == []
+    # And the top-bar quick search (CommandPalette) finds them too.
+    palette = (side.parent / "CommandPalette.jsx").read_text(encoding="utf-8")
+    jumps = {r.split("?")[0] for r in re.findall(r'to: "([^"]+)"', palette)}
+    assert [r for r in routes if r.split("?")[0] not in jumps] == []

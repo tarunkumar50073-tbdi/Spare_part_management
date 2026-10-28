@@ -94,6 +94,9 @@ _SYNONYMS = {
     "sbse": "sabse", "jyda": "jyada", "zyda": "zyada", "ktna": "kitna", "ktne": "kitne", "dikao": "dikhao",
     "btao": "batao", "bta": "bata", "khtm": "khatam", "khatm": "khatam", "khtam": "khatam", "prts": "parts",
     "prt": "part", "kitn": "kitna",
+    # "qr lable print karne h" (28 Oct 2026).
+    "lable": "label", "lebal": "label", "lebel": "label", "labal": "label", "labl": "label", "lbl": "label",
+    "prnt": "print", "pirnt": "print", "prnit": "print", "nikalana": "nikalna", "nikalne": "nikalna",
 }
 
 _GREETINGS = {"hi", "hii", "hello", "hey", "namaste", "namaskar", "hlo", "helo"}
@@ -115,6 +118,7 @@ _HINGLISH = {
     "saal", "hisaab", "pichhle", "pichle", "isme", "usme", "lagaya", "nikla", "kaise", "kare", "karo", "karna",
     "karu", "hua", "hue", "huye", "gaya", "gaye", "tha", "thi", "raha", "rahe", "rha", "diya", "diye", "liya",
     "fasa", "phasa", "kis", "kisme", "padega", "jo", "jinka", "aur", "upar", "niche", "acha", "achha", "theek",
+    "karne", "nikalna", "banana", "banane",
 }
 # Filler dropped before a sentence is matched against part names: the Hinglish
 # above, and the English that only frames a question.
@@ -209,7 +213,10 @@ _RANK = ("top", "highest", "most", "sabse", "biggest", "largest", "max value", "
 _COUNT = ("how many", "count", "number of", "ginti", "kitna part", "kul part", "total part", "total item")
 _TOTAL = ("total", "kul", "sum", "overall", "poora", "pura", "sab ka", "sabka")
 _HOWTO = ("kaise", "kaisa", "how to", "how do", "how can", "kahan milega", "kaha milega", "kidhar milega",
-          "kahan se", "kaha se", "where can", "kaha pe milega", "steps")
+          "kahan se", "kaha se", "where can", "kaha pe milega", "steps",
+          # A job to do, not a stock question: "qr label print karne hai",
+          # "label nikalna hai" (28 Oct 2026).
+          "karne hai", "karna hai", "nikalna hai", "banana hai", "banane hai")
 _COMPARE = (" vs ", "versus", "compare", "comparison", "section wise", "sectionwise", "section-wise",
             "har section", "which section", "kis section", "kaunse section", "konse section", "kon se section",
             "kaun se section", "each section", "per section", "section me sabse", "sections")
@@ -689,6 +696,10 @@ class AssistantService:
         if found:
             return self._parts_answer(a, found, user)
         suggestions = self._suggest(" ".join(words), user) if words else []
+        # Every word names the first screen ("qr label print"): a screen was
+        # asked for, not stock — say so, not "no stock data".
+        if suggestions and self._names_screen(words, suggestions[0]):
+            return self._reply("Ye screen kaam aayegi:" if a.hi else "This screen will help:", [], suggestions)
         if suggestions:
             return self._reply(f"“{a.q}” ka stock data nahi mila, par ye screen kaam aa sakti hai:" if a.hi else
                                f"I couldn't find stock data for “{a.q}”, but these screens might help:",
@@ -1318,8 +1329,18 @@ class AssistantService:
                 if score:
                     scored.append((score, s))
             scored.sort(key=lambda x: x[0], reverse=True)
-            picks = [s for _, s in scored[:limit]]
+            # Only screens near the best: "qr label print" names Packets & QR
+            # Labels (3 words) and Scan Part (2), not Reports for "print" alone.
+            best = scored[0][0] if scored else 0
+            picks = [s for score, s in scored if score * 2 > best][:limit]
         return [{"title": s["title"], "route": s["route"], "icon": s["icon"]} for s in picks[:limit]]
+
+    @staticmethod
+    def _names_screen(words, pick):
+        """Does every word of the question appear in this screen's title or keywords?"""
+        s = next((x for x in SERVICES if x["route"] == pick["route"]), None)
+        hay = (s["title"] + " " + " ".join(s["keywords"])).lower() if s else ""
+        return bool(words) and all(w in hay for w in words)
 
     @staticmethod
     def _reply(answer, results, suggestions):
