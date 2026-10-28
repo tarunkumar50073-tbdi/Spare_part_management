@@ -4,9 +4,9 @@
 // part's specification and model no. (the store, 28 Oct 2026: "qr me spec /
 // model no bhi aana chahiye"), the packet quantity and the storage location —
 // never a price. No quantity line on any label ("1 nos individual nhi aana
-// chahiye" … "qr me qty-nos ye nhi chahiye"), and the spec / model are bold
-// like the Part No. ("code no. k saath spec/model bhi bold kar de", 28 Oct
-// 2026). The code is printed small under the QR, for reading out if the QR is
+// chahiye" … "qr me qty-nos ye nhi chahiye"), and every line is bold — the
+// description, spec and model like the Part No. ("code no. k saath spec/model
+// bhi bold kar de" … "phir description k ko bhi bold kar de", 28 Oct 2026). The code is printed small under the QR, for reading out if the QR is
 // damaged. The QR's own white border is two modules —
 // the label's margin adds the rest — so a small label's QR stays big enough
 // to scan.
@@ -93,7 +93,7 @@ export function packetLabelsHtml(packets, { size, zoom } = {}) {
             font-size: ${pt(t.code)}pt; white-space: nowrap; }
     .t { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; }
     .pn { font-weight: 700; overflow-wrap: anywhere; line-height: 1.05; font-size: ${pt(t.pn)}pt; }
-    .ds { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: ${t.dsLines || 1};
+    .ds { font-weight: 700; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: ${t.dsLines || 1};
           line-height: 1.15; margin-top: 0.7mm; overflow-wrap: anywhere; font-size: ${pt(t.ds || 7)}pt; }
     .sp { font-weight: 700; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 0.5mm; line-height: 1.1;
           font-size: ${pt(t.sp)}pt; }
