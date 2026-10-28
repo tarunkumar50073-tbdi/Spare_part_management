@@ -621,6 +621,7 @@ class SparePacketService:
                 continue
             rows.append({"part": {"id": part.id, "part_no": part.part_no, "part_name": part.part_name,
                                   "uom": part.uom, "location": part.location,
+                                  "specification": part.specification, "model_no": part.model_no,
                                   "section": sections.get(part.section_id), "section_id": part.section_id},
                          "rack": r, **row})
         rows.sort(key=lambda x: ((x["part"]["section"] or "~").lower(), _natural(x["rack"]),

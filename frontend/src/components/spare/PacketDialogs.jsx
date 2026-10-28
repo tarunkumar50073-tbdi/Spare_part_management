@@ -8,7 +8,7 @@ import { fmtDate, num } from "../../lib/format.js";
 import { barcodeService } from "../../services/barcodeService.js";
 import { packetService } from "../../services/packetService.js";
 import { printLabels } from "../../utils/barcodeRender.js";
-import { packetLabelsHtml } from "../../utils/packetLabels.js";
+import { LABEL_LIMITS, LABEL_SIZES, labelTier, packetLabelsHtml } from "../../utils/packetLabels.js";
 
 // The Packets & QR Labels dialogs (the store's spec of 27 Oct 2026): verify a
 // receipt physically, make its packets / unit labels (or label old stock on the
@@ -395,10 +395,19 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
 
 // ---- print / reprint -----------------------------------------------------------------------
 
+// The label size picked last on this terminal: a preset key, "PRINTER" (the
+// label printer's own size) or "CUSTOM" with its mm (28 Oct 2026: "size chote
+// part and bade part k according adjustable hona chahiye a4 paper par nhi
+// nikalenge" — labels go on the label printer only, never an A4 sheet).
+const SIZE_KEY = "dx_packet_label_size";
+const TIER_WORDS = { FULL: "every line", MID: "description on one line", SMALL: "Part No., spec / model, location" };
+
+function savedSize() {
+  try { return JSON.parse(localStorage.getItem(SIZE_KEY)) || { key: "PRINTER" }; } catch { return { key: "PRINTER" }; }
+}
+
 export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
-  const [layout, setLayout] = useState(() => {
-    try { return localStorage.getItem("dx_packet_label_layout") || "A4"; } catch { return "A4"; }
-  });
+  const [choice, setChoice] = useState(savedSize);
   const [reason, setReason] = useState("");
   const [step, setStep] = useState("SETUP");             // SETUP -> ASK (did it print?)
   const [busy, setBusy] = useState(false);
@@ -407,13 +416,19 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
     queryFn: () => barcodeService.labelConfig().then((r) => r.data.data),
     staleTime: 5 * 60 * 1000,
   });
-  const html = useMemo(() => packetLabelsHtml(packets, { layout, config: config.data }), [packets, layout, config.data]);
-  const preview = useMemo(() => packetLabelsHtml(packets.slice(0, layout === "A4" ? 24 : 1),
-    { layout, config: config.data, zoom: layout === "A4" ? 0.86 : undefined }),
-    [packets, layout, config.data]);
-  const pick = (v) => { setLayout(v); try { localStorage.setItem("dx_packet_label_layout", v); } catch { /* ok */ } };
+  const printerSize = { w: Number(config.data?.width_mm) || 100, h: Number(config.data?.height_mm) || 50 };
+  const size = choice.key === "CUSTOM" ? { w: Number(choice.w) || 0, h: Number(choice.h) || 0 }
+    : choice.key === "PRINTER" ? printerSize : (LABEL_SIZES.find((x) => x.key === choice.key) || printerSize);
+  const sizeOk = size.w >= LABEL_LIMITS.minW && size.w <= LABEL_LIMITS.maxW
+    && size.h >= LABEL_LIMITS.minH && size.h <= LABEL_LIMITS.maxH;
+  const html = useMemo(() => packetLabelsHtml(packets, { size }), [packets, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+  const preview = useMemo(() => packetLabelsHtml(packets.slice(0, 1), { size }), [packets, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pick = (next) => {
+    setChoice(next);
+    try { localStorage.setItem(SIZE_KEY, JSON.stringify(next)); } catch { /* remembered for this visit only */ }
+  };
   const print = () => {
-    if (reprint && !reason.trim()) return;
+    if ((reprint && !reason.trim()) || !sizeOk) return;
     printLabels(html);
     setStep("ASK");
   };
@@ -439,7 +454,7 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
         </button>
       </> : <>
         <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
-        <button type="button" className="btn-primary" onClick={print} disabled={reprint && !reason.trim()}>
+        <button type="button" className="btn-primary" onClick={print} disabled={(reprint && !reason.trim()) || !sizeOk}>
           <Printer size={15} aria-hidden="true" /> Print
         </button>
       </>}>
@@ -447,13 +462,36 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
         <p className="text-[14px] text-slate-700 dark:text-slate-200">Did the {packets.length} label{packets.length === 1 ? "" : "s"} come out of the printer? Only then is the print recorded.</p>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-2">
-            {[["A4", "A4 sheet (24 a page)"], ["LABEL", `Label printer${config.data ? ` (${config.data.width_mm || 100} × ${config.data.height_mm || 50} mm)` : ""}`]].map(([v, t]) => (
-              <button key={v} type="button" onClick={() => pick(v)} aria-pressed={layout === v}
-                className={`rounded-lg border px-3 py-1.5 text-[13px] font-semibold ${layout === v ? "border-toyotared bg-toyotared/5 text-toyotared" : "border-slate-200 text-slate-600 dark:border-navy-700 dark:text-slate-300"}`}>
-                {t}
-              </button>
-            ))}
+          <div>
+            <p className="mb-1.5 text-[12px] font-semibold text-slate-600 dark:text-slate-300">Label size — on the label printer</p>
+            <div role="group" aria-label="Label size" className="flex flex-wrap items-center gap-2">
+              {[{ key: "PRINTER", label: "Printer size", ...printerSize }, ...LABEL_SIZES, { key: "CUSTOM", label: "Custom" }].map((o) => {
+                const on = choice.key === o.key;
+                return (
+                  <button key={o.key} type="button" aria-pressed={on}
+                    onClick={() => pick(o.key === "CUSTOM" ? { key: "CUSTOM", w: choice.w || size.w, h: choice.h || size.h } : { key: o.key })}
+                    className={`rounded-lg border px-3 py-1.5 text-[13px] font-semibold ${on ? "border-toyotared bg-toyotared/5 text-toyotared" : "border-slate-200 text-slate-600 dark:border-navy-700 dark:text-slate-300"}`}>
+                    {o.label}{o.w ? <span className="ml-1 font-normal opacity-80">{o.w} × {o.h} mm</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+            {choice.key === "CUSTOM" && (
+              <div className="mt-2 flex flex-wrap items-end gap-2">
+                <Field label="Width (mm)" hint={`${LABEL_LIMITS.minW} to ${LABEL_LIMITS.maxW}`}>
+                  <input type="number" inputMode="numeric" className={inputCls(false, "w-28")} value={choice.w ?? ""}
+                    onChange={(e) => pick({ ...choice, w: e.target.value })} />
+                </Field>
+                <Field label="Height (mm)" hint={`${LABEL_LIMITS.minH} to ${LABEL_LIMITS.maxH}`}>
+                  <input type="number" inputMode="numeric" className={inputCls(false, "w-28")} value={choice.h ?? ""}
+                    onChange={(e) => pick({ ...choice, h: e.target.value })} />
+                </Field>
+              </div>
+            )}
+            <p className="mt-1.5 text-[12px] text-slate-500 dark:text-slate-400">
+              {sizeOk ? `${size.w} × ${size.h} mm — ${TIER_WORDS[labelTier(size.h)]}. Set the same size on the label printer.`
+                : `Size must be ${LABEL_LIMITS.minW}–${LABEL_LIMITS.maxW} mm wide and ${LABEL_LIMITS.minH}–${LABEL_LIMITS.maxH} mm high.`}
+            </p>
           </div>
           {reprint && (
             <Field label="Why print again" required hint="Torn, lost, faded … — kept with the print history">
@@ -461,8 +499,8 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
             </Field>
           )}
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-100 dark:border-navy-700">
-            <iframe title="Label preview" srcDoc={preview}
-              className={layout === "A4" ? "h-[420px] w-full bg-white" : "h-[230px] w-full bg-white"} />
+            <iframe title="Label preview" srcDoc={preview} className="w-full bg-white"
+              style={{ height: `${Math.min(420, Math.round((sizeOk ? size.h : 50) * 3.78) + 24)}px` }} />
           </div>
           <p className="text-[12px] text-slate-500 dark:text-slate-400">The QR carries each packet's own code. No price is printed. Printing never adds stock.</p>
         </>
