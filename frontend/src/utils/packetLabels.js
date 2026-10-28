@@ -1,8 +1,10 @@
 // Packet / individual-unit QR labels (the store's spec of 27 Oct 2026). The QR
 // carries the packet's own code (SPK-XXXXXXXX), so every packet of the same part
 // scans as itself; the label shows, as text, the Part No., description, the
-// packet quantity and the storage location — never a price. The code is
-// printed small under the QR, for reading out if the QR is damaged.
+// packet quantity and the storage location — never a price. A single-unit
+// label carries no quantity line (the store, 28 Oct 2026: "1 nos individual
+// nhi aana chahiye"). The code is printed small under the QR, for reading out
+// if the QR is damaged.
 //
 // Two layouts, both through printLabels (barcodeRender.js):
 //   "A4"    — a sheet of 24 (3 x 8, 70 x 37 mm each) for an office printer;
@@ -16,7 +18,7 @@ const esc = (s) => String(s == null ? "" : s)
 const qtyText = (p) => {
   const q = Number(p.qty);
   const n = Number.isInteger(q) ? q : q.toFixed(2);
-  return p.kind === "UNIT" ? `1 ${p.uom || "NOS"} · Individual` : `Qty ${n} ${p.uom || ""}`.trim();
+  return p.kind === "UNIT" ? "" : `Qty ${n} ${p.uom || ""}`.trim();
 };
 
 function face(p, cls) {
@@ -26,7 +28,7 @@ function face(p, cls) {
     <div class="t">
       <div class="pn">${esc(part.part_no)}</div>
       <div class="ds">${esc(part.part_name)}</div>
-      <div class="qty">${esc(qtyText(p))}</div>
+      ${qtyText(p) ? `<div class="qty">${esc(qtyText(p))}</div>` : ""}
       ${p.location ? `<div class="loc">${esc(p.location)}</div>` : ""}
     </div>
   </div>`;
