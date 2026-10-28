@@ -3,9 +3,10 @@
 naam ki and us issue slip se rgp bna deta h"). ERP's returnable challan carries
 the issue slip no. (doc_no) when ERP took the part out of its stock by that
 slip; the app takes it out of store stock too (JOB_WORK_OUT), and the vendor's
-GRN brings it back. A used part (a job work return holds the line), a challan
-with no issue slip, one on / before the part's count, or a part never counted
-moves nothing; a line found to be a used part later, or cancelled, is put back."""
+GRN brings it back — a used part too, which its job work return took into the
+main store first (28 Oct 2026, as in ERP). A challan with no issue slip, one on
+/ before the part's count, or a part never counted moves nothing; a cancelled
+line is put back."""
 from datetime import date
 
 import pytest
@@ -107,28 +108,31 @@ def test_lines_that_move_nothing():
     assert _on_hand(off) == 5 and _state(f"FO/{off.part_no}/o")["stock_state"] == "OFF"
 
 
-def test_a_used_part_moves_no_stock():
+def test_a_used_part_comes_in_on_its_return_and_goes_out_on_its_challan():
+    """As in ERP (28 Oct 2026): the job work return takes it into the main store
+    (+), the supplier's issue slip / challan takes it out (-), the GRN brings it back."""
     p = _part(10)
     issue = SpareStockService().issue(p.id, 1, "Maintenance", issued_to="Ravi")["issue"]["id"]   # 9
     ret = SpareReturnService().job_work_return(issue, 1, reason="Worn", user="store")
+    assert _on_hand(p) == 10                                           # into the main store
     no = f"FO/{p.part_no}/u"
     jobs.sync(rows=[_line(p, no, date.today())])                       # linked to the return by itself
-    assert _on_hand(p) == 9 and _moves(p) == []
+    assert _on_hand(p) == 9 and _moves(p) == [(-1.0, no)]              # out on the supplier's challan
     st = _state(no)
-    assert st["stock_state"] == "USED_PART" and st["linked_return"] == ret["return_no"]
+    assert st["stock_state"] == "OUT" and st["linked_return"] == ret["return_no"]
 
 
-def test_a_line_found_to_be_a_used_part_later_is_put_back():
+def test_linking_a_return_later_moves_no_more_stock():
     p = _part(10)
     no = f"FO/{p.part_no}/l"
     jobs.sync(rows=[_line(p, no, date(2026, 10, 10))])
-    assert _on_hand(p) == 9                                            # taken as a new part
+    assert _on_hand(p) == 9                                            # out on its challan
     issue = SpareStockService().issue(p.id, 1, "Maintenance", issued_to="Ravi")["issue"]["id"]   # 8
-    ret = SpareReturnService().job_work_return(issue, 1, reason="Worn", user="store")
+    ret = SpareReturnService().job_work_return(issue, 1, reason="Worn", user="store")            # 9
     line = ErpRgpLine.query.filter_by(challan_no=no).one()
-    jobs.link(ret["id"], line.id, user="sup")                          # it was the used one
-    assert _on_hand(p) == 9 and _moves(p) == [(-1.0, no), (1.0, no)]
-    assert _state(no)["stock_state"] == "USED_PART"
+    jobs.link(ret["id"], line.id, user="sup")
+    assert _on_hand(p) == 9 and _moves(p) == [(-1.0, no)]
+    assert _state(no)["stock_state"] == "OUT"
 
 
 def test_a_cancelled_challan_is_put_back_unless_counted_since():

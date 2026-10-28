@@ -24,16 +24,17 @@ This service:
     person has unlinked is never linked by itself again. One line belongs to
     one return (unique), the link names who (or "Auto") saved it.
 
-A NEW part sent from store stock (no job work return holds its line, and
-the challan carries the issue slip no. in doc_no — ERP took it out of its stock
-by that slip) leaves store stock too (the store, 27-28 Oct 2026: "store person
-erp me issue slip daalta h supplier k naam ki and us issue slip se rgp bna
-deta h"): a JOB_WORK_OUT ledger row, reference = the challan no. The vendor's
-GRN brings it back like any GRN (ErpGrnPostingService). Same switch and
-start date as the GRN posting; never for a part not counted, or a challan on /
-before its count (the count already holds it). Should the line turn out to be
-a used part (a return linked later), be cancelled in ERP or vanish from it, the
-qty is put back — unless a count since has taken it in (post_stock_out()).
+Every challan line that carries the issue slip no. in doc_no — ERP took the
+part out of its stock by that slip — leaves store stock too, as in ERP (the
+store, 28 Oct 2026: "jab return hoga to us part ka stock user dept se main
+store me add hoga phir supplier k naam par issue slip dalegi tab wo stock less
+hoga"): a new part straight from the shelf, or a used one a job work return
+took into the main store first (SpareReturnService.job_work_return, + stock).
+A JOB_WORK_OUT ledger row, reference = the challan no.; the vendor's GRN brings
+it back like any GRN (ErpGrnPostingService). Same switch and start date as the
+GRN posting; never for a part not counted, or a challan on / before its count
+(the count already holds it). A line cancelled in ERP or gone from it is put
+back — unless a count since has taken it in (post_stock_out()).
 
 The app never creates, edits, approves or cancels an RGP. When ERP cannot be
 read, the returns and links stay as they are and the failure is shown (and
@@ -73,7 +74,6 @@ STOCK_STATES = {
     "OUT": "Taken out of store stock",
     "WILL_OUT": "Goes out of store stock at the next ERP read",
     "SHORT": "Check: store stock is less than the challan qty",
-    "USED_PART": "Used part (job work return) — stock not moved",
     "NO_SLIP": "No issue slip on the challan — stock not moved",
     "NOT_COUNTED": "Part never counted — stock not moved",
     "BEFORE_COUNT": "On / before the part's count — already in it",
@@ -289,7 +289,6 @@ class JobWorkService:
             Part.store_code == SPARE_STORE,
             or_(func.upper(func.trim(Part.part_no)).in_(codes), Part.id.in_(moved_ids or {-1})))}
         part_ids = [p.id for p in parts.values()]
-        held = self._linked_ids()
         base = grn._baseline(part_ids)
         done = self._out_so_far(part_ids)
         plan, seen = [], set()
@@ -301,8 +300,6 @@ class JobWorkService:
                 state = "NOT_IN_MASTER"
             elif (l.status or "") == "CANCEL":
                 state, want = "CANCELLED", 0.0
-            elif l.id in held:
-                state, want = "USED_PART", 0.0
             elif not _ISSUE_SLIP.search((l.doc_no or "").upper()):
                 state, want = "NO_SLIP", 0.0
             else:
@@ -365,8 +362,7 @@ class JobWorkService:
                                + (f" — issue slip {l.doc_no}" if l is not None and l.doc_no else ""))
                     else:
                         why = (f"Back to store stock: ERP challan {challan} "
-                               + {"USED_PART": "is a used part's (job work return)",
-                                  "CANCELLED": "was cancelled in ERP",
+                               + {"CANCELLED": "was cancelled in ERP",
                                   "NO_SLIP": "has no issue slip any more",
                                   "GONE": "is no longer in ERP"}.get(item["state"], "changed qty in ERP"))
                     self.stock_svc._write(p.id, round(on_hand - diff, 2), JOB_WORK_OUT,

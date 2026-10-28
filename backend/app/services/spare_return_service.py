@@ -21,9 +21,13 @@ Return & Pending RGP"):
     as above. A packet comes back only whole, and is on the shelf again — the
     same QR, the same receipt, so FIFO keeps its place.
   * JOB_WORK_RETURN — a worn or damaged part brought back for repair: no
-    inspection, NO stock; it waits in the store (qty_rgp, status JOB_WORK) for
-    the RGP another store employee makes in ERP, which the store then links to
-    it (JobWorkService). The app never makes an RGP.
+    inspection; taken into the main store's stock as ERP's return slip does
+    (28 Oct 2026: "jab return hoga to us part ka stock user dept se main store
+    me add hoga phir supplier k naam par issue slip dalegi tab wo stock less
+    hoga"). It waits (qty_rgp, status JOB_WORK) for the challan another store
+    employee makes in ERP from the issue slip in the vendor's name, which takes
+    it out of stock again (JobWorkService.post_stock_out) and is linked to it.
+    The app never makes an RGP.
 Both are recorded against the original issue, and together never more than it
 issued.
 
@@ -38,7 +42,7 @@ from sqlalchemy.orm import joinedload
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.spare_flow import INSPECTION_RESULTS, RETURN_OPEN, RETURN_STATUSES, SpareReturn
-from app.models.spare_stock import RETURN_ROW_INSPECTED, SpareStockLedger
+from app.models.spare_stock import RETURN_ROW_INSPECTED, SpareStock, SpareStockLedger
 from app.services.spare_journal_service import SpareJournalService
 from app.services.spare_stock_service import SpareStockService
 from app.utils.db_tx import atomic
@@ -138,9 +142,11 @@ class SpareReturnService:
     def job_work_return(self, issue_id, qty=None, reason=None, note=None, returned_by=None, user=None,
                         scanned_code=None, scan_source=None, identified_by=None):
         """A part brought back worn / damaged for job work, against its
-        original issue. No inspection and no stock: the quantity waits in the
-        store (qty_rgp) as status JOB_WORK until ERP's RGP is linked to it. A
-        packet comes back only whole and stays out of the shelf."""
+        original issue. No inspection; the quantity comes into store stock as
+        ERP's return slip brings it into the main store (a RETURN ledger row,
+        status JOB_WORK) and waits (qty_rgp) for its challan, which takes it out
+        again. A packet comes back only whole and stays off the shelf (its QR
+        stays issued)."""
         reason = _text(reason)
         if not reason:
             raise BadRequestError("Say why it needs job work (worn out, damaged, repair, reconditioning …)")
@@ -170,6 +176,18 @@ class SpareReturnService:
             )
             db.session.add(ret)
             db.session.flush()
+            # Into the main store, as ERP's return slip: + on hand now, out
+            # again on the supplier's challan (the issue slip).
+            row = SpareStock.query.filter_by(part_id=issue.part_id).first()
+            on_hand = float(row.qty_on_hand or 0) if row is not None else 0.0
+            self.stock._write(
+                issue.part_id, round(on_hand + float(qty_back), 2), "RETURN", reference=ret.return_no,
+                remarks=(f"Job work return — into the main store (ERP return slip); goes out on the "
+                         f"supplier's challan · {reason}")[:255],
+                user=user, department=issue.department,
+                extra={"status": "JOB_WORK", "return_no": ret.return_no, "return_reason": reason[:60],
+                       "returned_by": _text(returned_by, 80)},
+            )
             prev_status = issue.status
             new_status = "RETURNED" if qty_back >= outstanding else "PARTIALLY_RETURNED"
             self.stock.ledger_repo.update(issue, status=new_status)
@@ -179,7 +197,7 @@ class SpareReturnService:
                 from_bucket="ISSUED", to_bucket="JOB_WORK", return_id=ret.id, issue_id=issue.id,
                 department=issue.department, issued_to=issue.issued_to,
                 line_name=issue.line_name, line_no=issue.line_no, machine=issue.machine, die_no=issue.die_no,
-                return_reason=reason, remarks=(f"Job work return — not stock, waits for its RGP in ERP"
+                return_reason=reason, remarks=(f"Job work return — into store stock; out again on its ERP challan"
                                                + (f" · {note}" if note else ""))[:255],
                 scanned_code=_text(scanned_code, 80), scan_source=_text(scan_source, 20),
             )

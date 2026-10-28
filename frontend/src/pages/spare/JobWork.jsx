@@ -11,8 +11,9 @@ import { jobWorkService } from "../../services/jobWorkService.js";
 
 // Job Work & RGP — the store's spec of 27 Oct 2026 ("Part Return, Job Work
 // Return & Pending RGP Integration"). A user brings a worn / damaged part back
-// for job work (Scan Part -> Return -> Job work): it is kept apart, not stock,
-// as Pending RGP. Another store employee makes the challan in ERP — a "General
+// for job work (Scan Part -> Return -> Job work): it comes into the main
+// store's stock, as ERP's return slip does, and waits as Pending RGP. Another
+// store employee makes the challan in ERP — a "General
 // FOC" returnable challan, made from the issue slip in the vendor's name — the
 // app reads those of the spare parts (read only — it never makes one) and links
 // each waiting return to its challan by itself; a store person can unlink a
@@ -29,7 +30,7 @@ const TABS = [{ key: "returns", label: "Job work returns" }, { key: "rgp", label
 // a new part sent from stock goes out of it; a used part, a challan with no
 // issue slip, or one the part's count already holds moves nothing.
 const STOCK_PILL = {
-  OUT: "badge-info", WILL_OUT: "badge-info", SHORT: "badge-danger", USED_PART: "badge-success",
+  OUT: "badge-info", WILL_OUT: "badge-info", SHORT: "badge-danger",
   NO_SLIP: "badge-neutral", NOT_COUNTED: "badge-warning", BEFORE_COUNT: "badge-neutral", BEFORE_FROM: "badge-neutral",
   OFF: "badge-warning", CANCELLED: "badge-neutral", NOT_IN_MASTER: "badge-neutral",
 };
@@ -92,8 +93,8 @@ export default function JobWork() {
       <div className="min-w-0">
         <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-white"><Hammer size={20} aria-hidden="true" /> Job Work &amp; RGP</h2>
         <p className="mt-0.5 text-xs text-slate-400">
-          Parts brought back for job work wait here (not stock) until the returnable challan made in ERP (General FOC, from the issue slip) is linked — the app links it by itself.
-          A new part sent from store stock on a challan with an issue slip goes out of store stock by itself, and comes back on the vendor's GRN. The app only reads ERP — it never makes a challan.
+          As in ERP: a part brought back for job work comes into the main store's stock (the return slip) and waits here until the returnable challan made in ERP from the issue slip is linked — the app links it by itself.
+          Every challan with an issue slip — a used part or a new one — takes the part out of store stock, and the vendor's GRN brings it back. The app only reads ERP — it never makes a challan.
           A job work return is made on Scan Part → Return → Job work.
         </p>
       </div>

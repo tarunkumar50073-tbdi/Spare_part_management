@@ -109,7 +109,7 @@ def test_1_2_11_13_an_unused_packet_comes_back_whole_once_after_the_count(app):
 
 # ---- 3, 4, 5, 6: job work return -------------------------------------------------------------------
 
-def test_3_4_5_6_a_job_work_return_is_linked_to_its_issue_and_never_stock():
+def test_3_4_5_6_a_job_work_return_is_linked_to_its_issue_and_comes_into_the_main_store():
     p, code, issue_id = _packet_issued(1, kind="UNIT")
     rgps_before = SpareRgp.query.count()
     scan = BarcodeService().resolve(STORE, code, user="tester")                 # its existing QR
@@ -119,7 +119,11 @@ def test_3_4_5_6_a_job_work_return_is_linked_to_its_issue_and_never_stock():
     out = returns.job_work_return(issue_id, 1, reason="Worn out", returned_by="AMAN", user="store",
                                   scanned_code=code, scan_source="CAMERA_SCAN", identified_by="QR")
     assert (out["return_type"], out["status"], out["qty_rgp"], out["issue_id"]) == ("JOB_WORK_RETURN", "JOB_WORK", 1, issue_id)
-    assert _on_hand(p) == 0                                                         # 5: not stock
+    # 5 (28 Oct 2026): into the main store's stock, as ERP's return slip — and
+    # waiting to be written to ERP once its API is there; out again on its challan.
+    assert _on_hand(p) == 1
+    row = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="RETURN", status="JOB_WORK").one()
+    assert row.return_no == out["return_no"] and row.erp_pushed_at is None
     assert SparePacket.query.filter_by(code=code).one().status == "ISSUED"           # not on the shelf
     assert SpareRgp.query.count() == rgps_before                                     # 6: no RGP made here
     # 4: no inspection waits on it.
