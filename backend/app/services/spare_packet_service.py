@@ -1015,8 +1015,11 @@ class SparePacketService:
         something left to pack), PACKED, or blank for all."""
         self.sync_receipts(store_code)
         self.receipts_from_gate(store_code)
+        # Only material that came in (gate entry / GRN): stock already on the
+        # shelf is labelled from the Old stock list, and the batch it makes there
+        # is no receipt (28 Oct 2026: "receipt me shelf stock kyu dikha rha h").
         query = SpareBatch.query.join(Part, Part.id == SpareBatch.part_id).filter(
-            SpareBatch.store_code == store_code)
+            SpareBatch.store_code == store_code, SpareBatch.source != "OPENING")
         text = (q or "").strip()
         if text:
             like = f"%{text}%"

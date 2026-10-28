@@ -74,3 +74,13 @@ def test_older_spk_codes_keep_working():
     assert is_packet_code("TB28102026CNTR0332-01 | HSS TAP | R5-S1-B1(1)")
     assert not is_packet_code("CNTR0332") and not is_packet_code("TB2810")
     assert normalize_code(" tb28102026cntr0332-01 | spec | loc ") == "TB28102026CNTR0332-01"
+
+
+def test_old_stock_batches_never_show_as_receipts():
+    """28 Oct 2026: "receipt me shelf stock kyu dikha rha h" — a label of old
+    stock made and cancelled leaves its batch; it is not a receipt."""
+    p = _part(3)
+    m = svc.old_stock_pack(p.id, 1, "UNIT", user="sup")["packets"][0]
+    svc.cancel(m["code"], "testing", user="sup")
+    assert svc.receipts(STORE, q=p.part_no)["rows"] == []
+    assert svc.old_figures(p.id)["to_label"] == 3                         # back on the Old stock list
