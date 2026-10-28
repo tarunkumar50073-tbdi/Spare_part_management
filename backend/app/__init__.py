@@ -383,6 +383,7 @@ def create_app(env_name=None):
 
     _start_erp_ledger_poller(app)
     _start_erp_sync_poller(app)
+    _start_roster_poller(app)
     _start_email_engine(app)
     _start_backup_worker(app)
 
@@ -420,6 +421,15 @@ def _start_erp_sync_poller(app):
         return  # reloader parent; the worker child will start it
     from app.services.erp_sync_service import ERPSyncService
     ERPSyncService().start_poller(app)
+
+
+def _start_roster_poller(app):
+    """Read the Maintenance / Tool Room rosters into the Employee master by
+    themselves (ROSTER_POLL_SECONDS) — in the request-serving process only."""
+    if _is_reloader_parent(app):
+        return  # reloader parent; the worker child will start it
+    from app.services.roster_service import RosterService
+    RosterService.start_poller(app)
 
 
 def _start_email_engine(app):

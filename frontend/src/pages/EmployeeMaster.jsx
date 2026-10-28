@@ -95,12 +95,16 @@ export default function EmployeeMaster() {
     queryKey: ["employees", "on-duty"],
     queryFn: () => employeeService.onDuty({}, { silent: true }).then((r) => r.data.data),
     staleTime: 60_000,
+    // An open page keeps up too (the store, 28 Oct 2026: "employee master
+    // autoupdate hota rhe"); the server reads the rosters by itself as well.
+    refetchInterval: 60_000,
   });
   const list = useQuery({
     queryKey: ["employees", filter],
     queryFn: () => employeeService.list({ active: filter === "all" ? "all" : filter === "active" ? 1 : 0 })
       .then((r) => r.data.data),
     enabled: duty.isFetched,
+    refetchInterval: 60_000,
   });
   const depts = useQuery({
     queryKey: ["departments", "active"],
@@ -154,6 +158,12 @@ export default function EmployeeMaster() {
             The people spare parts are issued to — from the Maintenance and Tool Room rosters. Add, change or remove a person
             in the Maintenance / Tool Room app; he shows here by himself. At the counter he is picked by code or name.
           </p>
+          {duty.data?.read_at && (
+            <p className="mt-1 text-[11px] text-slate-400">
+              Updates by itself{duty.data.poll_seconds ? ` every ${Math.round(duty.data.poll_seconds / 60)} min` : ""}
+              {" · "}last read {fmtStamp(duty.data.read_at)}
+            </p>
+          )}
         </div>
         <button type="button" className="btn-secondary" onClick={readNow} disabled={reading}>
           <RefreshCw size={16} className={reading ? "animate-spin" : ""} aria-hidden="true" /> {reading ? "Reading…" : "Read rosters now"}

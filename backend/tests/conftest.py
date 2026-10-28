@@ -17,6 +17,7 @@ _TMPDIR = tempfile.mkdtemp(prefix="dxstore_test_")
 _DB_PATH = os.path.join(_TMPDIR, "test.db").replace("\\", "/")
 os.environ["DATABASE_URL"] = "sqlite:///" + _DB_PATH
 os.environ["ERP_LEDGER_POLL_SECONDS"] = "0"
+os.environ["ROSTER_POLL_SECONDS"] = "0"
 # The real .env now names the plant's mail server. Blank it for the test run
 # (load_dotenv never overrides a variable that is already set), so a test that
 # forgets to fake the mailer finds mail "not configured" instead of sending.

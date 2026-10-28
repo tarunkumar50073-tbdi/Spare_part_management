@@ -25,6 +25,12 @@ active: someone removed there is made inactive here, never deleted (past
 issues point at him). A roster nobody has marked attendance on yet today lists
 all its people, marked "Attendance not marked", rather than nobody.
 
+The Employee master keeps up by itself (the store, 28 Oct 2026: "employee
+master autoupdate hota rhe"): a background read every ROSTER_POLL_SECONDS
+(300 = 5 minutes; 0 = off), one machine at a time (a PostgreSQL advisory lock
+— the laptop and the server may both run it), besides the read the issue
+screen and the Employee Master page ask for.
+
 The databases are found from DATABASE_URL (same server and login, another
 database) unless ROSTER_MAINTENANCE_DB_URL / ROSTER_TOOL_ROOM_DB_URL say
 otherwise; "off" switches a roster off. On anything but PostgreSQL there is no
@@ -34,7 +40,7 @@ import logging
 import threading
 import time
 from collections import namedtuple
-from datetime import date
+from datetime import date, datetime, timezone
 
 from flask import current_app
 from sqlalchemy import create_engine, text
@@ -64,7 +70,10 @@ SHIFT_ORDER = {"A": 0, "B": 1, "G": 2, "Present": 3, "Half day": 4, "Gate pass":
 
 _engines = {}
 _lock = threading.Lock()
-_cache = {"at": 0.0, "day": None, "duty": {}, "status": []}
+_cache = {"at": 0.0, "day": None, "duty": {}, "status": [], "read_at": None}
+# One background roster read at a time across machines.
+POLL_LOCK_KEY = 0x524F5354
+_poller = {"started": False}
 
 
 def _text(v, limit=None):
@@ -163,8 +172,49 @@ class RosterService:
                                "people": sum(1 for p in people if p["active"]),
                                "on_duty": sum(1 for k in duty if k[0] == roster.key), "marked": marked})
             db.session.commit()
-            _cache.update(at=time.monotonic(), day=today, duty=duty, status=status)
+            _cache.update(at=time.monotonic(), day=today, duty=duty, status=status,
+                          read_at=datetime.now(timezone.utc).isoformat())
             return _cache
+
+    def poll_once(self):
+        """The background read: both rosters again (forced), unless another
+        machine is reading them right now. True when it read."""
+        if db.engine.dialect.name != "postgresql":
+            self.refresh(force=True)
+            return True
+        conn = db.engine.connect()
+        try:
+            if not conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": POLL_LOCK_KEY}).scalar():
+                return False
+            try:
+                self.refresh(force=True)
+            finally:
+                conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": POLL_LOCK_KEY})
+                conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    @staticmethod
+    def start_poller(app):
+        """Start the background roster read once per process; no-op when
+        ROSTER_POLL_SECONDS is 0. Opens its own app context per read."""
+        interval = app.config.get("ROSTER_POLL_SECONDS", 0)
+        if not interval or interval <= 0 or _poller["started"]:
+            return
+        _poller["started"] = True
+
+        def loop():
+            time.sleep(10)  # let the app finish starting
+            while True:
+                try:
+                    with app.app_context():
+                        RosterService().poll_once()
+                except Exception:  # noqa: BLE001 — never let the poller thread die
+                    logger.exception("roster poll failed")
+                time.sleep(interval)
+
+        threading.Thread(target=loop, name="roster-poller", daemon=True).start()
 
     @staticmethod
     def _mirror(roster, people):
@@ -220,10 +270,12 @@ class RosterService:
             rows = [r for r in rows if text_ in (r["name"] or "").lower()
                     or text_ in (r["employee_code"] or "").lower()]
         rows.sort(key=lambda r: (SHIFT_ORDER.get(r["shift"], 8), (r["name"] or "").lower()))
-        return {"rows": rows, "date": (state["day"] or date.today()).isoformat(), "rosters": state["status"]}
+        return {"rows": rows, "date": (state["day"] or date.today()).isoformat(), "rosters": state["status"],
+                "read_at": state.get("read_at"),
+                "poll_seconds": current_app.config.get("ROSTER_POLL_SECONDS", 0)}
 
 
 def reset_cache():
     """Forget the last read (tests, and a forced refresh)."""
     with _lock:
-        _cache.update(at=0.0, day=None, duty={}, status=[])
+        _cache.update(at=0.0, day=None, duty={}, status=[], read_at=None)

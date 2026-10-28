@@ -98,3 +98,23 @@ def test_a_roster_person_is_read_only_here_and_takes_parts_without_a_mobile(rost
     SpareStockService().set_quantity(part.id, 5, txn_type="OPENING")
     out = SpareStockService().issue(part.id, 1, dept.name, employee_id=aman.id, user="store")
     assert (out["issue"]["issued_to"], out["issue"].get("issued_to_code")) == ("AMAN", "R483")
+
+
+def test_the_background_read_keeps_the_master_up_to_date(rosters, app):
+    """28 Oct 2026: "employee master autoupdate hota rhe" — the poller's read
+    is forced, so a change in the roster reaches the Employee master even
+    while the last on-screen read is still fresh."""
+    RosterService().on_duty()
+    rosters["MAINTENANCE"][0].append(_person(9, "NEW JOINER", "R900"))
+    rosters["MAINTENANCE"][1]["9"] = "B"
+    assert RosterService().poll_once() is True
+    new = Employee.query.filter_by(source="MAINTENANCE", external_id="9").one()
+    assert (new.name, new.employee_code, new.is_active) == ("NEW JOINER", "R900", True)
+    out = RosterService().on_duty(q="R900")
+    assert [r["name"] for r in out["rows"]] == ["NEW JOINER"] and out["read_at"]
+
+
+def test_the_poller_is_off_at_0(app):
+    app.config["ROSTER_POLL_SECONDS"] = 0
+    RosterService.start_poller(app)
+    assert roster_service._poller["started"] is False

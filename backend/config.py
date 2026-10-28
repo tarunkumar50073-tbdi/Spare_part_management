@@ -94,6 +94,9 @@ class Config:
     # Background ERP-sync interval in seconds; 0 disables the poller (the
     # "Sync Now" endpoint still works on demand).
     ERP_SYNC_POLL_SECONDS = int(os.getenv("ERP_SYNC_POLL_SECONDS", "0"))
+    # How often the Maintenance / Tool Room rosters are read into the Employee
+    # master by themselves (roster_service); 0 = only when a screen asks.
+    ROSTER_POLL_SECONDS = int(os.getenv("ROSTER_POLL_SECONDS", "300"))
 
     # --- Outbound e-mail (window-time daily auto-mail). Backend-only.
     # SMTP_PASSWORD is the only real secret and lives ONLY in the git-ignored
