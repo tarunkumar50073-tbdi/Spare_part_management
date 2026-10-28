@@ -73,14 +73,13 @@ export default function PartKiosk() {
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
-  // Back is one step back (the store, 28 Oct 2026: both tiles went to the main
-  // dashboard): an open part goes back to its search list; the list goes back
-  // to the screen the Kiosk was opened from. With no part open and opened from
-  // the main dashboard (or straight on the kiosk) only Home shows — a second
-  // tile to the same place read as Back not working.
+  // Back goes to the screen the Kiosk was opened from — on the list only: an
+  // open part has its own big "Back to results" (the store, 28 Oct 2026:
+  // "isme back to result bhi h and back button bhi"). Opened from the main
+  // dashboard (or straight on the kiosk) only Home shows — a second tile to
+  // the same place read as Back not working.
   const leaves = inApp && Boolean(from) && from !== home && from !== "/";
-  const canBack = Boolean(open) || leaves;
-  const back = () => (open ? setOpen(null) : navigate(-1));
+  const canBack = !open && leaves;
   const input = useRef(null);
   // Where the list was scrolled when a part was opened, to come back to it.
   const listY = useRef(0);
@@ -133,13 +132,12 @@ export default function PartKiosk() {
             </div>
             {can(user, "spare_store") && (
               <span className="flex shrink-0 items-center gap-2">
-                {/* Back one step and Home to the main dashboard — the top
+                {/* Back (canBack) and Home to the main dashboard — the top
                     bar's own tiles (the store, 28 Oct 2026: "jahan se ise khola
                     usi par nhi jata", "icon app me jo already h usi type k use
                     kar"). */}
                 {canBack && (
-                  <button type="button" onClick={back} title={open ? "Back to the list" : "Back"}
-                    aria-label={open ? "Back to the list" : "Go back"} className={TILE_BTN}>
+                  <button type="button" onClick={() => navigate(-1)} title="Back" aria-label="Go back" className={TILE_BTN}>
                     <IconTile emoji="⬅️" color="#94a3b8" size={36} light={!dark} className={TILE_HOVER} />
                   </button>
                 )}
@@ -256,7 +254,7 @@ function PartScreen({ part, onBack }) {
   const spec = [part.specification, part.model_no && `Model ${part.model_no}`].filter(Boolean).join(" · ");
   return (
     <section aria-label={`${part.part_no} — ${part.part_name}`}
-      className="flex min-h-0 w-full flex-1 flex-col">
+      className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-3 px-4 pt-4 sm:px-6">
         <button type="button" onClick={onBack}
           className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-navy-900 px-5 py-3 text-base font-bold text-white hover:bg-navy-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared dark:bg-white dark:text-navy-900">
