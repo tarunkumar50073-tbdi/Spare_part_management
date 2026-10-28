@@ -2,11 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Mail, Search, Settings2 } from "lucide-react";
-import Modal from "../../components/Modal.jsx";
-import ErrorState from "../../components/ErrorState.jsx";
-import { useCan } from "../../components/Can.jsx";
-import { inputCls } from "../../components/scan/forms/flow.js";
-import { useStores } from "../../context/StoreContext.jsx";
+import Modal from "../Modal.jsx";
+import ErrorState from "../ErrorState.jsx";
+import { useCan } from "../Can.jsx";
+import { inputCls } from "../scan/forms/flow.js";
 import { fmtDate, num } from "../../lib/format.js";
 import { rejectionService } from "../../services/rejectionService.js";
 import { newRequestId } from "../../services/challanService.js";
@@ -23,6 +22,9 @@ import { newRequestId } from "../../services/challanService.js";
 // reachable); "Open mail in Outlook" hands over the mail as a ready draft in the
 // store's own format — the store presses Send; the app sends nothing itself.
 // Below, the mails made, to open one again. Never moves stock.
+//
+// Opened from Short & Rejection ("Rejection mail →" on the Rejection tab), not a
+// screen of its own since 28 Oct 2026 ("haan short & rejection me daal de").
 
 const KIND_PILL = { SRV: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300", LINE: "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200" };
 const errText = (e) => e?.response?.data?.message || e?.message || "Something went wrong";
@@ -46,8 +48,7 @@ function useDebounced(text, ms = 250) {
 
 const mailName = (r) => `${r.request_no} ${r.ven_name} rejection.eml`;
 
-export default function RejectionRequests() {
-  const { activeCode } = useStores();
+export default function RejectionMailDialog({ storeCode: activeCode, onClose }) {
   const canCreate = useCan("rejection_request", "create");   // C: make a mail
   const canEdit = useCan("rejection_request", "update");     // E: mail settings, open a mail draft
   const qc = useQueryClient();
@@ -63,67 +64,66 @@ export default function RejectionRequests() {
   const openMail = (r) => rejectionService.downloadMail(r.id, mailName(r)).catch((e) => toast.error(errText(e)));
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Rejection Mail</h2>
-          <p className="mt-0.5 text-xs text-slate-400">The mail to RQC to punch an SRV / line rejection — it opens in Outlook, ready to send.</p>
+    <Modal open onClose={onClose} size="full" title="Rejection mail">
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="min-w-0 text-xs text-slate-400">The mail to RQC to punch an SRV / line rejection — it opens in Outlook, ready to send.</p>
+          {canEdit && (
+            <button type="button" className="btn-secondary" onClick={() => setSettingsOpen(true)} title="Who the mail goes to">
+              <Settings2 size={15} aria-hidden="true" /> Mail settings
+            </button>
+          )}
         </div>
-        {canEdit && (
-          <button type="button" className="btn-secondary" onClick={() => setSettingsOpen(true)} title="Who the mail goes to">
-            <Settings2 size={15} aria-hidden="true" /> Mail settings
-          </button>
+
+        {canCreate ? (
+          <MailForm storeCode={activeCode} onMade={(row) => { qc.invalidateQueries({ queryKey: ["rejections", "list"] }); openMail(row); }} />
+        ) : (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">You can see the mails made. Making one needs the Rejection Mail edit right.</p>
         )}
-      </div>
 
-      {canCreate ? (
-        <MailForm storeCode={activeCode} onMade={(row) => { qc.invalidateQueries({ queryKey: ["rejections", "list"] }); openMail(row); }} />
-      ) : (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">You can see the mails made. Making one needs the Rejection Mail edit right.</p>
-      )}
-
-      <div className="card p-0">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
-          <h3 className="text-[14px] font-bold text-slate-800 dark:text-white">Mails made</h3>
-          <span className="relative">
-            <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input className="input-field w-64 py-1.5 pl-8 text-[13px]" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Supplier, part, GRN, challan…" />
-          </span>
-        </div>
-        {list.isError ? <div className="p-4"><ErrorState title="The list did not load" message={errText(list.error)} onRetry={() => list.refetch()} /></div> : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-left text-[12.5px]">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
-                <tr>{["Made", "Kind", "Supplier", "Part", "Qty", "GRN / Challan", "Remark", ""].map((h) => <th key={h} className="whitespace-nowrap px-3 py-2.5 font-semibold">{h}</th>)}</tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
-                {(list.data?.rows || []).map((r) => (
-                  <tr key={r.id} className="align-top text-slate-700 dark:text-slate-200">
-                    <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(r.created_at)}</div><div className="text-[11px] text-slate-400">{r.created_by}</div></td>
-                    <td className="px-3 py-2.5"><span className={`badge ${KIND_PILL[r.kind]}`}>{r.kind_label}</span></td>
-                    <td className="px-3 py-2.5"><div className="max-w-[200px] truncate" title={r.ven_name}>{r.ven_name}</div></td>
-                    <td className="px-3 py-2.5"><div className="font-mono font-semibold">{r.item_cd}</div><div className="max-w-[200px] truncate text-[11px] text-slate-400" title={r.item_desc}>{r.item_desc}</div></td>
-                    <td className="whitespace-nowrap px-3 py-2.5 tabular">{num(r.qty)} {r.uom}</td>
-                    <td className="px-3 py-2.5"><div>{r.grn_no || "—"}</div><div className="text-[11px] text-slate-400">{r.challan_no ? `Challan ${r.challan_no}` : ""}</div></td>
-                    <td className="px-3 py-2.5"><div className="max-w-[180px] truncate" title={r.remark}>{r.remark}</div></td>
-                    <td className="px-3 py-2.5 text-right">
-                      {canEdit && (
-                        <button type="button" onClick={() => openMail(r)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-toyotared hover:underline">
-                          <Mail size={13} aria-hidden="true" /> Open mail
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {list.data && list.data.total === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">{asked ? "No mail matches." : "No rejection mail made yet."}</p>}
+        <div className="card p-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
+            <h3 className="text-[14px] font-bold text-slate-800 dark:text-white">Mails made</h3>
+            <span className="relative">
+              <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input className="input-field w-64 py-1.5 pl-8 text-[13px]" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Supplier, part, GRN, challan…" />
+            </span>
           </div>
-        )}
-      </div>
+          {list.isError ? <div className="p-4"><ErrorState title="The list did not load" message={errText(list.error)} onRetry={() => list.refetch()} /></div> : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-left text-[12.5px]">
+                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
+                  <tr>{["Made", "Kind", "Supplier", "Part", "Qty", "GRN / Challan", "Remark", ""].map((h) => <th key={h} className="whitespace-nowrap px-3 py-2.5 font-semibold">{h}</th>)}</tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+                  {(list.data?.rows || []).map((r) => (
+                    <tr key={r.id} className="align-top text-slate-700 dark:text-slate-200">
+                      <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(r.created_at)}</div><div className="text-[11px] text-slate-400">{r.created_by}</div></td>
+                      <td className="px-3 py-2.5"><span className={`badge ${KIND_PILL[r.kind]}`}>{r.kind_label}</span></td>
+                      <td className="px-3 py-2.5"><div className="max-w-[200px] truncate" title={r.ven_name}>{r.ven_name}</div></td>
+                      <td className="px-3 py-2.5"><div className="font-mono font-semibold">{r.item_cd}</div><div className="max-w-[200px] truncate text-[11px] text-slate-400" title={r.item_desc}>{r.item_desc}</div></td>
+                      <td className="whitespace-nowrap px-3 py-2.5 tabular">{num(r.qty)} {r.uom}</td>
+                      <td className="px-3 py-2.5"><div>{r.grn_no || "—"}</div><div className="text-[11px] text-slate-400">{r.challan_no ? `Challan ${r.challan_no}` : ""}</div></td>
+                      <td className="px-3 py-2.5"><div className="max-w-[180px] truncate" title={r.remark}>{r.remark}</div></td>
+                      <td className="px-3 py-2.5 text-right">
+                        {canEdit && (
+                          <button type="button" onClick={() => openMail(r)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-toyotared hover:underline">
+                            <Mail size={13} aria-hidden="true" /> Open mail
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {list.data && list.data.total === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">{asked ? "No mail matches." : "No rejection mail made yet."}</p>}
+            </div>
+          )}
+        </div>
 
-      {settingsOpen && <MailSettings onClose={() => setSettingsOpen(false)} />}
-    </div>
+        {settingsOpen && <MailSettings onClose={() => setSettingsOpen(false)} />}
+      </div>
+    </Modal>
   );
 }
 

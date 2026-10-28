@@ -61,7 +61,6 @@ const ErpControlCenter = React.lazy(() => import("./pages/spare/ErpControlCenter
 const ReceivingMonitor = React.lazy(() => import("./pages/spare/ReceivingMonitor.jsx"));
 const ShortRejection = React.lazy(() => import("./pages/spare/ShortRejection.jsx"));
 const ChallanRegister = React.lazy(() => import("./pages/spare/ChallanRegister.jsx"));
-const RejectionRequests = React.lazy(() => import("./pages/spare/RejectionRequests.jsx"));
 const PacketManagement = React.lazy(() => import("./pages/spare/PacketManagement.jsx"));
 const JobWork = React.lazy(() => import("./pages/spare/JobWork.jsx"));
 const DataBrowser = React.lazy(() => import("./pages/DataBrowser.jsx"));
@@ -278,7 +277,8 @@ function AuthenticatedApp() {
           {/* Urgent spares in on a supplier challan before the PO / invoice — a register only, never stock (21 Oct 2026). */}
           <Route path="/challans" element={<RequirePermission mod="challan_register"><ChallanRegister /></RequirePermission>} />
           {/* The one mail to RQC to punch an SRV / line rejection (22 Oct 2026). */}
-          <Route path="/rejection-requests" element={<RequirePermission mod="rejection_request"><RejectionRequests /></RequirePermission>} />
+          {/* Rejection Mail opens from Short & Rejection's Rejection tab since 28 Oct 2026. */}
+          <Route path="/rejection-requests" element={<Navigate to="/short-rejection?tab=rejection" replace />} />
           <Route path="/spare-packets" element={<RequirePermission mod="spare_packets"><PacketManagement /></RequirePermission>} />
           <Route path="/job-work" element={<RequirePermission mod="scan_part"><JobWork /></RequirePermission>} />
           <Route path="/inventory-control" element={<RequirePermission mod="inventory_control"><InventoryControl /></RequirePermission>} />

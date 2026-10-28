@@ -43,7 +43,6 @@ const TITLES = {
   "/consumption": "Issuance & Consumption Report",
   "/receiving": "Receiving & GRN",
   "/challans": "Urgent Challan Register",
-  "/rejection-requests": "Rejection Mail",
   "/erp-control": "ERP Control Center",
   "/data-quality": "Data Quality",
   "/notifications": "Notification Center",

@@ -93,11 +93,6 @@ SERVICES = [
      "category": "Inventory", "icon": "🧾", "mod": "challan_register",
      "keywords": ["urgent challan", "challan", "delivery challan", "dc", "challan register", "invoice pending",
                   "po pending", "po approval", "link invoice", "grn pending", "gate register", "breakdown"]},
-    # The one mail to RQC to punch an SRV / line rejection (22 Oct 2026).
-    {"key": "rejection_requests", "title": "Rejection Mail", "route": "/rejection-requests",
-     "category": "Inventory", "icon": "↩️", "mod": "rejection_request",
-     "keywords": ["rejection", "reject", "srv rejection", "line rejection", "rqc", "punch rejection",
-                  "rejection mail", "outlook"]},
     {"key": "data_quality", "title": "Data Quality", "route": "/data-quality",
      "category": "Masters", "icon": "🛡️", "mod": "part_master",
      "keywords": ["data quality", "missing", "min", "max", "rate", "location", "completeness"]},
@@ -119,7 +114,9 @@ SERVICES = [
      "keywords": ["rejection", "rejected", "reject", "short receipt", "short supply", "short received",
                   "supplier rejection", "srv rejection", "line rejection", "rejection invoice",
                   "debit note", "replacement", "lot", "days pending",
-                  "kam aaya", "maal kam", "rejection kitne din"]},
+                  "kam aaya", "maal kam", "rejection kitne din",
+                  # The Rejection Mail opens from its Rejection tab (28 Oct 2026).
+                  "rqc", "punch rejection", "rejection mail", "outlook"]},
     {"key": "gate_entry", "title": "Gate Entry", "route": "/gate-entry",
      "category": "Receiving", "icon": "🚚", "mod": "gate_entry",
      "keywords": ["gate", "entry", "receiving", "arrival", "inward", "vehicle"]},

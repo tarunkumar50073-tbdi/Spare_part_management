@@ -6,7 +6,7 @@ import {
   ClipboardList, Clock3, Container, Factory, FileChartColumn, FileText, Grid3x3, History, LayoutDashboard,
   Mail, Mails, Send, Settings2, Workflow, Package, PanelLeftClose, PanelLeftOpen, Scale,
   Bell, Inbox, PackageCheck, PackageX, ScanBarcode, ScanSearch, ScrollText, Search, ServerCog, Settings, ShieldCheck, Siren,
-  Store, TrafficCone, TrendingUp, Truck, UserCog, Users, Warehouse, Wrench, FileClock, Undo2, QrCode,
+  Store, TrafficCone, TrendingUp, Truck, UserCog, Users, Warehouse, Wrench, FileClock, QrCode,
 } from "lucide-react";
 import Glyph, { sectionIcon } from "./Glyph.jsx";
 import IconTile from "./IconTile.jsx";
@@ -144,7 +144,6 @@ const NAV_BY_STORE = {
         // Urgent spares in on a supplier challan before the PO / invoice (21 Oct 2026).
         { to: "/challans", label: "Urgent Challan Register", short: "Urgent Challan", icon: FileClock, mod: "challan_register" },
         // The one mail to RQC to punch an SRV / line rejection (22 Oct 2026).
-        { to: "/rejection-requests", label: "Rejection Mail", short: "Rejection Mail", icon: Undo2, mod: "rejection_request" },
         { to: "/gate-entry", label: "Gate Entry", icon: Truck, mod: "gate_entry" },
         { to: "/vehicle-in-out", label: "Vehicle In / Out", icon: TrafficCone, mod: "vehicle_in_out" },
       ],

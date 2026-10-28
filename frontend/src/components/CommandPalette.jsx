@@ -23,7 +23,7 @@ const NAV = [
   { label: "Receiving & GRN", to: "/receiving", mod: "receiving", keywords: "grn srv receipt receiving inward aging" },
   { label: "Short & Rejection", to: "/short-rejection", mod: "short_rejection", keywords: "short receipt supply rejection rejected reject srv rejection line rejection supplier lot rejection invoice days pending kam aaya" },
   { label: "Urgent Challan Register", to: "/challans", mod: "challan_register", keywords: "urgent challan delivery challan dc without invoice po pending approval invoice later link invoice grn pending breakdown production critical gate register" },
-  { label: "Rejection Mail", to: "/rejection-requests", mod: "rejection_request", keywords: "rejection reject srv rejection line rejection rqc punch mail rejection mail outlook" },
+  { label: "Rejection Mail", to: "/short-rejection?tab=rejection", mod: "rejection_request", keywords: "rejection reject srv rejection line rejection rqc punch mail rejection mail outlook" },
   { label: "ERP Control Center", to: "/erp-control", mod: "erp_control", keywords: "erp sync status reconciliation error pending" },
   { label: "Data Quality", to: "/data-quality", mod: "data_quality", keywords: "missing min max rate location barcode completeness" },
   { label: "Action Tracker", to: "/action-tracker", mod: "action_tracker", keywords: "issues owner action by target date overdue open points management summary" },

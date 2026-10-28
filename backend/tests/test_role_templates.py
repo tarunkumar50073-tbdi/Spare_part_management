@@ -152,7 +152,7 @@ def test_staff_screens():
     opens = _opens("store_staff")
     assert {"/store/MAINTENANCE", "/scan-part", "/work-queue", "/store-stock-spare",
             "/inventory-control", "/spare-part-history", "/reports", "/employees",
-            "/receiving", "/consumption", "/action-tracker", "/rejection-requests"} <= opens
+            "/receiving", "/consumption", "/action-tracker", "/short-rejection"} <= opens
     assert not opens & {"/parts", "/equipment", "/data-quality", "/departments", "/scan-audit", "/audit-trail",
                         "/spare-erp-gap", "/erp-control", "/confirm-installation",
                         "/live-dashboard"}
@@ -169,7 +169,7 @@ def test_manager_sees_the_store_but_no_work_screen():
     opens = _opens("manager")
     assert {"/store/MAINTENANCE", "/store-stock-spare", "/inventory-control", "/spare-part-history",
             "/spare-erp-gap", "/erp-control", "/reports", "/audit-trail", "/live-dashboard",
-            "/receiving", "/consumption", "/action-tracker", "/challans", "/rejection-requests"} <= opens
+            "/receiving", "/consumption", "/action-tracker", "/challans", "/short-rejection"} <= opens
     assert not opens & WRITE_SCREENS
 
 

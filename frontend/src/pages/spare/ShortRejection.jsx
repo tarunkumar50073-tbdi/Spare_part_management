@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   CalendarClock, CalendarRange, Database, FileDown, FileText, Inbox, IndianRupee, Info, PackageMinus,
@@ -15,6 +15,7 @@ import { NO_ROWS } from "../../lib/stockQueries.js";
 import { compactMoney, money, num } from "../../lib/format.js";
 import { shortRejectionService } from "../../services/shortRejectionService.js";
 import ShortMailDialog from "../../components/spare/ShortMailDialog.jsx";
+import RejectionMailDialog from "../../components/spare/RejectionMailDialog.jsx";
 
 // Short & Rejection — what suppliers sent short, and what was rejected, on this
 // store's ERP GRN lines, supplier-wise and line by line, with the days each has
@@ -171,6 +172,7 @@ export default function ShortRejection() {
   const canMakeShortMail = useCan("short_mail", "create");
   const canShortMailTo = useCan("short_mail", "update");
   const [shortMail, setShortMail] = useState(false);
+  const [rejectionMail, setRejectionMail] = useState(false);
   const { activeCode, activeStore } = useStores();
   const { openPart } = usePartDrawer();
   const code = activeCode;
@@ -266,9 +268,10 @@ export default function ShortRejection() {
         <span className="flex items-center gap-2">
           {q.isFetching && d && <span className="text-[11px] text-slate-400">Updating…</span>}
           {/* The mail to RQC to punch a rejection — on the Rejection tab only
-              (25 Oct 2026: "short me bhi rejection mail dikha rha h"). */}
+              (25 Oct 2026: "short me bhi rejection mail dikha rha h"); opens
+              here, no screen of its own (28 Oct 2026). */}
           {canRejections && tab === "rejection" && (
-            <Link to="/rejection-requests" className="btn-secondary text-[12.5px]">Rejection mail →</Link>
+            <button type="button" className="btn-secondary text-[12.5px]" onClick={() => setRejectionMail(true)}>Rejection mail →</button>
           )}
           {/* The mail to Purchase for material received short — on the Short
               tab only, apart from the Rejection Mail (25 Oct 2026). */}
@@ -360,6 +363,7 @@ export default function ShortRejection() {
         <ShortMailDialog lines={tab === "short" && d && !stale && !unreadable ? d.lines : []} storeCode={code}
           canMake={canMakeShortMail} canSettings={canShortMailTo} onClose={() => setShortMail(false)} />
       )}
+      {rejectionMail && <RejectionMailDialog storeCode={code} onClose={() => setRejectionMail(false)} />}
     </div>
   );
 }
