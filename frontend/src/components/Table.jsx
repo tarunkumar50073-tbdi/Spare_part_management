@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { matchesAll, wordMatchers } from "../lib/wordSearch.js";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, Download, Search } from "lucide-react";
 import { downloadCsv, downloadXlsx } from "../utils/excel.js";
 
@@ -86,17 +87,19 @@ export default function Table({
     [columns],
   );
 
+  // Each row's searchable text, once per rows / columns rather than per key.
+  const haystacks = useMemo(() => safeRows.map((row) => columns.map((col) => {
+    const raw = col.searchValue ? col.searchValue(row) : row[col.key];
+    return raw == null || typeof raw === "object" ? "" : String(raw).toLowerCase();
+  }).join(" \u0001 ")), [safeRows, columns]);
+
+  // Word by word, in any order, a plural finding its singular (28 Oct 2026:
+  // "bearing", "6204 bearing", "bolts") — lib/wordSearch.js.
   const searched = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return safeRows;
-    return safeRows.filter((row) =>
-      columns.some((col) => {
-        const raw = col.searchValue ? col.searchValue(row) : row[col.key];
-        if (raw == null || typeof raw === "object") return false;
-        return String(raw).toLowerCase().includes(q);
-      }),
-    );
-  }, [safeRows, columns, query]);
+    const matchers = wordMatchers(query);
+    if (!matchers.length) return safeRows;
+    return safeRows.filter((_, i) => matchesAll(haystacks[i], matchers));
+  }, [safeRows, haystacks, query]);
 
   const sorted = useMemo(() => {
     if (!sort.key) return searched;

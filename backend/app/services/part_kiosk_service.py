@@ -8,7 +8,7 @@ model no., photos, how many are in stock, where it sits and its section ("sabhi
 option", 25 Oct 2026) — never a rate, a value, a stock level or a supplier.
 Nothing here writes.
 """
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func
 
 from app.extensions import db
 from app.models.part import Part
@@ -30,21 +30,22 @@ class PartKioskService:
 
     def search(self, store_code, q, page=1, per_page=PER_PAGE):
         """The store's active parts matching every typed word — in the Part No.,
-        old / new Part No., name, specification or model no. — an exact Part No.
-        first. Each with its stock, place, section and photos."""
+        old / new Part No., name, category, specification or model no.; a plural
+        finds its singular (28 Oct 2026) — an exact Part No. first. Each with its
+        stock, place, section and photos."""
         text = " ".join((q or "").split())
         if len(text) < MIN_TEXT:
             return {"rows": [], "total": 0, "page": 1, "pages": 0, "q": text}
         page = max(1, int(page or 1))
         per_page = max(1, min(int(per_page or PER_PAGE), MAX_PER_PAGE))
-        fields = (Part.part_no, Part.old_part_no, Part.new_part_no, Part.part_name, Part.specification, Part.model_no)
+        fields = (Part.part_no, Part.old_part_no, Part.new_part_no, Part.part_name, Part.sub_category,
+                  Part.specification, Part.model_no)
         query = (db.session.query(Part, SpareStock.qty_on_hand, Section.name)
                  .outerjoin(SpareStock, SpareStock.part_id == Part.id)
                  .outerjoin(Section, Section.id == Part.section_id)
                  .filter(Part.store_code == store_code, Part.is_active.is_(True)))
-        for word in text.split()[:6]:
-            like = f"%{word}%"
-            query = query.filter(or_(*(f.ilike(like) for f in fields)))
+        from app.utils.word_search import word_filters
+        query = query.filter(*word_filters(fields, text))
         total = query.count()
         exact = case((func.upper(Part.part_no) == text.upper(), 0), else_=1)
         rows = (query.order_by(exact, func.length(Part.part_no), Part.part_no)

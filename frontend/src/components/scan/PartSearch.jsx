@@ -2,6 +2,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { LoaderCircle, MapPin, Package, Search } from "lucide-react";
 import { useStockList } from "../../lib/stockQueries.js";
 import { num } from "../../lib/format.js";
+import { matchesAll, wordMatchers } from "../../lib/wordSearch.js";
 
 // Type-ahead over the store's parts — Part No., description, reference code or
 // rack location. It reads the shared cached stock list (lib/stockQueries), the
@@ -27,7 +28,7 @@ function rank(p, q) {
 
 export default function PartSearch({
   storeCode, onPick, onSubmitText, busy = false, autoFocus = true, clearOnPick = true,
-  placeholder = "Part No., description, spec or location…", label = "Search part",
+  placeholder = "Part No., description, category, spec or location…", label = "Search part",
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -45,8 +46,10 @@ export default function PartSearch({
   const q = query.trim().toLowerCase();
   const results = useMemo(() => {
     if (!q || !parts) return [];
+    // Word by word, any order, a plural finding its singular (28 Oct 2026).
+    const matchers = wordMatchers(q);
     return parts
-      .filter((p) => `${p.part_no || ""} ${p.part_name || ""} ${p.old_part_no || ""} ${p.new_part_no || ""} ${p.specification || ""} ${p.location || ""}`.toLowerCase().includes(q))
+      .filter((p) => matchesAll(`${p.part_no || ""} ${p.part_name || ""} ${p.type_name || ""} ${p.old_part_no || ""} ${p.new_part_no || ""} ${p.specification || ""} ${p.model_no || ""} ${p.location || ""}`.toLowerCase(), matchers))
       .map((p) => [rank(p, q), p])
       .sort((a, b) => a[0] - b[0] || String(a[1].part_no).localeCompare(String(b[1].part_no)))
       .slice(0, MAX_RESULTS)

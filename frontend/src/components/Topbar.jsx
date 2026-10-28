@@ -363,7 +363,7 @@ export default function Topbar({ title, showSearch = true }) {
                     className="w-full rounded-full border border-slate-200 dark:border-navy-700 bg-slate-50 dark:bg-navy-800 pl-9 pr-4 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-toyotared/40 focus:border-toyotared transition"
                     placeholder={childParts
                       ? "Search Part No, Old Part No or Part Name..."
-                      : "Search Part No or Part Name..."}
+                      : "Search Part No, name, category, spec… e.g. bearing 6204"}
                     value={query}
                     onChange={(e) => {
                       setQuery(e.target.value);

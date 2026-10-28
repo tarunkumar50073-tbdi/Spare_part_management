@@ -95,20 +95,16 @@ class PartRepository(BaseRepository):
                category=None, sub_category=None, rack=None):
         query = self.model.query
         if keyword:
-            # Partial match (so a part is found without typing the whole code)
-            # across the Part No., its old / new numbers, the description and the
-            # supplier (code or name). A left join keeps parts with no supplier.
-            like = f"%{keyword.strip()}%"
-            query = query.outerjoin(Supplier, self.model.supplier_id == Supplier.id).filter(
-                (self.model.part_no.ilike(like))
-                | (self.model.part_name.ilike(like))
-                | (self.model.specification.ilike(like))
-                | (self.model.model_no.ilike(like))
-                | (self.model.old_part_no.ilike(like))
-                | (self.model.new_part_no.ilike(like))
-                | (Supplier.vendor_code.ilike(like))
-                | (Supplier.supplier_name.ilike(like))
-            )
+            # Partial match (so a part is found without typing the whole code),
+            # word by word in any order (28 Oct 2026: "bearing", "bolt m8",
+            # "6204 bearing"), across the Part No., its old / new numbers, the
+            # description, the category, spec, model and the supplier (code or
+            # name). A left join keeps parts with no supplier.
+            from app.utils.word_search import word_filters
+            m = self.model
+            query = query.outerjoin(Supplier, m.supplier_id == Supplier.id).filter(*word_filters(
+                (m.part_no, m.part_name, m.sub_category, m.specification, m.model_no, m.old_part_no,
+                 m.new_part_no, Supplier.vendor_code, Supplier.supplier_name), keyword))
         if is_active is not None:
             query = query.filter(self.model.is_active == is_active)
         if store_code:
