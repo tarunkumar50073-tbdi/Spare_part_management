@@ -63,7 +63,7 @@ PERMISSION_MODULES = [
     {"key": "live_dashboard", "label": "Live Dashboard"},
     # The read-only part search on the kiosk outside the spare store (25 Oct
     # 2026): a part, its photo, stock, place and section — no rate, no change.
-    {"key": "part_kiosk", "label": "Part Search Kiosk"},
+    {"key": "part_kiosk", "label": "Kiosk"},
     {"key": "gate_entry", "label": "Gate Entry"},
     # Urgent material on a supplier's delivery challan before its PO / invoice
     # (21 Oct 2026). A register only — the ERP GRN stays the one way stock goes up.

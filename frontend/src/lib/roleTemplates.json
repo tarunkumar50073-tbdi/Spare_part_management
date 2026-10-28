@@ -171,8 +171,8 @@
     },
     {
       "key": "part_kiosk",
-      "label": "Part Search Kiosk",
-      "short": "Part Search Kiosk",
+      "label": "Kiosk",
+      "short": "Kiosk",
       "description": "The kiosk outside the spare store: search a part and see its photo, stock, location and section. Read only — it changes nothing and stays signed in.",
       "role": "STORE_USER",
       "stores": ["MAINTENANCE"],

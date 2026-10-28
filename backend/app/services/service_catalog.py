@@ -48,7 +48,7 @@ SERVICES = [
      "category": "Inventory", "icon": "🛠️", "mod": "scan_part",
      "keywords": ["job work", "jobwork", "rgp", "challan", "coating", "isuzu", "oerlikon", "returnable",
                   "foc", "repair", "vendor"]},
-    {"key": "part_kiosk", "title": "Part Search Kiosk", "route": "/part-search",
+    {"key": "part_kiosk", "title": "Kiosk", "route": "/part-search",
      "category": "Inventory", "icon": "🔎", "mod": "part_kiosk",
      "keywords": ["part search", "kiosk", "find part", "photo", "kahan rakha", "kaha rakha", "dhoondo"]},
     {"key": "work_queue", "title": "Work Queue", "route": "/work-queue",

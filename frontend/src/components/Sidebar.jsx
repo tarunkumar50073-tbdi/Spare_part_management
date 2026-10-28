@@ -159,7 +159,8 @@ const NAV_BY_STORE = {
       label: "Master Data",
       items: [
         { to: "/parts", label: "Part Master", short: "Parts", icon: Bolt, mod: "part_master" },
-        { to: "/part-search", label: "Part Search Kiosk", short: "Part Search", icon: Search, mod: "part_kiosk" },
+        // Just "Kiosk" (the store, 28 Oct 2026: "part search kiosk okward sa lag rha h only kiosk rhne de").
+        { to: "/part-search", label: "Kiosk", short: "Kiosk", icon: Search, mod: "part_kiosk" },
         // Part photos rack by rack on a tablet (21 Oct 2026).
         { to: "/data-quality", label: "Data Quality", icon: ShieldCheck, mod: "data_quality" },
         // Supplier barcodes: no screen of their own — Scan Part's Barcodes panel.
