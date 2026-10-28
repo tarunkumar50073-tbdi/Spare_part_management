@@ -374,3 +374,18 @@ def test_a_reorder_level_below_the_minimum_is_the_stores_way():
     assert ids == {above.id} and below.id not in ids
     assert _hits(DataQualityService().summary(STORE, section_id=sec.id))["reorder_outside_min_max"]["label"] == "Reorder above maximum"
 
+
+
+def test_each_listed_part_carries_its_specification():
+    """28 Oct 2026: "missing data me spec nhi aa rha excel report me" — the
+    list (and so its Excel) gives the spec beside the description."""
+    n = _next()
+    store = Store.query.filter_by(code=STORE).first()
+    sec = Section(store_id=store.id, name=f"DQ Spec Section {n}")
+    db.session.add(sec)
+    db.session.commit()
+    with_spec = _part(sec, "SPEC", 1, specification="  6205-2RS  ")
+    no_spec = _part(sec, "NOSPEC", 1)
+    rows = DataQualityService().parts(STORE, "missing_max", section_id=sec.id)["rows"]
+    spec = {r["part_id"]: r["specification"] for r in rows}
+    assert spec == {with_spec.id: "6205-2RS", no_spec.id: None}

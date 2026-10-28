@@ -499,6 +499,14 @@ function CheckList({ meta, code, summary, canEdit, onClose }) {
         key: "part_name", label: "Description", sortable: true,
         render: (r) => <span className="block max-w-[280px] truncate" title={r.part_name}>{r.part_name}</span>,
       },
+      // The spec beside the description, on screen and in the Excel ("missing
+      // data me spec nhi aa rha excel report me", 28 Oct 2026).
+      {
+        key: "specification", label: "Specification", sortable: true,
+        render: (r) => (r.specification
+          ? <span className="block max-w-[220px] truncate" title={r.specification}>{r.specification}</span>
+          : blank),
+      },
     ];
     if (meta.key === "duplicate_names") {
       cols.push({

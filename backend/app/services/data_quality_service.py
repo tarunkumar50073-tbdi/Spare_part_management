@@ -161,6 +161,7 @@ class DataQualityService:
                 "part_id": pid,
                 "part_no": r["part_no"],
                 "part_name": r["part_name"],
+                "specification": (r.get("specification") or "").strip() or None,
                 "section_id": r["section_id"],
                 "section": scan["sections"].get(r["section_id"]),
                 "type": (r["sub_category"] or "").strip() or None,
