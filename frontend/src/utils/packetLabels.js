@@ -23,6 +23,8 @@ const esc = (s) => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const qtyText = (p) => {
+  // A preview before the packet quantity is typed shows the line, unfilled.
+  if (p.kind !== "UNIT" && (p.qty == null || p.qty === "")) return `Qty — ${p.uom || ""}`.trim();
   const q = Number(p.qty);
   const n = Number.isInteger(q) ? q : q.toFixed(2);
   return p.kind === "UNIT" ? "" : `Qty ${n} ${p.uom || ""}`.trim();
