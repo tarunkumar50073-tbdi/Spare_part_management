@@ -34,7 +34,7 @@ SERVICES = [
     {"key": "scan_part", "title": "Scan Part", "route": "/scan-part",
      "category": "Inventory", "icon": "📷", "mod": "scan_part",
      "keywords": ["scan", "barcode", "qr", "gun", "camera", "issue", "receive", "return",
-                  "location", "confirm", "installation", "rgp", "rework", "inspection",
+                  "location", "rgp", "rework", "inspection",
                   "supplier barcode", "mapping", "label"]},
     # The screens below were in the sidebar but not here, so Store Saathi
     # could not name them: "qr lable print karne h" got Reports and Scan Part
@@ -103,7 +103,7 @@ SERVICES = [
      "category": "Inventory", "icon": "📈", "mod": "spare_store",
      "keywords": ["issuance", "issue list", "issued", "issue report", "kisko diya", "kitna diya",
                   "issued to", "person", "consumption", "usage", "consumed", "net", "returned", "trend",
-                  "top parts", "department", "machine", "category", "yesterday", "last month",
+                  "top parts", "department", "category", "yesterday", "last month",
                   "financial year", "full pack"]},
     # Urgent material on a supplier's delivery challan before its PO / invoice
     # (21 Oct 2026): register it, link the invoice and the GRN when they come.

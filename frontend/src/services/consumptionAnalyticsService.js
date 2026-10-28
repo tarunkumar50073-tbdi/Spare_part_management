@@ -49,8 +49,7 @@ export const REPORT = {
     + "Pick a period and a view; download as Excel or PDF.",
   departmentHint: "The department that owns the part's section (who consumed it) — never the store, which only hands parts out",
   pack: "Summary, Issue list, Date-wise, Month-wise, Year-wise, Part-wise, Department-wise, Issued to Dept-wise, "
-    + "Issued to Dept & Part-wise, Person-wise, "
-    + "Line & Machine-wise and Category-wise",
+    + "Issued to Dept & Part-wise, Person-wise and Category-wise",
   views: [
     { key: "list", label: "Issue list", option: "Issue list (every issue)" },
     { key: "day", label: "Date-wise" },
@@ -65,7 +64,6 @@ export const REPORT = {
     { key: "issued_to", label: "Issued to Dept-wise", option: "Issued to department" },
     { key: "dept_part", label: "Issued to Dept & Part-wise", option: "Issued to department + part" },
     { key: "person", label: "Person-wise", option: "Person-wise (issued to)" },
-    { key: "machine", label: "Line / Machine-wise" },
     { key: "category", label: "Category-wise" },
   ],
 };

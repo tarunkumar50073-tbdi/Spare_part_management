@@ -4,7 +4,7 @@ import {
   Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  ArrowDown, ArrowUp, BarChart3, Boxes, Building2, ChevronRight, Cog, FileDown, Info, IndianRupee, Layers,
+  ArrowDown, ArrowUp, BarChart3, Boxes, Building2, ChevronRight, FileDown, Info, IndianRupee, Layers,
   ListOrdered, Minus, Package, Tags, Zap,
 } from "lucide-react";
 import CardHead from "../../components/CardHead.jsx";
@@ -122,7 +122,7 @@ function Charts({ from, to, section, dept, type, part, onFilter }) {
             {open && q.isFetching && d && <span className="ml-2 text-[11px] font-normal text-slate-400">Updating…</span>}
           </span>
           <span className="block text-[11px] text-slate-400">
-            Against the period before · top 10 parts · by department, section, type and machine · usage spikes
+            Against the period before · top 10 parts · by department, section and category · usage spikes
           </span>
         </span>
         <ChevronRight size={18} aria-hidden="true"
@@ -309,13 +309,8 @@ function Body({ d, colors, openPart, onFilter }) {
         <Breakdown icon={Tags} title="By category" rows={d.by_type} color={colors.current}
           hint="Part sub-category · click a bar to filter" empty={emptyMsg}
           onPick={(key) => onFilter({ type: key })} />
-        {/* Stage 1 (the store issue) carries no machine; the fitter records it on
-            confirming at Stage 2 — so most blanks are pending, not missing. Named
-            as the table's Line / Machine view names them (one rule, the server's
-            place_of). */}
-        <Breakdown icon={Cog} title="By machine" rows={d.by_machine} color={colors.current}
-          hint="Recorded when the fitter confirms installation · Not recorded yet = not installed yet · Installed, place not recorded = installed with no place given · Die / Line = fitted on a die, or a line with no machine"
-          empty={emptyMsg} />
+        {/* No By machine chart since 28 Oct 2026: nothing records a machine
+            since Confirm Installation went ("machine wala hissa hata de"). */}
       </div>
     </>
   );

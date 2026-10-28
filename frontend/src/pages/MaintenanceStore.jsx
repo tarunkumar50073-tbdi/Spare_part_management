@@ -516,7 +516,6 @@ const TODAY_OUT_COLUMNS = [
   { key: "department", label: "Department", sortable: true, render: (r) => r.department || "—" },
   { key: "issued_to", label: "Issued to", sortable: true,
     render: (r) => (r.issued_to ? `${r.issued_to}${r.issued_to_code ? ` (${r.issued_to_code})` : ""}` : "—") },
-  { key: "machine", label: "Machine", render: (r) => r.machine || "—" },
   { key: "created_by", label: "By", render: (r) => r.created_by || "—" },
 ];
 
@@ -1026,7 +1025,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
 
   // Consumption filters purely by a calendar From–To range now — no presets.
   // With no range set it shows all-time, straight off `ops` (no fetch); a range
-  // re-queries the three breakdowns. The cancel flag stops a fast re-pick from
+  // re-queries the two breakdowns. The cancel flag stops a fast re-pick from
   // landing an older range's rows after a newer one.
   const [consFrom, setConsFrom] = useState("");
   const [consTo, setConsTo] = useState("");
@@ -1049,18 +1048,16 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
     setConsLoading(true);
     Promise.all([
       spareStockService.consumption(STORE_CODE, "department", undefined, undefined, qFrom, qTo).then((r) => r.data.data).catch(() => []),
-      spareStockService.consumption(STORE_CODE, "machine", undefined, undefined, qFrom, qTo).then((r) => r.data.data).catch(() => []),
       spareStockService.consumption(STORE_CODE, "type", undefined, undefined, qFrom, qTo).then((r) => r.data.data).catch(() => []),
-    ]).then(([department, machine, type]) => {
+    ]).then(([department, type]) => {
       if (cancelled) return;
-      setRangedCons({ department, machine, type });
+      setRangedCons({ department, type });
       setConsLoading(false);
     });
     return () => { cancelled = true; };
   }, [custom, qFrom, qTo]);
 
   const deptData = rangedCons ? rangedCons.department : (overview?.consumption?.by_department || []);
-  const machineData = rangedCons ? rangedCons.machine : (overview?.consumption?.by_machine || []);
   const typeData = rangedCons ? rangedCons.type : (overview?.consumption?.by_type || []);
 
   // Consumed parts, ranked by issued qty (store-wide — this endpoint has no
@@ -1087,13 +1084,13 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
     return () => { cancelled = true; };
   }, [storeLevel]);
 
-  // The single donut opens a full-detail drill: machine + part-type breakdowns,
+  // The single donut opens a full-detail drill: its breakdown,
   // the daily trend — fetched only when the drill is opened (and refetched if
   // the range changes while open), so the summary page stays light. `consDrill`
-  // names which of the three donuts was drilled; that dimension leads the drill,
+  // names which of the donuts was drilled; that dimension leads the drill,
   // with the daily trend below. The ranked consumed-parts list is NOT repeated
   // here — it has one home, the "Top Consumed Parts" card on the page (store-wide
-  // either way), so the same list no longer appears in all three drills.
+  // either way), so the same list no longer appears in every drill.
   const [consDrill, setConsDrill] = useState(null);
   const [trendData, setTrendData] = useState([]);
   const [consDetailLoading, setConsDetailLoading] = useState(false);
@@ -1109,12 +1106,12 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
 
   const consTotal = deptData.reduce((s, d) => s + (Number(d.value) || 0), 0);
   const typeTotal = typeData.reduce((s, d) => s + (Number(d.value) || 0), 0);
-  const machineTotal = machineData.reduce((s, d) => s + (Number(d.value) || 0), 0);
   const consRangeTitle = custom ? `${consFrom} → ${consTo}` : "All time";
-  // One config drives both the three page donuts and the drill each opens.
+  // One config drives both the page donuts and the drill each opens. No
+  // machine donut since 28 Oct 2026: nothing records a machine since Confirm
+  // Installation went ("machine wala hissa hata de").
   const CONS_DIMS = [
     { key: "department", icon: Factory, tone: "violet", title: "By Department", pageTitle: "Department-wise", hint: "Share of issues by department", data: deptData, total: consTotal, empty: "Nothing issued in this range" },
-    { key: "machine", icon: Settings, tone: "green", title: "By Machine", pageTitle: "Machine-wise", hint: "Which machine eats the most spares", data: machineData, total: machineTotal, empty: "No machine recorded yet" },
     { key: "type", icon: Bolt, tone: "amber", title: "By Category", pageTitle: "Category", hint: "Sensor · Cylinder · Pin · Punch …", data: typeData, total: typeTotal, empty: "No part-type consumption yet" },
   ];
   const consFocus = CONS_DIMS.find((d) => d.key === consDrill) || null;
@@ -1680,9 +1677,9 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
             </div>
           </div>
 
-          {/* Three donuts side by side — the wide row had the room. Tapping any
+          {/* The donuts side by side — the wide row had the room. Tapping any
               one opens its own drill with the daily trend and consumed parts. */}
-          <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 transition-opacity ${consLoading ? "opacity-50" : ""}`}>
+          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 transition-opacity ${consLoading ? "opacity-50" : ""}`}>
             {CONS_DIMS.map((dim) => (
               <div key={dim.key} role="button" tabIndex={0}
                 onClick={() => setConsDrill(dim.key)}

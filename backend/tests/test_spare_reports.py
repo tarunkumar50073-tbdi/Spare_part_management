@@ -400,12 +400,12 @@ def test_issue_register_status_words(make):
     assert (rows[waiting]["Emp Code"], rows[waiting]["Issued To"]) == (emp.employee_code, emp.name)
     assert "Mobile" not in rows[waiting]                       # no mobile anywhere (27 Oct 2026)
     assert rows[waiting]["Reference"] == f"REQ-{_TAG}-1"
-    assert rows[waiting]["Used Qty"] is None and rows[waiting]["Still Out"] == 3
-    assert rows[none_used]["Status"] == "Not used yet" and rows[none_used]["Used Qty"] == 0
-    assert rows[none_used]["Line"] == "Seat Slider 03" and rows[none_used]["Machine"] == "MC-1"
-    assert rows[partly]["Status"] == "Partly used" and rows[partly]["Used Qty"] == 1
-    assert rows[full]["Status"] == "Installed" and rows[full]["Used Qty"] == 3
-    assert rows[full]["Die"] == "D-7"
+    assert rows[waiting]["Still Out"] == 3
+    assert rows[none_used]["Status"] == "Not used yet"
+    assert rows[partly]["Status"] == "Partly used"
+    assert rows[full]["Status"] == "Installed"
+    # No Line / Machine / Die / Used Qty: nothing records them since 27 Oct 2026.
+    assert not {"Line", "Machine", "Die", "Used Qty"} & set(rows[full])
     assert rows[back]["Status"] == "Partly returned"
     assert (rows[back]["Qty Issued"], rows[back]["Returned Qty"], rows[back]["Still Out"]) == (3, 1, 2)
     # Department is who took it, as typed; Consumer the owner of the part's section.

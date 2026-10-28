@@ -50,7 +50,7 @@ _seq = {"n": 0}
 URL = "/api/v1/consumption-analytics/table"
 # The report's views, in the View dropdown's order: the Issue list first.
 VIEWS = ["list", "day", "week", "month", "year", "fy", "part", "department", "issued_to", "dept_part", "person",
-         "machine", "category"]
+         "category"]
 # The views that count Issues per row (the Issue list counts them in its subtotals).
 TABLE_VIEWS = [v for v in VIEWS if v != "list"]
 VIEW = {"consumption": {"view": True}}
@@ -512,62 +512,6 @@ def test_part_view(make, plant_at):
         (6, 18, 55, 1, 17, 45)]
 
 
-def test_line_and_machine_view(make, plant_at):
-    f = _consumption_floor(make, plant_at)
-    rows = _view(f.s, "machine", *SPRING)
-    # Within a department: Net Qty first (MC-2 before MC-1), then the names.
-    assert _cut(rows, "Department", "Line", "Machine", *FIGURES) == [
-        (f.zed, None, "Not recorded yet", 1, 1, 4, None, 0, 4, None),
-        (f.group, None, "Not recorded yet", 1, 1, 6, None, 0, 6, None),
-        (f.group, "Recliner 02", "MC-2", 1, 1, 3, 30, 0, 3, 30),
-        (f.group, "Recliner 02", "MC-1", 1, 1, 2, 20, 1, 1, 10),
-        ("No section", None, "Not recorded yet", 1, 1, 2, None, 0, 2, None),
-        (f.old, None, "MC-9", 1, 1, 1, 5, 0, 1, 5),
-        ("Total", None, None, *FLOOR_TOTAL),
-    ]
-
-
-def test_machine_view_places_a_die_only_installation(make):
-    """Install asks for at least the line, machine OR die: a part fitted on a
-    die alone (Tool Room's way with die parts) is installed, and shows under
-    its die — never "Not recorded yet", which is for parts still waiting for
-    installation. Installed is through Confirm Installation, whatever the status
-    a later return gave the issue. The By machine chart above the table names
-    each of them the same way (one rule, place_of)."""
-    s, taker = make.store(), make.department()
-    day = date(2018, 7, 3)
-    svc = SpareStockService()
-    _, on_die = _issue(s, taker, qty=3, at=_utc(day, 9))
-    _, nowhere = _issue(s, taker, qty=2, at=_utc(day, 10))
-    _, waiting = _issue(s, taker, qty=1, at=_utc(day, 11))
-    _, on_line = _issue(s, taker, qty=4, at=_utc(day, 12))
-    svc.confirm_installation(on_die, die_no="D-9", user="fitter")
-    svc.confirm_installation(nowhere, user="fitter")             # through the API: no place at all
-    svc.return_item(nowhere, qty=1, user="store.user")           # now Partly returned, still installed
-    svc.confirm_installation(on_line, line_name="Recliner", line_no="02", user="fitter")   # a line, no machine
-
-    rows = _view(s, "machine", "2018-07-03", "2018-07-03")
-    assert _cut(rows, "Department", "Line", "Machine", "Issues", "Qty Issued", "Qty Returned", "Net Qty") == [
-        ("No section", "Recliner 02", None, 1, 4, 0, 4),
-        ("No section", None, "Die D-9", 1, 3, 0, 3),
-        ("No section", None, "Installed, place not recorded", 1, 2, 1, 1),   # Net Qty tie: by name
-        ("No section", None, "Not recorded yet", 1, 1, 0, 1),
-        ("Total", None, None, 4, 10, 1, 9),
-    ]
-    # The chart counts gross issues, under the same names; a line alone is
-    # shown by its line there, having no Line column.
-    chart = ConsumptionAnalyticsService().analytics(s.code, date_from="2018-07-03", date_to="2018-07-03")
-    assert {(m["name"], m["key"], m["qty"]) for m in chart["by_machine"]} == {
-        ("Line Recliner 02", None, 4), ("Die D-9", None, 3), ("Installed, place not recorded", None, 2),
-        ("Not recorded yet", None, 1)}
-    register = {r["Issue No"]: r for r in SpareReportService().build(s.code, "issue_register",
-                                                                     "2018-07-03", "2018-07-03")[2]}
-    assert (register[on_die]["Status"], register[on_die]["Die"], register[on_die]["Machine"]) == (
-        "Installed", "D-9", None)
-    assert (register[nowhere]["Status"], register[waiting]["Status"]) == (
-        "Partly returned", "Issued")
-
-
 def test_views_order_by_the_figures_shown(make):
     """Rows showing the same figures fall back to the name. Part B is issued
     0.1 + 0.2 and part A 0.3: summed as floats, B's 0.30000000000000004 sorted
@@ -590,8 +534,6 @@ def test_views_order_by_the_figures_shown(make):
         (f"CT-{_TAG}-TIE-A", 0.3, 0.3, 0.3), (f"CT-{_TAG}-TIE-B", 0.3, 0.3, 0.3), ("Total", 0.6, 0.6, 0.6)]
     assert _cut(_view(s, "category", *span), "Category", "Net Qty", "Net Value") == [
         ("Alpha", 0.3, 0.3), ("Beta", 0.3, 0.3), (None, 0.6, 0.6)]
-    assert _cut(_view(s, "machine", *span), "Machine", "Net Qty", "Net Value") == [
-        ("MC-A", 0.3, 0.3), ("MC-B", 0.3, 0.3), (None, 0.6, 0.6)]
 
 
 def test_category_view(make, plant_at):
@@ -747,13 +689,13 @@ def test_a_part_or_section_of_another_store_is_404(make):
 
 def test_unknown_view_report_and_format(make):
     s = make.store()
-    for view in (None, "", "hour", "consumption_by_month"):
+    for view in (None, "", "hour", "consumption_by_month", "machine"):
         with pytest.raises(BadRequestError, match="view must be one of list, day, week, month, year, fy, "
-                                                  "part, department, issued_to, dept_part, person, machine, category"):
+                                                  "part, department, issued_to, dept_part, person, category"):
             _table(s, view, "2026-03-01", "2026-03-31")
     # The one report has every view, whatever an old link names it.
     for report in (None, "", "consumption", "issuance"):
-        for view in ("list", "person", "machine"):
+        for view in ("list", "person", "category"):
             assert _table(s, view, "2026-03-01", "2026-03-31", report=report)["report"] == "consumption"
     for report in ("sales", "Issuance"):
         with pytest.raises(BadRequestError, match="report must be one of consumption"):
@@ -787,8 +729,7 @@ def test_table_endpoint(client, make, plant_at):
         ("Mar 2026", 6), ("Apr 2026", 12), ("Total", 18)]
     assert body["rows"][0]["Value"] == 20                                   # Zed's 4 have no rate: not in Value
     assert [v["key"] for v in body["views"]] == VIEWS
-    assert set(body["basis"]) == {"consumption", "returns", "value", "period", "list", "person", "place",
-                                  "issued_to"}
+    assert set(body["basis"]) == {"consumption", "returns", "value", "period", "list", "person", "issued_to"}
     assert (body["group"], body["subtotal_rows"], body["cancelled_rows"]) == (None, [], [])
     assert [g["key"] for g in body["groups"]] == ["day", "month", "year", "fy"]
     assert body["pack_title"] == "Issuance & Consumption Report Full pack 01.03.2026 to 30.04.2026"
@@ -800,7 +741,7 @@ def test_table_endpoint(client, make, plant_at):
     columns = {
         "list": ["Date", "Time", "Issue No", "Reference", "Part No", "Description", "Section", "Department",
                  "Issued to Dept", "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
-                 "Line / Machine / Die", "Status"],
+                 "Status"],
         "day": ["Date", "Day", *FIGURES],
         "week": ["Week", *FIGURES],
         "month": ["Month", *FIGURES],
@@ -813,7 +754,6 @@ def test_table_endpoint(client, make, plant_at):
         "dept_part": ["Issued to Dept", "Part No", "Description", "UOM", "Issues", "Qty Issued", "Qty Returned",
                       "Net Qty", "Rate", "Value", "Net Value"],
         "person": ["Issued To", "Emp Code", "Department", *FIGURES],
-        "machine": ["Department", "Line", "Machine", *FIGURES],
         "category": ["Department", "Category", *FIGURES],
     }
     for view, expected in columns.items():
@@ -1037,7 +977,6 @@ def test_dashboard_tv_and_excel_cut_on_plant_days_as_the_table(make, plant_clock
     total = _table(s, "department", *rng)["rows"][-1]["Qty Issued"]
     assert total == 5
     assert svc.consumption_by_department(s.code, None, None, *rng) == [{"name": owner.name, "value": 5.0}]
-    assert _sum(svc.consumption_by_machine(s.code, None, None, *rng)) == total
     assert _sum(svc.consumption_by_type(s.code, None, None, *rng)) == total
     assert _sum(svc.top_consumed(s.code, date_from=rng[0], date_to=rng[1]), "qty") == total
     assert [(t["d"], t["qty"]) for t in svc.consumption_trend(s.code, date_from=rng[0], date_to=rng[1])] == [
@@ -1079,15 +1018,15 @@ def test_a_cancelled_issue_is_consumed_nowhere(make):
 
     assert _table(s, "department", None, None)["rows"][-1]["Qty Issued"] == 6
     consumption = SpareDashboardService()._consumption(s.code, None)
-    for split in ("by_department", "by_machine", "by_type", "this_month_by_department"):
+    for split in ("by_department", "by_type", "this_month_by_department"):
         assert _sum(consumption[split]) == 6, split
-    assert "MC-X" not in {r["name"] for r in consumption["by_machine"]}
+    assert "by_machine" not in consumption
     assert consumption["comparison"]["current"]["value"] == _sum(consumption["this_month_by_department"])
     assert _sum(svc.top_consumed(s.code, days=7), "qty") == 6
     assert _sum(svc.consumption_trend(s.code, days=7), "qty") == 6
     wb = load_workbook(svc.consumption_report_excel(s.code))
     assert {ws.title: sum(r[1] for r in ws.iter_rows(min_row=2, values_only=True)) for ws in wb} == dict.fromkeys(
-        ("By Department", "By Machine", "By Category", "Month-wise", "Year-wise"), 6)
+        ("By Department", "By Category", "Month-wise", "Year-wise"), 6)
 
 
 def test_reports_page_no_longer_offers_consumption(client, make):
@@ -1110,7 +1049,7 @@ def test_reports_page_no_longer_offers_consumption(client, make):
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Description", "Section", "Department",
                 "Issued to Dept", "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
-                "Line / Machine / Die", "Status")
+                "Status")
 LIST_FIGURES = ("Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value")
 ISSUED = ("Issues", "Parts", "Qty Issued", "Value")
 TOTAL_FIGURES = ("Qty Issued", "Value", "Qty Returned", "Net Qty", "Net Value")
@@ -1187,7 +1126,7 @@ def test_every_view_names_the_consuming_department_never_the_taker(make):
     assert _cut(_view(s, "department", *span), "Department", "Section", "Qty Issued", "Net Qty", "Net Value") == [
         (maint.name, s.live_name, 4, 4, 100), ("Total", None, 4, 4, 100)]
     assert _view(s, "list", *span)[0]["Department"] == maint.name
-    for view in ("person", "part", "machine", "category"):
+    for view in ("person", "part", "category"):
         rows = _view(s, view, *span)
         assert rows[0]["Department"] == maint.name and taker.name not in {r["Department"] for r in rows}, view
 
@@ -1251,18 +1190,19 @@ def test_issue_list_on_the_floor(make, plant_at):
         ("Subtotal 01.04.2026", None, "4 issues + 1 cancelled", None, None, None, 12, 0, 12, None, 35, 35),
         ("Total", None, "6 issues + 1 cancelled", None, None, None, 18, 1, 17, None, 55, 45),
     ]
-    assert _cut(rows, "Reference", "Issued To", "Line / Machine / Die", "Status") == [
-        ("REQ-0001", "Ravi Kumar", "Recliner 02 / MC-1", "Installed"),
-        (None, None, "Not recorded yet", "Issued"),
-        (None, None, None, None),
-        (None, None, "Recliner 02 / MC-2", "Installed"),
-        (None, None, "MC-9", "Installed"),
-        (None, None, None, "Cancelled"),
-        (None, None, "Not recorded yet", "Issued"),
-        (None, None, "Not recorded yet", "Issued"),
-        (None, None, None, None),
-        (None, None, None, None),
+    assert _cut(rows, "Reference", "Issued To", "Status") == [
+        ("REQ-0001", "Ravi Kumar", "Installed"),
+        (None, None, "Issued"),
+        (None, None, None),
+        (None, None, "Installed"),
+        (None, None, "Installed"),
+        (None, None, "Cancelled"),
+        (None, None, "Issued"),
+        (None, None, "Issued"),
+        (None, None, None),
+        (None, None, None),
     ]
+    assert "Line / Machine / Die" not in rows[0]       # nothing records one since 27 Oct 2026
     assert rows[0]["Description"] == f.p1_name
     assert (out["subtotal_rows"], out["cancelled_rows"], out["unrated_issues"], out["issues"]) == ([2, 8], [5], 3, 6)
     # Date-wise never sees the cancelled issue either: the same Total.
@@ -1515,8 +1455,7 @@ def test_issue_list_excel_and_pdf(client, make, plant_at, monkeypatch):
 
 
 PACK_SHEETS = ["Summary", "Issue list", "Date-wise", "Month-wise", "Year-wise", "Part-wise", "Department-wise",
-               "Issued to Dept-wise", "Issued to Dept & Part-wise", "Person-wise", "Line & Machine-wise",
-               "Category-wise"]
+               "Issued to Dept-wise", "Issued to Dept & Part-wise", "Person-wise", "Category-wise"]
 
 
 def _pack(c, query):
@@ -1557,7 +1496,7 @@ def test_full_pack(client, make, plant_at):
         ("Issue list", "list"), ("Date-wise", "day"), ("Month-wise", "month"), ("Year-wise", "fy"),
         ("Part-wise", "part"), ("Department-wise", "department"),
         ("Issued to Dept-wise", "issued_to"), ("Issued to Dept & Part-wise", "dept_part"), ("Person-wise", "person"),
-        ("Line & Machine-wise", "machine"), ("Category-wise", "category")),
+        ("Category-wise", "category")),
         span, TOTAL_FIGURES, (18, 55, 1, 17, 45))
     listed = wb["Issue list"]
     assert [listed.cell(row=r, column=1).value for r in (4, 10, 11)] == [
@@ -1582,7 +1521,7 @@ def test_full_pack(client, make, plant_at):
     notes = [k for k, v in summary[1:] if k and v is None]
     assert notes[:4] == [LEDGER_NOTE, UNRATED_NOTE, CANCELLED_NOTE, "How it is counted:"]
     assert notes[4:] == [BASIS[k] for k in ConsumptionTableService.REPORTS["consumption"].basis]
-    assert len(notes) == 12 and wb["Summary"].cell(row=len(summary), column=1).font.i
+    assert len(notes) == 11 and wb["Summary"].cell(row=len(summary), column=1).font.i
 
 
 def test_full_pack_filtered_and_its_years(client, make, plant_at):
@@ -1658,9 +1597,7 @@ def test_live_board_issue_month_reads_the_report(make, plant_at):
             depts[f.group]["value"]) == (11, 1, 10, 50)
     assert depts[f.zed]["value"] is None                          # no rate: unknown, never 0
     assert out["departments"][0]["name"] == f.group               # the most issued first
-    places = [(p["department"], p["machine"], p["net_qty"]) for p in out["places"]]
-    assert (f.group, "MC-1", 1) in places and (f.group, "MC-2", 3) in places
-    assert [p["net_qty"] for p in out["places"]] == sorted((p["net_qty"] for p in out["places"]), reverse=True)
+    assert "places" not in out                                    # no "Used at" since 28 Oct 2026
     assert out["unrated_issues"] == _table(f.s, "department", *SPRING)["unrated_issues"]
     # A section group is read as its department.
     grouped = SpareDashboardService._issue_month(f.s.code, None, [f.s.live], *SPRING)

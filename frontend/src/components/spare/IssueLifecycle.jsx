@@ -223,6 +223,11 @@ function buildSteps(issue) {
   } else {
     install = { state: later, title: "Installed", lines: [later === "skipped" ? "Not reached" : "Not yet"] };
   }
+  // Nothing confirms a line / machine or an installation since 27 Oct 2026
+  // (Confirm Installation taken out): an issue never confirmed ends at the
+  // hand-over, with no steps left waiting for ever. An older confirmed issue
+  // still shows what was recorded.
+  if (!confirmed) return [issued, handed];
   return [issued, handed, confirm, { key: "installed", ...install }];
 }
 
@@ -237,7 +242,7 @@ export default function IssueLifecycle({ issue, className = "", heading = "Issue
         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{heading}</span>
         <IssueStatusPill issue={issue} />
       </div>
-      <ol className="grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-4" aria-label={heading}>
+      <ol className={`grid grid-cols-2 gap-x-3 gap-y-3 ${steps.length > 2 ? "sm:grid-cols-4" : ""}`} aria-label={heading}>
         {steps.map((st, i) => {
           const look = STATE[st.state];
           return (

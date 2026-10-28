@@ -30,14 +30,13 @@ const FIGURES = new Set(["Issues", "Parts", "Qty Issued", "Qty Returned", "Net Q
 const MONEY = new Set(["Rate", "Value", "Net Value"]);
 // Free text that would otherwise stretch a row across the screen; the whole
 // text is on hover.
-const LONG_TEXT = new Set(["Description", "Issued To", "Line / Machine / Die"]);
+const LONG_TEXT = new Set(["Description", "Issued To"]);
 // The order the "How this table is counted" lines are read in (JSON hands the
 // server's keys back sorted). Some are about one view only (BASIS_VIEWS).
-const BASIS_KEYS = ["consumption", "list", "issued_to", "returns", "value", "period", "person", "place"];
-// The Issue list's line on the Issue list, Person-wise's on Person-wise, and
-// how a line / machine is named where one is shown.
+const BASIS_KEYS = ["consumption", "list", "issued_to", "returns", "value", "period", "person"];
+// The Issue list's line on the Issue list, Person-wise's on Person-wise.
 const BASIS_VIEWS = {
-  list: ["list"], person: ["person"], place: ["list", "machine"], issued_to: ["list", "issued_to", "dept_part"],
+  list: ["list"], person: ["person"], issued_to: ["list", "issued_to", "dept_part"],
 };
 
 // Rows drawn at first. Five years Date-wise runs to thousands of rows and the
@@ -209,7 +208,7 @@ export default function ConsumptionTable({ tq, view, filtered, longer, onPreset 
   const drawn = showAll ? body : body.slice(0, FIRST_ROWS);
   const columns = t?.columns || [];
   // A row whose first cell repeats the last one drawn in full (the day's next
-  // issue on the Issue list, a department's next machine or category) steps
+  // issue on the Issue list, a department's next category) steps
   // back, so the eye reads the groups; the period views are one row a period. A cancelled row is grey already and does not count as
   // drawn in full: the first counted issue after it keeps the dark date. A
   // subtotal ends its group, so the row after it starts afresh.

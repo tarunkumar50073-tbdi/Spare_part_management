@@ -12,7 +12,6 @@ lists' Excel coloured like the reorder / excess mail sheets. Nothing here writes
     issues                     spare_stock_ledger ISSUE rows, each with who took
                                it (Department) and who consumes it (Consumer:
                                the owner of the part's section, consumers());
-    installations             the INSTALLATION journal rows (spare_transactions);
     returns                    spare_returns, plus older direct RETURN ledger rows;
     put-away                   put_away_log;
     receipts                   spare_stock_ledger RECEIPT rows (reference = GRN no.);
@@ -25,8 +24,8 @@ rows stay in the database; the Issue Register lists every issue, those made
 from a kiosk request included.
 
 Consumption is not here: it is on the Consumption screen, where a part, a From
-- To range and a view (date, week, month, year, part, department, line /
-machine, category) are picked, seen and downloaded as Excel / PDF — "alag se
+- To range and a view (date, week, month, year, part, department, category)
+are picked, seen and downloaded as Excel / PDF — "alag se
 report me aane ki jarurat nhi" (the store, 14 Oct 2026). See
 ConsumptionTableService; it reuses this module's plant clock and cells.
 
@@ -77,7 +76,7 @@ EXCESS_COLUMNS = ("Section", "Category", "Part No", "Description", "Supplier", "
                   "Max", "Excess Qty", "Rate", "Excess Value")
 ISSUE_COLUMNS = ("Date & Time", "Issue No", "Reference", "Part No", "Description", "Section", "Qty Issued",
                  "Department", "Consumer", "Issued To", "Emp Code", "Issued By", "Status",
-                 "Line", "Machine", "Die", "Used Qty", "Returned Qty", "Still Out")
+                 "Returned Qty", "Still Out")
 RETURN_COLUMNS = ("Date & Time", "Return No", "Issue No", "Part No", "Description", "Qty", "Reason",
                   "Returned By", "Department", "Recorded By", "Result")
 RECEIPT_COLUMNS = ("Date", "GRN No", "Part No", "Description", "Section", "Qty", "Supplier",
@@ -162,10 +161,6 @@ def _cells(row):
 def _money(qty, rate):
     """qty x rate; None without a quantity or a rate (a rate of 0 is a missing rate)."""
     return round(float(qty) * float(rate), 2) if (qty and rate) else None
-
-
-def _line(row):
-    return " ".join(v for v in (row.line_name, row.line_no) if v) or None
 
 
 def _issue_status(row):
@@ -264,7 +259,6 @@ class SpareReportService:
         for r, part in rows:
             issued = abs(float(r.qty_delta))
             back = returned.get(r.id, 0.0)
-            used = r.actual_qty if r.actual_qty is not None else (issued if r.status == "INSTALLED" else None)
             out.append({
                 "Date & Time": _stamp(r.created_at), "Issue No": r.id, "Reference": r.reference,
                 "Part No": part.part_no, "Description": part.part_name,
@@ -274,8 +268,9 @@ class SpareReportService:
                 "Department": r.department, "Consumer": consumer_of(owner, part.section_id),
                 "Issued To": r.issued_to, "Emp Code": r.issued_to_code,
                 "Issued By": r.created_by, "Status": _issue_status(r),
-                "Line": _line(r), "Machine": r.machine, "Die": r.die_no,
-                "Used Qty": used, "Returned Qty": back,
+                # No Line / Machine / Die / Used Qty: nothing records them since
+                # Confirm Installation went (27 Oct 2026; columns out 28 Oct).
+                "Returned Qty": back,
                 "Still Out": 0 if r.status == "CANCELLED" else max(round(issued - back, 2), 0),
             })
         return out
@@ -349,7 +344,7 @@ class SpareReportService:
                False, EXCESS_COLUMNS, _excess_list, excess_paint(EXCESS_COLUMNS), EXCESS_LEGEND),
         Report("issue_register", "Issue Register",
                "Every issue in the period: who took it (Department), who consumes it (Consumer, by the "
-               "part's section), its status, where it was fitted and what is still out.",
+               "part's section), its status and what is still out.",
                True, ISSUE_COLUMNS, _issue_register),
         Report("return_register", "Return Register",
                "Every part returned to the store in the period, against its issue, and where the qty went.",

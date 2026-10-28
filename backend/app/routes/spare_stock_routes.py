@@ -149,8 +149,6 @@ def consumption():
     group_by = request.args.get("group_by", "department")
     if group_by == "department":
         return success_response(service.consumption_by_department(store, section_id, days, date_from, date_to))
-    if group_by == "machine":
-        return success_response(service.consumption_by_machine(store, section_id, days, date_from, date_to))
     if group_by == "type":
         return success_response(service.consumption_by_type(store, section_id, days, date_from, date_to))
     raise BadRequestError(f"Unsupported group_by: {group_by}")

@@ -380,9 +380,9 @@ class SpareDashboardService:
                 key=lambda d: -d["value"])[:5],
             "month_start": month_start,
             "issue_month": self._issue_month(store_code, section_id, section_ids, month_start, today.isoformat()),
-            # All-time splits behind the dashboard's three consumption donuts.
+            # All-time splits behind the dashboard's consumption donuts (no
+            # machine one since 28 Oct 2026: nothing records a machine).
             "by_department": self.stock.consumption_by_department(store_code, section_id, section_ids=section_ids),
-            "by_machine": self.stock.consumption_by_machine(store_code, section_id, section_ids=section_ids),
             "by_type": self.stock.consumption_by_type(store_code, section_id, section_ids=section_ids),
         }
 
@@ -391,12 +391,11 @@ class SpareDashboardService:
         """This month's issues for the Live Board's Issue & Consumption panel
         (the store, 22 Oct 2026: "kitna issue hua and kahan consume hua wo data
         mile"): how much went out — issues, qty, ₹, what came back — per
-        consuming department, and where it was used: the line / machine the
-        fitter recorded on Confirm Installation ("Not recorded yet" until
-        then). Read through the Issuance & Consumption Report's own department
-        and machine views, so the board and the report never disagree. A
+        consuming department. Read through the Issuance & Consumption Report's
+        own department view, so the board and the report never disagree. A
         section group (Tool Room) is read as the department its sections
-        belong to."""
+        belong to. No "Used at" line / machine list since 28 Oct 2026: nothing
+        records one since Confirm Installation went."""
         from app.services.consumption_analytics_service import consumer_of, consumers
         from app.services.consumption_table_service import ConsumptionTableService
         one, department = section_id, None
@@ -407,7 +406,6 @@ class SpareDashboardService:
         tables = ConsumptionTableService()
         args = {"date_from": month_start, "date_to": today, "section_id": one, "department": department}
         by_dept = tables.table(store_code, "department", **args)
-        by_place = tables.table(store_code, "machine", **args)
 
         def figures(row):
             return {"issues": row.get("Issues") or 0, "qty": row.get("Qty Issued") or 0,
@@ -431,15 +429,10 @@ class SpareDashboardService:
                 d[key] = round(d[key] + f[key], 2)
             for key in ("value", "net_value"):
                 d[key] = add(d[key], f[key])
-        places = [{"department": row.get("Department"), "line": row.get("Line"), "machine": row.get("Machine"),
-                   **figures(row)} for row in by_place["rows"][:-1]]
-        places.sort(key=lambda p: (-p["net_qty"], -p["qty"]))
         return {
             "from": month_start, "to": today,
             "total": figures(by_dept["rows"][-1]),
             "departments": sorted(depts.values(), key=lambda d: (-d["qty"], d["name"] or "")),
-            "places": places[:6],
-            "place_count": len(places),
             "unrated_issues": by_dept["unrated_issues"],
         }
 

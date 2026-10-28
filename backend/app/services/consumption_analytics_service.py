@@ -14,6 +14,10 @@ the store itself handing it out ("consumption maintenance and tool room karega
 store nhi", "store to material issue karta h" — the store, 14 Oct 2026). The
 department filter and the filter bar's department list follow the same rule.
 
+No line / machine split: nothing records one since Confirm Installation was
+taken out (27 Oct 2026), and the By machine chart went with it (28 Oct 2026:
+"machine wala hissa hata de").
+
 Days are plant-clock calendar days. created_at is stored in UTC, so each row is
 dated after shifting it by the server's local offset; a UTC cut would put every
 issue made before 05:30 on the previous day.
@@ -63,16 +67,6 @@ UNCATEGORISED = "Uncategorised"
 # The consumer of a part with no section: no department owns it.
 NO_SECTION = "No section"
 
-# Where an issue went when the fitter recorded no line and no machine (place_of).
-DIE = "Die {}"
-NO_PLACE = "Installed, place not recorded"
-NOT_RECORDED = "Not recorded yet"
-# A line with no machine, on the By machine chart (the table has a Line column).
-LINE_ONLY = "Line {}"
-PLACE_BASIS = ("The line and machine the fitter recorded on Confirm Installation. With neither: 'Die <no>' = "
-               f"fitted on a die alone; '{NO_PLACE}' = installed with no place given; '{NOT_RECORDED}' = "
-               "not installed yet (most of these are simply waiting for the fitter).")
-
 BASIS = {
     "quantity": "Gross issued quantity (ISSUE rows, cancelled issues aside). Returns are not netted off.",
     "department": "The department that consumes the part: the one owning the part's section, never the "
@@ -81,7 +75,6 @@ BASIS = {
     "value": "Issued quantity x each part's current unit rate (valued at today's rate); "
              "parts with no rate (or a rate of 0) are left out of the value.",
     "day": "Plant-clock calendar day of the issue.",
-    "machine": PLACE_BASIS + f" '{LINE_ONLY.format('<line>')}' = a line given with no machine.",
 }
 
 
@@ -138,27 +131,6 @@ def consumer_of(owner, section_id):
     """The department that consumes a part of this section (`owner` from
     consumers()); NO_SECTION for a part with none, or one outside the store."""
     return owner.get(section_id, NO_SECTION) if section_id else NO_SECTION
-
-
-def place_of(line_name, line_no, machine, die_no, installed):
-    """(line, machine) of an issue as the Consumption screen names them — the
-    By machine chart and the table's Line / Machine view share this one rule,
-    so the same issue never carries two names on one screen.
-
-    The line and machine are what the fitter recorded at installation. With
-    neither, the machine slot says what is known instead: install asks for at
-    least a line, machine OR die, so a part fitted on a die alone is installed
-    and the die is where it went (Tool Room records die parts so) — "Die D-9";
-    one installed with no place given is NO_PLACE; one not installed yet is
-    NOT_RECORDED, usually just waiting for the fitter, not missing data.
-    `installed` = through Confirm Installation (confirmed_at), as on the
-    Installations list: a later return changes the issue's status, not that."""
-    line = " ".join(v.strip() for v in (line_name, line_no) if v and v.strip()) or None
-    machine = (machine or "").strip() or None
-    if not (line or machine):
-        die = (die_no or "").strip()
-        machine = DIE.format(die) if die else NO_PLACE if installed else NOT_RECORDED
-    return line, machine
 
 
 def consumer_clause(owner, department):
@@ -355,7 +327,7 @@ class ConsumptionAnalyticsService:
         series_cur = [_Totals() for _ in buckets]
         series_prev = [_Totals() for _ in buckets]
         cur, prev = _Totals(), _Totals()
-        by_part, by_dept, by_section, by_type, by_machine = {}, {}, {}, {}, {}
+        by_part, by_dept, by_section, by_type = {}, {}, {}, {}
         info = {}
         week_of = {}
         for i, (first, last) in enumerate(weeks):
@@ -365,8 +337,7 @@ class ConsumptionAnalyticsService:
                 d += timedelta(days=1)
         weekly = {}
 
-        for (pid, delta, created, line_name, line_no, machine, die_no, confirmed_at, pno, pname, uom, rate,
-             sec_id, sub_cat, sec_name, day) in rows:
+        for (pid, delta, created, pno, pname, uom, rate, sec_id, sub_cat, sec_name, day) in rows:
             qty = -float(delta or 0)
             # A rate of 0 is a missing rate, as in the table under the charts
             # (spare_report_service._money): the chart's unrated lines and the
@@ -387,12 +358,6 @@ class ConsumptionAnalyticsService:
                 by_section.setdefault((sec_name or "Unassigned", sec_id), _Totals()).add(pid, qty, value)
                 t_name = (sub_cat or "").strip() or UNCATEGORISED
                 by_type.setdefault((t_name, t_name), _Totals()).add(pid, qty, value)
-                # Named as the table's Line / Machine view names it (place_of);
-                # a line with no machine is shown by its line. The key is the
-                # recorded machine, None for a stand-in name.
-                line, m_label = place_of(line_name, line_no, machine, die_no, confirmed_at is not None)
-                recorded = (machine or "").strip() or None
-                by_machine.setdefault((m_label or LINE_ONLY.format(line), recorded), _Totals()).add(pid, qty, value)
             elif prev_start <= day <= prev_end:
                 prev.add(pid, qty, value)
                 # Laid over the current bucket the same distance into the window.
@@ -487,7 +452,6 @@ class ConsumptionAnalyticsService:
             "by_department": _ranked(by_dept),
             "by_section": _ranked(by_section),
             "by_type": _ranked(by_type),
-            "by_machine": _ranked(by_machine),
             "spikes": detect_spikes(weekly, weeks, since),
         }
 
@@ -581,9 +545,8 @@ class ConsumptionAnalyticsService:
         lo = datetime.combine(first_day, time.min) - offset
         hi = datetime.combine(last_day + timedelta(days=1), time.min) - offset
         L = SpareStockLedger
-        q = (db.session.query(L.part_id, L.qty_delta, L.created_at, L.line_name, L.line_no, L.machine, L.die_no,
-                              L.confirmed_at, Part.part_no, Part.part_name, Part.uom, Part.unit_price,
-                              Part.section_id, Part.sub_category, Section.name)
+        q = (db.session.query(L.part_id, L.qty_delta, L.created_at, Part.part_no, Part.part_name, Part.uom,
+                              Part.unit_price, Part.section_id, Part.sub_category, Section.name)
              .join(Part, Part.id == L.part_id)
              .outerjoin(Section, Section.id == Part.section_id)
              .filter(Part.store_code == store_code, L.txn_type == "ISSUE",

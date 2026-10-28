@@ -1768,31 +1768,6 @@ class SpareStockService:
         out.sort(key=lambda r: (-r["value"], r["name"].lower()))
         return out
 
-    def consumption_by_machine(self, store_code, section_id=None, days=None, date_from=None, date_to=None, section_ids=None):
-        """Total issued quantity per machine — the split behind Machine-wise
-        Consumption (which machine eats the most spares). Only ISSUE rows carry
-        a machine; a cancelled issue was not consumed. Windowed as
-        consumption_by_department (None = all-time)."""
-        from app.extensions import db
-        from sqlalchemy import func
-        from app.models.spare_stock import SpareStockLedger
-        rows = (
-            db.session.query(
-                SpareStockLedger.machine,
-                func.sum(func.abs(SpareStockLedger.qty_delta)),
-            )
-            .join(Part, Part.id == SpareStockLedger.part_id)
-            .filter(Part.store_code == store_code, SpareStockLedger.txn_type == "ISSUE", _not_cancelled(),
-                    *_sec_tuple(section_id, section_ids),
-                    *self._consumption_window(days, date_from, date_to))
-            .group_by(SpareStockLedger.machine)
-            .all()
-        )
-        out = [{"name": mc or "Unspecified", "value": round(float(total or 0), 2)}
-               for mc, total in rows if total]
-        out.sort(key=lambda r: r["value"], reverse=True)
-        return out
-
     def consumption_by_type(self, store_code, section_id=None, days=None, date_from=None, date_to=None, section_ids=None):
         """Total issued quantity per component type (Part.sub_category) — the
         split behind Part-type-wise Consumption. Parts with no type group under
@@ -1836,8 +1811,8 @@ class SpareStockService:
         return [{"period": p, "qty": round(float(q or 0), 2)} for p, q in rows if p]
 
     def consumption_report_excel(self, store_code, days=None, section_id=None, date_from=None, date_to=None):
-        """Downloadable consumption report. The first three sheets — By
-        Department, By Machine, By Category — reflect the range picked on the
+        """Downloadable consumption report. The first two sheets — By
+        Department, By Category — reflect the range picked on the
         screen (a calendar range, a rolling `days` window, or all-time), so the
         download always matches the bars the user is looking at. Month-wise and
         Year-wise stay whole-ledger so the long view rides along in every
@@ -1848,7 +1823,6 @@ class SpareStockService:
         wb = Workbook()
         breakdowns = [
             ("By Department", "Department", self.consumption_by_department(store_code, section_id, days, date_from, date_to)),
-            ("By Machine", "Machine", self.consumption_by_machine(store_code, section_id, days, date_from, date_to)),
             ("By Category", "Category", self.consumption_by_type(store_code, section_id, days, date_from, date_to)),
         ]
         for i, (title, head, data) in enumerate(breakdowns):

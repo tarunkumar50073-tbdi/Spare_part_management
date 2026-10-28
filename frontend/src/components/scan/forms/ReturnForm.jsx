@@ -106,7 +106,9 @@ export default function ReturnForm({ scan, target, source, onDone, onCancel }) {
         { label: "Original issue", value: `${fmtQty(it.issued_qty, part.uom)} on ${fmtStamp(it.issued_at)}` },
         { label: "Original department", value: it.department },
         { label: "Issued to", value: it.issued_to },
-        { label: "Line / Machine / Die", value: [it.line_name, it.line_no, it.machine, it.die_no].filter(Boolean).join(" · ") },
+        // Only an older issue has one (nothing records it since 27 Oct 2026).
+        (it.line_name || it.line_no || it.machine || it.die_no)
+          && { label: "Line / Machine / Die", value: [it.line_name, it.line_no, it.machine, it.die_no].filter(Boolean).join(" · ") },
         { label: job ? "Job work reason" : "Return reason", value: reason },
         { label: "Returned by", value: byEmp ? `${byEmp.name}${byEmp.employee_code ? ` (${byEmp.employee_code})` : ""}` : payload.returned_by },
         { label: "Found by", value: payload.identified_by === "QR" ? "QR / barcode scan" : "Part No. search (manual)" },
@@ -139,8 +141,9 @@ export default function ReturnForm({ scan, target, source, onDone, onCancel }) {
           packet && { label: what === "packet" ? "Packet" : "Individual part", value: `${packet.code} · ${fmtQty(packet.qty, part.uom)}`, strong: true },
           { label: "Original department", value: issue?.department, empty: issue ? "Not recorded" : "Pick the issue" },
           issue && { label: "Issued to", value: issue.issued_to, empty: "Not recorded" },
-          issue && { label: "Line", value: [issue.line_name, issue.line_no].filter(Boolean).join(" / "), empty: "Not recorded" },
-          issue && { label: "Machine", value: issue.machine, empty: "Not recorded" },
+          issue && (issue.line_name || issue.line_no)
+            && { label: "Line", value: [issue.line_name, issue.line_no].filter(Boolean).join(" / ") },
+          issue?.machine && { label: "Machine", value: issue.machine },
           issue && { label: "Issue date", value: fmtStamp(issue.issued_at) },
           issue && {
             label: "Issued qty",

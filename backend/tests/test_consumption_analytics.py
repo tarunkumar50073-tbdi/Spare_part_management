@@ -127,10 +127,9 @@ def test_window_previous_and_change(march_1998):
     assert r["by_section"] == [{"name": sec.name, "key": sec.id, "qty": 9.0, "lines": 3, "parts": 2,
                                 "value": 50.0, "unvalued_lines": 1}]
     assert {t["name"]: t["qty"] for t in r["by_type"]} == {"CA Sensor": 5.0, "CA Belt": 4.0}
-    machines = {m["name"]: m for m in r["by_machine"]}
-    assert machines["Press 1"]["qty"] == 3.0 and machines["Press 1"]["key"] == "Press 1"
-    # Never installed: waiting for the fitter, named as the table names it.
-    assert machines["Not recorded yet"]["qty"] == 6.0 and machines["Not recorded yet"]["key"] is None
+    # No machine split: nothing records one since Confirm Installation went
+    # (28 Oct 2026: "machine wala hissa hata de").
+    assert "by_machine" not in r and "machine" not in r["basis"]
 
 
 def test_series_is_zero_filled_and_previous_aligned(march_1998):
@@ -170,32 +169,6 @@ def test_value_is_none_not_zero_when_no_line_has_a_rate(march_1998):
     assert "no rate" in r["previous"]["value_note"]
     assert r["series"][-1]["value"] is None and r["series"][0]["value"] == 0.0   # nothing issued = measured 0
     assert r["by_section"][0]["value"] is None
-
-
-def test_machine_named_as_the_table_names_it():
-    """The By machine chart names an issue with no machine by the rule the
-    table's Line / Machine view uses (place_of): its die when fitted on a die
-    alone, "Installed, place not recorded" when installed with no place,
-    "Not recorded yet" when not installed — waiting for the fitter, not missing
-    data. Installed = through Confirm Installation (confirmed_at), whatever
-    status a later return gave it. A line with no machine shows by its line."""
-    sec = _section()
-    p = _part(sec, "M", rate=1)
-    fitted = datetime(1998, 6, 9, 9, 0)
-    _row(p, 100, date(1998, 1, 5), txn="OPENING")
-    _row(p, 2, date(1998, 6, 2), status="PENDING_USER_CONFIRMATION")
-    _row(p, 1, date(1998, 6, 3), status="ISSUED_BY_STORE")
-    _row(p, 4, date(1998, 6, 4), status="RETURNED", confirmed_at=fitted)      # installed, then sent back
-    _row(p, 5, date(1998, 6, 5), status="INSTALLED", machine=" Press 9 ", confirmed_at=fitted)
-    _row(p, 6, date(1998, 6, 6), status="INSTALLED", die_no="D-9", confirmed_at=fitted)
-    _row(p, 7, date(1998, 6, 7), status="INSTALLED", line_name="Recliner", line_no="02", confirmed_at=fitted)
-    _row(p, 8, date(1998, 6, 8), status="INSTALLED", line_name="Recliner", die_no="D-9", confirmed_at=fitted)
-    r = svc.analytics(STORE, date_from="1998-06-01", date_to="1998-06-10", section_id=sec.id)
-    machines = {(m["name"], m["key"]): m["qty"] for m in r["by_machine"]}
-    assert machines == {("Press 9", "Press 9"): 5.0, ("Not recorded yet", None): 3.0,
-                        ("Installed, place not recorded", None): 4.0, ("Die D-9", None): 6.0,
-                        ("Line Recliner 02", None): 7.0, ("Line Recliner", None): 8.0}
-    assert "Installed, place not recorded" in r["basis"]["machine"]
 
 
 def test_change_pct_is_none_on_a_zero_base(march_1998):
@@ -365,7 +338,8 @@ def test_endpoint_ok_and_filters(client, march_1998):
     body = r.get_json()["data"]
     assert body["current"]["qty"] == 9.0 and body["window"]["granularity"] == "week"
     assert {"current", "previous", "series", "top_parts", "by_department", "by_section", "by_type",
-            "by_machine", "spikes", "filters", "ledger_since", "basis"} <= set(body)
+            "spikes", "filters", "ledger_since", "basis"} <= set(body)
+    assert "by_machine" not in body
 
     r = c.get(f"{URL}?store_code={STORE}&from=1998-03-01&to=1998-03-10&part_id={a.id}&type=CA%20Sensor")
     assert r.get_json()["data"]["current"]["qty"] == 5.0

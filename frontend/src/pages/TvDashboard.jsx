@@ -1828,29 +1828,8 @@ export default function TvDashboard() {
                 </Tap>
               ))
                 : <div className="text-[1.4vh] text-[var(--dx-t4)] py-[2.2vh] text-center">No issue recorded this month</div>}
-              {/* Where it was used: the line / machine the fitter recorded on
-                  Confirm Installation, the most used first; "Not recorded yet"
-                  is an issue still waiting for that confirmation. */}
-              {issueMonth?.places?.length > 0 && (
-                <div className="pt-[0.2vh]">
-                  <div className="text-[1.05vh] landscape:text-[1.2vh] font-semibold uppercase tracking-wide text-[var(--dx-t4)]">Used at</div>
-                  {issueMonth.places.slice(0, 3).map((pl) => {
-                    const waiting = !pl.line && pl.machine === "Not recorded yet";
-                    const where = [pl.line, pl.machine].filter(Boolean).join(" · ");
-                    return (
-                      <div key={`${pl.department}|${pl.line}|${pl.machine}`}
-                        className="flex items-center gap-[0.8vh] text-[1.2vh] landscape:text-[1.35vh] leading-snug">
-                        <span className="min-w-0 flex-1 truncate" style={{ color: waiting ? "var(--pill-amber)" : "var(--dx-t2)" }}
-                          title={`${pl.department}: ${where}`}>
-                          {waiting ? "Install not confirmed yet" : where}
-                          <span className="text-[var(--dx-t4)]"> · {pl.department}</span>
-                        </span>
-                        <span className="shrink-0 font-bold tabular-nums text-[var(--dx-t1)]">{fmtInt(pl.net_qty)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {/* No "Used at" line / machine list since 28 Oct 2026: nothing
+                  records one since Confirm Installation went. */}
             </div>
           )}
         </Card>

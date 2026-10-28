@@ -17,7 +17,7 @@ What it counts:
   * every ISSUE ledger row in the range, cancelled ones aside (the Issue list
     shows them grey and no figure counts them);
   * Qty Issued / Value = what left the store; what came back against an issue
-    counts against the issue — its day, week, month, year, part, machine —
+    counts against the issue — its day, week, month, year, part —
     whenever it came back (_returned_qty_map), so Net Qty / Net Value is what
     was really used;
   * Department = the department that owns the part's section (consumers():
@@ -34,8 +34,8 @@ length, auto_group() — the screen's first view: "kis date ko kitna part and ko
 kon sa issue hua" — 14 Oct 2026), day, week, month, year, fy, part, department
 (each consuming department, one with nothing used too unless the table is
 narrowed to a part, a section or a type), person (issued to: the person, code
-and mobile), machine (the line and machine recorded at installation, named as
-the By machine chart names them, place_of), category (sub_category).
+and mobile), category (sub_category). No Line / Machine view since 28 Oct
+2026: nothing records a line or machine since Confirm Installation went.
 
 The period views: Date ("10.03.2026", only days with issues), Week (Monday to
 Sunday, cut at the range's ends), Month ("Oct 2026"), Year (the calendar year)
@@ -82,13 +82,12 @@ from app.models.part import Part
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Store
 from app.services.consumption_analytics_service import (
-    DIE, PLACE_BASIS, ConsumptionAnalyticsService, _coverage, _utc_naive, consumer_clause, consumer_of,
-    consumers, place_of, type_clause,
+    ConsumptionAnalyticsService, _coverage, _utc_naive, consumer_clause, consumer_of, consumers, type_clause,
 )
 from app.services.reorder_mail_service import _file_safe
 from app.services.report_service import FORMATS
 from app.services.spare_report_service import (
-    SpareReportService, _cells, _in, _issue_status, _line, _money, _stamp, plant_today, window,
+    SpareReportService, _cells, _in, _issue_status, _money, _stamp, plant_today, window,
 )
 from app.services.spare_stock_service import SpareStockService
 from app.utils import pdf_io
@@ -105,9 +104,7 @@ Use = namedtuple("Use", "issue part dept section day qty back cancelled")
 # The second line is what the Issue list and Person-wise show of each issue, in
 # the Issue Register's words.
 _L = SpareStockLedger
-ISSUE_COLUMNS = (_L.id, _L.part_id, _L.qty_delta, _L.created_at, _L.line_name, _L.line_no, _L.machine,
-                 _L.die_no, _L.confirmed_at.isnot(None).label("installed"),
-                 _L.status, _L.actual_qty, _L.reference, _L.department, _L.issued_to, _L.issued_to_mobile,
+ISSUE_COLUMNS = (_L.id, _L.part_id, _L.qty_delta, _L.created_at, _L.status, _L.actual_qty, _L.reference, _L.department, _L.issued_to, _L.issued_to_mobile,
                  _L.issued_to_code, _L.employee_id)
 # The screen's filters: the Part and Section rows picked, the consuming
 # department and the part type typed (None = all).
@@ -149,7 +146,6 @@ BY_FY_COLUMNS = FY + CONSUMED
 BY_PART_COLUMNS = ("Part No", "Description", "Section", "Department", "UOM", "Issues", "Qty Issued",
                    "Qty Returned", "Net Qty", "Rate", "Value", "Net Value", "First Issued",
                    "Last Issued")
-BY_MACHINE_COLUMNS = ("Department", "Line", "Machine") + CONSUMED
 BY_CATEGORY_COLUMNS = ("Department", "Category") + CONSUMED
 
 BY_PERSON_COLUMNS = ("Issued To", "Emp Code", "Department") + CONSUMED
@@ -163,7 +159,7 @@ BY_DEPT_PART_COLUMNS = ("Issued to Dept", "Part No", "Description", "UOM", "Issu
 # mobile — with what came back against each issue beside what went out.
 LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Description", "Section", "Department",
                 "Issued to Dept", "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
-                "Line / Machine / Die", "Status")
+                "Status")
 
 UNCATEGORISED = "Uncategorised"
 # An issue with no person written on it.
@@ -187,8 +183,8 @@ BASIS = {
                    "store; Net Qty / Net Value = what was really used after returns. Department = the "
                    "department that owns the part's section, never the department written on the issue "
                    "(the store only hands parts out); who took the part is Issued To.",
-    "returns": "What came back against an issue counts against that issue (its day, week, month, year, "
-               "part and machine) whenever it came back. Net Qty = Qty Issued - Qty Returned: what was "
+    "returns": "What came back against an issue counts against that issue (its day, week, month, year "
+               "and part) whenever it came back. Net Qty = Qty Issued - Qty Returned: what was "
                "really consumed.",
     "value": "Qty x each part's current rate (valued at today's rate). An issue whose part has no rate "
              "adds nothing, so Value covers rated issues only (how many are not is said under the table); "
@@ -203,7 +199,6 @@ BASIS = {
             "and total.",
     "person": "Person-wise: the person written on the issue, with the employee code and mobile kept at "
               f"issue time; one employee is one row. '{NOT_WRITTEN}' = no person written.",
-    "place": PLACE_BASIS,
     "issued_to": "Issued to Dept: the department written on the issue — who the part was handed to "
                  f"(e.g. Press Shop); '{NOT_WRITTEN}' = none written. Issued to Dept & Part-wise lists each "
                  "department's parts with a subtotal after the department.",
@@ -227,12 +222,11 @@ PDF_MUTED = colors.HexColor("#94a3b8")
 # yesterday, monthly = last month, yearly = the financial year, April - March).
 PRESETS = ("yesterday", "last_month", "this_fy", "last_fy")
 # The Full pack's sheets after its Summary, in order: (sheet name, view);
-# Year-wise is decided by the range (_year_view). A sheet name cannot hold "/",
-# so the Line / Machine view's sheet says "&".
+# Year-wise is decided by the range (_year_view).
 PACK_SHEETS = (("Issue list", "list"), ("Date-wise", "day"), ("Month-wise", "month"), ("Year-wise", None),
                ("Part-wise", "part"), ("Department-wise", "department"),
                ("Issued to Dept-wise", "issued_to"), ("Issued to Dept & Part-wise", "dept_part"), ("Person-wise", "person"),
-               ("Line & Machine-wise", "machine"), ("Category-wise", "category"))
+               ("Category-wise", "category"))
 PACK = "Full pack"
 
 
@@ -364,15 +358,6 @@ def _issued_to(i):
     return _clean(i.issued_to)
 
 
-def _place(i):
-    """Where the issue went, all the fitter recorded — line (_line), machine,
-    die — in one cell; with none of them, what the Line / Machine view says
-    instead (place_of): installed with no place given, or not recorded yet."""
-    die = (i.die_no or "").strip()
-    recorded = [v for v in (_line(i), (i.machine or "").strip(), DIE.format(die) if die else "") if v]
-    return " / ".join(recorded) or place_of(None, None, None, None, i.installed)[1]
-
-
 def _notes(out):
     """The lines a downloaded table carries under it — what its figures cannot
     say: the days before the app's ledger, never recorded, the issues left out
@@ -476,7 +461,7 @@ class _Tally:
     the money covers rated issues only — and a group whose issues all lack a
     rate has Value / Net Value unknown (None), never 0; a group with no issue at
     all has 0. What came back against an issue is counted against the issue —
-    its day, month, part, machine — whenever it came back, so Net Qty is what
+    its day, month, part — whenever it came back, so Net Qty is what
     it really used."""
 
     def __init__(self, cells):
@@ -920,20 +905,6 @@ class ConsumptionTableService:
         rows.append(total.row(columns))
         return Built(rows, total, subtotals)
 
-    def _by_machine(self, c, columns):
-        def where(u):
-            # The line / machine the fitter recorded at installation (the
-            # latest update); with neither, its die or why there is none —
-            # named as the By machine chart names it (place_of).
-            i = u.issue
-            line, machine = place_of(i.line_name, i.line_no, i.machine, i.die_no, i.installed)
-            return ((u.dept.lower(), (line or "").lower(), (machine or "").lower()),
-                    {"Department": u.dept, "Line": line, "Machine": machine})
-
-        groups, total = self._groups(c, where)
-        ordered = sorted(groups.items(), key=lambda kv: (c.order(kv[1].cells["Department"]), -kv[1].net,
-                                                         kv[0][1:]))
-        return _with_total([t for _, t in ordered], total, columns)
 
     def _by_category(self, c, columns):
         def kind(u):
@@ -990,7 +961,7 @@ class ConsumptionTableService:
             "Date": on, "Time": at, "Issue No": i.id, "Reference": i.reference, "Part No": part.part_no,
             "Description": part.part_name, "Section": u.section, "Department": u.dept,
             "Issued to Dept": _dept_taken(i), "Issued To": _issued_to(i), "Rate": part.unit_price or None,   # a rate of 0 is a missing rate
-            "Line / Machine / Die": None if u.cancelled else _place(i), "Status": _issue_status(i),
+            "Status": _issue_status(i),
         }
         if u.cancelled:
             return {column: cells.get(column) for column in columns} | {"Qty Issued": u.qty}
@@ -1015,9 +986,8 @@ class ConsumptionTableService:
             View("issued_to", "Issued to Dept-wise", BY_ISSUED_TO_COLUMNS, _by_issued_to),
             View("dept_part", "Issued to Dept & Part-wise", BY_DEPT_PART_COLUMNS, _by_dept_part),
             View("person", "Person-wise", BY_PERSON_COLUMNS, _by_person),
-            View("machine", "Line / Machine-wise", BY_MACHINE_COLUMNS, _by_machine),
             View("category", "Category-wise", BY_CATEGORY_COLUMNS, _by_category),
-        ), PACK_SHEETS, ("consumption", "returns", "value", "period", "list", "person", "place", "issued_to"),
+        ), PACK_SHEETS, ("consumption", "returns", "value", "period", "list", "person", "issued_to"),
             "Consuming department"),
     }
     # The report's name in links made while there were two (17 - 18 Oct 2026).

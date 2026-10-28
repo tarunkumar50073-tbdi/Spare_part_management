@@ -81,7 +81,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
         older ? { label: "FIFO skipped", value: reason.trim() } : null,
         { label: "Remarks", value: payload.remarks },
       ].filter(Boolean),
-      note: `The whole ${what} — ${qtyText} — goes out. Line / Machine / Die are added after installation.`,
+      note: `The whole ${what} — ${qtyText} — goes out.`,
       confirmLabel: `Confirm Issue`,
       submit: () => flow.run(
         () => packetService.issue(packet.code, payload),

@@ -41,7 +41,9 @@ export function IssueCard({ i, uom }) {
         Issued {num(i.issued_qty)}{Number(i.returned_qty) > 0 ? ` · ${num(i.returned_qty)} returned` : ""}
         {i.actual_qty != null ? ` · ${num(i.actual_qty)} used` : ""}
       </Line>
-      <Line>{placeText(i) || "Line / machine / die not recorded yet"}</Line>
+      {/* Only an older issue has one: nothing records a line / machine since
+          Confirm Installation went (27 Oct 2026). */}
+      {placeText(i) && <Line>{placeText(i)}</Line>}
     </>
   );
 }

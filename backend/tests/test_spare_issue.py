@@ -177,18 +177,16 @@ def test_issue_route_enforces_store_access(client):
     assert resp.status_code == 403
 
 
-def test_issue_records_machine_and_machine_consumption():
+def test_issue_still_keeps_a_machine_given_to_it():
+    """No screen asks for a machine since 27 Oct 2026 and no consumption split
+    reads one (28 Oct 2026), but a machine sent with an issue is still kept."""
     svc = SpareStockService()
     p = _part(); _set_physical(p.id, 30)
 
     svc.issue(p.id, 6, "Maintenance", machine="PRESS-05")
     row = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").first()
     assert row.machine == "PRESS-05"
-
-    before = _dept_total(svc.consumption_by_machine("MAINTENANCE"), "PRESS-05")
-    svc.issue(p.id, 4, "Maintenance", machine="PRESS-05")
-    after = _dept_total(svc.consumption_by_machine("MAINTENANCE"), "PRESS-05")
-    assert after - before == 4.0
+    assert not hasattr(svc, "consumption_by_machine")
 
     assert "PRESS-05" in svc.machines_used("MAINTENANCE")
 
@@ -586,6 +584,5 @@ def test_consumption_report_excel_carries_breakdown_and_period_sheets():
 
     buf = svc.consumption_report_excel("MAINTENANCE", days=7)
     wb = load_workbook(buf)
-    assert wb.sheetnames == ["By Department", "By Machine", "By Category", "Month-wise", "Year-wise"]
+    assert wb.sheetnames == ["By Department", "By Category", "Month-wise", "Year-wise"]   # no By Machine (28 Oct 2026)
     assert wb["By Department"].cell(row=1, column=1).value == "Department"
-    assert wb["By Machine"].cell(row=1, column=1).value == "Machine"
