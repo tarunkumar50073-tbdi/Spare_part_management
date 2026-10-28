@@ -321,14 +321,14 @@ function PartCard({ part: p, onOpen }) {
 // The picked part, filling the screen under the search: its photo as big as the
 // room allows, every angle a tap away, and beside it (below it on an upright
 // screen) Part No., description, spec / model, stock and — large — its rack /
-// bin and section. With no photo the photo box stays small and the details
-// take the room. Back, Escape, a new search or the idle reset bring the list
-// back.
+// bin and section. The same layout with no photo — the photo box big with
+// "No Photo Available", the details narrow (the store, 28 Oct 2026: "photo wala
+// dabba ab bhi chota h tu text wala dabba chota kar de"). Back, Escape, a new
+// search or the idle reset bring the list back.
 function PartScreen({ part, onBack }) {
   const photos = partService.photosOf(part);
   const [n, setN] = useState(0);
   const step = (d) => setN((i) => (i + d + photos.length) % photos.length);
-  const hasPhoto = photos.length > 0;
   const stock = stockOf(part);
 
   useEffect(() => {
@@ -354,14 +354,11 @@ function PartScreen({ part, onBack }) {
       {/* Side by side on a wide screen; on an upright kiosk screen the photo
           takes the full width on top and the details sit under it. */}
       <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4 landscape:flex-row">
-        {/* The photo — as large as the screen leaves room for; a small box
-            when there is none. */}
-        {/* Upright, the photo keeps at least a third of the screen and the
-            details scroll when a small screen has no more room. */}
-        <div className={hasPhoto ? "flex min-h-[35vh] flex-1 flex-col gap-3 landscape:min-h-0"
-          : "flex shrink-0 flex-col landscape:w-[34%]"}>
-          <div className={`relative flex items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-200 dark:bg-navy-900 dark:ring-navy-800 ${hasPhoto
-            ? "min-h-0 flex-1" : "aspect-[4/3] max-h-[30vh] w-full landscape:max-h-none"}`}>
+        {/* The photo — as large as the screen leaves room for. Upright, it
+            keeps at least a third of the screen and the details scroll when a
+            small screen has no more room. */}
+        <div className="flex min-h-[35vh] flex-1 flex-col gap-3 landscape:min-h-0">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-200 dark:bg-navy-900 dark:ring-navy-800">
             <Photo key={big || "none"} src={big} alt={`Photo ${n + 1} of ${part.part_no}`} big />
             {photos.length > 1 && (
               <>
@@ -395,8 +392,7 @@ function PartScreen({ part, onBack }) {
 
         {/* What it is, how many, where — readable from a step away, in the
             order the floor asks: which part, is it there, where is it. */}
-        <div className={`flex min-h-0 flex-col gap-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-navy-900 dark:ring-navy-800 ${hasPhoto
-          ? "landscape:shrink-0 landscape:w-[240px] landscape:lg:w-[260px] landscape:xl:w-[280px]" : "flex-1 landscape:self-start"}`}>
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-navy-900 dark:ring-navy-800 landscape:w-[240px] landscape:shrink-0 landscape:lg:w-[260px] landscape:xl:w-[280px]">
           <div className="min-w-0">
             <p className="break-all font-mono text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">{part.part_no}</p>
             <p className="mt-1 text-lg font-bold leading-snug text-slate-800 dark:text-slate-100">{part.part_name}</p>
