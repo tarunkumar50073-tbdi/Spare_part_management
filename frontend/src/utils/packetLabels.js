@@ -1,6 +1,8 @@
 // Packet / individual-unit QR labels (the store's spec of 27 Oct 2026). The QR
-// carries the packet's own code (SPK-XXXXXXXX), so every packet of the same part
-// scans as itself; the label shows, as text, the Part No., description, the
+// carries the packet's own code — TB + date + Part No. + label no. since 28 Oct
+// 2026 (TB28102026CNTR0332-01; older ones SPK-XXXXXXXX) — then the spec and the
+// location ("naye date wala and spec and location"): packet.qr from the server,
+// read by the app up to the first "|". Every packet scans as itself; the label shows, as text, the Part No., description, the
 // part's specification and model no. (the store, 28 Oct 2026: "qr me spec /
 // model no bhi aana chahiye"), the packet quantity and the storage location —
 // never a price. No quantity line on any label ("1 nos individual nhi aana
@@ -56,7 +58,7 @@ function face(p, tier) {
     ? [spec, model].filter(Boolean)
     : [[part.specification, part.model_no].filter(Boolean).join(" · ")].filter(Boolean);
   return `<div class="lbl">
-    <div class="q">${qrSvgString(p.code, { size: 200, quiet: 2 })}<div class="code">${esc(p.code)}</div></div>
+    <div class="q">${qrSvgString(p.qr || p.code, { size: 200, quiet: 2 })}<div class="code">${esc(p.code)}</div></div>
     <div class="t">
       <div class="pn">${esc(part.part_no)}</div>
       ${t.dsLines ? `<div class="ds">${esc(part.part_name)}</div>` : ""}
@@ -79,6 +81,10 @@ export function packetLabelsHtml(packets, { size, zoom } = {}) {
   const codeMm = t.code * k * 0.42;                        // the code line's height under the QR
   const qr = Math.max(10, Math.min(h - 2 * pad - codeMm - 0.5, w * 0.42));
   const fit = zoom ? `body { zoom: ${zoom}; }` : "";
+  // The code line under the QR fits the QR's width, however long the code:
+  // a monospace letter is about 0.6 em wide.
+  const longest = Math.max(...packets.map((p) => String(p.code || "").length), 8);
+  const codePt = Math.min(t.code * k, (qr / (longest * 0.6)) / 0.3528);
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     html, body { margin: 0; padding: 0; background: #fff; }
@@ -89,8 +95,8 @@ export function packetLabelsHtml(packets, { size, zoom } = {}) {
     .lbl:last-child { page-break-after: auto; break-after: auto; }
     .q { flex: none; width: ${qr.toFixed(1)}mm; display: flex; flex-direction: column; align-items: center; }
     .q svg { display: block; width: 100%; height: auto; }
-    .code { font-family: "Courier New", monospace; letter-spacing: 0.2px; color: #333; margin-top: 0.3mm;
-            font-size: ${pt(t.code)}pt; white-space: nowrap; }
+    .code { font-family: "Courier New", monospace; color: #333; margin-top: 0.3mm;
+            font-size: ${codePt.toFixed(1)}pt; white-space: nowrap; }
     .t { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; }
     .pn { font-weight: 700; overflow-wrap: anywhere; line-height: 1.05; font-size: ${pt(t.pn)}pt; }
     .ds { font-weight: 700; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: ${t.dsLines || 1};

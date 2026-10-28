@@ -94,7 +94,11 @@ def test_1_2_3_two_receipts_make_fifteen_unique_packets_with_their_dates():
     p, a, b, pa, pb = _bolts()
     assert (len(pa), len(pb)) == (5, 10)
     codes = [x["code"] for x in pa + pb]
-    assert len(set(codes)) == 15 and all(c.startswith("SPK-") and len(c) == 12 for c in codes)
+    # TB + the receipt's date + Part No. + that part's label no. that day (28 Oct 2026)
+    assert len(set(codes)) == 15
+    assert [x["code"] for x in pa] == [f"TB25102026{p.part_no.replace('-', '')}-0{i}" for i in range(1, 6)]
+    assert [x["code"] for x in pb][0] == f"TB27102026{p.part_no.replace('-', '')}-01"
+    assert [x["code"] for x in pb][-1] == f"TB27102026{p.part_no.replace('-', '')}-10"
     assert {x["receipt"]["received_on"] for x in pa} == {"2026-10-25"}
     assert {x["receipt"]["received_on"] for x in pb} == {"2026-10-27"}
     assert all(x["qty"] == 20 and x["status"] == "AVAILABLE" and x["kind"] == "PACKET" for x in pa + pb)
@@ -398,7 +402,7 @@ def test_boxes_with_their_own_supplier_codes_are_packets_that_scan_as_themselves
         svc.pack(r.id, "PACKET", packet_qty=20, supplier_codes=[boxes[0], boxes[1], p.part_no])
     assert exc.value.errors["code"] == "SAME_CODE"
     made = svc.pack(r.id, "PACKET", packet_qty=20, supplier_codes=boxes, user="sup")["packets"]
-    assert [x["supplier_code"] for x in made] == boxes and all(x["code"].startswith("SPK-") for x in made)
+    assert [x["supplier_code"] for x in made] == boxes and all(x["code"].startswith("TB") for x in made)
 
     out = BarcodeService().resolve(STORE, f"  {boxes[1]} ", user="tester")
     assert out["resolved_by"] == "PACKET" and out["packet"]["code"] == made[1]["code"]

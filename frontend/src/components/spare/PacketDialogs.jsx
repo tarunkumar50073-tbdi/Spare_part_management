@@ -302,9 +302,18 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
   // me preview ka option bhi hona chahiye"): a sample code — each real label
   // gets its own — at the size picked here, which the print step keeps.
   const ls = useLabelSize();
+  // The first label's code as it will be made: TB + date + Part No. + -01 — the
+  // receipt's date, or today for old stock (the real numbers carry on from any
+  // label of the part made that day).
+  const sampleCode = useMemo(() => {
+    const d = receipt?.received_on ? new Date(`${receipt.received_on}T00:00:00`) : new Date();
+    const dd = String(d.getDate()).padStart(2, "0"), mm = String(d.getMonth() + 1).padStart(2, "0");
+    return `TB${dd}${mm}${d.getFullYear()}${String(part.part_no || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}-01`;
+  }, [receipt, part.part_no]);
   const sample = useMemo(() => packetLabelsHtml([{
-    code: "SPK-SAMPLE01", kind, uom: unit, location: part.location, part,
-  }], { size: ls.size }), [kind, unit, part, ls.size.w, ls.size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+    code: sampleCode, kind, uom: unit, location: part.location, part,
+    qr: [sampleCode, (part.specification || "").trim().slice(0, 60), (part.location || "").trim()].filter(Boolean).join(" | "),
+  }], { size: ls.size }), [kind, unit, part, sampleCode, ls.size.w, ls.size.h]); // eslint-disable-line react-hooks/exhaustive-deps
   const boxesOk = !supplier || (p && boxes.length === p.count);
   const make = async () => {
     setBusy(true);

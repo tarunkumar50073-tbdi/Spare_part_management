@@ -65,6 +65,19 @@ from app.utils.exceptions import BadRequestError, NotFoundError
 
 STORE = "MAINTENANCE"
 CODE_PREFIX = "SPK-"
+# The packet code since 28 Oct 2026 (the store: "TBdatepartnomber", "2026 krna
+# 26 ki jagah"): TB + the date (DDMMYYYY) + the Part No. + "-" + that part's
+# label number on that date — TB28102026CNTR0332-01. The date is when the
+# material came in (the receipt's date), or the labelling day for old stock.
+# Codes made before (SPK-XXXXXXXX) keep working.
+TB_PREFIX = "TB"
+TB_CODE = re.compile(r"TB\d{8}[A-Z0-9]+-\d{2,3}")
+CODE_MAX = 24                      # spare_packets.code
+# What the QR carries besides the code, for any scanner to read ("naye date
+# wala and spec and location"): CODE | spec | location. The app reads the code
+# before the first "|".
+QR_SEP = " | "
+QR_SPEC_MAX = 60
 _ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"     # no 0 / O / 1 / I to misread
 MAX_PER_CALL = 500
 MAX_QTY = Decimal("1000000")
@@ -140,11 +153,21 @@ def _who(user):
 
 
 def normalize_code(code):
-    return (code or "").strip().upper()
+    """A packet code as typed or scanned — a whole QR read (CODE | spec |
+    location) gives its code."""
+    return (code or "").split("|", 1)[0].strip().upper()
 
 
 def is_packet_code(code):
-    return normalize_code(code).startswith(CODE_PREFIX)
+    c = normalize_code(code)
+    return c.startswith(CODE_PREFIX) or bool(TB_CODE.fullmatch(c))
+
+
+def qr_payload(packet):
+    """What a packet's QR carries: its code, the part's spec and the location
+    — the code first, so the app (normalize_code) finds the packet by it."""
+    spec = ((packet.part.specification if packet.part is not None else None) or "").strip()[:QR_SPEC_MAX]
+    return QR_SEP.join(x for x in (packet.code, spec, (packet.location or "").strip()) if x)
 
 
 def rack_of(location):
@@ -453,12 +476,20 @@ class SparePacketService:
     # ---- packets ----------------------------------------------------------------------
 
     @staticmethod
-    def _new_code():
-        for _ in range(20):
-            code = CODE_PREFIX + _token(8)
-            if not SparePacket.query.filter_by(code=code).first():
-                return code
-        raise BadRequestError("Could not make a unique packet code — try again")
+    def _new_codes(part, day, n):
+        """n new codes for a part on a date: TB + DDMMYYYY + Part No. + "-NN",
+        numbered on from that part's last label of that date. Called with the
+        part's stock row locked (pack), so two packs of one part take turns."""
+        no = re.sub(r"[^A-Z0-9]", "", (part.part_no or "").upper())
+        width = 2
+        stem = f"{TB_PREFIX}{day:%d%m%Y}"
+        no = no[:max(1, CODE_MAX - len(stem) - 1 - 3)] if len(stem) + len(no) + 1 + width > CODE_MAX else no
+        prefix = f"{stem}{no}-"
+        last = max((int(c[len(prefix):]) for (c,) in db.session.query(SparePacket.code)
+                    .filter(SparePacket.code.like(prefix + "%")) if c[len(prefix):].isdigit()), default=0)
+        if last + n > 99:
+            width = 3
+        return [f"{prefix}{last + i:0{width}d}" for i in range(1, n + 1)]
 
     def plan(self, receipt, kind, packet_qty=None, count=None, last_smaller=False):
         """How a receipt's remaining verified quantity would be packed: the
@@ -524,10 +555,14 @@ class SparePacketService:
                     f"{total:g} cannot be packed")
             seq = (db.session.query(func.coalesce(func.max(SparePacket.seq), 0))
                    .filter(SparePacket.batch_id == receipt.id).scalar() or 0)
+            # The code's date: when the material came in — old stock, the day
+            # it is labelled.
+            day = date.today() if receipt.source == "OPENING" else (receipt.received_on or date.today())
+            codes = self._new_codes(receipt.part, day, len(plan["sizes"]))
             made = []
             for i, size in enumerate(plan["sizes"]):
                 seq += 1
-                p = SparePacket(code=self._new_code(), kind=kind, batch_id=receipt.id, part_id=receipt.part_id,
+                p = SparePacket(code=codes[i], kind=kind, batch_id=receipt.id, part_id=receipt.part_id,
                                 seq=seq, qty=size, uom=receipt.uom or receipt.part.uom,
                                 location=receipt.part.location, status="QC_PENDING" if before_qc else "AVAILABLE",
                                 created_by=_who(user),
@@ -570,7 +605,7 @@ class SparePacketService:
         """(message, same) when a box's code cannot be that box's own code:
         `same` = it is the part's code (the same on every box: keep it loose)."""
         if is_packet_code(code):
-            return "That is one of our packet labels (SPK-…), not the supplier's code", False
+            return "That is one of our packet labels (TB… / SPK-…), not the supplier's code", False
         if len(code) > SUPPLIER_CODE_MAX:
             return f"The code is longer than {SUPPLIER_CODE_MAX} characters", False
         boxed = SparePacket.query.filter_by(supplier_code=code, status="AVAILABLE").first()
@@ -640,7 +675,7 @@ class SparePacketService:
         if not scanned:
             raise BadRequestError("Scan the code on the box")
         if is_packet_code(scanned):
-            raise BadRequestError("That is one of our packet labels (SPK-…), not the supplier's code")
+            raise BadRequestError("That is one of our packet labels (TB… / SPK-…), not the supplier's code")
         receipt = None
         if receipt_id is not None:
             receipt = self._receipt(receipt_id)
@@ -1097,7 +1132,8 @@ class SparePacketService:
             return None
         r = p.batch
         return {
-            "id": p.id, "code": p.code, "kind": p.kind, "seq": p.seq, "qty": _n(p.qty), "uom": p.uom,
+            "id": p.id, "code": p.code, "qr": qr_payload(p), "kind": p.kind, "seq": p.seq, "qty": _n(p.qty),
+            "uom": p.uom,
             "location": p.location, "status": p.status, "supplier_code": p.supplier_code,
             "part": SparePacketService._part_dict(p.part),
             "receipt": {"id": r.id, "receipt_no": r.receipt_no, "source": r.source, "received_on": _iso(r.received_on),
