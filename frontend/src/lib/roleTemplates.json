@@ -94,7 +94,7 @@
         "store_stock": "as Store Staff (also the ERP push on ERP Control Center and the ERP stock upload on ERP vs Physical)",
         "part_ledger": "as Store Staff",
         "reports": "as Store Staff",
-        "part_master": "Part Master (POST / PUT /parts) with its Photo Mode (POST / DELETE /parts/:id/image), and the Line / Machine / Die master it keeps since 23 Oct 2026 (PUT /equipment/:id, POST /equipment/import)",
+        "part_master": "Part Master (POST / PUT /parts) with its Photo Mode (POST / DELETE /parts/:id/image)",
         "supplier_barcodes": "Scan Part's Barcodes panel and its unknown-code prompt: map a supplier's barcode to a part, e.g. one Scan Audit shows as unknown (POST /barcode/mapping)",
         "departments": "Department Emails (POST / PUT /departments, GET /departments/reorder-mail/status)",
         "scan_audit": "Scan Audit screen, open to this right since 17 Oct 2026 (was administrators only) (GET /barcode/scan-audit)",

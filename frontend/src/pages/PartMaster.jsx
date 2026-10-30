@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { Pencil, Trash2, Search, Repeat2, Camera, Factory, ImageOff, ImagePlus, X } from "lucide-react";
+import { Pencil, Trash2, Search, Repeat2, Camera, ImageOff, ImagePlus, X } from "lucide-react";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
@@ -547,12 +547,8 @@ export default function PartMaster() {
           <Link to="/part-photos" className="btn-secondary">
             <Camera size={16} aria-hidden="true" /> Photo Mode
           </Link>
-          {/* The Line / Machine / Die list the issue and install screens pick
-              from: no menu item of its own since 23 Oct 2026 ("ye module hta de
-              iski kya jarurat h"); a wrong name is still put right from here. */}
-          <Link to="/equipment" className="btn-secondary">
-            <Factory size={16} aria-hidden="true" /> Line / Machine / Die
-          </Link>
+          {/* No Line / Machine / Die button since 30 Oct 2026: nothing records a
+              line or machine since Confirm Installation went. */}
           <ExcelActions
             addLabel="Add Part"
             canEdit={canCreate}

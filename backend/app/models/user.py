@@ -53,11 +53,10 @@ PERMISSION_MODULES = [
     {"key": "employees", "label": "Employee Master"},
     # No "part_photos" right either: Photo Mode opens from the Part Master's own
     # button and a photo is saved with the Part Master edit right (23 Oct 2026).
-    # No "equipment" right any more: the Line / Machine / Die master is kept by
-    # whoever keeps the Part Master (the store, 23 Oct 2026). Its pick-lists on
-    # the issue / install screens never needed it, and the install form can still
-    # add a missing value with scan_part edit. An old login's stored "equipment"
-    # key is simply never asked for.
+    # No "equipment" right, and no Line / Machine / Die master since 30 Oct
+    # 2026: nothing records a line or machine since Confirm Installation went
+    # (27 Oct 2026). An old login's stored "equipment" key is simply never asked
+    # for; the old `equipment` table stays in the database, unused.
     {"key": "reports", "label": "Reports"},
     {"key": "audit_trail", "label": "Audit Trail"},
     {"key": "live_dashboard", "label": "Live Dashboard"},

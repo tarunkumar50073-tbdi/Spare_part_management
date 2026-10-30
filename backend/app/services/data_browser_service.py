@@ -99,7 +99,7 @@ GROUPS = (
         "holding_entries": "Holding area", "milkrun_groups": "Milkrun groups",
         "supplier_milkrun_mapping": "Supplier ↔ milkrun", "supplier_vehicle_windows": "Supplier vehicle windows",
         "supplier_window_schedules": "Supplier window schedules", "suppliers": "Supplier master",
-        "part_suppliers": "Part ↔ supplier", "equipment": "Equipment", "quarterly_inventory": "Quarterly inventory",
+        "part_suppliers": "Part ↔ supplier", "equipment": "Line / Machine / Die (old master, unused since 30 Oct 2026)", "quarterly_inventory": "Quarterly inventory",
         "physical_stock": "Physical stock (child parts)", "gate_exits": "Gate exits",
         "part_import_history": "Part imports",
     }),

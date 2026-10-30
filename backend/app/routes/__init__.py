@@ -59,7 +59,6 @@ def register_routes(app):
     from app.routes.spare_scan_routes import bp as spare_scan_bp
     from app.routes.erp_grn_routes import bp as erp_grn_bp
     from app.routes.employee_routes import bp as employee_bp
-    from app.routes.equipment_routes import bp as equipment_bp
     from app.routes.mail_engine_routes import bp as mail_engine_bp
 
     app.register_blueprint(supplier_bp)
@@ -119,7 +118,6 @@ def register_routes(app):
     app.register_blueprint(spare_scan_bp)
     app.register_blueprint(erp_grn_bp)
     app.register_blueprint(employee_bp)
-    app.register_blueprint(equipment_bp)
     # No gate-label blueprint any more: the gate-entry lot tags were taken out on
     # 17 Oct 2026 — management said they waste paper ("lot tag bhi kah rhe h ki
     # paper wastage h use hta do") — so /api/v1/gate-labels answers 404. The

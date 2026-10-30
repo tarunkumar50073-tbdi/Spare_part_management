@@ -153,14 +153,14 @@ def test_staff_screens():
     assert {"/store/MAINTENANCE", "/scan-part", "/work-queue", "/store-stock-spare",
             "/inventory-control", "/spare-part-history", "/reports", "/employees",
             "/receiving", "/consumption", "/action-tracker", "/short-rejection"} <= opens
-    assert not opens & {"/parts", "/equipment", "/data-quality", "/departments", "/scan-audit", "/audit-trail",
+    assert not opens & {"/parts", "/data-quality", "/departments", "/scan-audit", "/audit-trail",
                         "/spare-erp-gap", "/erp-control", "/confirm-installation",
                         "/live-dashboard"}
 
 
 def test_supervisor_screens():
     opens = _opens("store_supervisor")
-    assert _opens("store_staff") | {"/parts", "/equipment", "/part-photos", "/data-quality", "/departments", "/scan-audit",
+    assert _opens("store_staff") | {"/parts", "/part-photos", "/data-quality", "/departments", "/scan-audit",
                                     "/audit-trail", "/spare-erp-gap", "/erp-control", "/challans"} == opens
     assert not opens & {"/confirm-installation", "/live-dashboard"}
 
@@ -330,14 +330,13 @@ def _staff_allowed(w):
         # Scan Part / Work Queue
         ("get", f"/api/v1/spare-flow/parts/{w['part']}/scan-result", None, "ok"),
         ("get", f"/api/v1/employees/lookup?mobile={w['mobile']}", None, "ok"),
-        ("get", "/api/v1/equipment?kind=LINE&active=1", None, "ok"),
         ("post", f"/api/v1/spare-stock/parts/{w['part']}/issue",
          {"qty": 1, "department": DEPT, "employee_id": w["person"]}, "ok"),
         # Store Stock count, Critical · Reorder · Excess
         ("put", f"/api/v1/spare-stock/parts/{w['part']}", {"qty_on_hand": 12, "txn_type": "ADJUSTMENT"}, "ok"),
         ("get", f"/api/v1/spare-stock/parts/{w['part']}", None, "ok"),
         ("get", _q("/api/v1/inventory-control"), None, "ok"),
-        # Employee / Line-Machine-Die masters (read), Reports
+        # Employee master (read), Reports
         ("get", "/api/v1/employees?active=1", None, "ok"),
         ("get", _q("/api/v1/reports/catalog"), None, "ok"),
     ]
@@ -353,7 +352,6 @@ SUPERVISOR_EXTRA = [
     ("get", "/api/v1/audit-logs", None),           # Audit Trail
     ("get", _q("/api/v1/erp-control/status"), None),   # ERP Control Center
     ("put", "/api/v1/employees/{person}", {"designation": "Fitter"}),   # Employee Master edit
-    ("post", "/api/v1/equipment/import", None),    # Line / Machine / Die master import (no file)
 ]
 
 
