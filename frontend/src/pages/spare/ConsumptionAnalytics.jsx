@@ -23,7 +23,7 @@ import { compactMoney, money, num } from "../../lib/format.js";
 import { downloadXlsx } from "../../utils/excel.js";
 import { consumptionAnalyticsService } from "../../services/consumptionAnalyticsService.js";
 
-// The Issuance & Consumption Report (/consumption): every issue from the
+// The Issuance Report (/consumption): every issue from the
 // store, what came back and what each department really used — counted for
 // the department that owns the part's section, never the store, which only
 // hands parts out, returns netted against their issue. Split in two on 17 Oct

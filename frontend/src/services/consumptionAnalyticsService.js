@@ -30,7 +30,7 @@ export const consumptionAnalyticsService = {
   exportPack: (params, filename) => downloadFile("/consumption-analytics/table/pack", filename, params),
 };
 
-// The one Issuance & Consumption Report. Two reports for a day (17 Oct 2026,
+// The one Issuance Report (the Issuance & Consumption Report until 30 Oct 2026). Two reports for a day (17 Oct 2026,
 // "issuance and consumption ki report alag alag chahiye"), one again on 18 Oct
 // 2026 when the store saw them side by side ("issuance and consumption report
 // same dikh rhi h dono me differance nhi to ye kaam merge me bhi ho sakta h"):
@@ -43,10 +43,10 @@ export const consumptionAnalyticsService = {
 // say what the view holds.
 export const REPORT = {
   key: "consumption",
-  title: "Issuance & Consumption Report",
+  title: "Issuance Report",
   path: "/consumption",
-  subtitle: "Every issue from the store, what came back and what each department really used. "
-    + "Pick a period and a view; download as Excel or PDF.",
+  subtitle: "Every issue from the store and what came back. Pick a period — daily, monthly, yearly or your "
+    + "own dates (Custom) — and a view; download as Excel or PDF.",
   departmentHint: "The department that owns the part's section (who consumed it) — never the store, which only hands parts out",
   pack: "Summary, Issue list, Date-wise, Month-wise, Year-wise, Part-wise, Department-wise, Issued to Dept-wise, "
     + "Issued to Dept & Part-wise, Person-wise and Category-wise",
@@ -58,7 +58,7 @@ export const REPORT = {
     { key: "year", label: "Year-wise" },
     { key: "fy", label: "Financial year-wise" },
     { key: "part", label: "Part-wise" },
-    { key: "department", label: "Department-wise", option: "Department-wise (consuming)" },
+    { key: "department", label: "Department-wise", option: "Department-wise (part's section)" },
     // Who the part was handed to — the department written on the issue (the
     // store, 27 Oct 2026: "kis kis depart ko issue kiya", "part k according bhi").
     { key: "issued_to", label: "Issued to Dept-wise", option: "Issued to department" },

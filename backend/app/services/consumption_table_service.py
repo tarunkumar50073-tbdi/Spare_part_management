@@ -1,4 +1,6 @@
-"""The Issuance & Consumption Report: every issue from the store, what came
+"""The Issuance Report (the Issuance & Consumption Report until 30 Oct 2026;
+real consumption will come from the user departments' own DB): every issue
+from the store, what came
 back and what each department really used, cut the way the store asks, on
 screen and as Excel / PDF — the one place for it ("wahi mil jaaye app me,
 wahan select kare kis part ki kab se kab tak consumption ya month wise ya year
@@ -630,8 +632,8 @@ class ConsumptionTableService:
         return " ".join([head, *(p for p in picked if p), _dates(win)])
 
     def _title(self, view, c):
-        """E.g. Issuance & Consumption Report Month-wise CNTR3200 01.04.2026 to
-        14.10.2026; Issuance & Consumption Report Issue list 16.10.2026."""
+        """E.g. Issuance Report Month-wise CNTR3200 01.04.2026 to 14.10.2026;
+        Issuance Report Issue list 16.10.2026."""
         return self._named(f"{c.report.title} {view.label}", c.f, c.win)
 
     def _out(self, chosen, c, built):
@@ -974,7 +976,7 @@ class ConsumptionTableService:
     # dropdown in order: the Issue list first — "kis date ko kitna part and kon
     # kon sa issue hua" (14 Oct 2026).
     REPORTS = {
-        "consumption": Report("consumption", "Issuance & Consumption Report", (
+        "consumption": Report("consumption", "Issuance Report", (
             View("list", "Issue list", LIST_COLUMNS, _issue_list),
             View("day", "Date-wise", BY_DATE_COLUMNS, _by_date),
             View("week", "Week-wise", BY_WEEK_COLUMNS, _by_week),

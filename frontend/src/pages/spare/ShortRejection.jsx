@@ -30,7 +30,7 @@ import RejectionMailDialog from "../../components/spare/RejectionMailDialog.jsx"
 // line rejection"), chosen by the Type dropdown and never mixed either. Line
 // Rejection is not readable yet, and the screen says so instead of a list.
 //
-// As simple as the Issuance & Consumption Report (ReportScreen.jsx): a title,
+// As simple as the Issuance Report (ReportScreen.jsx): a title,
 // the tabs, ONE filter bar of named boxes with the downloads at its end.
 
 const TABS = [
@@ -425,7 +425,7 @@ function ErpBanner({ asOf, kind, basis, closuresKnown, gap, notGiven }) {
 
 // ------------------------------------------------------------------ filters
 
-// A control with its name above it, as on the Issuance & Consumption Report.
+// A control with its name above it, as on the Issuance Report.
 // A <label> wraps a lone box, so a click on the name lands in it; a search box
 // holds a clear button of its own and is named with a caption instead.
 function Field({ label, as: Tag = "label", className = "", children }) {

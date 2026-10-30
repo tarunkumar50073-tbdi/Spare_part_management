@@ -9,7 +9,7 @@ import { NO_ROWS, useStockList } from "../../lib/stockQueries.js";
 import { num } from "../../lib/format.js";
 import { REPORT, consumptionAnalyticsService } from "../../services/consumptionAnalyticsService.js";
 
-// The layout of the Issuance & Consumption Report — two reports for a day
+// The layout of the Issuance Report — two reports for a day
 // (17 Oct 2026), one again since 18 Oct 2026 ("issuance and consumption report
 // same dikh rhi h dono me differance nhi to ye kaam merge me bhi ho sakta h" —
 // the store) — kept as simple as the store asked on 17 Oct ("ye thoda
@@ -26,19 +26,25 @@ import { REPORT, consumptionAnalyticsService } from "../../services/consumptionA
 // 12 months are for the month- and year-wise table ("month wise ya year wise"
 // — the store, 14 Oct 2026). Today is "aaj kitna part, konsa konsa part, kis kis
 // depart ko issue kiya" (27 Oct 2026), cut on the browser's calendar as This month is.
+//
+// Grouped Daily / Monthly / Yearly / Other / Custom in the dropdown (the store,
+// 30 Oct 2026: "issuance report download bhi honi chahiye daily, monthly,
+// yearly" — "dropdown me rhenge and custom se bhi ho"); the downloads take
+// whatever is picked.
 const PRESETS = [
-  { key: "today", label: "Today" },
-  { key: "yesterday", label: "Yesterday", served: true },
-  { key: "month", label: "This month" },
-  { key: "last_month", label: "Last month", served: true },
-  { key: "30d", label: "Last 30 days" },
-  { key: "90d", label: "Last 90 days" },
-  { key: "year", label: "This year" },
-  { key: "12m", label: "Last 12 months" },
-  { key: "this_fy", label: "This financial year", served: true },
-  { key: "last_fy", label: "Last financial year (Apr–Mar)", served: true },
-  { key: "custom", label: "Custom" },
+  { key: "today", label: "Today", group: "Daily" },
+  { key: "yesterday", label: "Yesterday", served: true, group: "Daily" },
+  { key: "month", label: "This month", group: "Monthly" },
+  { key: "last_month", label: "Last month", served: true, group: "Monthly" },
+  { key: "this_fy", label: "This financial year", served: true, group: "Yearly" },
+  { key: "last_fy", label: "Last financial year (Apr–Mar)", served: true, group: "Yearly" },
+  { key: "year", label: "This calendar year", group: "Yearly" },
+  { key: "30d", label: "Last 30 days", group: "Other" },
+  { key: "90d", label: "Last 90 days", group: "Other" },
+  { key: "12m", label: "Last 12 months", group: "Other" },
+  { key: "custom", label: "Custom — pick From and To", group: "Custom" },
 ];
+const PRESET_GROUPS = ["Daily", "Monthly", "Yearly", "Other", "Custom"];
 const presetOf = (key) => PRESETS.find((p) => p.key === key);
 const DEFAULT_PRESET = "month";
 // The Issue list first: every issue a line, a subtotal per day — the store's
@@ -306,7 +312,11 @@ function FilterBar({
       <Field label="Period" className={custom ? "col-span-2" : ""}>
         <select className={`${periodSelect} font-medium text-slate-800 dark:text-white`} value={range}
           onChange={(e) => onPreset(e.target.value)}>
-          {PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          {PRESET_GROUPS.map((g) => (
+            <optgroup key={g} label={g}>
+              {PRESETS.filter((p) => p.group === g).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+            </optgroup>
+          ))}
         </select>
       </Field>
       {custom && (

@@ -2,7 +2,7 @@
 
 Read-only and store-scoped: what the Spare store issued over a window, against
 the window before it (ConsumptionAnalyticsService — the report's charts), and
-the Issuance & Consumption Report's table in the view the store picks — on
+the Issuance Report's table in the view the store picks — on
 screen and as Excel / PDF (ConsumptionTableService; the store, 14 Oct 2026:
 "wahi se excel / pdf download ho jaaye"), plus its Full pack workbook. One
 report again since 18 Oct 2026 ("issuance and consumption report same dikh rhi

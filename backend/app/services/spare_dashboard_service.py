@@ -391,7 +391,7 @@ class SpareDashboardService:
         """This month's issues for the Live Board's Issue & Consumption panel
         (the store, 22 Oct 2026: "kitna issue hua and kahan consume hua wo data
         mile"): how much went out — issues, qty, ₹, what came back — per
-        consuming department. Read through the Issuance & Consumption Report's
+        consuming department. Read through the Issuance Report's
         own department view, so the board and the report never disagree. A
         section group (Tool Room) is read as the department its sections
         belong to. No "Used at" line / machine list since 28 Oct 2026: nothing

@@ -99,7 +99,7 @@ SERVICES = [
     # One report since 18 Oct 2026 ("issuance and consumption report same dikh
     # rhi h ... ye kaam merge me bhi ho sakta h"): what left the store, to whom,
     # and what each department really used.
-    {"key": "consumption", "title": "Issuance & Consumption Report", "route": "/consumption",
+    {"key": "consumption", "title": "Issuance Report", "route": "/consumption",
      "category": "Inventory", "icon": "📈", "mod": "spare_store",
      "keywords": ["issuance", "issue list", "issued", "issue report", "kisko diya", "kitna diya",
                   "issued to", "person", "consumption", "usage", "consumed", "net", "returned", "trend",

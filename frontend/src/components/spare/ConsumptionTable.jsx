@@ -4,7 +4,7 @@ import ErrorState from "../ErrorState.jsx";
 import { num } from "../../lib/format.js";
 import { LIST_GROUPS, REPORT, consumptionAnalyticsService } from "../../services/consumptionAnalyticsService.js";
 
-// The table card of the Issuance & Consumption Report: pick a part (or all), a
+// The table card of the Issuance Report: pick a part (or all), a
 // period and a view, read it here and take the same view away as Excel or PDF
 // — no trip to the Reports page ("wahi mil jaaye app me, wahan select kare kis
 // part ki kab se kab tak consumption ya month wise ya year wise consumption

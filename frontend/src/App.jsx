@@ -284,7 +284,7 @@ function AuthenticatedApp() {
           <Route path="/spare-packets" element={<RequirePermission mod="spare_packets"><PacketManagement /></RequirePermission>} />
           <Route path="/job-work" element={<RequirePermission mod="scan_part"><JobWork /></RequirePermission>} />
           <Route path="/inventory-control" element={<RequirePermission mod="inventory_control"><InventoryControl /></RequirePermission>} />
-          {/* The Issuance & Consumption Report — one report again since 18 Oct 2026
+          {/* The Issuance Report — one report again since 18 Oct 2026
               ("ye kaam merge me bhi ho sakta h"), behind the spare_store right;
               /issuance, its own screen for a day, lands on it. */}
           <Route path="/consumption" element={<RequirePermission mod="consumption"><ConsumptionAnalytics /></RequirePermission>} />
