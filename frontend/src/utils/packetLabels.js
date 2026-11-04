@@ -29,13 +29,23 @@ const esc = (s) => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 
+// A tiny label for a cylinder or a thin part (the store, 4 Nov 2026: "mere paas
+// aise cylender bhi h jisme 15*20 k qr lagenge"), upright or lying ("dono
+// chahiye"): only the QR and the TB code under it. Its QR carries the code
+// alone — as the suppliers' small QRs carry a short code — so its dots stay
+// about 0.45 mm and it still prints and scans at 12-14 mm; every bigger label's
+// QR keeps code | spec | location.
+const TINY = { pad: 0.6, maxCodePt: 5 };
+
 // The sizes offered on the print dialog, smallest first (mm).
 export const LABEL_SIZES = [
+  { key: "T1", label: "Tiny (upright)", w: 15, h: 20 },
+  { key: "T2", label: "Tiny (lying)", w: 20, h: 15 },
   { key: "S", label: "Small part", w: 50, h: 25 },
   { key: "M", label: "Medium", w: 75, h: 50 },
   { key: "L", label: "Large part", w: 100, h: 50 },
 ];
-export const LABEL_LIMITS = { minW: 30, maxW: 150, minH: 15, maxH: 100 };
+export const LABEL_LIMITS = { minW: 15, maxW: 150, minH: 15, maxH: 100 };
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -49,8 +59,37 @@ const TIERS = {
   SMALL: { ref: [50, 25], code: 5, pn: 9, ds: 5.5, loc: 7 },
 };
 
-export function labelTier(h) {
+// TINY: narrower than 30 mm or lower than 20 mm — room for the QR alone.
+export function labelTier(h, w = 100) {
+  if (w < 30 || h < 20) return "TINY";
   return h >= 42 ? "FULL" : h >= 30 ? "MID" : "SMALL";
+}
+
+// The tiny label: the QR (its code only) and the code under it, as wide as the
+// label allows.
+function tinyHtml(packets, w, h, zoom) {
+  const pad = TINY.pad;
+  const longest = Math.max(...packets.map((p) => String(p.code || "").length), 8);
+  const codePt = Math.min(TINY.maxCodePt, ((w - 2 * pad) / (longest * 0.6)) / 0.3528);
+  const codeMm = codePt * 0.3528 * 1.1;
+  const qr = Math.max(8, Math.min(w - 2 * pad, h - 2 * pad - codeMm - 0.3));
+  const fit = zoom ? `body { zoom: ${zoom}; }` : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { margin: 0; padding: 0; background: #fff; }
+    @page { size: ${w}mm ${h}mm; margin: 0; }
+    .lbl { display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;
+           width: ${w}mm; height: ${h}mm; padding: ${pad}mm; gap: 0.3mm; color: #000;
+           page-break-after: always; break-after: page; }
+    .lbl:last-child { page-break-after: auto; break-after: auto; }
+    .q { width: ${qr.toFixed(1)}mm; } .q svg { display: block; width: 100%; height: auto; }
+    .code { font-family: "Courier New", monospace; font-weight: 700; white-space: nowrap; line-height: 1.1;
+            font-size: ${codePt.toFixed(2)}pt; }
+    ${fit}
+  </style></head><body>${packets.map((p) => `<div class="lbl">
+    <div class="q">${qrSvgString(p.code, { size: 200, quiet: 1 })}</div>
+    <div class="code">${esc(p.code)}</div>
+  </div>`).join("")}</body></html>`;
 }
 
 // The lines a text takes at `perLine` letters a line, words kept whole where
@@ -98,7 +137,8 @@ function face(p, dsPt) {
 export function packetLabelsHtml(packets, { size, zoom } = {}) {
   const w = clamp(Number(size?.w) || 100, LABEL_LIMITS.minW, LABEL_LIMITS.maxW);
   const h = clamp(Number(size?.h) || 50, LABEL_LIMITS.minH, LABEL_LIMITS.maxH);
-  const tier = labelTier(h);
+  const tier = labelTier(h, w);
+  if (tier === "TINY") return tinyHtml(packets, w, h, zoom);
   const t = TIERS[tier];
   const k = clamp(Math.min(w / t.ref[0], h / t.ref[1]), 0.85, 1.5);
   const pt = (v) => (v * k).toFixed(1);
