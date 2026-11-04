@@ -73,10 +73,11 @@ const CSS = `
 @keyframes dxa-blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.12); } }
 @keyframes dxa-antenna { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes dxa-scan { 0% { transform: translateY(-4px); opacity: 0; } 15%, 85% { opacity: 1; } 100% { transform: translateY(84px); opacity: 0; } }
-@keyframes dxa-hello { 0%, 80%, 100% { transform: translateX(0) rotate(0); }
-  83% { transform: translateX(-6px) rotate(-6deg); } 86% { transform: translateX(6px) rotate(6deg); }
-  89% { transform: translateX(-5px) rotate(-4deg); } 92% { transform: translateX(4px) rotate(3deg); }
-  95% { transform: translateX(-2px) rotate(-1deg); } 98% { transform: translateX(0) rotate(0); } }
+@keyframes dxa-hello { 0%, 70%, 100% { transform: translateX(0) rotate(0); }
+  74% { transform: translateX(-7px) rotate(-7deg); } 78% { transform: translateX(7px) rotate(7deg); }
+  82% { transform: translateX(-7px) rotate(-7deg); } 86% { transform: translateX(7px) rotate(7deg); }
+  90% { transform: translateX(-6px) rotate(-6deg); } 94% { transform: translateX(6px) rotate(6deg); }
+  97% { transform: translateX(0) rotate(0); } }
 .dxa-panel-in { animation: dxa-panel-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both; }
 .dxa-fade { animation: dxa-fade 200ms ease-out both; }
 .dxa-ring { animation: dxa-ring 3.2s cubic-bezier(0.22, 0.61, 0.36, 1) infinite; }
@@ -519,10 +520,10 @@ export default function AssistantWidget() {
             ho" — one "?" in a speech bubble at his head and an Ask chip on the
             round's lower edge while the panel is shut. */}
         {/* While shut, the whole round — ring, boy, "?" and Ask together — says
-            hello now and then: a quick shake left and right every 4 s, never
-            a hop up, then still (the store, 4 Nov 2026: "ye hilna chahiye" …
-            "pura circle hile" … "upper na uchle" … "4 second me hi rhne de but
-            left right hile"). */}
+            hello now and then: three full shakes left and right every 4 s,
+            never a hop up, then still (the store, 4 Nov 2026: "ye hilna
+            chahiye" … "pura circle hile" … "upper na uchle" … "4 second me hi
+            rhne de but left right hile" … "2-3 baar hile"). */}
         <span aria-hidden="true" className={`${open ? "" : "dxa-hello "}relative grid h-16 w-16 place-items-center`}>
         {!open && <span aria-hidden="true" className="dxa-ring pointer-events-none absolute inset-0 rounded-full" />}
         <span aria-hidden="true"
