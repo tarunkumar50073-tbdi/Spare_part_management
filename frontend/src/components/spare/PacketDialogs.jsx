@@ -430,7 +430,7 @@ const SIZE_KEY = "dx_packet_label_size";
 // What every size prints since 4 Nov 2026 (utils/packetLabels.js).
 const LABEL_LINES = "Part No., description (whole), location, code under the QR";
 // A tiny label (cylinder / thin part, 4 Nov 2026): the QR and its code only.
-const TINY_LINES = "QR and the TB code only (the QR carries the code alone, so it scans this small)";
+const TINY_LINES = "QR and the TB code only (the QR carries the code and the spec)";
 
 function savedSize() {
   try { return JSON.parse(localStorage.getItem(SIZE_KEY)) || { key: "PRINTER" }; } catch { return { key: "PRINTER" }; }

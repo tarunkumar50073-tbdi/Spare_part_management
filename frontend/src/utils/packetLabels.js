@@ -31,10 +31,10 @@ const esc = (s) => String(s == null ? "" : s)
 
 // A tiny label for a cylinder or a thin part (the store, 4 Nov 2026: "mere paas
 // aise cylender bhi h jisme 15*20 k qr lagenge"), upright or lying ("dono
-// chahiye"): only the QR and the TB code under it. Its QR carries the code
-// alone — as the suppliers' small QRs carry a short code — so its dots stay
-// about 0.45 mm and it still prints and scans at 12-14 mm; every bigger label's
-// QR keeps code | spec | location.
+// chahiye"): only the QR and the TB code under it. Its QR carries the code and
+// the spec ("chote me qr k ander spec or hona chahiye") but not the location,
+// to keep its dots as big as can be at 12-14 mm; every bigger label's QR keeps
+// code | spec | location.
 const TINY = { pad: 0.6, maxCodePt: 5 };
 
 // The sizes offered on the print dialog, smallest first (mm).
@@ -65,7 +65,11 @@ export function labelTier(h, w = 100) {
   return h >= 42 ? "FULL" : h >= 30 ? "MID" : "SMALL";
 }
 
-// The tiny label: the QR (its code only) and the code under it, as wide as the
+// What a tiny label's QR carries: the code, then the spec (as the server's own
+// payload cuts it, 60 letters) — the app reads the code before the first "|".
+const tinyQr = (p) => [p.code, String(p.part?.specification || "").trim().slice(0, 60)].filter(Boolean).join(" | ");
+
+// The tiny label: the QR (code and spec) and the code under it, as wide as the
 // label allows.
 function tinyHtml(packets, w, h, zoom) {
   const pad = TINY.pad;
@@ -87,7 +91,7 @@ function tinyHtml(packets, w, h, zoom) {
             font-size: ${codePt.toFixed(2)}pt; }
     ${fit}
   </style></head><body>${packets.map((p) => `<div class="lbl">
-    <div class="q">${qrSvgString(p.code, { size: 200, quiet: 1 })}</div>
+    <div class="q">${qrSvgString(tinyQr(p), { size: 200, quiet: 1 })}</div>
     <div class="code">${esc(p.code)}</div>
   </div>`).join("")}</body></html>`;
 }
