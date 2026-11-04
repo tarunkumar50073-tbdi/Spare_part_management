@@ -73,8 +73,10 @@ const CSS = `
 @keyframes dxa-blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.12); } }
 @keyframes dxa-antenna { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes dxa-scan { 0% { transform: translateY(-4px); opacity: 0; } 15%, 85% { opacity: 1; } 100% { transform: translateY(84px); opacity: 0; } }
-@keyframes dxa-hello { 0%, 66%, 100% { transform: rotate(0); } 70% { transform: rotate(-12deg); } 75% { transform: rotate(11deg); }
-  80% { transform: rotate(-8deg); } 85% { transform: rotate(5deg); } 90% { transform: rotate(-2deg); } 94% { transform: rotate(0); } }
+@keyframes dxa-hello { 0%, 80%, 100% { transform: translateX(0) rotate(0); }
+  83% { transform: translateX(-6px) rotate(-6deg); } 86% { transform: translateX(6px) rotate(6deg); }
+  89% { transform: translateX(-5px) rotate(-4deg); } 92% { transform: translateX(4px) rotate(3deg); }
+  95% { transform: translateX(-2px) rotate(-1deg); } 98% { transform: translateX(0) rotate(0); } }
 .dxa-panel-in { animation: dxa-panel-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both; }
 .dxa-fade { animation: dxa-fade 200ms ease-out both; }
 .dxa-ring { animation: dxa-ring 3.2s cubic-bezier(0.22, 0.61, 0.36, 1) infinite; }
@@ -84,7 +86,7 @@ const CSS = `
 .dxa-antenna { animation: dxa-antenna 1.8s ease-in-out infinite; }
 .dxa-scan { animation: dxa-scan 4.5s linear infinite; }
 .dxa-q { animation: dxa-q 2.4s ease-in-out infinite; }
-.dxa-hello { transform-origin: 50% 50%; animation: dxa-hello 2.5s ease-in-out infinite; }
+.dxa-hello { transform-origin: 50% 50%; animation: dxa-hello 4s ease-in-out infinite; }
 .dxa-glow { filter: drop-shadow(0 0 1.6px rgba(34, 211, 238, 0.95)); }
 @media (prefers-reduced-motion: reduce) {
   .dxa-panel-in, .dxa-fade, .dxa-ring, .dxa-dot, .dxa-icon-in, .dxa-eyes, .dxa-antenna, .dxa-scan, .dxa-q, .dxa-hello {
@@ -517,9 +519,10 @@ export default function AssistantWidget() {
             ho" — one "?" in a speech bubble at his head and an Ask chip on the
             round's lower edge while the panel is shut. */}
         {/* While shut, the whole round — ring, boy, "?" and Ask together — says
-            hello now and then: a quick shake in place every 2.5 s, never a
-            hop up, then still (the store, 4 Nov 2026: "ye hilna chahiye" …
-            "pura circle hile" … "upper na uchle" … "hile thoda fast"). */}
+            hello now and then: a quick shake left and right every 4 s, never
+            a hop up, then still (the store, 4 Nov 2026: "ye hilna chahiye" …
+            "pura circle hile" … "upper na uchle" … "4 second me hi rhne de but
+            left right hile"). */}
         <span aria-hidden="true" className={`${open ? "" : "dxa-hello "}relative grid h-16 w-16 place-items-center`}>
         {!open && <span aria-hidden="true" className="dxa-ring pointer-events-none absolute inset-0 rounded-full" />}
         <span aria-hidden="true"
