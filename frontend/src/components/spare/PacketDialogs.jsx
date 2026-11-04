@@ -8,7 +8,7 @@ import { fmtDate, num } from "../../lib/format.js";
 import { barcodeService } from "../../services/barcodeService.js";
 import { packetService } from "../../services/packetService.js";
 import { printLabels } from "../../utils/barcodeRender.js";
-import { LABEL_LIMITS, LABEL_SIZES, labelTier, packetLabelsHtml } from "../../utils/packetLabels.js";
+import { LABEL_LIMITS, LABEL_SIZES, packetLabelsHtml } from "../../utils/packetLabels.js";
 
 // The Packets & QR Labels dialogs (the store's spec of 27 Oct 2026): verify a
 // receipt physically, make its packets / unit labels (or label old stock on the
@@ -427,7 +427,8 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
 // nikalenge" — labels go on the label printer only, never an A4 sheet). Picked
 // on the make-labels dialog's preview or the print dialog, the same either way.
 const SIZE_KEY = "dx_packet_label_size";
-const TIER_WORDS = { FULL: "every line", MID: "description on one line", SMALL: "Part No., spec / model, location" };
+// What every size prints since 4 Nov 2026 (utils/packetLabels.js).
+const LABEL_LINES = "Part No., description (whole), location, code under the QR";
 
 function savedSize() {
   try { return JSON.parse(localStorage.getItem(SIZE_KEY)) || { key: "PRINTER" }; } catch { return { key: "PRINTER" }; }
@@ -482,7 +483,7 @@ function LabelSizePicker({ ls }) {
         </div>
       )}
       <p className="mt-1.5 text-[12px] text-slate-500 dark:text-slate-400">
-        {sizeOk ? `${size.w} × ${size.h} mm — ${TIER_WORDS[labelTier(size.h)]}. Set the same size on the label printer.`
+        {sizeOk ? `${size.w} × ${size.h} mm — ${LABEL_LINES}. Set the same size on the label printer.`
           : `Size must be ${LABEL_LIMITS.minW}–${LABEL_LIMITS.maxW} mm wide and ${LABEL_LIMITS.minH}–${LABEL_LIMITS.maxH} mm high.`}
       </p>
     </div>
