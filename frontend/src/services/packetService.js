@@ -8,6 +8,8 @@ export const packetService = {
   // { rows, total, page, pages, page_size }; params: store_code, status (PENDING | TO_PACK | PACKED), q, page
   receipts: (params, config) => api.get("/spare-packets/receipts", { params, ...config }),
   verify: (id, payload) => api.post(`/spare-packets/receipts/${id}/verify`, payload),
+  // Undo a verification made by mistake (delete right; no live label of it).
+  unverify: (id, reason) => api.post(`/spare-packets/receipts/${id}/unverify`, { reason }),
   plan: (id, payload, config) => api.post(`/spare-packets/receipts/${id}/plan`, payload, config),
   // payload.supplier_codes: one code per box when the boxes carry the supplier's own label.
   pack: (id, payload) => api.post(`/spare-packets/receipts/${id}/pack`, payload),

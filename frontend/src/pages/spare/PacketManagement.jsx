@@ -9,7 +9,7 @@ import { useStores } from "../../context/StoreContext.jsx";
 import { fmtDate, fmtStamp, num } from "../../lib/format.js";
 import { packetService } from "../../services/packetService.js";
 import {
-  CancelDialog, MakeLabelsDialog, PrintDialog, VerifyDialog, errText,
+  CancelDialog, MakeLabelsDialog, PrintDialog, UnverifyDialog, VerifyDialog, errText,
 } from "../../components/spare/PacketDialogs.jsx";
 
 // Packets & QR Labels — the store's spec of 27 Oct 2026: ERP gate entry ->
@@ -133,6 +133,7 @@ const LABELLED = new Set(["AVAILABLE", "QC_PENDING"]);
 function ReceiptsTab({ storeCode }) {
   const canCreate = useCan("spare_packets", "create");
   const canUpdate = useCan("spare_packets", "update");
+  const canDelete = useCan("spare_packets", "delete");
   const qc = useQueryClient();
   const [status, setStatus] = useState("");
   const [typed, setTyped] = useState("");
@@ -246,6 +247,15 @@ function ReceiptsTab({ storeCode }) {
                       {canCreate && r.verify_status !== "PENDING" && r.packed_qty === 0 && !r.loose_note && (
                         <button type="button" className="text-[11px] text-slate-500 hover:underline" onClick={() => setDialog({ kind: "VERIFY", receipt: r })}>Recount</button>
                       )}
+                      {/* Verified by mistake (wrong receipt, a test): back to To verify,
+                          with a reason — only while none of its labels is live. */}
+                      {canDelete && r.verify_status !== "PENDING" && !r.loose_note
+                        && (r.packets.available || 0) + (r.packets.issued || 0) + (r.packets.qc_pending || 0) === 0 && (
+                        <button type="button" className="text-[11px] text-rose-600 hover:underline"
+                          onClick={() => setDialog({ kind: "UNVERIFY", receipt: r })}>
+                          <Undo2 size={11} aria-hidden="true" className="mr-1 inline" />Undo verify
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -265,6 +275,9 @@ function ReceiptsTab({ storeCode }) {
       {dialog?.kind === "VERIFY" && (
         <VerifyDialog receipt={dialog.receipt} onClose={() => setDialog(null)}
           onDone={(r) => { refresh(); setDialog(r.to_pack > 0 ? { kind: "MAKE", receipt: r } : null); }} />
+      )}
+      {dialog?.kind === "UNVERIFY" && (
+        <UnverifyDialog receipt={dialog.receipt} onClose={() => setDialog(null)} onDone={refresh} />
       )}
       {dialog?.kind === "MAKE" && (
         <MakeLabelsDialog receipt={dialog.receipt} onClose={() => setDialog(null)} onMade={made}

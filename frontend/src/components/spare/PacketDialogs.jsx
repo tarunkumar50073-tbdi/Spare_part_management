@@ -559,6 +559,47 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
 
 // ---- cancel ----------------------------------------------------------------------------------
 
+// Undo a receipt's verification made by mistake (4 Nov 2026: "haan bna de"):
+// it waits for its count again; the old count and the reason go in the Audit
+// Trail. Offered only while no label of it is live.
+export function UnverifyDialog({ receipt, onClose, onDone }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const undo = async () => {
+    if (!reason.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await packetService.unverify(receipt.id, reason.trim());
+      toast.success(r.data.message);
+      onDone?.();
+      onClose();
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Shell title={`Undo verify — ${receipt.receipt_no}`} onClose={onClose}
+      footer={<>
+        <button type="button" className="btn-secondary" onClick={onClose}>Keep it</button>
+        <button type="button" className="btn-danger" onClick={undo} disabled={!reason.trim() || busy}>{busy ? "Undoing…" : "Undo verify"}</button>
+      </>}>
+      <p className="text-[13px] text-slate-600 dark:text-slate-300">
+        {receipt.part?.part_no} · counted {num(receipt.verified_qty)} {receipt.uom || ""}
+        {receipt.verified_by ? ` by ${receipt.verified_by}` : ""} — the receipt goes back to "To verify" and waits for its
+        count again. Stock does not change. The old count and your reason are kept in the Audit Trail.
+      </p>
+      <Field label="Why" required hint="Wrong receipt, testing …">
+        <input className={inputCls(false, "w-full")} maxLength={150} value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />
+      </Field>
+      {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-[12.5px] text-rose-700">{error}</p>}
+    </Shell>
+  );
+}
+
 export function CancelDialog({ packet, onClose, onDone }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);

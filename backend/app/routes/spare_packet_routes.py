@@ -4,13 +4,14 @@ FIFO, label print audit and the whole-packet issue (SparePacketService).
 
 Right "spare_packets": view to read · create to verify a receipt, make an
 opening batch, make packets and print their labels · update to reprint ·
-delete to cancel a packet made by mistake. Issuing a packet is an issue, so it
+delete to cancel a packet made by mistake or undo a verification. Issuing a packet is an issue, so it
 needs Scan Part's create right, as every issue does. Every call is held to the
 caller's store access.
 
 GET    /receipts                   store_code, status (PENDING | TO_PACK | PACKED), q, page, page_size
 POST   /receipts/opening           store_code, part_id, qty, remarks — a batch of stock already on the shelf
 POST   /receipts/<id>/verify       counted_qty, remarks
+POST   /receipts/<id>/unverify     reason — undo a verification while no label of it is live (delete)
 POST   /receipts/<id>/plan         kind, packet_qty, count, last_smaller — what would be made (nothing written)
 POST   /receipts/<id>/pack         kind, packet_qty, count, last_smaller, supplier_codes (one per box,
                                    when the boxes carry the supplier's own label — nothing to print)
@@ -148,6 +149,16 @@ def verify(receipt_id):
 def _plan_args(data):
     return dict(kind=(data.get("kind") or "").upper(), packet_qty=data.get("packet_qty"),
                 count=data.get("count"), last_smaller=bool(data.get("last_smaller")))
+
+
+@bp.route("/receipts/<int:receipt_id>/unverify", methods=["POST"])
+@permission_required(RIGHT, "delete")
+def unverify(receipt_id):
+    """Undo a verification made by mistake (4 Nov 2026) — the supervisor's
+    right to cancel, with a reason; refused while a label of it is live."""
+    _receipt(receipt_id)
+    out = service.unverify(receipt_id, _body().get("reason"), user=_who())
+    return success_response(out, "Verification undone — the receipt waits for its count again")
 
 
 @bp.route("/receipts/<int:receipt_id>/plan", methods=["POST"])

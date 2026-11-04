@@ -473,6 +473,41 @@ class SparePacketService:
             receipt.verify_remarks = remarks
         return self.receipt_dict(receipt)
 
+    def unverify(self, receipt_id, reason, user=None):
+        """Undo a receipt's verification: it waits for its count again (the
+        store, 4 Nov 2026: a receipt verified by mistake or in a test had no way
+        back — "haan bna de"). Only while none of its labels is live (cancel
+        them first, or labels would be left without a count) and not while it
+        is kept loose (Reopen first). A reason is asked for; the old count, who
+        made it and when go in the Audit Trail. Never touches stock."""
+        receipt = self._receipt(receipt_id)
+        reason = _text(reason, 150, "Reason")
+        if not reason:
+            raise BadRequestError("Say why the verification is undone (wrong receipt, testing …)")
+        if receipt.verify_status not in ("VERIFIED", "MISMATCH"):
+            raise BadRequestError(f"{receipt.receipt_no} is not verified — there is nothing to undo")
+        if receipt.loose_note:
+            raise BadRequestError(f"{receipt.receipt_no} is kept loose — Reopen it first, then undo the verification")
+        from app.services.audit_log_service import AuditLogService
+        with atomic():
+            live = (db.session.query(func.count(SparePacket.id))
+                    .filter(SparePacket.batch_id == receipt.id, SparePacket.status != "CANCELLED").scalar() or 0)
+            if live:
+                raise BadRequestError(f"{live} label(s) of {receipt.receipt_no} are made — cancel them first, "
+                                      "then undo the verification")
+            was = (f"{receipt.verify_status.lower()} {_n(receipt.verified_qty)} by {receipt.verified_by or '?'}"
+                   f" on {receipt.verified_at:%d.%m.%Y %H:%M} UTC" if receipt.verified_at else
+                   f"{receipt.verify_status.lower()} {_n(receipt.verified_qty)}")
+            AuditLogService().log(action="RECEIPT_UNVERIFIED", entity_type="SPARE_RECEIPT", entity_id=receipt.id,
+                                  user="STORE", quantity=receipt.verified_qty,
+                                  remarks=f"{receipt.receipt_no} by {_who(user)}: undid {was} — {reason}"[:255])
+            receipt.verify_status = "PENDING"
+            receipt.verified_qty = None
+            receipt.verified_by = None
+            receipt.verified_at = None
+            receipt.verify_remarks = None
+        return self.receipt_dict(receipt)
+
     # ---- packets ----------------------------------------------------------------------
 
     @staticmethod

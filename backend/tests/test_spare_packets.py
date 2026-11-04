@@ -468,3 +468,58 @@ def test_old_stock_and_supplier_code_api_rights(app):
     assert r.status_code == 201 and "nothing to print" in r.get_json()["message"]
     assert c.post(f"/api/v1/spare-packets/old-stock/{p.id}/pack",
                   json={"counted_qty": 1, "kind": "UNIT", "supplier_codes": "B-3"}).status_code == 400
+
+
+# ---- undo a verification made by mistake (4 Nov 2026: "haan bna de") ------------------------------
+
+def test_a_verification_is_undone_with_a_reason_and_audited():
+    from app.models.audit_log import AuditLog
+    p = _part()
+    r = _receive(p, f"GRN-UV{_seq['n']}", date(2026, 11, 3), 5)
+    svc.verify(r.id, 5, user="sup")
+    with pytest.raises(BadRequestError, match="Say why"):
+        svc.unverify(r.id, "  ", user="boss")
+    out = svc.unverify(r.id, "wrong receipt", user="boss")
+    assert (out["verify_status"], out["verified_qty"], out["verified_by"], out["verified_at"]) == ("PENDING", None, None, None)
+    log = AuditLog.query.filter_by(action="RECEIPT_UNVERIFIED", entity_id=r.id).one()
+    assert "by boss" in log.remarks and "verified 5 by sup" in log.remarks and "wrong receipt" in log.remarks
+    assert float(log.quantity) == 5
+    with pytest.raises(BadRequestError, match="nothing to undo"):
+        svc.unverify(r.id, "again", user="boss")
+    # Counted again, it goes on as before; no stock moved either way.
+    before = _on_hand(p)
+    svc.verify(r.id, 5, user="sup")
+    assert svc.receipt_dict(r)["verify_status"] == "VERIFIED" and _on_hand(p) == before
+
+
+def test_no_undo_while_a_label_of_it_is_live_but_after_cancelling_it():
+    p = _part()
+    r = _receive(p, f"GRN-UL{_seq['n']}", date(2026, 11, 3), 4)
+    svc.verify(r.id, 4, user="sup")
+    made = svc.pack(r.id, "UNIT", user="sup")["packets"]
+    with pytest.raises(BadRequestError, match="cancel them first"):
+        svc.unverify(r.id, "testing", user="boss")
+    for m in made:
+        svc.cancel(m["code"], "testing", user="boss")
+    assert svc.unverify(r.id, "testing", user="boss")["verify_status"] == "PENDING"
+
+
+def test_undo_needs_the_delete_right(app):
+    p = _part()
+    r = _receive(p, f"GRN-UR{_seq['n']}", date(2026, 11, 3), 3)
+    svc.verify(r.id, 3, user="sup")
+    maker = _user({"spare_packets": {"view": True, "create": True, "update": True}})
+    boss = _user({"spare_packets": {"view": True, "create": True, "update": True, "delete": True}})
+    c = app.test_client()
+
+    def as_(u):
+        with c.session_transaction() as s:
+            s["user_id"] = u.id
+
+    url = f"/api/v1/spare-packets/receipts/{r.id}/unverify"
+    as_(maker)
+    assert c.post(url, json={"reason": "wrong receipt"}).status_code == 403
+    as_(boss)
+    assert c.post(url, json={}).status_code == 400
+    resp = c.post(url, json={"reason": "wrong receipt"})
+    assert resp.status_code == 200 and resp.get_json()["data"]["verify_status"] == "PENDING"
