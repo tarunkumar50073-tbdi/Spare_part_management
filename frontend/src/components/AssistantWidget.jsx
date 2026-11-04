@@ -73,6 +73,8 @@ const CSS = `
 @keyframes dxa-blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.12); } }
 @keyframes dxa-antenna { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes dxa-scan { 0% { transform: translateY(-4px); opacity: 0; } 15%, 85% { opacity: 1; } 100% { transform: translateY(84px); opacity: 0; } }
+@keyframes dxa-hello { 0%, 66%, 100% { transform: rotate(0); } 70% { transform: rotate(-12deg); } 75% { transform: rotate(11deg); }
+  80% { transform: rotate(-8deg); } 85% { transform: rotate(5deg); } 90% { transform: rotate(-2deg); } 94% { transform: rotate(0); } }
 .dxa-panel-in { animation: dxa-panel-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both; }
 .dxa-fade { animation: dxa-fade 200ms ease-out both; }
 .dxa-ring { animation: dxa-ring 3.2s cubic-bezier(0.22, 0.61, 0.36, 1) infinite; }
@@ -82,9 +84,10 @@ const CSS = `
 .dxa-antenna { animation: dxa-antenna 1.8s ease-in-out infinite; }
 .dxa-scan { animation: dxa-scan 4.5s linear infinite; }
 .dxa-q { animation: dxa-q 2.4s ease-in-out infinite; }
+.dxa-hello { transform-origin: 50% 50%; animation: dxa-hello 2.5s ease-in-out infinite; }
 .dxa-glow { filter: drop-shadow(0 0 1.6px rgba(34, 211, 238, 0.95)); }
 @media (prefers-reduced-motion: reduce) {
-  .dxa-panel-in, .dxa-fade, .dxa-ring, .dxa-dot, .dxa-icon-in, .dxa-eyes, .dxa-antenna, .dxa-scan, .dxa-q {
+  .dxa-panel-in, .dxa-fade, .dxa-ring, .dxa-dot, .dxa-icon-in, .dxa-eyes, .dxa-antenna, .dxa-scan, .dxa-q, .dxa-hello {
     animation: none !important;
   }
 }
@@ -513,6 +516,11 @@ export default function AssistantWidget() {
             htakar kewal ladka rhe round me"), and — "bas 1 ? mark and ask likha
             ho" — one "?" in a speech bubble at his head and an Ask chip on the
             round's lower edge while the panel is shut. */}
+        {/* While shut, the whole round — ring, boy, "?" and Ask together — says
+            hello now and then: a quick shake in place every 2.5 s, never a
+            hop up, then still (the store, 4 Nov 2026: "ye hilna chahiye" …
+            "pura circle hile" … "upper na uchle" … "hile thoda fast"). */}
+        <span aria-hidden="true" className={`${open ? "" : "dxa-hello "}relative grid h-16 w-16 place-items-center`}>
         {!open && <span aria-hidden="true" className="dxa-ring pointer-events-none absolute inset-0 rounded-full" />}
         <span aria-hidden="true"
           className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-full bg-gradient-to-b from-[#ff2a3c] to-toyotared
@@ -531,6 +539,7 @@ export default function AssistantWidget() {
                 tracking-[0.12em] text-white ring-2 ring-white shadow-[0_4px_10px_rgba(235,10,30,0.45)]">Ask</span>
           </>
         )}
+        </span>
         {open && (
           <span key="close" aria-hidden="true"
             className="dxa-icon-in absolute -right-1 -top-1 grid h-6 w-6 place-items-center rounded-full bg-navy-900 text-white
