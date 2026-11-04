@@ -66,7 +66,7 @@ const OTHER_PILL = "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate
 const CSS = `
 @keyframes dxa-panel-in { from { opacity: 0; transform: translateY(14px) scale(0.96); } to { opacity: 1; transform: none; } }
 @keyframes dxa-fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes dxa-ring { 0% { box-shadow: 0 0 0 0 rgba(235,10,30,0.42); } 65%, 100% { box-shadow: 0 0 0 14px rgba(235,10,30,0); } }
+@keyframes dxa-ring { 0% { box-shadow: 0 0 0 0 rgba(235,10,30,0.5); } 70%, 100% { box-shadow: 0 0 0 24px rgba(235,10,30,0); } }
 @keyframes dxa-q { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 @keyframes dxa-dot { 0%, 80%, 100% { transform: translateY(0); opacity: 0.35; } 40% { transform: translateY(-3px); opacity: 1; } }
 @keyframes dxa-icon-in { from { opacity: 0; transform: rotate(-90deg) scale(0.6); } to { opacity: 1; transform: none; } }
