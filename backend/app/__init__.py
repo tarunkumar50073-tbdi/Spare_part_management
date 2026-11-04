@@ -2,7 +2,7 @@
 together (MVC + Repository pattern)."""
 import gzip
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask, current_app, request
 from sqlalchemy import event
@@ -276,6 +276,41 @@ def _secure_cookie_sessions():
     from flask.sessions import SecureCookieSessionInterface
 
     class SessionInterface(SecureCookieSessionInterface):
+        # A device login (the Live Board TV / the Kiosk, User.device_only) is
+        # never signed out by itself (the store, 4 Nov 2026: "apne aap logout
+        # nhi ho"): its cookie is written again on every request and lasts
+        # DEVICE_SESSION_DAYS from the last one. Every other sign-in keeps the
+        # fixed 12 h from signing in.
+        @staticmethod
+        def _device_life(app):
+            return timedelta(days=app.config.get("DEVICE_SESSION_DAYS", 30))
+
+        def open_session(self, app, request):
+            from itsdangerous import BadSignature
+            serializer = self.get_signing_serializer(app)
+            if serializer is None:
+                return None
+            val = request.cookies.get(self.get_cookie_name(app))
+            if not val:
+                return self.session_class()
+            longest = max(app.permanent_session_lifetime, self._device_life(app))
+            try:
+                data, signed = serializer.loads(val, max_age=int(longest.total_seconds()), return_timestamp=True)
+            except BadSignature:
+                return self.session_class()
+            age = datetime.now(timezone.utc) - signed
+            if not data.get("device") and age > app.permanent_session_lifetime:
+                return self.session_class()
+            return self.session_class(data)
+
+        def get_expiration_time(self, app, session):
+            if session.permanent and session.get("device"):
+                return datetime.now(timezone.utc) + self._device_life(app)
+            return super().get_expiration_time(app, session)
+
+        def should_set_cookie(self, app, session):
+            return bool(session.get("device")) or super().should_set_cookie(app, session)
+
         def get_cookie_secure(self, app):
             if app.config.get("SESSION_COOKIE_SECURE"):
                 return True

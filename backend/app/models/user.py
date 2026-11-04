@@ -95,6 +95,9 @@ ACTIONS = ("view", "create", "update", "delete")
 WRITE_ACTIONS = ("create", "update", "delete")
 _R, _RC, _RU, _RCU, _RCUD = (("view",), ("view", "create"), ("view", "update"),
                              ("view", "create", "update"), ACTIONS)
+# The screens of a device login (User.device_only).
+DEVICE_SCREENS = {"live_dashboard", "part_kiosk"}
+
 MODULE_ACTIONS = {
     "spare_store": _R, "action_tracker": _R, "notifications": _R,
     "store_stock": _RCU,          # C put-away record, GRN post · E count, stock / ERP-stock import, ERP sync
@@ -227,6 +230,17 @@ class User(BaseModel):
             if key in keys and isinstance(val, dict):
                 clean[key] = normalize_rights(key, val)
         self.permissions = json.dumps(clean)
+
+    @property
+    def device_only(self):
+        """A device login: it may open only the Live Board (the TV / HMI on the
+        floor) or only the Kiosk — the same rule as AuthContext's deviceOnly.
+        Such a login is never signed out by itself (the store, 4 Nov 2026:
+        "apne aap logout nhi ho"); see DEVICE_SESSION_DAYS."""
+        if self.is_admin:
+            return False
+        granted = [key for key, val in self.get_permissions().items() if any(val.values())]
+        return bool(granted) and set(granted) <= DEVICE_SCREENS
 
     def can(self, module, action="view"):
         """Whether this login may do `action` on `module`: "view" (R), "create"

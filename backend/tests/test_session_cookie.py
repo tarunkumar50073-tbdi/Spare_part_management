@@ -121,3 +121,52 @@ def test_session_hours_env_override(monkeypatch):
     for bad in ("abc", "0", "-3", "100000"):
         monkeypatch.setenv("SESSION_LIFETIME_HOURS", bad)
         assert _session_hours() == 12.0
+
+
+# ---- a device login (Live Board TV / Kiosk) is never signed out by itself (4 Nov 2026) ----------
+
+def _device(rights):
+    _seq["n"] += 1
+    u = User(username=f"cookiedevice{_seq['n']}", role="STORE_USER", is_active=True)
+    u.set_password(PASSWORD)
+    u.set_permissions(rights)
+    db.session.add(u)
+    db.session.commit()
+    return u
+
+
+def _expires(cookie):
+    part = next(p.strip() for p in cookie.split(";") if p.strip().lower().startswith("expires="))
+    return parsedate_to_datetime(part.split("=", 1)[1])
+
+
+def test_which_logins_are_device_logins():
+    assert _device({"live_dashboard": {"view": True}}).device_only
+    assert _device({"part_kiosk": {"view": True}}).device_only
+    assert _device({"live_dashboard": {"view": True}, "part_kiosk": {"view": True}}).device_only
+    assert not _device({"live_dashboard": {"view": True}, "reports": {"view": True}}).device_only
+    assert not _device({}).device_only
+    assert not _user().device_only                                   # an administrator
+
+
+def test_a_device_login_lasts_30_days_from_its_last_use(client):
+    before = datetime.now(timezone.utc)
+    cookie = _session_cookie(_login(client, _device({"live_dashboard": {"view": True}})))
+    assert abs((_expires(cookie) - before) - timedelta(days=30)) < timedelta(minutes=2)
+    # Every request writes it again, so a screen in use never runs out.
+    again = _session_cookie(client.get("/api/v1/auth/me"))
+    assert again and _expires(again) >= _expires(cookie)
+
+
+def test_a_device_cookie_older_than_12_hours_still_works_but_a_person_s_does_not(client, monkeypatch):
+    tv = _device({"live_dashboard": {"view": True}})
+    _login_hours_ago(client, monkeypatch, tv, 13)
+    assert client.get("/api/v1/auth/me").get_json()["data"]["username"] == tv.username
+    other = client.application.test_client()
+    _login_hours_ago(other, monkeypatch, _device({"reports": {"view": True}}), 13)
+    assert other.get("/api/v1/auth/me").get_json()["data"] is None
+
+
+def test_a_device_cookie_runs_out_after_30_days_unused(client, monkeypatch):
+    _login_hours_ago(client, monkeypatch, _device({"part_kiosk": {"view": True}}), 30 * 24 + 1)
+    assert client.get("/api/v1/auth/me").get_json()["data"] is None

@@ -38,6 +38,9 @@ def login():
     session.clear()
     session[SESSION_USER_KEY] = user.id
     session.permanent = True
+    # The Live Board TV / Kiosk stays signed in (see _secure_cookie_sessions).
+    if user.device_only:
+        session["device"] = True
     return success_response(user.to_public_dict(), "Signed in")
 
 

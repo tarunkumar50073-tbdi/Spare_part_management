@@ -97,6 +97,9 @@ class Config:
     # How often the Maintenance / Tool Room rosters are read into the Employee
     # master by themselves (roster_service); 0 = only when a screen asks.
     ROSTER_POLL_SECONDS = int(os.getenv("ROSTER_POLL_SECONDS", "300"))
+    # How long a device login (the Live Board TV / the Kiosk) stays signed in
+    # after its last use; it is never signed out by itself before that.
+    DEVICE_SESSION_DAYS = int(os.getenv("DEVICE_SESSION_DAYS", "30"))
 
     # --- Outbound e-mail (window-time daily auto-mail). Backend-only.
     # SMTP_PASSWORD is the only real secret and lives ONLY in the git-ignored
