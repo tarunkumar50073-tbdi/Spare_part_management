@@ -1,8 +1,8 @@
-"""Admin module: user management, per-module rights, and password visibility.
+"""Admin module: user management and per-module rights.
 
 Every operation here is ADMIN-only (enforced at the route with admin_required).
-The readable password lives on the User model as password_plain — see the note
-there; it is returned only through the admin user API.
+Passwords are kept only as a hash (since 4 Nov 2026): the admin sets or resets
+one, and can never read one back.
 """
 from flask import g, has_request_context
 

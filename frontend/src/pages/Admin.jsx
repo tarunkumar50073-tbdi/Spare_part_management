@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import {
-  Check, ClipboardCheck, Eye, EyeOff, KeyRound, Pencil, ScanBarcode, ShieldCheck, Trash2, Tv,
+  Check, ClipboardCheck, Eye, KeyRound, Pencil, ScanBarcode, ShieldCheck, Trash2, Tv,
   UserPlus, Wrench,
 } from "lucide-react";
 import Modal from "../components/Modal.jsx";
@@ -97,22 +97,6 @@ const emptyForm = () => ({
 });
 
 // Show the password, masked, with a per-row reveal toggle.
-function PasswordCell({ value }) {
-  const [show, setShow] = useState(false);
-  if (!value) return <span className="text-slate-400 text-xs">—</span>;
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="font-mono text-[13px] text-slate-700 dark:text-slate-200">
-        {show ? value : "•".repeat(Math.min(value.length, 10))}
-      </span>
-      <button type="button" onClick={() => setShow((s) => !s)}
-        className="text-slate-400 hover:text-toyotared" title={show ? "Hide" : "Show password"}>
-        {show ? <EyeOff size={14} /> : <Eye size={14} />}
-      </button>
-    </span>
-  );
-}
-
 export default function Admin() {
   const { user } = useAuth();
   const { stores } = useStores();
@@ -260,7 +244,6 @@ export default function Admin() {
               <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-200 dark:border-navy-800">
                 <th className="px-4 py-3">User</th>
                 <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Password</th>
                 <th className="px-4 py-3">Rights</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Actions</th>
@@ -294,7 +277,6 @@ export default function Admin() {
                       })()}
                     </div>
                   </td>
-                  <td className="px-4 py-3"><PasswordCell value={u.password} /></td>
                   <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
                     {u.is_admin ? "Everything" : `${grantedCount(u.permissions)} module${grantedCount(u.permissions) === 1 ? "" : "s"}`}
                     {!u.is_admin && u.stores?.length ? ` · ${u.stores.join(", ")}` : ""}

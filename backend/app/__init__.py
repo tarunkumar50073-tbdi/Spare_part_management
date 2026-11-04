@@ -1,6 +1,7 @@
 """Application factory: wires extensions, blueprints, and error handling
 together (MVC + Repository pattern)."""
 import gzip
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -415,6 +416,7 @@ def create_app(env_name=None):
             _seed_departments()
             _seed_department_recipients()
             _seed_report_recipients()
+            _clear_plain_passwords()
 
     _start_erp_ledger_poller(app)
     _start_erp_sync_poller(app)
@@ -919,6 +921,17 @@ def _split_rights():
                 perms[new] = dict(perms[old])
         user.set_permissions(perms)
     AppSetting.set_value(mark, True)   # commits the users too
+
+
+def _clear_plain_passwords():
+    """Wipe every readable password copy left from before 4 Nov 2026 (the
+    store: "password saaf text me h isko sahi kar de"). Only the hash is kept
+    now; logins are unaffected. Portable, idempotent, at every start."""
+    from sqlalchemy import text
+    n = db.session.execute(text("UPDATE users SET password_plain = NULL WHERE password_plain IS NOT NULL")).rowcount
+    db.session.commit()
+    if n:
+        logging.getLogger("dxstore").info("cleared %d readable password copies", n)
 
 
 def _seed_stores():

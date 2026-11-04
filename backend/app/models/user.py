@@ -167,12 +167,10 @@ class User(BaseModel):
     username = db.Column(db.String(50), unique=True, nullable=False, index=True)
     full_name = db.Column(db.String(120), nullable=True)
     password_hash = db.Column(db.String(255), nullable=False)
-    # A readable copy of the password, kept ONLY so the admin user-management
-    # screen can show it (an explicit product decision — the admin wants to see
-    # and hand out user passwords, including ones a user later changes).
-    # SECURITY NOTE: this is plaintext at rest — anyone with DB / backup access
-    # can read every password. It is never in to_public_dict and is returned
-    # only by the admin-only user API.
+    # No readable copy of a password any more (the store, 4 Nov 2026: "password
+    # saaf text me h isko sahi kar de"): only the hash is kept; a forgotten one
+    # is reset by the admin. The old column stays, always empty — every copy
+    # left in it is wiped at start-up (_clear_plain_passwords).
     password_plain = db.Column(db.String(255), nullable=True)
     role = db.Column(db.String(20), nullable=False, default="STORE_USER")
     is_active = db.Column(db.Boolean, nullable=False, default=True)
@@ -189,11 +187,11 @@ class User(BaseModel):
         db.CheckConstraint(f"role IN ({','.join(repr(r) for r in ROLES)})", name="ck_user_role"),
     )
 
-    # Hashing lives on the model so no caller ever has to remember to do it. The
-    # readable copy is written alongside the hash (see password_plain above).
+    # Hashing lives on the model so no caller ever has to remember to do it.
+    # Only the hash is kept (see password_plain above).
     def set_password(self, raw_password):
         self.password_hash = generate_password_hash(raw_password)
-        self.password_plain = raw_password
+        self.password_plain = None
 
     def check_password(self, raw_password):
         return check_password_hash(self.password_hash, raw_password or "")
@@ -271,7 +269,7 @@ class User(BaseModel):
 
     def to_admin_dict(self):
         """The full record for the admin user-management screen — includes the
-        readable password and the per-module rights. Admin API only."""
+        per-module rights. Admin API only. No password, readable or not."""
         return {
             "id": self.id,
             "username": self.username,
@@ -279,7 +277,6 @@ class User(BaseModel):
             "role": self.role,
             "is_admin": self.is_admin,
             "is_active": self.is_active,
-            "password": self.password_plain,
             "stores": [a.store_code for a in self.store_access],
             "permissions": {} if self.is_admin else self.get_permissions(),
             "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,

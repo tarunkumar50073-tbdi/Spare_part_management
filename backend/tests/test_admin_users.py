@@ -1,13 +1,14 @@
-"""Admin user management: create with an admin-visible password, per-module
+"""Admin user management: create with a password kept only as a hash, per-module
 View/Edit rights, and the guards (unique username, min password, self-delete)."""
 import pytest
 
+from app.extensions import db
 from app.models.user import User
 from app.services.admin_service import AdminService
 from app.utils.exceptions import BadRequestError
 
 
-def test_create_user_stores_visible_password_and_permissions():
+def test_create_user_stores_only_the_hash_and_permissions():
     svc = AdminService()
     out = svc.create_user({
         "username": "operator1", "password": "pass12345", "full_name": "Op One",
@@ -17,7 +18,7 @@ def test_create_user_stores_visible_password_and_permissions():
         "stores": ["MAINTENANCE"],
     })
     assert out["username"] == "operator1"
-    assert out["password"] == "pass12345"                       # admin can see it
+    assert "password" not in out                                # never readable (4 Nov 2026)
     # An old {view, edit} map is taken as every write the screen has (Store
     # Stock: create + update, it has no delete) — CRUD since 24 Oct 2026.
     assert out["permissions"]["store_stock"] == {"view": True, "create": True, "update": True, "delete": False}
@@ -31,13 +32,13 @@ def test_create_user_stores_visible_password_and_permissions():
     assert not user.can("part_master", "view")                # not granted at all
 
 
-def test_reset_password_updates_the_visible_copy():
+def test_reset_password_keeps_no_readable_copy():
     svc = AdminService()
     u = svc.create_user({"username": "op2", "password": "old123456", "role": "STORE_USER"})
     svc.reset_password(u["id"], "new12345")
     user = User.query.get(u["id"])
     assert user.check_password("new12345")
-    assert user.password_plain == "new12345"                  # admin sees the new one
+    assert user.password_plain is None                        # only the hash
 
 
 def test_duplicate_username_and_short_password_rejected():
@@ -75,3 +76,17 @@ def test_demote_only_stores_and_perms_are_cleared_for_admin():
     promoted = svc.update_user(u["id"], {"role": "ADMIN"})
     assert promoted["stores"] == []              # admin access is implicit
     assert promoted["permissions"] == {}
+
+
+def test_readable_copies_left_from_before_are_wiped_at_start():
+    """4 Nov 2026: "password saaf text me h isko sahi kar de" — any readable
+    copy kept before is wiped (start-up step), the login still works."""
+    from app import _clear_plain_passwords
+    svc = AdminService()
+    u = svc.create_user({"username": "oldcopy", "password": "keep12345", "role": "STORE_USER"})
+    user = User.query.get(u["id"])
+    user.password_plain = "keep12345"                          # as the old code stored it
+    db.session.commit()
+    _clear_plain_passwords()
+    user = User.query.get(u["id"])
+    assert user.password_plain is None and user.check_password("keep12345")
