@@ -41,10 +41,12 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // Type sizes (pt) of each tier at its reference size, grown or shrunk a little
 // with the label actually picked.
+// The description a size smaller than before (4 Nov 2026: "description ka font
+// size kam kar sakte ho"); a long one still shrinks further to stay whole.
 const TIERS = {
-  FULL: { ref: [100, 50], code: 6, pn: 13, ds: 9, loc: 10 },
-  MID: { ref: [75, 38], code: 5.5, pn: 11, ds: 8, loc: 8.5 },
-  SMALL: { ref: [50, 25], code: 5, pn: 9, ds: 6.5, loc: 7 },
+  FULL: { ref: [100, 50], code: 6, pn: 13, ds: 7.5, loc: 10 },
+  MID: { ref: [75, 38], code: 5.5, pn: 11, ds: 6.5, loc: 8.5 },
+  SMALL: { ref: [50, 25], code: 5, pn: 9, ds: 5.5, loc: 7 },
 };
 
 export function labelTier(h) {
