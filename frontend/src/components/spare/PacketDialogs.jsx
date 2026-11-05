@@ -488,6 +488,16 @@ function LabelSizePicker({ ls }) {
         {sizeOk ? `${size.w} × ${size.h} mm — ${labelTier(size.h, size.w) === "TINY" ? TINY_LINES : LABEL_LINES}. Set the same size on the label printer.`
           : `Size must be ${LABEL_LIMITS.minW}–${LABEL_LIMITS.maxW} mm wide and ${LABEL_LIMITS.minH}–${LABEL_LIMITS.maxH} mm high.`}
       </p>
+      {/* Labels print through this PC's browser, to the printer plugged into
+          THIS PC (USB) once its Windows driver is installed — any PC the app
+          is opened on (the store, 5 Nov 2026: "kisi pc par ye app chalu to usb
+          port se connected printer se print nikale"). The size is remembered
+          per PC. */}
+      {sizeOk && (
+        <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
+          In the print window: <b>Printer</b> = the label printer on this PC (e.g. GoDEX G530) · <b>Paper size</b> = {size.w} × {size.h} mm · <b>Margins</b> = None · <b>Scale</b> = 100% · Headers and footers off.
+        </p>
+      )}
     </div>
   );
 }
