@@ -426,14 +426,17 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
 // part and bade part k according adjustable hona chahiye a4 paper par nhi
 // nikalenge" — labels go on the label printer only, never an A4 sheet). Picked
 // on the make-labels dialog's preview or the print dialog, the same either way.
-const SIZE_KEY = "dx_packet_label_size";
+// v2 (5 Nov 2026): the default became the store's 25 x 15 roll ("default kar
+// de jo abhi test kiya tha"), so a size remembered from before starts there.
+const SIZE_KEY = "dx_packet_label_size_v2";
+const DEFAULT_SIZE = { key: "T3" };
 // What every size prints since 4 Nov 2026 (utils/packetLabels.js).
 const LABEL_LINES = "Part No., description (whole), location, code under the QR";
 // A tiny label (cylinder / thin part, 4 Nov 2026): the QR and its code only.
 const TINY_LINES = "QR and the TB code only (the QR carries the code and the spec)";
 
 function savedSize() {
-  try { return JSON.parse(localStorage.getItem(SIZE_KEY)) || { key: "PRINTER" }; } catch { return { key: "PRINTER" }; }
+  try { return JSON.parse(localStorage.getItem(SIZE_KEY)) || DEFAULT_SIZE; } catch { return DEFAULT_SIZE; }
 }
 
 function useLabelSize() {
