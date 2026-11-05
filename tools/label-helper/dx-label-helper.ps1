@@ -12,8 +12,8 @@
 #
 # It only listens on this PC (127.0.0.1), answers only the DX Store app's own
 # addresses (see $AllowedOrigins), and does nothing but print and list
-# printers. Start it with start-label-helper.bat. Stop it by closing its
-# window.
+# printers. install-autostart.bat makes it start hidden with Windows
+# (start-label-helper-hidden.vbs); start-label-helper.bat runs it in a window.
 param(
   [int]$Port = 9123,
   # Allowed web addresses: the live site, and the app on this PC or the plant LAN.
@@ -26,7 +26,21 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
-$Version = 1
+$Version = 2
+
+# It runs hidden (start-label-helper-hidden.vbs), so what it does is also kept
+# in a small log: %LOCALAPPDATA%\DXStore\label-helper.log (cut at 1 MB).
+$LogDir = Join-Path $env:LOCALAPPDATA 'DXStore'
+$LogFile = Join-Path $LogDir 'label-helper.log'
+function Log([string]$msg, [string]$color = 'Gray') {
+  $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg"
+  Write-Host $line -ForegroundColor $color
+  try {
+    if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+    if ((Test-Path $LogFile) -and (Get-Item $LogFile).Length -gt 1MB) { Move-Item $LogFile "$LogFile.old" -Force }
+    Add-Content -Path $LogFile -Value $line -Encoding UTF8
+  } catch { }
+}
 
 function Get-Printers {
   $names = @([System.Drawing.Printing.PrinterSettings]::InstalledPrinters)
@@ -137,14 +151,13 @@ function Read-Request($stream) {
 
 $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $Port)
 try { $listener.Start() } catch {
-  Write-Host "Port $Port is busy - the label helper is probably running already." -ForegroundColor Yellow
-  Start-Sleep -Seconds 5
+  Log "Port $Port is busy - the label helper is probably running already." 'Yellow'
   exit 1
 }
 $Host.UI.RawUI.WindowTitle = "DX Store label helper (port $Port)"
-Write-Host "DX Store label helper v$Version listening on http://127.0.0.1:$Port - keep this window open (minimised is fine)." -ForegroundColor Green
+Log "DX Store label helper v$Version listening on http://127.0.0.1:$Port" 'Green'
 $p = Get-Printers
-Write-Host ("Printers: " + ($p.printers -join ', '))
+Log ("Printers: " + ($p.printers -join ', '))
 
 while ($true) {
   $client = $listener.AcceptTcpClient()
@@ -158,7 +171,7 @@ while ($true) {
     if ($origin) { $allowed = @($AllowedOrigins | Where-Object { $origin -match $_ }).Count -gt 0 }
     if (-not $allowed) {
       Write-Response $stream 403 'Forbidden' $null '{"ok":false,"error":"this address may not print here"}'
-      Write-Host "$(Get-Date -Format 'HH:mm:ss') refused $origin" -ForegroundColor Yellow
+      Log "refused $origin" 'Yellow'
       continue
     }
     $o = if ($origin) { $origin } else { $null }
@@ -173,11 +186,11 @@ while ($true) {
         try {
           $job = $req.body | ConvertFrom-Json
           $n = Send-Labels $job
-          Write-Host "$(Get-Date -Format 'HH:mm:ss') printed $n label(s) $($job.w) x $($job.h) mm on $($job.printer)"
+          Log "printed $n label(s) $($job.w) x $($job.h) mm on $($job.printer)"
           Write-Response $stream 200 'OK' $o (@{ ok = $true; printed = $n } | ConvertTo-Json -Compress)
         } catch {
           $msg = $_.Exception.Message -replace '"', "'"
-          Write-Host "$(Get-Date -Format 'HH:mm:ss') print failed: $msg" -ForegroundColor Red
+          Log "print failed: $msg" 'Red'
           Write-Response $stream 400 'Bad Request' $o (@{ ok = $false; error = $msg } | ConvertTo-Json -Compress)
         }
         break
@@ -185,7 +198,7 @@ while ($true) {
       default { Write-Response $stream 404 'Not Found' $o '{"ok":false,"error":"not found"}' }
     }
   } catch {
-    Write-Host "$(Get-Date -Format 'HH:mm:ss') request error: $($_.Exception.Message)" -ForegroundColor Red
+    Log "request error: $($_.Exception.Message)" 'Red'
   } finally {
     $client.Close()
   }

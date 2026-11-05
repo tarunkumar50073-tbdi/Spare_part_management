@@ -11,15 +11,18 @@ The helper prints QR labels **straight to the label printer** on this PC. There 
 
 The helper only listens on this PC. It only answers the DX Store app's own addresses: the live site, localhost and the plant LAN. All it does is list printers and print.
 
-## Setup on a PC with a label printer
+## Setup on a PC with a label printer (once)
 
-1. Install the printer's Windows driver. For GoDEX, use the GoDEX / Seagull driver.
-2. Copy this folder to the PC, for example to `C:\DX_Store\label-helper`.
-3. Double-click `start-label-helper.bat`. A small window, "DX Store label helper", opens minimised. Keep it open.
-4. To start it with Windows, press Win+R and type `shell:startup`. Put a shortcut to `start-label-helper.bat` in that folder.
-5. In the app, open Packets & QR Labels → Print. The dialog should say **Direct print**. Pick the printer once; the app remembers it.
+1. Install the printer's Windows driver (GoDEX: the GoDEX / Seagull driver).
+2. Copy this folder to the PC, e.g. `C:\DX_Store\label-helper` (on the store laptop it stays in the app folder).
+3. Double-click **`install-autostart.bat`**. The helper now starts **hidden** with Windows - no window, nothing on the taskbar - and is started right away.
+4. In the app: Packets & QR Labels -> Print - the dialog says **Direct print**; pick the printer once (remembered).
 
-The first time the live site (`https://digi-store.dxtbdi.com`) talks to the helper, Chrome may ask to let the site access apps or devices on this PC. Choose **Allow**.
+The first time the live site (`https://digi-store.dxtbdi.com`) talks to the helper, Chrome may ask to let the site reach apps / devices on this PC - choose **Allow**.
+
+- To stop it and remove it from Windows start: `remove-autostart.bat`.
+- To run it in a visible window instead (to watch it): `start-label-helper.bat`.
+- Its log: `%LOCALAPPDATA%\DXStore\label-helper.log`.
 
 ## Adjusting the label
 
