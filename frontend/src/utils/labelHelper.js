@@ -9,7 +9,7 @@ const PRINTER_KEY = "dx_label_printer";
 // { printers, default } when the helper answers, else null.
 export async function helperStatus() {
   try {
-    const r = await fetch(`${BASE}/status`, { cache: "no-store", signal: AbortSignal.timeout(1500) });
+    const r = await fetch(`${BASE}/status`, { cache: "no-store", signal: AbortSignal.timeout(4000) });
     if (!r.ok) return null;
     const j = await r.json();
     return j && j.ok ? { printers: j.printers || [], default: j.default || null } : null;

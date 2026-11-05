@@ -564,7 +564,7 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
   const [printing, setPrinting] = useState(false);
   // The DX label helper on this PC prints straight to the label printer (no
   // print window); without it the browser's print window opens as before.
-  const helper = useQuery({ queryKey: ["label-helper"], queryFn: helperStatus, retry: false, staleTime: 30000 });
+  const helper = useQuery({ queryKey: ["label-helper"], queryFn: helperStatus, retry: 1, staleTime: 30000, refetchOnMount: "always" });
   const direct = Boolean(helper.data);
   const [printer, setPrinter] = useState("");
   useEffect(() => {
@@ -653,8 +653,9 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
             <>
               {!helper.isLoading && (
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
-                  Direct print is off on this PC: the DX label helper is not running (tools/label-helper → start-label-helper.bat).
-                  The browser's print window will open instead.
+                  Direct print is off on this PC: the DX label helper is not running (tools/label-helper → install-autostart.bat).
+                  The browser's print window will open instead.{" "}
+                  <button type="button" className="font-semibold underline" onClick={() => helper.refetch()}>Check again</button>
                 </p>
               )}
               <LabelPreview html={preview} size={size} sizeOk={sizeOk} />

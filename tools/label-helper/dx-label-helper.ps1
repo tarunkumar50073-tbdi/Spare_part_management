@@ -26,7 +26,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
-$Version = 2
+$Version = 3
 
 # It runs hidden (start-label-helper-hidden.vbs), so what it does is also kept
 # in a small log: %LOCALAPPDATA%\DXStore\label-helper.log (cut at 1 MB).
@@ -159,20 +159,19 @@ Log "DX Store label helper v$Version listening on http://127.0.0.1:$Port" 'Green
 $p = Get-Printers
 Log ("Printers: " + ($p.printers -join ', '))
 
-while ($true) {
-  $client = $listener.AcceptTcpClient()
+function Handle-Client($client) {
   try {
-    $client.ReceiveTimeout = 15000
+    $client.ReceiveTimeout = 10000
     $stream = $client.GetStream()
     $req = Read-Request $stream
-    if ($null -eq $req) { continue }
+    if ($null -eq $req) { return }
     $origin = $req.headers['origin']
     $allowed = $true
     if ($origin) { $allowed = @($AllowedOrigins | Where-Object { $origin -match $_ }).Count -gt 0 }
     if (-not $allowed) {
       Write-Response $stream 403 'Forbidden' $null '{"ok":false,"error":"this address may not print here"}'
       Log "refused $origin" 'Yellow'
-      continue
+      return
     }
     $o = if ($origin) { $origin } else { $null }
     switch -Regex ("$($req.method) $($req.path)") {
@@ -202,4 +201,33 @@ while ($true) {
   } finally {
     $client.Close()
   }
+}
+
+# Browsers open spare connections ahead of time and may send nothing on them
+# for a while (5 Nov 2026: one such idle connection held the helper for 15 s,
+# so the app took it as not running). So every connection waits in a list
+# and is served only once its request has arrived; one that stays silent is
+# dropped after 20 s, and never blocks the others.
+$waiting = New-Object System.Collections.Generic.List[object]
+while ($true) {
+  $busy = $false
+  while ($listener.Pending()) {
+    $waiting.Add(@{ client = $listener.AcceptTcpClient(); since = [DateTime]::UtcNow })
+    $busy = $true
+  }
+  for ($i = $waiting.Count - 1; $i -ge 0; $i--) {
+    $w = $waiting[$i]
+    $c = $w.client
+    $ready = $false
+    try { $ready = $c.Connected -and $c.Available -gt 0 } catch { $ready = $false }
+    if ($ready) {
+      $waiting.RemoveAt($i)
+      Handle-Client $c
+      $busy = $true
+    } elseif (-not $c.Connected -or ([DateTime]::UtcNow - $w.since).TotalSeconds -gt 20) {
+      $waiting.RemoveAt($i)
+      try { $c.Close() } catch { }
+    }
+  }
+  if (-not $busy) { Start-Sleep -Milliseconds 15 }
 }
