@@ -203,15 +203,21 @@ function ReceiptsTab({ storeCode }) {
                     <div>{r.source === "OPENING" ? "Shelf stock" : r.grn_no || (r.source === "GATE" ? "Gate entry" : "—")}</div>
                     {r.qc === "QC_PENDING" && <span className="badge mt-0.5 bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200" title="Labels can be made and printed now; they are issued once ERP accepts the GRN">QC pending in ERP</span>}
                     {r.qc === "ACCEPTED" && <span className="badge mt-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300">Accepted {num(r.accepted_qty)} in ERP</span>}
+                    {/* Came in before the part's stock count: already in that stock (5 Nov 2026). */}
+                    {r.qc === "IN_COUNT" && <span className="badge mt-0.5 bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300" title="This material came in before the part's stock count and is already in that stock. To label it, use the Old stock tab.">In stock · counted {fmtDate(r.counted_on)}</span>}
                     <div className="max-w-[200px] truncate text-[11px] text-slate-400" title={r.supplier_name}>
                       {[r.gate_entry_no && `GE ${r.gate_entry_no}`, r.supplier_name].filter(Boolean).join(" · ")}
                     </div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">{num(r.qty)} {r.uom}</td>
                   <td className="px-3 py-2.5">
+                    {r.qc === "IN_COUNT" ? (
+                      <span className="badge bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300">Nothing to verify</span>
+                    ) : (
                     <span className={`badge ${VERIFY_PILL[r.verify_status]}`}>
                       {r.verify_status === "PENDING" ? "To verify" : r.verify_status === "VERIFIED" ? `Verified ${num(r.verified_qty)}` : `Counted ${num(r.verified_qty)}`}
                     </span>
+                    )}
                     {r.verify_status === "MISMATCH" && <div className="mt-0.5 max-w-[180px] truncate text-[11px] text-rose-600" title={r.verify_remarks}>{r.verify_remarks}</div>}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">
@@ -223,7 +229,8 @@ function ReceiptsTab({ storeCode }) {
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right">
                     <div className="flex flex-col items-end gap-1">
-                      {canCreate && (r.verify_status === "PENDING" ? (
+                      {r.qc === "IN_COUNT" && <span className="text-[11px] text-slate-400">Label from Old stock</span>}
+                      {canCreate && r.qc !== "IN_COUNT" && (r.verify_status === "PENDING" ? (
                         <button type="button" className="btn-primary py-1 text-[12px]" onClick={() => setDialog({ kind: "VERIFY", receipt: r })}>
                           <CheckCircle2 size={13} aria-hidden="true" /> Verify
                         </button>

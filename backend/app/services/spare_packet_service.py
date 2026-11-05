@@ -1064,7 +1064,12 @@ class SparePacketService:
         if status == "PENDING":
             query = query.filter(SpareBatch.verify_status == "PENDING")
         rows = query.order_by(SpareBatch.received_on.desc(), SpareBatch.id.desc()).all()
-        out = [self.receipt_dict(r) for r in rows]
+        # Gate receipts whose material is already in the part's stock count are
+        # not "to verify" (5 Nov 2026: "ye saare pending qc hi dikha rhen h").
+        in_count = self._gate_in_count(store_code, rows)
+        if status == "PENDING":
+            rows = [r for r in rows if r.id not in in_count]
+        out = [self.receipt_dict(r, counted_on=in_count.get(r.id)) for r in rows]
         if status == "TO_PACK":
             out = [r for r in out if r["verify_status"] != "PENDING" and r["to_pack"] > 0]
         elif status == "PACKED":
@@ -1073,6 +1078,57 @@ class SparePacketService:
         page = max(1, int(page or 1))
         return {"rows": out[(page - 1) * size: page * size], "total": len(out), "page": page,
                 "pages": -(-len(out) // size), "page_size": size}
+
+    @staticmethod
+    def _gate_in_count(store_code, rows):
+        """{receipt id: count day} - the gate entry receipts (not verified, not
+        tied to a GRN) whose material is already in the part's stock count.
+
+        ERP's SRV copy mostly leaves the accepted qty of IN-series GRNs empty
+        (since Aug 2026), so such a receipt was never tied to its GRN and kept
+        showing "QC pending in ERP" / "To verify" for good (5 Nov 2026, after
+        the opening count from ERP's stock). Each GRN line still waiting -
+        quality pending, or to be added - claims one gate receipt of its part:
+        the latest one on / before the GRN date (at most 30 days), the same
+        supplier and quantity first. A receipt no such line claims, dated on /
+        before the part's count, came in before that count: it is in it."""
+        cand = [r for r in rows if r.source == "GATE" and not r.grn_no and r.verify_status == "PENDING"
+                and r.gate_entry_dt is not None]
+        if not cand:
+            return {}
+        from app.services.erp_grn_posting_service import ErpGrnPostingService
+        grn = ErpGrnPostingService()
+        part_ids = sorted({r.part_id for r in cand})
+        base = grn._baseline(part_ids)
+        waiting = {}
+        for line in grn.lines(store_code):
+            if (line["part_id"] in base and line["grn_date"]
+                    and line["state"] in ("QUALITY_PENDING", "WILL_POST", "OFF")):
+                waiting.setdefault(line["part_id"], []).append(line)
+        by_part = {}
+        for r in cand:
+            by_part.setdefault(r.part_id, []).append(r)
+        out = {}
+        for pid, recs in by_part.items():
+            claimed = set()
+            for line in sorted(waiting.get(pid, []), key=lambda x: x["grn_date"]):
+                day = date.fromisoformat(line["grn_date"])
+                fits = [r for r in recs if r.id not in claimed and r.gate_entry_dt <= day
+                        and (day - r.gate_entry_dt).days <= 30]
+                if not fits:
+                    continue
+                ven = (line.get("ven_cd") or "").strip().upper()
+                qty = float(line.get("receipt_qty") or 0)
+                best = max(fits, key=lambda r: (bool(ven) and (r.ven_cd or "").strip().upper() == ven,
+                                                float(r.qty or 0) == qty, r.gate_entry_dt, r.id))
+                claimed.add(best.id)
+            count_day, counted = base.get(pid, (None, False))
+            if not (counted and count_day):
+                continue
+            for r in recs:
+                if r.id not in claimed and r.gate_entry_dt <= count_day:
+                    out[r.id] = count_day
+        return out
 
     def packets(self, store_code, status=None, q=None, page=1, page_size=PAGE_SIZE, issued=False,
                 date_from=None, date_to=None):
@@ -1136,7 +1192,7 @@ class SparePacketService:
                 "specification": part.specification, "model_no": getattr(part, "model_no", None),
                 "section": section.name if section else None}
 
-    def receipt_dict(self, r):
+    def receipt_dict(self, r, counted_on=None):
         packed = self._packed_of(r.id)
         counts = dict(db.session.query(SparePacket.status, func.count(SparePacket.id))
                       .filter(SparePacket.batch_id == r.id).group_by(SparePacket.status).all())
@@ -1158,8 +1214,11 @@ class SparePacketService:
             "packets": {"available": counts.get("AVAILABLE", 0), "issued": counts.get("ISSUED", 0),
                         "cancelled": counts.get("CANCELLED", 0), "qc_pending": counts.get("QC_PENDING", 0)},
             # A gate entry receipt: QC_PENDING until ERP accepts its GRN, then
-            # ACCEPTED with what was accepted. None for any other receipt.
-            "qc": (None if r.source != "GATE" else "ACCEPTED" if r.grn_no else "QC_PENDING"),
+            # ACCEPTED with what was accepted; IN_COUNT when its material is
+            # already in the part's stock count (counted_on). None for any other.
+            "qc": (None if r.source != "GATE" else "ACCEPTED" if r.grn_no
+                   else "IN_COUNT" if counted_on else "QC_PENDING"),
+            "counted_on": _iso(counted_on) if counted_on else None,
             "accepted_qty": _n(accepted) if accepted is not None else None,
             "created_by": r.created_by, "created_at": _iso(r.created_at),
         }

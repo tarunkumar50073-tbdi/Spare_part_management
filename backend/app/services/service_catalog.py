@@ -44,7 +44,7 @@ SERVICES = [
      "category": "Inventory", "icon": "🏷️", "mod": "spare_packets",
      "keywords": ["qr label", "qr code", "label print", "print label", "sticker", "tag", "packet",
                   "packing", "fifo", "box label", "supplier label", "gate entry qr", "receipt",
-                  "verify", "undo verify"]},
+                  "verify", "undo verify", "qc pending receipt", "to verify"]},
     {"key": "job_work", "title": "Job Work & RGP", "route": "/job-work",
      "category": "Inventory", "icon": "🛠️", "mod": "scan_part",
      "keywords": ["job work", "jobwork", "rgp", "challan", "coating", "isuzu", "oerlikon", "returnable",

@@ -157,3 +157,29 @@ def test_a_grn_with_no_gate_receipt_is_a_receipt_as_before():
     _grn(p, 4, 4)
     b = SpareBatch.query.filter_by(part_id=p.id).one()
     assert (b.source, float(b.qty)) == ("ERP_GRN", 4)
+
+
+def test_a_gate_receipt_from_before_the_count_is_in_stock_not_to_verify():
+    """5 Nov 2026: "ye saare pending qc hi dikha rhen h" - after the opening
+    count from ERP's stock, an old gate receipt (its GRN cleared, the accepted
+    qty left empty in ERP's SRV) is in the count; only the one whose GRN is
+    still waiting for quality stays QC pending / to verify."""
+    p = _part()
+    SpareStock.query.filter_by(part_id=p.id).update({"count_as_of": TODAY})
+    db.session.commit()
+    old = _gate(p, 4, day=TODAY - timedelta(days=2), no=f"GE-OLD-{p.part_no}")
+    new = _gate(p, 6, day=TODAY - timedelta(days=1), no=f"GE-NEW-{p.part_no}")
+    db.session.add(ReceivingRegister(store_code="CHILD_PART", grn_no=f"IN-OLD-{p.part_no}", grn_date=TODAY - timedelta(days=2),
+                                     ven_cd="V9", ven_name="SMC CORPORATION", item_cd=p.part_no, receipt_qty=4))
+    db.session.add(ReceivingRegister(store_code="CHILD_PART", grn_no=f"IN-NEW-{p.part_no}", grn_date=TODAY - timedelta(days=1),
+                                     ven_cd="V9", ven_name="SMC CORPORATION", item_cd=p.part_no, receipt_qty=6))
+    db.session.commit()
+    # The newer GRN was still waiting for quality at the count (the upload's list).
+    ErpGrnPostingService.remember_pending([(p.id, f"IN-NEW-{p.part_no}", TODAY)])
+    db.session.commit()
+
+    rows = {r["gate_entry_no"]: r for r in svc.receipts(STORE)["rows"] if r["part"]["id"] == p.id}
+    assert rows[old]["qc"] == "IN_COUNT" and rows[old]["counted_on"] == TODAY.isoformat()
+    assert rows[new]["qc"] == "QC_PENDING" and rows[new]["counted_on"] is None
+    to_verify = {r["gate_entry_no"] for r in svc.receipts(STORE, status="PENDING")["rows"] if r["part"]["id"] == p.id}
+    assert to_verify == {new}
