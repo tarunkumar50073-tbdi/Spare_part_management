@@ -96,6 +96,33 @@ def backup_now():
     return success_response(result, f"Backup not made: {result.get('error') or 'unknown error'}")
 
 
+# The DX label helper (tools/label-helper) as one zip, to set up direct label
+# printing on a PC with a label printer (5 Nov 2026: "ek file iske admin
+# section me dal de m usko install kru"). Windows files get Windows line ends,
+# whatever the server's checkout has.
+@bp.route("/label-helper.zip", methods=["GET"])
+@admin_required
+def label_helper_zip():
+    import io
+    import zipfile
+    from pathlib import Path
+    from flask import send_file
+    from app.utils.exceptions import NotFoundError
+    folder = Path(__file__).resolve().parents[3] / "tools" / "label-helper"
+    files = sorted(f for f in folder.iterdir() if f.is_file()) if folder.is_dir() else []
+    if not files:
+        raise NotFoundError("The label helper files are not on this server (tools/label-helper)")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in files:
+            data = f.read_bytes()
+            if f.suffix.lower() in (".bat", ".cmd", ".vbs", ".ps1", ".md"):
+                data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+            z.writestr(f"DX Label Helper/{f.name}", data)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip", as_attachment=True, download_name="DX Label Helper.zip")
+
+
 @bp.route("/label-config", methods=["GET"])
 @admin_required
 def get_label_config():

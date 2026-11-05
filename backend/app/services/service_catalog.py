@@ -188,7 +188,7 @@ SERVICES = [
     {"key": "settings", "title": "Settings", "route": "/settings",
      "category": "System", "icon": "⚙️", "admin": True,
      "keywords": ["settings", "config", "label", "barcode label", "store visibility",
-                  "system status", "gear"]},
+                  "system status", "gear", "label helper", "download label helper", "direct print setup"]},
     {"key": "rights_matrix", "title": "Rights Matrix", "route": "/rights-matrix",
      "category": "System", "icon": "🔐", "admin": True,
      "keywords": ["rights matrix", "access", "screen rights", "kisko kya right", "view edit"]},

@@ -15,6 +15,8 @@ import Glyph from "../components/Glyph.jsx";
 import BarcodeLabel from "../components/BarcodeLabel.jsx";
 import PrinterStatus from "../components/label/PrinterStatus.jsx";
 import { printerStatusKey } from "../components/label/usePrinterStatus.js";
+import { downloadFile } from "../utils/download.js";
+import { helperStatus } from "../utils/labelHelper.js";
 
 // Shortcuts to the admin-manageable screens that already exist — one place to
 // reach everything, instead of rebuilding them here.
@@ -192,6 +194,68 @@ function BackupBox({ backup, onDone }) {
           </p>
         </>
       )}
+    </div>
+  );
+}
+
+// Direct label printing (5 Nov 2026: "ek file iske admin section me dal de m
+// usko install kru or setup doone us pc pr"): the DX label helper for a PC with
+// a label printer, to download and install there, and whether it runs on the
+// PC this page is open on.
+function LabelHelperBox() {
+  const [st, setSt] = useState(undefined);       // undefined = checking, null = not running
+  const [busy, setBusy] = useState(false);
+  const check = () => {
+    setSt(undefined);
+    helperStatus().then(setSt);
+  };
+  useEffect(check, []);
+  const download = async () => {
+    setBusy(true);
+    try {
+      await downloadFile("/admin/label-helper.zip", "DX Label Helper.zip");
+    } catch {
+      toast.error("Could not download the label helper");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1fr_minmax(0,22rem)]">
+      <div className="max-w-2xl space-y-3 text-sm text-slate-600 dark:text-slate-300">
+        <p>
+          With the helper on a PC that has a label printer, <b>Print</b> on Packets &amp; QR Labels sends the labels
+          straight to the printer at their exact size: no print window, no date or link line, no paper size to set in
+          the printer driver. Without it, the browser's print window opens.
+        </p>
+        <ol className="list-decimal space-y-1 pl-5">
+          <li>On that PC, install the label printer's Windows driver (GoDEX G530: the GoDEX driver).</li>
+          <li>Open this page on that PC and click <b>Download label helper</b>.</li>
+          <li>Extract the zip, e.g. to <code>C:\DX_Store\label-helper</code>.</li>
+          <li>Double-click <b>install-autostart.bat</b> in it: the helper starts now, hidden, and with Windows from then on.</li>
+          <li>Click <b>Check again</b> here: it should say Running. If Chrome / Edge asks to let the site reach this device, choose <b>Allow</b>.</li>
+        </ol>
+        <p className="text-[12px] text-slate-500 dark:text-slate-400">
+          To remove it: <b>remove-autostart.bat</b> in the same folder. Its log: %LOCALAPPDATA%\DXStore\label-helper.log.
+        </p>
+        <button type="button" onClick={download} disabled={busy} className="btn-primary">
+          <Printer size={15} aria-hidden="true" /> {busy ? "Downloading…" : "Download label helper"}
+        </button>
+      </div>
+      <div className="space-y-2 rounded-xl border border-slate-200 p-4 dark:border-navy-800">
+        <p className="kpi-label">On this PC</p>
+        {st === undefined && <p className="text-sm text-slate-500">Checking…</p>}
+        {st === null && (
+          <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">Not running — labels print through the print window here.</p>
+        )}
+        {st && (
+          <>
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Running — direct print is on</p>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">Printers: {(st.printers || []).join(", ") || "none"}</p>
+          </>
+        )}
+        <button type="button" onClick={check} className="text-[12px] font-semibold text-toyotared hover:underline">Check again</button>
+      </div>
     </div>
   );
 }
@@ -506,6 +570,13 @@ export default function Settings() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* 3b2 — direct label printing: the helper for a label printer's PC */}
+      <div className="card">
+        <SectionHead icon={Printer} title="Direct label printing (label helper)"
+          hint="Download the helper for a PC with a label printer, and see if it runs on this PC" />
+        <LabelHelperBox />
       </div>
 
       {/* 3c — outgoing mail server (SMTP): the form moved to Email & Notifications */}

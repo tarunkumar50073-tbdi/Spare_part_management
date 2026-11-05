@@ -43,7 +43,7 @@ const NAV = [
   { label: "User Management", to: "/admin", admin: true, keywords: "users roles permissions rbac" },
   { label: "Rights Matrix", to: "/rights-matrix", admin: true, keywords: "rights matrix permissions modules users grid access control" },
   { label: "Data Browser", to: "/data-browser", admin: true, keywords: "database tables raw data db" },
-  { label: "Settings", to: "/settings", admin: true, keywords: "config barcode label store section" },
+  { label: "Settings", to: "/settings", admin: true, keywords: "config barcode label store section label helper download direct print setup" },
   { label: "Control Center", to: "/email/control-center", admin: true, keywords: "mail engine status queue health smtp worker" },
   { label: "Workflow Center", to: "/email/workflows", admin: true, keywords: "mail automation schedule pipeline run now" },
   { label: "Email Configuration", to: "/email/configuration", admin: true, keywords: "smtp mail server host port from test mail" },
