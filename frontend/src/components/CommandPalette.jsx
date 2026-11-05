@@ -25,7 +25,7 @@ const NAV = [
   { label: "Issuance Report", to: "/consumption", mod: "consumption", keywords: "issuance issue list issued issue report who took taken by issued to person kisko diya kitna diya consumption consumed usage net returned trend top parts department category yesterday last month financial year fy full pack excel pdf charts" },
   { label: "Gate Entry", to: "/gate-entry", mod: "gate_entry", keywords: "gate entry receiving arrival inward vehicle" },
   { label: "Vehicle In / Out", to: "/vehicle-in-out", mod: "vehicle_in_out", keywords: "vehicle in out gate truck gaadi" },
-  { label: "Receiving & GRN", to: "/receiving", mod: "receiving", keywords: "grn srv receipt receiving inward aging under inspection quality pending qc pending" },
+  { label: "Receiving & GRN", to: "/receiving", mod: "receiving", keywords: "grn srv receipt receiving inward aging under inspection quality pending qc pending grn department dept wise" },
   { label: "Short & Rejection", to: "/short-rejection", mod: "short_rejection", keywords: "short receipt supply rejection rejected reject srv rejection line rejection supplier lot rejection invoice days pending kam aaya" },
   { label: "Urgent Challan Register", to: "/challans", mod: "challan_register", keywords: "urgent challan delivery challan dc without invoice po pending approval invoice later link invoice grn pending breakdown production critical gate register" },
   { label: "Rejection Mail", to: "/short-rejection?tab=rejection", mod: "rejection_request", keywords: "rejection reject srv rejection line rejection rqc punch mail rejection mail outlook" },

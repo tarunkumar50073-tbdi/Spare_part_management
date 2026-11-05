@@ -159,3 +159,24 @@ def test_a_rejected_line_stays_rejected_and_a_part_erp_does_not_list_keeps_the_o
     assert _states(q) == {f"Q-{q.id}": "QUALITY_PENDING", f"O-{q.id}": "SKIPPED"}
     ErpGrnPostingService().post(STORE)
     assert _on_hand(q) == 2                           # nothing guessed into stock
+
+
+def test_each_grn_line_names_its_department_from_the_parts_section():
+    """5 Nov 2026: "jo 5 grn pending h usme dept bhi h kya" — ERP's SRV copy has
+    no GRN location, so the line carries the part's section and its group."""
+    from app.models.store import Section, Store
+    store = Store.query.filter_by(code=STORE).first()
+    press = Section(store_id=store.id, name=f"Press Tool Room {_n['n']}", group_name="Tool Room")
+    maint = Section(store_id=store.id, name=f"Maintenance {_n['n']}")
+    db.session.add_all([press, maint])
+    db.session.commit()
+    p, q, r = _part(), _part(), _part()
+    p.section_id, q.section_id = press.id, maint.id
+    db.session.commit()
+    for part in (p, q, r):
+        _grn(part, f"DP-{part.id}", date(2026, 11, 3), 2)
+    dept = {l["part_no"]: (l["dept"], l["section"]) for l in ErpGrnPostingService().lines(STORE)
+            if l["grn_no"].startswith("DP-")}
+    assert dept[p.part_no] == ("Tool Room", press.name)
+    assert dept[q.part_no] == (maint.name, maint.name)
+    assert dept[r.part_no] == (None, None)

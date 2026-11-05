@@ -442,6 +442,10 @@ const PENDING_COLUMNS = [
 // waiting for ERP's quality clearance, or to be checked (the work queue's
 // quality list; spec 1/9: receiving, GRN and quality are done in ERP and read
 // here). PENDING_COLUMNS stays for an older overview.
+// The department a GRN is for: the part's section group ("Tool Room") or the
+// section itself ("Maintenance"), with the section under it when it differs
+// (5 Nov 2026: "jo 5 grn pending h usme dept bhi h kya").
+const grnDeptText = (r) => (r.dept ? (r.section && r.section !== r.dept ? `${r.dept} – ${r.section}` : r.dept) : "");
 const ERP_LINE_PENDING_COLUMNS = [
   {
     key: "grn_no", label: "GRN No", sortable: true,
@@ -455,6 +459,15 @@ const ERP_LINE_PENDING_COLUMNS = [
   },
   { key: "part_no", label: "Part No", sortable: true },
   { key: "part_name", label: "Description" },
+  {
+    key: "dept", label: "Department", sortable: true, sortValue: grnDeptText, exportValue: grnDeptText,
+    render: (r) => (r.dept ? (
+      <div>
+        <div className="whitespace-nowrap font-medium">{r.dept}</div>
+        {r.section && r.section !== r.dept && <div className="text-[11px] text-slate-400">{r.section}</div>}
+      </div>
+    ) : "—"),
+  },
   { key: "ven_name", label: "Supplier", render: (r) => r.ven_name || r.ven_cd || "—" },
   { key: "invoice_no", label: "Invoice", render: (r) => r.invoice_no || "—" },
   { key: "receipt_qty", label: "Received", align: "right", render: (r) => num(r.receipt_qty) },

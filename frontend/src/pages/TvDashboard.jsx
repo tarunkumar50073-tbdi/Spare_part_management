@@ -2730,6 +2730,7 @@ function SrvListView({ frame }) {
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
               <th className="py-[0.7vh] pr-[1vh]">{rc ? "GRN No." : "SRV No."}</th><th className="pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
+              {rc && <th className="pr-[1vh]">Department</th>}
               <th className="pr-[1vh]">Supplier</th><th className="pr-[1vh]">{rc ? "GRN Date" : "Gate Entry"}</th>
               <th className="pr-[1vh] text-center">{rc ? "Received" : "Qty"}</th><th className="pr-[1vh]">{rc ? "State (ERP)" : "Status"}</th>
             </tr>
@@ -2740,6 +2741,13 @@ function SrvListView({ frame }) {
                 <td className="py-[0.8vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{(rc ? r.grn_no : r.srv_no) || "—"}</td>
                 <td className="pr-[1vh] font-semibold text-[var(--dx-t1)]">{r.part_no || "—"}</td>
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[22vh]">{r.part_name || "—"}</td>
+                {/* The department the GRN is for: the part's section group or section (5 Nov 2026). */}
+                {rc && (
+                  <td className="pr-[1vh] text-[var(--dx-t2)] whitespace-nowrap">
+                    {r.dept || "—"}
+                    {r.section && r.section !== r.dept && <span className="block text-[1.15vh] text-[var(--dx-t4)]">{r.section}</span>}
+                  </td>
+                )}
                 <td className="pr-[1vh] text-[var(--dx-t3)] truncate max-w-[18vh]">{(rc ? r.ven_name || r.ven_cd : r.supplier_name) || "—"}</td>
                 <td className="pr-[1vh] text-[var(--dx-t3)] whitespace-nowrap">
                   {rc
@@ -2756,7 +2764,7 @@ function SrvListView({ frame }) {
               </tr>
             ))}
             {!rows.length && (
-              <tr><td colSpan={7} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">
+              <tr><td colSpan={rc ? 8 : 7} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">
                 {rc
                   ? (frame.error ? "Couldn't load the ERP GRN lines — close and tap the tile again"
                     : "Nothing pending — no ERP GRN line is waiting for quality clearance or a check")

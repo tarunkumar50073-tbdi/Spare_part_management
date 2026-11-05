@@ -159,8 +159,22 @@ const useErpGrnPreview = (code) => useQuery({
 // Where no Description column follows, the part's name exports beside it.
 const partColNamed = { ...partCol, exportAlso: { label: "Description", value: (r) => r.part_name || "" }, };
 
+// The department a GRN is for: the part's section group ("Tool Room") or the
+// section itself ("Maintenance"), with the section under it when it differs
+// (5 Nov 2026: "jo 5 grn pending h usme dept bhi h kya").
+const grnDeptText = (r) => (r.dept ? (r.section && r.section !== r.dept ? `${r.dept} – ${r.section}` : r.dept) : "");
 const LINE_COLUMNS = [
   partColNamed,
+  {
+    key: "dept", label: "Department", sortable: true, sortValue: grnDeptText, searchValue: grnDeptText,
+    exportValue: grnDeptText,
+    render: (r) => (r.dept ? (
+      <div>
+        <div className="whitespace-nowrap text-slate-700 dark:text-slate-200">{r.dept}</div>
+        {r.section && r.section !== r.dept && <div className="text-[11px] text-slate-400">{r.section}</div>}
+      </div>
+    ) : "—"),
+  },
   {
     key: "grn_no", label: "GRN No", sortable: true,
     sortValue: (r) => `${r.grn_date || ""} ${r.grn_no || ""}`,

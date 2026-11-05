@@ -59,6 +59,7 @@ from app.models.part import Part
 from app.models.receiving_register import ReceivingRegister
 from app.models.spare_flow import SpareTransaction
 from app.models.spare_stock import SpareStock, SpareStockLedger
+from app.models.store import Section
 from app.services.spare_journal_service import SpareJournalService
 from app.services.spare_stock_service import SpareStockService
 from app.utils.db_tx import atomic
@@ -316,6 +317,10 @@ class ErpGrnPostingService:
         waiting = self.pending_at_count()
         under = self._under_inspection(part_ids)
         held = self._held_lines(grouped, under)
+        # The department each GRN is for (5 Nov 2026: "jo 5 grn pending h usme
+        # dept bhi h kya") - ERP's SRV copy carries no GRN location, so it is
+        # the part's section: its group ("Tool Room") or the section itself.
+        sections = {s.id: s for s in Section.query.all()}
         out = []
         for (pid, grn_no), g in grouped.items():
             part = g["part"]
@@ -385,6 +390,9 @@ class ErpGrnPostingService:
                 "posted_qty": already, "to_post": to_post, "state": state, "reason": reason,
                 "baseline_date": baseline.isoformat() if baseline else None,
                 "under_inspection": in_insp, "accept_inferred": cleared,
+                "section": sections[part.section_id].name if part.section_id in sections else None,
+                "dept": ((sections[part.section_id].group_name or sections[part.section_id].name)
+                         if part.section_id in sections else None),
             })
         out.sort(key=lambda x: (x["grn_date"] or "", x["grn_no"]), reverse=True)
         return out
