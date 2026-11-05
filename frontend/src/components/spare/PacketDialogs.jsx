@@ -9,6 +9,8 @@ import { barcodeService } from "../../services/barcodeService.js";
 import { packetService } from "../../services/packetService.js";
 import { printLabels } from "../../utils/barcodeRender.js";
 import { LABEL_LIMITS, LABEL_SIZES, labelTier, packetLabelsHtml } from "../../utils/packetLabels.js";
+import { autoQrMm, defaultTune, labelPng, savedTune, saveTune } from "../../utils/labelImage.js";
+import { helperPrint, helperStatus, pickPrinter, savePrinter } from "../../utils/labelHelper.js";
 
 // The Packets & QR Labels dialogs (the store's spec of 27 Oct 2026): verify a
 // receipt physically, make its packets / unit labels (or label old stock on the
@@ -515,16 +517,82 @@ function LabelPreview({ html, size, sizeOk }) {
   );
 }
 
+// Fine-tuning of one label size on this PC (5 Nov 2026: "parametrs adjust k
+// sath ok h ... brightness left right etc"): where the label sits and how big
+// the QR and text are. Darkness is the printer's own setting (its driver).
+function TuneControls({ tune, setTune, size, packet }) {
+  const auto = useMemo(() => autoQrMm(packet, size), [packet, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+  const qr = tune.qr || auto;
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const step = (label, value, unit, onMinus, onPlus, minusText, plusText) => (
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 dark:border-navy-700">
+      <span className="text-[12px] font-semibold text-slate-600 dark:text-slate-300">{label}</span>
+      <span className="flex items-center gap-1">
+        <button type="button" className="btn-secondary px-2 py-0.5 text-[12px]" onClick={onMinus}>{minusText}</button>
+        <span className="w-14 text-center text-[12px] tabular text-slate-700 dark:text-slate-200">{value}{unit}</span>
+        <button type="button" className="btn-secondary px-2 py-0.5 text-[12px]" onClick={onPlus}>{plusText}</button>
+      </span>
+    </div>
+  );
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <p className="text-[12px] font-semibold text-slate-600 dark:text-slate-300">Adjust for this PC's printer — {size.w} × {size.h} mm</p>
+        <button type="button" className="text-[12px] font-semibold text-toyotared hover:underline" onClick={() => setTune(defaultTune(size))}>Reset</button>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {step("Left / Right", `${tune.dx > 0 ? "+" : ""}${r1(tune.dx)}`, " mm",
+          () => setTune({ ...tune, dx: r1(tune.dx - 0.5) }), () => setTune({ ...tune, dx: r1(tune.dx + 0.5) }), "◀ Left", "Right ▶")}
+        {step("Up / Down", `${tune.dy > 0 ? "+" : ""}${r1(tune.dy)}`, " mm",
+          () => setTune({ ...tune, dy: r1(tune.dy - 0.5) }), () => setTune({ ...tune, dy: r1(tune.dy + 0.5) }), "▲ Up", "Down ▼")}
+        {step("QR size", r1(qr), " mm",
+          () => setTune({ ...tune, qr: Math.max(5, r1(qr - 0.5)) }), () => setTune({ ...tune, qr: r1(qr + 0.5) }), "− Smaller", "Bigger +")}
+        {step("Text size", Math.round(tune.text), "%",
+          () => setTune({ ...tune, text: Math.max(50, tune.text - 5) }), () => setTune({ ...tune, text: Math.min(200, tune.text + 5) }), "− Smaller", "Bigger +")}
+      </div>
+      <p className="mt-1 text-[11.5px] text-slate-400">Saved on this PC for this label size. Print darker / lighter: the printer's own Darkness setting (its driver).</p>
+    </div>
+  );
+}
+
 export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
   const ls = useLabelSize();
   const { size, sizeOk } = ls;
   const [reason, setReason] = useState("");
   const [step, setStep] = useState("SETUP");             // SETUP -> ASK (did it print?)
   const [busy, setBusy] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  // The DX label helper on this PC prints straight to the label printer (no
+  // print window); without it the browser's print window opens as before.
+  const helper = useQuery({ queryKey: ["label-helper"], queryFn: helperStatus, retry: false, staleTime: 30000 });
+  const direct = Boolean(helper.data);
+  const [printer, setPrinter] = useState("");
+  useEffect(() => {
+    if (helper.data && !printer) setPrinter(pickPrinter(helper.data));
+  }, [helper.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [tune, setTuneState] = useState(() => savedTune(size));
+  useEffect(() => { setTuneState(savedTune(size)); }, [size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setTune = (next) => { setTuneState(next); saveTune(size, next); };
   const html = useMemo(() => packetLabelsHtml(packets, { size }), [packets, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
   const preview = useMemo(() => packetLabelsHtml(packets.slice(0, 1), { size }), [packets, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
-  const print = () => {
+  const picture = useMemo(() => (direct && sizeOk ? labelPng(packets[0], size, tune) : null),
+    [direct, sizeOk, packets, size.w, size.h, tune]); // eslint-disable-line react-hooks/exhaustive-deps
+  const print = async () => {
     if ((reprint && !reason.trim()) || !sizeOk) return;
+    if (direct && printer) {
+      setPrinting(true);
+      try {
+        const images = packets.map((p) => labelPng(p, size, tune));
+        await helperPrint({ printer, w: size.w, h: size.h, images, title: `DX Store ${packets.length} label(s)` });
+        savePrinter(printer);
+        setStep("ASK");
+      } catch (e) {
+        toast.error(e.message || "Could not print");
+      } finally {
+        setPrinting(false);
+      }
+      return;
+    }
     printLabels(html);
     setStep("ASK");
   };
@@ -550,8 +618,8 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
         </button>
       </> : <>
         <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
-        <button type="button" className="btn-primary" onClick={print} disabled={(reprint && !reason.trim()) || !sizeOk}>
-          <Printer size={15} aria-hidden="true" /> Print
+        <button type="button" className="btn-primary" onClick={print} disabled={(reprint && !reason.trim()) || !sizeOk || printing || (direct && !printer)}>
+          <Printer size={15} aria-hidden="true" /> {printing ? "Printing…" : direct ? "Print" : "Print (print window)"}
         </button>
       </>}>
       {step === "ASK" ? (
@@ -564,7 +632,34 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
               <input className={inputCls(false, "w-full")} maxLength={255} value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />
             </Field>
           )}
-          <LabelPreview html={preview} size={size} sizeOk={sizeOk} />
+          {direct ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-[12.5px] text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">
+                <span className="font-semibold">Direct print</span> — straight to
+                <select className={inputCls(false, "w-56 py-1 text-[12.5px]")} value={printer} onChange={(e) => setPrinter(e.target.value)}>
+                  {(helper.data.printers || []).map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                no print window.
+              </div>
+              {sizeOk && <TuneControls tune={tune} setTune={setTune} size={size} packet={packets[0]} />}
+              {picture && (
+                <div className="flex justify-center rounded-lg border border-slate-200 bg-slate-100 p-3 dark:border-navy-700">
+                  <img src={picture} alt="Label as it will print" className="border border-slate-300 bg-white shadow-sm"
+                    style={{ width: `${Math.min(520, size.w * 3.78 * (size.w <= 30 ? 6 : 3))}px`, imageRendering: "pixelated" }} />
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {!helper.isLoading && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+                  Direct print is off on this PC: the DX label helper is not running (tools/label-helper → start-label-helper.bat).
+                  The browser's print window will open instead.
+                </p>
+              )}
+              <LabelPreview html={preview} size={size} sizeOk={sizeOk} />
+            </>
+          )}
           <p className="text-[12px] text-slate-500 dark:text-slate-400">The QR carries each packet's own code. No price is printed. Printing never adds stock.</p>
         </>
       )}

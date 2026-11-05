@@ -35,7 +35,7 @@ const esc = (s) => String(s == null ? "" : s)
 // the spec ("chote me qr k ander spec or hona chahiye") but not the location,
 // to keep its dots as big as can be at 12-14 mm; every bigger label's QR keeps
 // code | spec | location.
-const TINY = { pad: 0.6, maxCodePt: 5 };
+export const TINY = { pad: 0.6, maxCodePt: 5 };
 
 // The sizes offered on the print dialog, smallest first (mm).
 export const LABEL_SIZES = [
@@ -56,7 +56,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 // with the label actually picked.
 // The description a size smaller than before (4 Nov 2026: "description ka font
 // size kam kar sakte ho"); a long one still shrinks further to stay whole.
-const TIERS = {
+export const TIERS = {
   FULL: { ref: [100, 50], code: 6, pn: 13, ds: 7.5, loc: 10 },
   MID: { ref: [75, 38], code: 5.5, pn: 11, ds: 6.5, loc: 8.5 },
   SMALL: { ref: [50, 25], code: 5, pn: 9, ds: 5.5, loc: 7 },
@@ -70,7 +70,7 @@ export function labelTier(h, w = 100) {
 
 // What a tiny label's QR carries: the code, then the spec (as the server's own
 // payload cuts it, 60 letters) — the app reads the code before the first "|".
-const tinyQr = (p) => [p.code, String(p.part?.specification || "").trim().slice(0, 60)].filter(Boolean).join(" | ");
+export const tinyQr = (p) => [p.code, String(p.part?.specification || "").trim().slice(0, 60)].filter(Boolean).join(" | ");
 
 // The tiny label: the QR (code and spec) and the code under it, as wide as the
 // label allows.
@@ -101,7 +101,7 @@ function tinyHtml(packets, w, h, zoom) {
 
 // The lines a text takes at `perLine` letters a line, words kept whole where
 // they fit (a word longer than a line breaks anywhere, as the label's CSS does).
-function linesFor(text, perLine) {
+export function linesFor(text, perLine) {
   let lines = 1;
   let used = 0;
   for (const word of String(text || "").split(/\s+/).filter(Boolean)) {
@@ -118,7 +118,7 @@ function linesFor(text, perLine) {
 // the room beside the QR (the store, 4 Nov 2026: "description choti kar dena
 // agar lambi h to but puri honi chahiye"). A bold capital is about 0.66 em
 // wide; a line is 1.15 em high.
-function fitPt(text, widthMm, heightMm, maxPt, minPt = 4.5) {
+export function fitPt(text, widthMm, heightMm, maxPt, minPt = 4.5) {
   for (let size = maxPt; size > minPt; size -= 0.25) {
     const em = size * 0.3528;
     const perLine = Math.max(1, Math.floor(widthMm / (em * 0.66)));
