@@ -12,10 +12,17 @@ ERPSyncService) and turns what ERP says into the part's store stock and history:
                                            reference = GRN no.) + a journal row
     ERP GRN line, reject_qty > 0        -> rejected by quality (never stock)
 
-A line still waiting for quality but dated on/before the part's stock count,
-and NOT on that count's "Waiting for QC" list, is not shown as quality pending:
-the store takes it as already in that stock (5 Nov 2026: "list k alawa grn
-pending bhi na dikhayen") and it is never added later either.
+Quality pending follows ERP's own figure (5 Nov 2026): ERP's current stock
+holds, per part, what is still under inspection (erp_stock.under_insp). The
+part's newest GRN lines with no accepted qty, up to that figure, are quality
+pending; any older one ERP holds nothing of under inspection was cleared into
+ERP's stock though the SRV line shows no accepted qty (ERP often leaves it
+empty) - it is taken as accepted at its receipt qty and goes through the same
+rules below (already in a count, or added once). Where ERP's figure is not
+read for a part, the old way stands: a line still waiting for quality but
+dated on/before the part's stock count, and NOT on that count's "Waiting for
+QC" list, is taken as already in that stock ("list k alawa grn pending bhi na
+dikhayen") and never added.
 
 Posting rules, all to avoid counting anything twice:
   * matched on item_cd = Part No. (the ERP item code), spare store parts only;
@@ -24,8 +31,10 @@ Posting rules, all to avoid counting anything twice:
     opening load or stock-row creation) is skipped — that count already has it —
     UNLESS the line was still waiting for quality when that count was taken:
     the upload's "Waiting for QC" tab names those lines (5 Nov 2026, an opening
-    load from ERP's stock, which holds accepted material only), and each is
-    added once quality accepts it, whatever its GRN date;
+    load from ERP's stock, which holds accepted material only) - or, with no
+    tab, the lines ERP held under inspection at the upload - and every ERP read
+    (post) notes again the lines ERP still holds under inspection; each is
+    added once quality clears it, whatever its GRN date;
   * a GRN dated before the configured "post from" date is never auto-posted;
   * each (part, GRN no.) is posted once; if ERP later accepts more on the same
     GRN only the difference is added; a reduction is flagged, never reversed
@@ -44,6 +53,7 @@ from sqlalchemy import func
 
 from app.extensions import db
 from app.models.app_setting import AppSetting
+from app.models.erp_stock import ERPStock
 from app.models.part import Part
 from app.models.receiving_register import ReceivingRegister
 from app.models.spare_flow import SpareTransaction
@@ -156,13 +166,56 @@ class ErpGrnPostingService:
             saved = {}
         if not isinstance(saved, dict):
             saved = {}
+        new = 0
         for pid, grn_no, day in lines:
             key = cls._key(grn_no)
-            if key:
+            if key and saved.get(f"{int(pid)}|{key}") != day.isoformat():
                 saved[f"{int(pid)}|{key}"] = day.isoformat()
-        row.value = json.dumps(saved)
-        row.updated_by = user
+                new += 1
+        if new:
+            row.value = json.dumps(saved)
+            row.updated_by = user
+        elif row.id is None:
+            db.session.expunge(row)          # nothing to keep: no empty row
         return len(lines)
+
+    @staticmethod
+    def _under_inspection(part_ids):
+        """{part id: qty ERP holds under inspection, or None when ERP's figure
+        is not read for it}. Once ERP's figure is read at all, a part ERP's
+        stock does not list holds nothing under inspection (0)."""
+        if not part_ids:
+            return {}
+        out = {}
+        for start in range(0, len(part_ids), 900):
+            for pid, under in (db.session.query(ERPStock.part_id, ERPStock.under_insp)
+                               .filter(ERPStock.part_id.in_(part_ids[start:start + 900]))):
+                out[pid] = float(under) if under is not None else None
+        if db.session.query(ERPStock.id).filter(ERPStock.under_insp.isnot(None)).first() is not None:
+            for pid in part_ids:
+                out.setdefault(pid, 0.0)
+        return out
+
+    @staticmethod
+    def _held_lines(grouped, under):
+        """{(part id, GRN no.)} ERP holds under inspection: per part, its newest
+        GRN lines with no accepted and no rejected qty, while ERP's figure lasts
+        (a line it covers even in part is held)."""
+        waiting = defaultdict(list)
+        for (pid, grn_no), g in grouped.items():
+            if not g["accept"] and not g["reject"]:
+                waiting[pid].append((g.get("grn_date") or date.min, grn_no, g["receipt"]))
+        held = set()
+        for pid, rows in waiting.items():
+            left = under.get(pid)
+            if not left:
+                continue
+            for _, grn_no, qty in sorted(rows, key=lambda r: (r[0], r[1]), reverse=True):
+                if left <= 1e-9:
+                    break
+                held.add((pid, grn_no))
+                left -= qty
+        return held
 
     # ---- reading ----
 
@@ -260,11 +313,21 @@ class ErpGrnPostingService:
         base = self._baseline(part_ids)
         posted = self._posted(part_ids)
         waiting = self.pending_at_count()
+        under = self._under_inspection(part_ids)
+        held = self._held_lines(grouped, under)
         out = []
         for (pid, grn_no), g in grouped.items():
             part = g["part"]
             accepted = round(g["accept"], 2) if g["accept"] is not None else None
             rejected = round(g["reject"], 2) if g["reject"] is not None else None
+            erp_read = under.get(pid) is not None
+            in_insp = (pid, grn_no) in held
+            # ERP holds none of it under inspection and rejected none: quality
+            # cleared it into ERP's stock, though the SRV line shows no accepted
+            # qty (5 Nov 2026) - taken as accepted at its receipt qty.
+            cleared = erp_read and not in_insp and not accepted and not rejected and g["receipt"] > 0
+            if cleared:
+                accepted = round(g["receipt"], 2)
             already = posted.get((pid, self._key(grn_no)), 0.0)
             baseline, counted = base.get(pid, (None, False))
             grn_date = g.get("grn_date")
@@ -280,6 +343,10 @@ class ErpGrnPostingService:
             elif not accepted:
                 if rejected:
                     state, reason = "REJECTED", "Rejected by quality in ERP — not stock"
+                elif erp_read and in_insp:
+                    state, reason = "QUALITY_PENDING", "Under inspection in ERP — quality clearance pending"
+                elif erp_read:
+                    state, reason = "SKIPPED", "ERP holds nothing of this GRN under inspection — not quality pending"
                 elif counted and baseline and grn_date and grn_date <= baseline and not was_waiting:
                     state, reason = "SKIPPED", (
                         f"GRN dated {grn_date.isoformat()}, on/before the part's stock count of "
@@ -306,6 +373,9 @@ class ErpGrnPostingService:
                 if was_waiting:
                     reason += (f" (it was waiting for quality when the stock was counted on "
                                f"{baseline.isoformat()}, so that count does not have it)")
+            if cleared:
+                reason = (reason or "") + (" — cleared by quality in ERP (no longer under inspection); "
+                                           "the SRV line shows no accepted qty, so its receipt qty is used")
             out.append({
                 "part_id": pid, "part_no": part.part_no, "part_name": part.part_name,
                 "grn_no": grn_no, "grn_date": grn_date.isoformat() if grn_date else None,
@@ -313,6 +383,7 @@ class ErpGrnPostingService:
                 "receipt_qty": round(g["receipt"], 2), "accept_qty": accepted, "reject_qty": rejected,
                 "posted_qty": already, "to_post": to_post, "state": state, "reason": reason,
                 "baseline_date": baseline.isoformat() if baseline else None,
+                "under_inspection": in_insp, "accept_inferred": cleared,
             })
         out.sort(key=lambda x: (x["grn_date"] or "", x["grn_no"]), reverse=True)
         return out
@@ -335,14 +406,33 @@ class ErpGrnPostingService:
 
     # ---- writing ----
 
+    def note_held(self, lines, part_ids=None, user=None):
+        """Note the lines ERP holds under inspection, dated on/before their
+        part's current count, against that count (remember_pending) - they
+        are in no count taken so far. `lines` as lines() gives them; part_ids
+        limits it. Returns how many were noted."""
+        held = [(l["part_id"], l["grn_no"], date.fromisoformat(l["baseline_date"])) for l in lines
+                if l.get("under_inspection") and l["baseline_date"] and l["grn_date"]
+                and l["grn_date"] <= l["baseline_date"]
+                and (part_ids is None or l["part_id"] in part_ids)]
+        if held:
+            with atomic():
+                self.remember_pending(held, user=user)
+        return len(held)
+
     def post(self, store_code, user=ERP_USER):
         """Add every WILL_POST line to store stock. Each (part, GRN) is its own
         transaction and re-checked inside it, so a concurrent run can't add the
         same GRN twice. Returns what was posted."""
         if not self.settings().get("enabled"):
             return {"posted": [], "skipped_off": True}
+        lines = self.lines(store_code)
+        # A line ERP still holds under inspection is in no count taken so far:
+        # note it against the part's current count, so it is added once quality
+        # clears it, whatever its GRN date (5 Nov 2026).
+        self.note_held(lines, user=user)
         done = []
-        for line in self.lines(store_code):
+        for line in lines:
             if line["state"] != "WILL_POST" or line["to_post"] <= 0:
                 continue
             with atomic():

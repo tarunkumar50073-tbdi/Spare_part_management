@@ -155,17 +155,20 @@ class ERPSyncService:
 
     def sync_current_stock(self):
         """ERP's stock per part: clos_stock (accepted, not under inspection)
-        summed over ERP's locations, for every active app part ERP lists. A part
-        ERP no longer lists loses its figure (reads "Awaiting ERP") rather than
-        a guessed 0. Physical stock (spare_stock) is never touched."""
+        summed over ERP's locations, for every active app part ERP lists, with
+        under_insp beside it (what ERP still holds under quality inspection,
+        5 Nov 2026). A part ERP no longer lists loses its figure (reads
+        "Awaiting ERP") rather than a guessed 0. Physical stock (spare_stock)
+        is never touched."""
         from app.extensions import db
         from app.models.erp_stock import ERPStock
         from app.models.part import Part
-        totals = {}
-        for r in self.erp.fetch_rows("current_stock", ["item_cd", "clos_stock"]):
+        totals, insp = {}, {}
+        for r in self.erp.fetch_rows("current_stock", ["item_cd", "clos_stock", "under_insp"]):
             code, qty = (r.get("item_cd") or "").strip().upper(), _num(r.get("clos_stock"))
             if code and qty is not None:
                 totals[code] = round(totals.get(code, 0.0) + qty, 2)
+                insp[code] = round(insp.get(code, 0.0) + (_num(r.get("under_insp")) or 0.0), 2)
         parts = {(p.part_no or "").strip().upper(): p.id for p in Part.query.filter(Part.is_active.is_(True))}
         now = utcnow()
         have = {e.part_id: e for e in ERPStock.query.all()}
@@ -176,10 +179,14 @@ class ERPSyncService:
                 continue
             present.append(pid)
             row = have.pop(pid, None)
+            under = insp.get(code, 0.0)
             if row is None:
-                db.session.add(ERPStock(part_id=pid, qty_on_hand=qty, synced_at=now))
-            elif float(row.qty_on_hand or 0) != qty:
-                row.qty_on_hand = qty
+                db.session.add(ERPStock(part_id=pid, qty_on_hand=qty, under_insp=under, synced_at=now))
+            else:
+                if float(row.qty_on_hand or 0) != qty:
+                    row.qty_on_hand = qty
+                if row.under_insp is None or float(row.under_insp) != under:
+                    row.under_insp = under
         for start in range(0, len(present), 500):
             (ERPStock.query.filter(ERPStock.part_id.in_(present[start:start + 500]))
              .update({"synced_at": now}, synchronize_session=False))

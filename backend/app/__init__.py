@@ -531,6 +531,9 @@ LATE_COLUMNS = (
     # The day a physical count stands for, when it was loaded later (27 Oct
     # 2026: the DX sheet's count "as on 27.09" loaded a month on).
     ("spare_stock", "count_as_of", "DATE"),
+    # ERP's stock under quality inspection per part (5 Nov 2026: quality
+    # pending follows ERP's own figure, ErpGrnPostingService).
+    ("erp_stock", "under_insp", "NUMERIC(12,2)"),
 )
 
 # Columns made optional after a database was created (PostgreSQL only; SQLite

@@ -14,6 +14,10 @@ class ERPStock(BaseModel):
 
     part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), unique=True, nullable=False, index=True)
     qty_on_hand = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    # ERP's stock still under quality inspection (current_stock.under_insp,
+    # summed over its locations) — not in qty_on_hand. Read since 5 Nov 2026 so
+    # "quality pending" follows ERP; None = not read (an older row / an Excel load).
+    under_insp = db.Column(db.Numeric(12, 2), nullable=True)
     synced_at = db.Column(db.DateTime(timezone=True), nullable=False)
 
     part = db.relationship("Part")

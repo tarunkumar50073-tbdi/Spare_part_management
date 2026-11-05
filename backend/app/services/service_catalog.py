@@ -125,7 +125,8 @@ SERVICES = [
     # --- Receiving ---
     {"key": "receiving", "title": "Receiving & GRN", "route": "/receiving",
      "category": "Receiving", "icon": "📥", "mod": "spare_store",
-     "keywords": ["grn", "srv", "receipt", "receiving", "inward", "aging"]},
+     "keywords": ["grn", "srv", "receipt", "receiving", "inward", "aging", "under inspection",
+                  "quality pending", "qc pending"]},
     # What suppliers sent short and quality rejected, since how many days and
     # against which lot (the store, 17 Oct 2026) — the same right as Receiving & GRN.
     {"key": "short_rejection", "title": "Short & Rejection", "route": "/short-rejection",

@@ -2466,12 +2466,15 @@ class SpareStockService:
         row applied, they are noted against this count, so ERP GRN posting
         adds them once quality accepts them, whatever their GRN date
         (ErpGrnPostingService.remember_pending). Lines of a part whose row did
-        not apply are left out and reported."""
+        not apply are left out and reported. With no such tab, the lines ERP
+        holds under inspection right now (its current stock's under_insp) are
+        noted the same way for the parts whose rows applied."""
         import io
         from app.services.erp_grn_posting_service import ErpGrnPostingService, _plant_date
         data = file_stream.read()
         qc_rows = _waiting_for_qc_rows(data) if data else []
         counted_day = {}          # part id -> the day this upload's count stands for
+        stores = set()            # the stores of the parts whose rows applied
         made_at = _template_stamp(data) if data else None
         tag = _template_tag(made_at) if made_at else None
         moved = (self._moved_since(made_at - TEMPLATE_STAMP_ALLOWANCE, store_code, own_tag=tag)
@@ -2520,6 +2523,7 @@ class SpareStockService:
             )
             applied["updated" if delta else "unchanged"] += 1
             counted_day[part.id] = as_of or _plant_date(utcnow())
+            stores.add(part.store_code)
 
         qc_noted, qc_left = 0, []
         with atomic():
@@ -2538,8 +2542,15 @@ class SpareStockService:
                     else:
                         qc_left.append({"row": row_no, "part_no": part_no, "grn_no": grn_no})
                 qc_noted = ErpGrnPostingService.remember_pending(lines, user=user)
+            elif counted_day:
+                # No list given: what ERP holds under inspection now is in no count.
+                grn = ErpGrnPostingService()
+                db.session.flush()
+                for code in sorted(stores):
+                    qc_noted += grn.note_held(grn.lines(code), part_ids=set(counted_day), user=user)
         report.update(applied)
-        report.update({"qc_waiting_noted": qc_noted, "qc_waiting_left": qc_left})
+        report.update({"qc_waiting_noted": qc_noted, "qc_waiting_left": qc_left,
+                       "qc_waiting_source": "tab" if qc_rows else "erp"})
         report.update({"template_made_at": made_text, "stale_count": len(stale), "stale_rows": stale})
         return report
 
