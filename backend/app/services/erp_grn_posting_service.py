@@ -292,9 +292,11 @@ class ErpGrnPostingService:
             return []
         grn_q = ReceivingRegister.query.filter(func.upper(ReceivingRegister.item_cd).in_(list(parts)))
         grouped = defaultdict(lambda: {"receipt": 0.0, "accept": None, "reject": None, "rows": []})
+        from app.utils.erp_unit import is_plant_doc
         for r in grn_q.all():
             part = parts.get((r.item_cd or "").upper())
-            if part is None or not r.grn_no:
+            # This plant's GRNs only: IN2627/001/... is unit 10001 (5 Nov 2026).
+            if part is None or not r.grn_no or not is_plant_doc(r.grn_no):
                 continue
             g = grouped[(part.id, r.grn_no)]
             g["part"] = part

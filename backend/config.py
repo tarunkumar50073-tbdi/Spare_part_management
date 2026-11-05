@@ -91,6 +91,10 @@ class Config:
     # Only pull rows on/after (today - N days) to keep the local mirror lean;
     # 0 = no date limit (full history).
     ERP_SYNC_SINCE_DAYS = int(os.getenv("ERP_SYNC_SINCE_DAYS", "120"))
+    # The ERP unit this plant is (5 Nov 2026: Plant 1 = unit 10001). ERP's
+    # current stock is read for this unit only, and only GRNs / gate entries
+    # whose number carries it (IN2627/001/..., 2627/001/...) count here.
+    ERP_UNIT_CD = os.getenv("ERP_UNIT_CD", "10001").strip() or "10001"
     # Background ERP-sync interval in seconds; 0 disables the poller (the
     # "Sync Now" endpoint still works on demand).
     ERP_SYNC_POLL_SECONDS = int(os.getenv("ERP_SYNC_POLL_SECONDS", "0"))

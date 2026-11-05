@@ -283,9 +283,11 @@ class SparePacketService:
         have = {(pid, (no or "").strip().upper()) for pid, no in db.session.query(SpareBatch.part_id, SpareBatch.gate_entry_no)
                 .filter(SpareBatch.source == "GATE")}
         made = 0
+        from app.utils.erp_unit import is_plant_doc
         for no, day, qty, ven_cd, ven_name, bill, pid in q.all():
             key = (pid, (no or "").strip().upper())
-            if key in have:
+            # This plant's gate entries only: 2627/001/... is unit 10001 (5 Nov 2026).
+            if key in have or not is_plant_doc(no):
                 continue
             with atomic():
                 self._gate_lock()
@@ -317,9 +319,11 @@ class SparePacketService:
             if saved:
                 self.receipts_from_gate(part.store_code, part_ids=[part.id], since=datetime.fromisoformat(saved))
             grn_day = (rr.grn_date if rr and rr.grn_date else None) or _plant_date(ledger.created_at)
+            from app.utils.erp_unit import is_plant_doc
             cands = [c for c in SpareBatch.query.filter(SpareBatch.source == "GATE", SpareBatch.part_id == part.id,
                                                         SpareBatch.grn_no.is_(None)).all()
-                     if not grn_day or not c.gate_entry_dt or c.gate_entry_dt <= grn_day]
+                     if (not grn_day or not c.gate_entry_dt or c.gate_entry_dt <= grn_day)
+                     and is_plant_doc(c.gate_entry_no)]
             if not cands:
                 return None
             ven = ((rr.ven_cd if rr else None) or "").strip().upper()
@@ -1064,6 +1068,10 @@ class SparePacketService:
         if status == "PENDING":
             query = query.filter(SpareBatch.verify_status == "PENDING")
         rows = query.order_by(SpareBatch.received_on.desc(), SpareBatch.id.desc()).all()
+        # Another plant's gate entry is no receipt here (5 Nov 2026: Plant 1 =
+        # unit 10001; one made before that rule stays in the table, not listed).
+        from app.utils.erp_unit import is_plant_doc
+        rows = [r for r in rows if r.source != "GATE" or is_plant_doc(r.gate_entry_no)]
         # Gate receipts whose material is already in the part's stock count are
         # not "to verify" (5 Nov 2026: "ye saare pending qc hi dikha rhen h").
         in_count = self._gate_in_count(store_code, rows)

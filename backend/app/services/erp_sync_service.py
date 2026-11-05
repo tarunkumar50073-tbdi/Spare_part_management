@@ -155,7 +155,7 @@ class ERPSyncService:
 
     def sync_current_stock(self):
         """ERP's stock per part: clos_stock (accepted, not under inspection)
-        summed over ERP's locations, for every active app part ERP lists, with
+        summed over ERP's locations of this plant's unit (ERP_UNIT_CD, 10001), for every active app part ERP lists, with
         under_insp beside it (what ERP still holds under quality inspection,
         5 Nov 2026). A part ERP no longer lists loses its figure (reads
         "Awaiting ERP") rather than a guessed 0. Physical stock (spare_stock)
@@ -163,8 +163,12 @@ class ERPSyncService:
         from app.extensions import db
         from app.models.erp_stock import ERPStock
         from app.models.part import Part
+        from app.utils.erp_unit import is_plant_unit
         totals, insp = {}, {}
-        for r in self.erp.fetch_rows("current_stock", ["item_cd", "clos_stock", "under_insp"]):
+        for r in self.erp.fetch_rows("current_stock", ["item_cd", "clos_stock", "under_insp", "unit_cd"]):
+            # This plant's unit only (5 Nov 2026: Plant 1 = unit 10001).
+            if not is_plant_unit(r.get("unit_cd")):
+                continue
             code, qty = (r.get("item_cd") or "").strip().upper(), _num(r.get("clos_stock"))
             if code and qty is not None:
                 totals[code] = round(totals.get(code, 0.0) + qty, 2)
