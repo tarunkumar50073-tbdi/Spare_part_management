@@ -183,3 +183,23 @@ def test_a_gate_receipt_from_before_the_count_is_in_stock_not_to_verify():
     assert rows[new]["qc"] == "QC_PENDING" and rows[new]["counted_on"] is None
     to_verify = {r["gate_entry_no"] for r in svc.receipts(STORE, status="PENDING")["rows"] if r["part"]["id"] == p.id}
     assert to_verify == {new}
+
+
+def test_an_accepted_gate_receipt_taken_into_a_later_count_has_nothing_to_verify():
+    """5 Nov 2026: the two CN GRNs of 02.11 were accepted in ERP and added that
+    day, then the 05.11 count took them in: their unverified, unlabelled gate
+    receipts are in that count, not "to verify". Before the count they are
+    accepted receipts to verify as before."""
+    p = _part()
+    gate = _gate(p, 3)
+    _grn(p, 3, accept=3)                                   # accepted and added after the part's count
+    row = next(r for r in svc.receipts(STORE)["rows"] if r["gate_entry_no"] == gate)
+    assert row["qc"] == "ACCEPTED" and row["verify_status"] == "PENDING"
+
+    stock = SpareStock.query.filter_by(part_id=p.id).one()
+    stock.last_counted_at = datetime.now(timezone.utc) + timedelta(seconds=1)   # a count written after that stock-in
+    stock.count_as_of = TODAY
+    db.session.commit()
+    row = next(r for r in svc.receipts(STORE)["rows"] if r["gate_entry_no"] == gate)
+    assert row["qc"] == "IN_COUNT" and row["counted_on"] == TODAY.isoformat()
+    assert gate not in {r["gate_entry_no"] for r in svc.receipts(STORE, status="PENDING")["rows"]}

@@ -1091,11 +1091,36 @@ class SparePacketService:
         quality pending, or to be added - claims one gate receipt of its part:
         the latest one on / before the GRN date (at most 30 days), the same
         supplier and quantity first. A receipt no such line claims, dated on /
-        before the part's count, came in before that count: it is in it."""
+        before the part's count, came in before that count: it is in it.
+
+        A gate receipt already tied to its GRN (ERP accepted it) and still not
+        verified, with no labels, is in the count too when its stock-in was
+        written before that count was (5 Nov 2026: the two CN GRNs of 02.11,
+        added that day, then inside the 05.11 count)."""
+        out = {}
+        tied = [r for r in rows if r.source == "GATE" and r.grn_no and r.verify_status == "PENDING" and r.ledger_id]
+        if tied:
+            stock = {s.part_id: s for s in SpareStock.query.filter(
+                SpareStock.part_id.in_(sorted({r.part_id for r in tied}))).all()}
+            led = dict(db.session.query(SpareStockLedger.id, SpareStockLedger.created_at)
+                       .filter(SpareStockLedger.id.in_(sorted({r.ledger_id for r in tied}))).all())
+            labelled = {bid for (bid,) in db.session.query(SparePacket.batch_id)
+                        .filter(SparePacket.batch_id.in_([r.id for r in tied])).distinct()}
+            for r in tied:
+                st, at = stock.get(r.part_id), led.get(r.ledger_id)
+                counted_at = st.last_counted_at if st is not None else None
+                if r.id in labelled or at is None or counted_at is None:
+                    continue
+                if at.tzinfo is None:
+                    at = at.replace(tzinfo=timezone.utc)
+                if counted_at.tzinfo is None:
+                    counted_at = counted_at.replace(tzinfo=timezone.utc)
+                if at < counted_at:
+                    out[r.id] = st.count_as_of or _plant_date(counted_at)
         cand = [r for r in rows if r.source == "GATE" and not r.grn_no and r.verify_status == "PENDING"
                 and r.gate_entry_dt is not None]
         if not cand:
-            return {}
+            return out
         from app.services.erp_grn_posting_service import ErpGrnPostingService
         grn = ErpGrnPostingService()
         part_ids = sorted({r.part_id for r in cand})
@@ -1108,7 +1133,6 @@ class SparePacketService:
         by_part = {}
         for r in cand:
             by_part.setdefault(r.part_id, []).append(r)
-        out = {}
         for pid, recs in by_part.items():
             claimed = set()
             for line in sorted(waiting.get(pid, []), key=lambda x: x["grn_date"]):
@@ -1216,8 +1240,8 @@ class SparePacketService:
             # A gate entry receipt: QC_PENDING until ERP accepts its GRN, then
             # ACCEPTED with what was accepted; IN_COUNT when its material is
             # already in the part's stock count (counted_on). None for any other.
-            "qc": (None if r.source != "GATE" else "ACCEPTED" if r.grn_no
-                   else "IN_COUNT" if counted_on else "QC_PENDING"),
+            "qc": (None if r.source != "GATE" else "IN_COUNT" if counted_on
+                   else "ACCEPTED" if r.grn_no else "QC_PENDING"),
             "counted_on": _iso(counted_on) if counted_on else None,
             "accepted_qty": _n(accepted) if accepted is not None else None,
             "created_by": r.created_by, "created_at": _iso(r.created_at),
