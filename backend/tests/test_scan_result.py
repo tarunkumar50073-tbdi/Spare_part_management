@@ -21,6 +21,7 @@ from app.models.spare_flow import SpareReceipt, SpareReturn, SpareRgp
 from app.models.spare_stock import SpareStockLedger
 from app.models.store import Store
 from app.models.user import User, UserStoreAccess
+from app.services.erp_grn_posting_service import ErpGrnPostingService
 from app.services.scan_result_service import (
     BUCKET_KEYS, INACTIVE_REASON, ScanResultService, primary_status,
 )
@@ -70,13 +71,20 @@ def _legacy_receipt(part, status, qty, **kw):
 def _erp_grn(part, receipt, accept=None, reject=None, days_ago=3):
     """An ERP GRN mirror row for the part. accept_qty empty = quality pending in
     ERP. The part is counted today, so an accepted GRN dated before today is
-    already inside that count (never added again)."""
+    already inside that count (never added again). A pending one is noted as
+    waiting for quality at that count (the upload's Waiting for QC tab) — else,
+    dated before the count, it would be taken as already in it (5 Nov 2026)."""
     grn_no = f"GRN-SR-{_n():05d}"
     db.session.add(ReceivingRegister(store_code="CHILD_PART", item_cd=part.part_no, grn_no=grn_no,
                                      grn_date=date.today() - timedelta(days=days_ago), ven_cd="VA-1",
                                      ven_name="ABC Engineering", receipt_qty=receipt, accept_qty=accept,
                                      reject_qty=reject))
     db.session.commit()
+    if accept is None and reject is None:
+        day, counted = ErpGrnPostingService._baseline([part.id])[part.id]
+        if counted and day:
+            ErpGrnPostingService.remember_pending([(part.id, grn_no, day)])
+            db.session.commit()
     return grn_no
 
 

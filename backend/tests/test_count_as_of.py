@@ -164,3 +164,22 @@ def test_a_waiting_for_qc_tab_without_its_columns_stops_the_upload():
         SpareStockService().bulk_import(buf, store_code=STORE, user="sup")
     assert "Waiting for QC" in str(exc.value)
     assert SpareStock.query.filter_by(part_id=p.id).first() is None
+
+
+def test_an_old_grn_not_on_the_qc_list_is_not_shown_as_quality_pending():
+    """5 Nov 2026: "list k alawa grn pending bhi na dikhayen" — a GRN dated
+    on/before the count and not on its Waiting for QC list is taken as already
+    in that stock: not quality pending, and never added."""
+    p = _part()
+    _grn(p, f"G-{p.id}-ON", date(2026, 10, 28), 4, accept=False)     # on the list
+    _grn(p, f"G-{p.id}-OFF", date(2026, 10, 29), 6, accept=False)    # not on it
+    _grn(p, f"G-{p.id}-NEW", date(2026, 11, 2), 2, accept=False)     # after the count
+    _upload_with_qc([(p.part_no, 30, "01.11.2026")], [(p.part_no, "X", f"G-{p.id}-ON", "", 4, "")])
+    states = {l["grn_no"]: l["state"] for l in ErpGrnPostingService().lines(STORE, part_id=p.id)}
+    assert states == {f"G-{p.id}-ON": "QUALITY_PENDING", f"G-{p.id}-OFF": "SKIPPED",
+                      f"G-{p.id}-NEW": "QUALITY_PENDING"}
+    ReceivingRegister.query.filter(ReceivingRegister.item_cd == p.part_no).update(
+        {"accept_qty": ReceivingRegister.receipt_qty}, synchronize_session=False)
+    db.session.commit()
+    ErpGrnPostingService().post(STORE)
+    assert _on_hand(p) == 36                                          # + 4 (on the list) + 2 (after), never the 6

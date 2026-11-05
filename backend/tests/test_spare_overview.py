@@ -123,7 +123,7 @@ def test_store_level_overview_adds_srv_and_erp_lines():
 def test_document_blocks_for_a_section(seeded):
     """ERP GRN lines / returns / RGPs of the section's parts, counted per line /
     document."""
-    from datetime import date, timedelta
+    from datetime import date, datetime, timedelta, timezone
 
     from app.models.receiving_register import ReceivingRegister
     from app.models.spare_flow import SpareReceipt, SpareReturn, SpareRgp
@@ -152,6 +152,9 @@ def test_document_blocks_for_a_section(seeded):
         db.session.add(ReceivingRegister(store_code="CHILD_PART", grn_no=doc("GRN", i), item_cd=part.part_no,
                                          grn_date=today - timedelta(days=3 + i), ven_cd="V-OV",
                                          receipt_qty=receipt, reject_qty=reject))
+    # The part was counted a month back, before these GRNs: a GRN still waiting
+    # for quality and dated before the count would be taken as in it (5 Nov 2026).
+    SpareStock.query.filter_by(part_id=part.id).update({"created_at": datetime.now(timezone.utc) - timedelta(days=30)})
     for i, status in enumerate(("RECEIVED", "QUALITY_PENDING")):
         db.session.add(SpareReceipt(receipt_no=doc("RCV", i), part_id=part.id, store_code=STORE,
                                     status=status, qty_received=4))

@@ -12,6 +12,11 @@ ERPSyncService) and turns what ERP says into the part's store stock and history:
                                            reference = GRN no.) + a journal row
     ERP GRN line, reject_qty > 0        -> rejected by quality (never stock)
 
+A line still waiting for quality but dated on/before the part's stock count,
+and NOT on that count's "Waiting for QC" list, is not shown as quality pending:
+the store takes it as already in that stock (5 Nov 2026: "list k alawa grn
+pending bhi na dikhayen") and it is never added later either.
+
 Posting rules, all to avoid counting anything twice:
   * matched on item_cd = Part No. (the ERP item code), spare store parts only;
   * a part never physically counted is skipped — its first count includes it;
@@ -275,6 +280,11 @@ class ErpGrnPostingService:
             elif not accepted:
                 if rejected:
                     state, reason = "REJECTED", "Rejected by quality in ERP — not stock"
+                elif counted and baseline and grn_date and grn_date <= baseline and not was_waiting:
+                    state, reason = "SKIPPED", (
+                        f"GRN dated {grn_date.isoformat()}, on/before the part's stock count of "
+                        f"{baseline.isoformat()} and not on that count's Waiting for QC list — taken as "
+                        f"already in that stock, so not quality pending and never added")
                 else:
                     state, reason = "QUALITY_PENDING", "GRN created in ERP — quality clearance pending"
             elif already >= accepted:
