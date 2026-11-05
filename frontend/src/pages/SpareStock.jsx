@@ -229,6 +229,19 @@ export default function SpareStock() {
       const staleRows = Array.isArray(result?.stale_rows) ? result.stale_rows : [];
       setStale(staleRows.length ? { code: activeCode, rows: staleRows, madeAt: result.template_made_at } : null);
       toast.success(res.data.message || "Opening stock uploaded");
+      // The file's "Waiting for QC" tab (5 Nov 2026): GRN lines not in the
+      // uploaded stock, added once quality accepts them in ERP.
+      const qcNoted = Number(result?.qc_waiting_noted) || 0;
+      const qcLeft = Array.isArray(result?.qc_waiting_left) ? result.qc_waiting_left : [];
+      if (qcNoted) {
+        toast.success(`${qcNoted} GRN line${qcNoted === 1 ? "" : "s"} waiting for quality noted — `
+          + "each is added to stock when quality accepts it in ERP.", { duration: 8000 });
+      }
+      if (qcLeft.length) {
+        toast.error(`${qcLeft.length} "Waiting for QC" line${qcLeft.length === 1 ? "" : "s"} not noted — `
+          + `the part's stock row did not apply (${qcLeft.slice(0, 3).map((r) => r.part_no).join(", ")}`
+          + `${qcLeft.length > 3 ? " …" : ""}).`, { duration: 10000 });
+      }
       if (staleRows.length) {
         toast.error(`${staleRows.length} row${staleRows.length === 1 ? "" : "s"} not applied — `
           + "stock moved since this template was made. Download a fresh template.", { duration: 8000 });

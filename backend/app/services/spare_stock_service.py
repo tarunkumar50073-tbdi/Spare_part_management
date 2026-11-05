@@ -326,6 +326,42 @@ EXPORT_COLUMNS = [
 ERP_PUSH_TYPES = ("ISSUE", "RECEIPT", "RETURN")
 
 
+# The stock upload's optional "Waiting for QC" tab (5 Nov 2026): the ERP GRN
+# lines still waiting for quality when the stock in the file was taken. ERP's
+# own stock counts accepted material only, so these are not in the figures —
+# the app notes them and adds each once quality accepts it in ERP.
+QC_TAB = "waitingforqc"
+QC_FIELD_ALIASES = {
+    "part_no": ("partno", "partnumber", "itemcode", "itemno"),
+    "grn_no": ("grnno", "grnnumber"),
+}
+
+
+def _waiting_for_qc_rows(data):
+    """[(row no., Part No, GRN no.)] from the upload's "Waiting for QC" tab, or
+    [] when the file has none. A tab that is there but unreadable stops the
+    upload before any stock is written."""
+    import io
+    from app.utils.excel_io import normalize_header, read_rows, sheets_from_upload
+    try:
+        names = [name for name, _ in sheets_from_upload(io.BytesIO(data))]
+    except ValueError:
+        return []
+    name = next((n for n in names if normalize_header(n) == QC_TAB), None)
+    if name is None:
+        return []
+    try:
+        rows = read_rows(io.BytesIO(data), QC_FIELD_ALIASES, ["part_no", "grn_no"], sheet_name=name)
+    except ValueError as exc:
+        raise BadRequestError(f"The '{name}' tab: {exc}") from exc
+    out = []
+    for row_no, raw in rows:
+        part_no, grn_no = to_text(raw.get("part_no")), to_text(raw.get("grn_no"))
+        if part_no and grn_no:
+            out.append((row_no, part_no, grn_no))
+    return out
+
+
 def _count_day(value):
     """A count date from a sheet cell — a date, or text DD.MM.YYYY / DD-MM-YYYY /
     DD/MM/YYYY / YYYY-MM-DD — or None for a blank. Not in the future."""
@@ -2422,9 +2458,20 @@ class SpareStockService:
         A stamped upload writes its OPENING rows with the template's tag
         (_template_tag) as their reference, so uploading the same template
         again — the usual fix-a-typo-and-re-upload of a physical count — is
-        not stopped by its own first upload; any other movement still is."""
+        not stopped by its own first upload; any other movement still is.
+
+        A "Waiting for QC" tab (Part No + GRN No) names the ERP GRN lines that
+        were still waiting for quality when the stock in the file was taken
+        (5 Nov 2026, an opening load from ERP's stock). For each part whose
+        row applied, they are noted against this count, so ERP GRN posting
+        adds them once quality accepts them, whatever their GRN date
+        (ErpGrnPostingService.remember_pending). Lines of a part whose row did
+        not apply are left out and reported."""
         import io
+        from app.services.erp_grn_posting_service import ErpGrnPostingService, _plant_date
         data = file_stream.read()
+        qc_rows = _waiting_for_qc_rows(data) if data else []
+        counted_day = {}          # part id -> the day this upload's count stands for
         made_at = _template_stamp(data) if data else None
         tag = _template_tag(made_at) if made_at else None
         moved = (self._moved_since(made_at - TEMPLATE_STAMP_ALLOWANCE, store_code, own_tag=tag)
@@ -2472,10 +2519,27 @@ class SpareStockService:
                 user=user, counted=True, count_as_of=as_of,
             )
             applied["updated" if delta else "unchanged"] += 1
+            counted_day[part.id] = as_of or _plant_date(utcnow())
 
+        qc_noted, qc_left = 0, []
         with atomic():
             report = bulk_import(io.BytesIO(data), FIELD_ALIASES, REQUIRED_FIELDS, row_processor, sheet_name)
+            if qc_rows:
+                ids = {}
+                for _, part_no, _ in qc_rows:
+                    if part_no.upper() not in ids:
+                        part = self.part_repo.get_by_part_no(part_no)
+                        ids[part_no.upper()] = part.id if part else None
+                lines = []
+                for row_no, part_no, grn_no in qc_rows:
+                    pid = ids.get(part_no.upper())
+                    if pid in counted_day:
+                        lines.append((pid, grn_no, counted_day[pid]))
+                    else:
+                        qc_left.append({"row": row_no, "part_no": part_no, "grn_no": grn_no})
+                qc_noted = ErpGrnPostingService.remember_pending(lines, user=user)
         report.update(applied)
+        report.update({"qc_waiting_noted": qc_noted, "qc_waiting_left": qc_left})
         report.update({"template_made_at": made_text, "stale_count": len(stale), "stale_rows": stale})
         return report
 

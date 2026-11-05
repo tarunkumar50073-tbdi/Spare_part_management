@@ -16,7 +16,11 @@ Posting rules, all to avoid counting anything twice:
   * matched on item_cd = Part No. (the ERP item code), spare store parts only;
   * a part never physically counted is skipped — its first count includes it;
   * a GRN dated on/before the part's stock baseline (its last physical count,
-    opening load or stock-row creation) is skipped — that count already has it;
+    opening load or stock-row creation) is skipped — that count already has it —
+    UNLESS the line was still waiting for quality when that count was taken:
+    the upload's "Waiting for QC" tab names those lines (5 Nov 2026, an opening
+    load from ERP's stock, which holds accepted material only), and each is
+    added once quality accepts it, whatever its GRN date;
   * a GRN dated before the configured "post from" date is never auto-posted;
   * each (part, GRN no.) is posted once; if ERP later accepts more on the same
     GRN only the difference is added; a reduction is flagged, never reversed
@@ -45,6 +49,10 @@ from app.utils.db_tx import atomic
 from app.utils.exceptions import BadRequestError
 
 SETTING_KEY = "erp_grn_autopost"
+# GRN lines waiting for quality when a part's stock was counted / loaded:
+# {"<part id>|<GRN key>": "<that count's day, YYYY-MM-DD>"}. Written by the
+# stock upload's "Waiting for QC" tab (SpareStockService.bulk_import).
+PENDING_KEY = "erp_grn_pending_at_count"
 # Posting starts from the day this went live: GRNs before it are part of the
 # physical counts the store already did. An admin can move it in Receiving & GRN.
 DEFAULTS = {"enabled": True, "from_date": "2026-09-26"}
@@ -106,6 +114,50 @@ class ErpGrnPostingService:
             current["from_date"] = d.isoformat()
         AppSetting.set_value(SETTING_KEY, current, user)
         return current
+
+    # ---- GRN lines waiting for quality at a count ----
+
+    @staticmethod
+    def pending_at_count():
+        """{(part id, GRN key): count day} — the lines that were still waiting
+        for quality in ERP when that count of the part was taken. Not in the
+        count, whatever their GRN date (the store, 5 Nov 2026: ERP's stock
+        counts accepted material only)."""
+        saved = AppSetting.get_value(PENDING_KEY)
+        out = {}
+        for key, day in (saved.items() if isinstance(saved, dict) else ()):
+            pid, _, grn = str(key).partition("|")
+            try:
+                out[(int(pid), grn)] = date.fromisoformat(str(day)[:10])
+            except ValueError:
+                continue
+        return out
+
+    @classmethod
+    def remember_pending(cls, lines, user=None):
+        """Note GRN lines waiting for quality at a count: `lines` is
+        [(part id, GRN no., count day)]. A newer note for the same line wins.
+        No commit — it rides on the caller's transaction (the stock upload)."""
+        if not lines:
+            return 0
+        row = AppSetting.query.filter_by(key=PENDING_KEY).first()
+        if row is None:
+            row = AppSetting(key=PENDING_KEY)
+            db.session.add(row)
+        import json
+        try:
+            saved = json.loads(row.value) if row.value else {}
+        except (TypeError, ValueError):
+            saved = {}
+        if not isinstance(saved, dict):
+            saved = {}
+        for pid, grn_no, day in lines:
+            key = cls._key(grn_no)
+            if key:
+                saved[f"{int(pid)}|{key}"] = day.isoformat()
+        row.value = json.dumps(saved)
+        row.updated_by = user
+        return len(lines)
 
     # ---- reading ----
 
@@ -202,6 +254,7 @@ class ErpGrnPostingService:
         part_ids = list({k[0] for k in grouped})
         base = self._baseline(part_ids)
         posted = self._posted(part_ids)
+        waiting = self.pending_at_count()
         out = []
         for (pid, grn_no), g in grouped.items():
             part = g["part"]
@@ -210,6 +263,8 @@ class ErpGrnPostingService:
             already = posted.get((pid, self._key(grn_no)), 0.0)
             baseline, counted = base.get(pid, (None, False))
             grn_date = g.get("grn_date")
+            # Waiting for quality when THIS count was taken: not in it.
+            was_waiting = baseline is not None and waiting.get((pid, self._key(grn_no))) == baseline
             state, reason, to_post = None, None, 0.0
             if not accepted and already > 0:
                 # Stock already came in from this GRN (in-app clearance / RGP GRN,
@@ -228,7 +283,7 @@ class ErpGrnPostingService:
                           else f"ERP now accepts {accepted:g} but {already:g} was already added — check with ERP")
             elif not counted:
                 state, reason = "SKIPPED", "Part not counted yet — its first physical count will include this"
-            elif baseline and grn_date and grn_date <= baseline:
+            elif baseline and grn_date and grn_date <= baseline and not was_waiting:
                 state, reason = "SKIPPED", (f"GRN dated {grn_date.isoformat()}, on/before the part's stock "
                                             f"baseline {baseline.isoformat()} — that count already includes it")
             elif from_date and grn_date and grn_date < from_date:
@@ -238,6 +293,9 @@ class ErpGrnPostingService:
                 state = "WILL_POST" if cfg.get("enabled") else "OFF"
                 reason = (f"{to_post:g} accepted in ERP will be added to store stock" if cfg.get("enabled")
                           else "Auto-add from ERP is switched off")
+                if was_waiting:
+                    reason += (f" (it was waiting for quality when the stock was counted on "
+                               f"{baseline.isoformat()}, so that count does not have it)")
             out.append({
                 "part_id": pid, "part_no": part.part_no, "part_name": part.part_name,
                 "grn_no": grn_no, "grn_date": grn_date.isoformat() if grn_date else None,

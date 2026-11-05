@@ -17,7 +17,7 @@ const NAV = [
   { label: "Kiosk", to: "/part-search", mod: "part_kiosk", keywords: "part search kiosk find part photo kahan rakha location" },
   { label: "Work Queue", to: "/work-queue", mod: "work_queue", keywords: "grn quality inspection return rgp rework supplier pending" },
   { label: "Employee Master", to: "/employees", mod: "employees", keywords: "employee person mobile phone issued to code department" },
-  { label: "Store Stock", to: "/store-stock-spare", mod: "store_stock", keywords: "inventory on hand count upload" },
+  { label: "Store Stock", to: "/store-stock-spare", mod: "store_stock", keywords: "inventory on hand count upload opening stock erp waiting for qc" },
   { label: "Part Ledger — Stock Ledger", to: "/spare-part-history", mod: "part_ledger", keywords: "valuation history opening closing movement" },
   { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },
   { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data" },

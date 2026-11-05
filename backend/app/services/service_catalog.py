@@ -61,7 +61,7 @@ SERVICES = [
      "keywords": ["stock", "count", "counting", "opening", "quantity", "qty", "in stock",
                   "on hand", "upload", "below min", "reorder", "excess", "above max",
                   "zero stock", "out of stock", "never counted", "stock value", "kitna stock",
-                  "kam stock", "bin"]},
+                  "kam stock", "bin", "opening stock", "erp stock upload", "waiting for qc"]},
     {"key": "part_ledger", "title": "Part Ledger", "route": "/spare-part-history",
      "category": "Inventory", "icon": "📜", "mod": "part_ledger",
      "keywords": ["ledger", "history", "timeline", "movements", "transactions", "traceability",
