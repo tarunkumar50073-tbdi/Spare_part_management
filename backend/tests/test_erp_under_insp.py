@@ -31,8 +31,7 @@ _n = {"n": 0}
 def _clean():
     AppSetting.set_value(SETTING_KEY, {"enabled": True, "from_date": "2026-08-01"})
     yield
-    # Once any part has ERP's figure, every part is read by it: leave none
-    # behind for the other test files sharing this database.
+    # Leave no ERP figure behind for the other test files sharing this database.
     ERPStock.query.filter(ERPStock.under_insp.isnot(None)).delete(synchronize_session=False)
     AppSetting.query.filter_by(key=PENDING_KEY).delete()
     db.session.commit()
@@ -145,14 +144,18 @@ def test_every_erp_read_notes_what_erp_still_holds_under_inspection():
     assert _on_hand(p) == 10
 
 
-def test_a_rejected_line_stays_rejected_and_an_unread_part_keeps_the_old_way():
+def test_a_rejected_line_stays_rejected_and_a_part_erp_does_not_list_keeps_the_old_way():
     p, q = _part(), _part()
     _upload(p, 3, "01.10.2026")
     _grn(p, f"R-{p.id}", date(2026, 10, 10), 4, reject=4)
     _erp(p, 3, 0)
     assert _states(p) == {f"R-{p.id}": "REJECTED"}
-    # With ERP's figure read for some part, a part ERP's stock does not list
-    # holds nothing under inspection.
+    # A part ERP's current stock does not list is not read as "nothing under
+    # inspection": ERP leaves out every item with 0 accepted stock, even with
+    # material in QC (CNEI1500, 5 Nov 2026). The count rules decide for it.
     _upload(q, 2, "01.10.2026")
     _grn(q, f"Q-{q.id}", date(2026, 10, 12), 3)
-    assert _states(q) == {f"Q-{q.id}": "WILL_POST"}
+    _grn(q, f"O-{q.id}", date(2026, 9, 25), 4)
+    assert _states(q) == {f"Q-{q.id}": "QUALITY_PENDING", f"O-{q.id}": "SKIPPED"}
+    ErpGrnPostingService().post(STORE)
+    assert _on_hand(q) == 2                           # nothing guessed into stock

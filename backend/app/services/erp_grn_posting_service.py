@@ -19,7 +19,8 @@ pending; any older one ERP holds nothing of under inspection was cleared into
 ERP's stock though the SRV line shows no accepted qty (ERP often leaves it
 empty) - it is taken as accepted at its receipt qty and goes through the same
 rules below (already in a count, or added once). Where ERP's figure is not
-read for a part, the old way stands: a line still waiting for quality but
+read for a part - its current stock has no row for it, which is so for every
+item whose accepted stock is 0 - the old way stands: a line still waiting for quality but
 dated on/before the part's stock count, and NOT on that count's "Waiting for
 QC" list, is taken as already in that stock ("list k alawa grn pending bhi na
 dikhayen") and never added.
@@ -182,8 +183,11 @@ class ErpGrnPostingService:
     @staticmethod
     def _under_inspection(part_ids):
         """{part id: qty ERP holds under inspection, or None when ERP's figure
-        is not read for it}. Once ERP's figure is read at all, a part ERP's
-        stock does not list holds nothing under inspection (0)."""
+        is not read for it}. A part ERP's current stock does not list is NOT
+        read as 0: ERP leaves out every item whose accepted stock is 0, even
+        with material under inspection (5 Nov 2026: CNEI1500 / CNEI1501, first
+        GRN 03.11, pending QC in ERP's own screen, no current stock row) — so
+        for such a part the count / Waiting for QC rules decide."""
         if not part_ids:
             return {}
         out = {}
@@ -191,9 +195,6 @@ class ErpGrnPostingService:
             for pid, under in (db.session.query(ERPStock.part_id, ERPStock.under_insp)
                                .filter(ERPStock.part_id.in_(part_ids[start:start + 900]))):
                 out[pid] = float(under) if under is not None else None
-        if db.session.query(ERPStock.id).filter(ERPStock.under_insp.isnot(None)).first() is not None:
-            for pid in part_ids:
-                out.setdefault(pid, 0.0)
         return out
 
     @staticmethod
