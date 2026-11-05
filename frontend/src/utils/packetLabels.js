@@ -41,6 +41,9 @@ const TINY = { pad: 0.6, maxCodePt: 5 };
 export const LABEL_SIZES = [
   { key: "T1", label: "Tiny (upright)", w: 15, h: 20 },
   { key: "T2", label: "Tiny (lying)", w: 20, h: 15 },
+  // The store's GoDEX G530 roll, 25 mm across x 15 mm a label (5 Nov 2026,
+  // test print scanned): the tiny layout, QR (code | spec) and the TB code.
+  { key: "T3", label: "Tiny roll", w: 25, h: 15 },
   { key: "S", label: "Small part", w: 50, h: 25 },
   { key: "M", label: "Medium", w: 75, h: 50 },
   { key: "L", label: "Large part", w: 100, h: 50 },
