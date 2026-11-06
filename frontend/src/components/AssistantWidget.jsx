@@ -6,6 +6,7 @@ import {
 import Glyph from "./Glyph.jsx";
 import { assistantService } from "../services/assistantService.js";
 import { compactMoney, money } from "../lib/format.js";
+import { pageZoom } from "../lib/displayScale.js";
 
 // The floating "Ask" assistant, rendered once by MainLayout on every signed-in
 // screen. A red launcher bottom-right opens a chat panel that answers from THIS
@@ -131,11 +132,16 @@ const isWide = () => media("(min-width: 640px)");
 // browser, read back inside the window. Storage may be off (a private window):
 // then they simply start in their corner.
 const POS_KEYS = { launcher: "dx_bot_launcher_pos", panel: "dx_bot_panel_pos" };
+// The window in the page's own pixels: the app may be zoomed to fit the screen
+// (lib/displayScale.js), and pointer / getBoundingClientRect readings are in
+// screen pixels.
+const winW = () => window.innerWidth / pageZoom();
+const winH = () => window.innerHeight / pageZoom();
 function clampTo(x, y, w, h, m = 8) {
   if (typeof window === "undefined") return { x, y };
   return {
-    x: Math.round(Math.min(Math.max(m, x), Math.max(m, window.innerWidth - w - m))),
-    y: Math.round(Math.min(Math.max(m, y), Math.max(m, window.innerHeight - h - m))),
+    x: Math.round(Math.min(Math.max(m, x), Math.max(m, winW() - w - m))),
+    y: Math.round(Math.min(Math.max(m, y), Math.max(m, winH() - h - m))),
   };
 }
 function readPos(key) {
@@ -203,7 +209,8 @@ export default function AssistantWidget() {
       const keep = (ref, set) => set((p) => {
         if (!p) return p;
         const r = ref.current?.getBoundingClientRect();
-        return clampTo(p.x, p.y, r?.width || 48, r?.height || 48);
+        const z = pageZoom();
+        return clampTo(p.x, p.y, (r?.width || 48 * z) / z, (r?.height || 48 * z) / z);
       });
       keep(launcherRef, setLauncherPos);
       keep(panelRef, setPanelPos);
@@ -219,8 +226,9 @@ export default function AssistantWidget() {
     const el = kind === "launcher" ? launcherRef.current : panelRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    dragRef.current = { kind, id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top,
-      w: r.width, h: r.height, moved: false, at: null, el: e.currentTarget };
+    const z = pageZoom();
+    dragRef.current = { kind, id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: r.left / z, oy: r.top / z,
+      w: r.width / z, h: r.height / z, z, moved: false, at: null, el: e.currentTarget };
     try {
       e.currentTarget.setPointerCapture?.(e.pointerId);
     } catch {
@@ -234,7 +242,7 @@ export default function AssistantWidget() {
     const dy = e.clientY - d.sy;
     if (!d.moved && Math.hypot(dx, dy) < 6) return;          // a tap, not a drag
     d.moved = true;
-    d.at = clampTo(d.ox + dx, d.oy + dy, d.w, d.h);
+    d.at = clampTo(d.ox + dx / d.z, d.oy + dy / d.z, d.w, d.h);
     (d.kind === "launcher" ? setLauncherPos : setPanelPos)(d.at);
   };
   const dragEnd = (e) => {
@@ -263,13 +271,13 @@ export default function AssistantWidget() {
     if (!wide || typeof window === "undefined") return null;
     if (panelPos) return panelPos;
     if (!launcherPos) return null;
-    const w = Math.min(400, window.innerWidth - 40);
-    const h = Math.min(608, window.innerHeight - 128);
+    const w = Math.min(400, winW() - 40);
+    const h = Math.min(608, winH() - 128);
     const L = launcherPos;
     const side = 48;                                         // the open launcher: a 48 px circle
     const atX = (x) => clampTo(x, 0, w, h).x;
     const atY = (y) => clampTo(0, y, w, h).y;
-    const fits = ({ x, y }) => x >= 8 && y >= 8 && x + w <= window.innerWidth - 8 && y + h <= window.innerHeight - 8;
+    const fits = ({ x, y }) => x >= 8 && y >= 8 && x + w <= winW() - 8 && y + h <= winH() - 8;
     const choices = [
       { x: atX(L.x + side - w), y: L.y - h - 12 },          // above
       { x: atX(L.x + side - w), y: L.y + side + 12 },       // below

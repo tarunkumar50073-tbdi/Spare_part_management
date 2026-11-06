@@ -15,6 +15,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { can, seesSpareStock } from "../utils/permissions.js";
 import { parseServerTime } from "../lib/format.js";
+import { SCALE_EVENT, SCALE_OPTIONS, autoScale, currentScale, scalePref, setScalePref } from "../lib/displayScale.js";
 
 // The coming multi-plant switch. Today the app serves one plant, so Plant 1 is
 // the live data and Plant 2 is a disabled placeholder. When the second site's
@@ -208,6 +209,16 @@ export default function Topbar({ title, showSearch = true }) {
   const { activeCode, activeStore } = useStores();
   const { user, logout } = useAuth();
   const { dark, toggleDark } = useTheme();
+  // This PC's screen size (lib/displayScale.js): Auto fits the screen.
+  const [sizeOpen, setSizeOpen] = useState(false);
+  const [sizePref, setSizePrefState] = useState(scalePref);
+  const [sizeNow, setSizeNow] = useState(currentScale);
+  useEffect(() => {
+    const on = () => { setSizePrefState(scalePref()); setSizeNow(currentScale()); };
+    window.addEventListener(SCALE_EVENT, on);
+    window.addEventListener("resize", on);
+    return () => { window.removeEventListener(SCALE_EVENT, on); window.removeEventListener("resize", on); };
+  }, []);
   const childParts = !activeCode || activeCode === "CHILD_PART";
   // Tracked rather than assumed: the user can leave fullscreen with Esc or F11
   // without touching the button, and a button showing the wrong state is worse
@@ -548,6 +559,35 @@ export default function Topbar({ title, showSearch = true }) {
             <IconTile emoji="📊" color="#fb7185" size={TILE} light={!dark} className={tileHover} lit={location.pathname.startsWith("/reports")} />
           </Link>
           )}
+
+          {/* Screen size on this PC (6 Nov 2026: "kisi par bhi khule uske hisaab se fit ho"). */}
+          <div className="relative">
+            <button
+              onClick={() => setSizeOpen((o) => !o)}
+              title={`Screen size: ${Math.round(sizeNow * 100)} %${sizePref === "auto" ? " (auto)" : ""}`}
+              aria-label="Screen size"
+              aria-expanded={sizeOpen}
+              className={tileBtn}
+            >
+              <IconTile emoji="🔍" color="#38bdf8" size={TILE} light={!dark} className={tileHover} />
+            </button>
+            {sizeOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setSizeOpen(false)} aria-hidden="true" />
+                <div role="menu" className="absolute right-0 top-full z-50 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-1 text-[13px] shadow-xl dark:border-navy-700 dark:bg-navy-900">
+                  <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Screen size — this PC</p>
+                  {SCALE_OPTIONS.map(([value, label]) => (
+                    <button key={value} type="button" role="menuitemradio" aria-checked={sizePref === value}
+                      onClick={() => { setScalePref(value); setSizeOpen(false); }}
+                      className={`flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-navy-800 ${sizePref === value ? "font-semibold text-toyotared" : "text-slate-700 dark:text-slate-200"}`}>
+                      <span>{label}</span>
+                      {value === "auto" && <span className="text-[11px] text-slate-400">{Math.round(autoScale() * 100)} %</span>}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Day / night — the theme switch, beside the other session controls. */}
           <button

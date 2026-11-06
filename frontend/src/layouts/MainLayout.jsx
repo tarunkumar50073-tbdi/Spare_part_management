@@ -10,6 +10,27 @@ import CommandPalette from "../components/CommandPalette.jsx";
 import AttentionPopup from "../components/AttentionPopup.jsx";
 import useRealtime from "../hooks/useRealtime.js";
 import { PartDrawerProvider } from "../context/PartDrawerContext.jsx";
+import { SCALE_EVENT, applyScale, clearScale } from "../lib/displayScale.js";
+
+// The app fitted to this screen (lib/displayScale.js): applied while the
+// signed-in shell is up, again when the window is resized or this PC's size is
+// changed, and taken off when it unmounts (sign-out, the TV Live Board, the
+// kiosk), which size themselves.
+function useDisplayScale() {
+  useEffect(() => {
+    applyScale();
+    let t;
+    const onResize = () => { clearTimeout(t); t = setTimeout(applyScale, 150); };
+    window.addEventListener("resize", onResize);
+    window.addEventListener(SCALE_EVENT, applyScale);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener(SCALE_EVENT, applyScale);
+      clearScale();
+    };
+  }, []);
+}
 
 const TITLES = {
   "/dashboard": "Child Parts Store",
@@ -78,6 +99,7 @@ function useNarrow() {
 }
 
 export default function MainLayout() {
+  useDisplayScale();
   // A persistent rail that squeezes to an icon-only strip and expands back; the
   // Topbar's panel icon toggles it, and the choice is remembered across reloads.
   const [collapsed, setCollapsed] = useState(() => {

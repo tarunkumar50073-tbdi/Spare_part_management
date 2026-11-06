@@ -77,6 +77,14 @@
   html {
     @apply scroll-smooth;
   }
+  /* The app fitted to the screen (lib/displayScale.js) zooms the page; a
+     zoomed 100vh would leave the side rail short, so full-height pieces are
+     set back to the whole screen. */
+  html.dx-zoomed .h-screen { height: calc(100vh / var(--dx-zoom, 1)); }
+  html.dx-zoomed .min-h-screen { min-height: calc(100vh / var(--dx-zoom, 1)); }
+  html.dx-zoomed .max-h-screen { max-height: calc(100vh / var(--dx-zoom, 1)); }
+  html.dx-zoomed .h-dvh { height: calc(100dvh / var(--dx-zoom, 1)); }
+  html.dx-zoomed .min-h-dvh { min-height: calc(100dvh / var(--dx-zoom, 1)); }
   /* Premium page ground: a soft gradient with a faint Toyota-red glow top-right
      and a navy glow bottom-left, so white cards read as raised glass rather than
      sitting on flat paint. Fixed so it stays put while a long page scrolls. */
