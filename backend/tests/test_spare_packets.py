@@ -131,6 +131,32 @@ def test_4_5_10_three_oldest_packets_go_whole_and_the_oldest_keeps_priority():
     assert _on_hand(p) == 220
 
 
+def test_one_person_takes_four_of_the_same_part_at_once():
+    """10 Nov 2026: "agar user 1 baar me same part 4 qty. le jaayega to uska bhi
+    test karna h". Old stock counted on the shelf, labelled as 11 single
+    units (like CNTR1541); one person takes 4: each label is scanned and
+    issued in turn — no FIFO question between units of the same day, stock
+    down by exactly 4, one ledger line per label, and no label goes twice."""
+    p = _part(qty=11)
+    units = svc.old_stock_pack(p.id, 11, "UNIT", user="sup")["packets"]
+    assert len(units) == 11 and _on_hand(p) == 11
+    taken = [units[0], units[5], units[2], units[9]]           # whichever four come to hand
+    for u in taken:
+        scan = BarcodeService().resolve(STORE, f"{u['code']} SPEC", user="tester")["packet"]
+        assert scan["fifo"]["ok"] is True                         # the same day: no FIFO warning
+        out = _issue(u["code"])                                   # no reason asked
+        assert out["packet"]["status"] == "ISSUED" and out["issue"]["qty"] == 1
+    assert _on_hand(p) == 7                                       # 11 - 4
+    lines = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").all()
+    assert sorted(x.reference for x in lines) == sorted(u["code"] for u in taken)
+    assert all(x.department == DEPT and float(x.qty_delta) == -1 for x in lines)
+    assert sorted(float(x.balance_after) for x in lines) == [7, 8, 9, 10]   # 11 → 7, one at a time
+    assert svc.figures(p.id)["packed_available"] == 7
+    with pytest.raises(BadRequestError, match="already issued"):
+        _issue(taken[0]["code"])                                  # the same label scanned again
+    assert _on_hand(p) == 7
+
+
 def test_packets_that_came_in_the_same_day_are_the_same_age():
     """10 Nov 2026: three CNTR1543 packets, all old stock counted 05 Nov but
     packed from two receipts, warned "received 05 Nov should go before this
