@@ -1,6 +1,7 @@
 // Packet / individual-unit QR labels (the store's spec of 27 Oct 2026). The QR
 // carries the packet's own code — TB + date + Part No. + label no. since 28 Oct
-// 2026 (TB28102026CNTR0332-01; older ones SPK-XXXXXXXX) — then the spec and the
+// 2026 (TB20261110CNTR3953-01, date YYYYMMDD since 10 Nov 2026; older ones
+// TB28102026CNTR0332-01 or SPK-XXXXXXXX) — then the spec and the
 // location ("naye date wala and spec and location"): packet.qr from the server,
 // read by the app up to the first "|". Every packet scans as itself; the label shows, as text, the Part No., description, the
 // part's specification and model no. (the store, 28 Oct 2026: "qr me spec /

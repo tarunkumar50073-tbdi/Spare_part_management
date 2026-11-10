@@ -96,9 +96,9 @@ def test_1_2_3_two_receipts_make_fifteen_unique_packets_with_their_dates():
     codes = [x["code"] for x in pa + pb]
     # TB + the receipt's date + Part No. + that part's label no. that day (28 Oct 2026)
     assert len(set(codes)) == 15
-    assert [x["code"] for x in pa] == [f"TB25102026{p.part_no.replace('-', '')}-0{i}" for i in range(1, 6)]
-    assert [x["code"] for x in pb][0] == f"TB27102026{p.part_no.replace('-', '')}-01"
-    assert [x["code"] for x in pb][-1] == f"TB27102026{p.part_no.replace('-', '')}-10"
+    assert [x["code"] for x in pa] == [f"TB20261025{p.part_no.replace('-', '')}-0{i}" for i in range(1, 6)]
+    assert [x["code"] for x in pb][0] == f"TB20261027{p.part_no.replace('-', '')}-01"
+    assert [x["code"] for x in pb][-1] == f"TB20261027{p.part_no.replace('-', '')}-10"
     assert {x["receipt"]["received_on"] for x in pa} == {"2026-10-25"}
     assert {x["receipt"]["received_on"] for x in pb} == {"2026-10-27"}
     assert all(x["qty"] == 20 and x["status"] == "AVAILABLE" and x["kind"] == "PACKET" for x in pa + pb)

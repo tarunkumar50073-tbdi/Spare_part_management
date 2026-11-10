@@ -1,6 +1,7 @@
 """Packet codes and what their QR carries (the store, 28 Oct 2026: "TBdatepartnomber",
 "2026 krna 26 ki jagah", "naye date wala and spec and location"): the code is
-TB + DDMMYYYY + Part No. + "-NN" (that part's label number on that date) — the
+TB + YYYYMMDD + Part No. + "-NN" (that part's label number on that date; the
+date was DDMMYYYY until 10 Nov 2026: "tb k baad yyyymmdd format hona chahiye") — the
 receipt's date, or the labelling day for old stock — and the QR carries
 "CODE | spec | location". Scanning the whole QR finds the packet by its code;
 older SPK- codes keep working."""
@@ -30,7 +31,7 @@ def _part(qty=10, spec="HSS TAP 1/2'' BSP"):
 
 def test_old_stock_labels_are_tb_today_part_and_number():
     p = _part(10)
-    today = f"{date.today():%d%m%Y}"
+    today = f"{date.today():%Y%m%d}"
     made = svc.old_stock_pack(p.id, 3, "UNIT", user="sup")["packets"]
     assert [m["code"] for m in made] == [f"TB{today}{p.part_no}-0{i}" for i in (1, 2, 3)]
     more = svc.old_stock_pack(p.id, 2, "UNIT", user="sup")["packets"]           # the same day: numbers carry on
@@ -48,7 +49,7 @@ def test_a_receipts_labels_carry_the_date_the_material_came_in():
     SpareStockService().set_quantity(p.id, 4, txn_type="ADJUSTMENT")
     svc.verify(r.id, 4, user="sup")
     made = svc.pack(r.id, "UNIT", user="sup")["packets"]
-    assert made[0]["code"] == f"TB27102026{p.part_no}-01" and made[-1]["code"] == f"TB27102026{p.part_no}-04"
+    assert made[0]["code"] == f"TB20261027{p.part_no}-01" and made[-1]["code"] == f"TB20261027{p.part_no}-04"
 
 
 def test_the_qr_carries_code_spec_and_location_and_a_scan_finds_the_packet():
@@ -90,3 +91,19 @@ def test_old_stock_batches_never_show_as_receipts():
     svc.cancel(m["code"], "testing", user="sup")
     assert svc.receipts(STORE, q=p.part_no)["rows"] == []
     assert svc.old_figures(p.id)["to_label"] == 3                         # back on the Old stock list
+
+
+def test_ddmmyyyy_labels_made_before_10_nov_keep_working():
+    """Labels printed with the old date order (TB10112026…) still scan to their
+    packet, and a new label of the same part on the same day starts its own
+    YYYYMMDD numbering without clashing with them."""
+    p = _part(5)
+    m = svc.old_stock_pack(p.id, 1, "UNIT", user="sup")["packets"][0]
+    old = f"TB{date.today():%d%m%Y}{p.part_no}-01"
+    SparePacket.query.filter_by(code=m["code"]).update({"code": old})
+    db.session.commit()
+    assert is_packet_code(old) and is_packet_code(f"{old} \\ hss tap")
+    scan = BarcodeService().resolve(STORE, f"{old} | HSS TAP 1/2'' BSP | {p.location}", user="tester")
+    assert scan["packet"]["code"] == old
+    new = svc.old_stock_pack(p.id, 1, "UNIT", user="sup")["packets"][0]["code"]
+    assert new == f"TB{date.today():%Y%m%d}{p.part_no}-01" and new != old

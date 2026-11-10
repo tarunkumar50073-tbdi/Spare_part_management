@@ -66,10 +66,14 @@ from app.utils.exceptions import BadRequestError, NotFoundError
 STORE = "MAINTENANCE"
 CODE_PREFIX = "SPK-"
 # The packet code since 28 Oct 2026 (the store: "TBdatepartnomber", "2026 krna
-# 26 ki jagah"): TB + the date (DDMMYYYY) + the Part No. + "-" + that part's
-# label number on that date — TB28102026CNTR0332-01. The date is when the
-# material came in (the receipt's date), or the labelling day for old stock.
-# Codes made before (SPK-XXXXXXXX) keep working.
+# 26 ki jagah"): TB + the date + the Part No. + "-" + that part's label number
+# on that date. The date is YYYYMMDD since 10 Nov 2026 (the store: "tb k baad
+# yyyymmdd format hona chahiye") — TB20261110CNTR3953-01; it was DDMMYYYY
+# before (TB28102026CNTR0332-01). The date is when the material came in (the
+# receipt's date), or the labelling day for old stock. Codes made before —
+# DDMMYYYY ones and SPK-XXXXXXXX — keep working: a packet is found by its
+# stored code, and both date orders are 8 digits. They never collide either:
+# no YYYYMMDD reads as a valid DDMMYYYY date (month 13+), nor the other way.
 TB_PREFIX = "TB"
 TB_CODE = re.compile(r"TB\d{8}[A-Z0-9]+-\d{2,3}")
 CODE_MAX = 24                      # spare_packets.code
@@ -523,12 +527,12 @@ class SparePacketService:
 
     @staticmethod
     def _new_codes(part, day, n):
-        """n new codes for a part on a date: TB + DDMMYYYY + Part No. + "-NN",
+        """n new codes for a part on a date: TB + YYYYMMDD + Part No. + "-NN",
         numbered on from that part's last label of that date. Called with the
         part's stock row locked (pack), so two packs of one part take turns."""
         no = re.sub(r"[^A-Z0-9]", "", (part.part_no or "").upper())
         width = 2
-        stem = f"{TB_PREFIX}{day:%d%m%Y}"
+        stem = f"{TB_PREFIX}{day:%Y%m%d}"
         no = no[:max(1, CODE_MAX - len(stem) - 1 - 3)] if len(stem) + len(no) + 1 + width > CODE_MAX else no
         prefix = f"{stem}{no}-"
         last = max((int(c[len(prefix):]) for (c,) in db.session.query(SparePacket.code)
