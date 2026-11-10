@@ -53,6 +53,17 @@ export default function Login() {
     const fit = () => {
       const card = cardRef.current;
       if (!card) return;
+      // Not on a phone or tablet (10 Nov 2026: "app mobile me khol rha hu to
+      // login page hil rha h"): their height keeps changing as the address bar
+      // slides and the keyboard opens, and a full-width card reflows at each
+      // zoom, so the card jumped with every touch. There the page scrolls.
+      if (window.matchMedia?.("(pointer: coarse)").matches || window.innerWidth < 640) {
+        if (zoomRef.current !== 1) {
+          zoomRef.current = 1;
+          setZoom(1);
+        }
+        return;
+      }
       // Read through the zoom the card is drawn at NOW (not the one last asked
       // for, which React may not have applied yet when this runs).
       const drawn = parseFloat(card.style.zoom) || 1;
