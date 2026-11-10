@@ -565,8 +565,9 @@ class ScanResultService:
             ("RETURN", n_out > 0, n_out, nothing_out),
             ("RGP_OUT", n_rgp_out > 0, n_rgp_out,
              "RGP is only for returned material on hold or damaged — there is no direct RGP"),
-            ("REPRINT_LABEL" if printed_count else "PRINT_LABEL", True,
-             printed_count or None, None),
+            # No Print / Reprint Label here any more (10 Nov 2026: "ye isme print lable
+            # wala purana ab tk pda h"): the part's own barcode label is the old way —
+            # labels are made as packet QR labels in Packets & QR Labels.
             ("UPDATE_LOCATION", True, None, None),
             ("HISTORY", True, history_count, None),
         )

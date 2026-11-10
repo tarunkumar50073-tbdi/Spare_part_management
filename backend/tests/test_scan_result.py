@@ -37,7 +37,7 @@ _seq = {"n": 0}
 # Issuance first; receiving (receive / GRN / quality) is read from ERP.
 ACTION_ORDER = [
     "ISSUE", "RGP_GRN", "RGP_RETURN", "INSPECT", "RETURN", "RGP_OUT",
-    "PRINT_LABEL", "UPDATE_LOCATION", "HISTORY",
+    "UPDATE_LOCATION", "HISTORY",
 ]
 
 
@@ -294,7 +294,8 @@ def test_label_block_print_then_reprint_and_stale_location():
     scan = ScanResultService()
     r = scan.build(p.id)
     keys = [a["key"] for a in r["actions"]]
-    assert "PRINT_LABEL" in keys and "REPRINT_LABEL" not in keys
+    # No Print / Reprint Label action on Scan Part since 10 Nov 2026 (packet QR labels instead).
+    assert "PRINT_LABEL" not in keys and "REPRINT_LABEL" not in keys
     assert r["label"]["printed_count"] == 0 and r["label"]["location_changed_since_print"] is False
 
     db.session.add(LabelPrintAudit(part_id=p.id, barcode_value=p.part_no, copies=2,
@@ -304,7 +305,7 @@ def test_label_block_print_then_reprint_and_stale_location():
     db.session.commit()
     r = scan.build(p.id)
     keys = [a["key"] for a in r["actions"]]
-    assert "REPRINT_LABEL" in keys and "PRINT_LABEL" not in keys
+    assert "REPRINT_LABEL" not in keys and "PRINT_LABEL" not in keys
     lab = r["label"]
     assert (lab["printed_count"], lab["copies_total"], lab["last_printed_by"]) == (1, 2, "store1")
     assert lab["last_location_printed"] == "A1-03" and lab["location_changed_since_print"] is False
