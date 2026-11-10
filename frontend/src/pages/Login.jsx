@@ -44,26 +44,49 @@ export default function Login() {
   // Fit the card to the screen's height: on a screen shorter than the card
   // (a 1366×768 laptop leaves ~657px), zoom the whole card down rather than
   // make the page scroll. Its natural height is read back through the zoom in
-  // force, so re-fitting never compounds; never below 0.7, where a phone
-  // scrolls instead. Re-fitted when a message makes the card taller.
+  // force, so re-fitting never compounds; never below 0.7. Re-fitted when a
+  // message makes the card taller. A phone fits differently (below).
   const cardRef = useRef(null);
   const zoomRef = useRef(1);
   const [zoom, setZoom] = useState(1);
+  // A phone or tablet (10 Nov 2026: "app mobile me khol rha hu to login page hil
+  // rha h" … "mobile par auto fit hi kar de … screen khule to mobile k hisaab
+  // se fit khule"): fitted ONCE to the height it opens with, and again only
+  // when the phone is turned (its width changes) or a message changes the
+  // card. Its height keeps changing as the address bar slides and the keyboard
+  // opens; following that made the card jump at every touch. The full-width
+  // card reflows at each zoom, so it is measured at zoom 1 every time — the
+  // same answer however often it runs, and the card always fits.
+  const phone = typeof window !== "undefined"
+    && (window.matchMedia?.("(pointer: coarse)").matches || window.innerWidth < 640);
+  const phoneRef = useRef({ w: 0, h: 0 });
   useLayoutEffect(() => {
+    if (!phone) return undefined;
     const fit = () => {
       const card = cardRef.current;
       if (!card) return;
-      // Not on a phone or tablet (10 Nov 2026: "app mobile me khol rha hu to
-      // login page hil rha h"): their height keeps changing as the address bar
-      // slides and the keyboard opens, and a full-width card reflows at each
-      // zoom, so the card jumped with every touch. There the page scrolls.
-      if (window.matchMedia?.("(pointer: coarse)").matches || window.innerWidth < 640) {
-        if (zoomRef.current !== 1) {
-          zoomRef.current = 1;
-          setZoom(1);
-        }
-        return;
+      if (window.innerWidth !== phoneRef.current.w) phoneRef.current = { w: window.innerWidth, h: window.innerHeight };
+      const drawn = card.style.zoom;
+      card.style.zoom = "1";
+      const natural = card.getBoundingClientRect().height;
+      card.style.zoom = drawn;
+      const next = Math.min(1, Math.max(0.6, (phoneRef.current.h - 24) / natural));
+      if (Math.abs(next - zoomRef.current) > 0.005) {
+        zoomRef.current = next;
+        setZoom(next);
       }
+    };
+    fit();
+    document.fonts?.ready?.then(fit).catch(() => {});
+    const turned = () => { if (window.innerWidth !== phoneRef.current.w) fit(); };
+    window.addEventListener("resize", turned);
+    return () => window.removeEventListener("resize", turned);
+  }, [phone, error, logoutReason]);
+  useLayoutEffect(() => {
+    if (phone) return undefined;
+    const fit = () => {
+      const card = cardRef.current;
+      if (!card) return;
       // Read through the zoom the card is drawn at NOW (not the one last asked
       // for, which React may not have applied yet when this runs).
       const drawn = parseFloat(card.style.zoom) || 1;
@@ -87,7 +110,7 @@ export default function Login() {
       ro?.disconnect();
       window.removeEventListener("resize", fit);
     };
-  }, [error, logoutReason]);
+  }, [phone, error, logoutReason]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -117,7 +140,9 @@ export default function Login() {
   // single card, a little tighter, and on a screen still too short for it the
   // whole card is zoomed down to fit (see useLayoutEffect above).
   return (
-    <div className="min-h-screen bg-gradient-to-br from-navy-950 via-navy-900 to-navy-950 flex items-center justify-center px-4 py-3">
+    // On a phone the page is the height it opened with (svh: the address bar
+    // showing), so the fitted card leaves nothing to scroll and nothing moves.
+    <div className={`${phone ? "min-h-screen min-h-svh overscroll-none" : "min-h-screen"} bg-gradient-to-br from-navy-950 via-navy-900 to-navy-950 flex items-center justify-center px-4 py-3`}>
       <div ref={cardRef} style={{ zoom }} className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
         {/* Branded header */}
         <div className="flex items-center gap-4 px-8 pt-5 pb-4">
