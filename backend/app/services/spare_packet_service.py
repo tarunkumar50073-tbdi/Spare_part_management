@@ -81,7 +81,7 @@ CODE_MAX = 24                      # spare_packets.code
 # wala and spec and location"): CODE | spec | location. The app reads the code
 # before the first "|".
 QR_SEP = " | "
-QR_SPEC_MAX = 60
+QR_SPEC_MAX = 68                   # 10 Nov 2026: "68 kar de" (was 60)
 _ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"     # no 0 / O / 1 / I to misread
 MAX_PER_CALL = 500
 MAX_QTY = Decimal("1000000")

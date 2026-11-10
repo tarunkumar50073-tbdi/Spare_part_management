@@ -69,19 +69,28 @@ export function labelTier(h, w = 100) {
   return h >= 42 ? "FULL" : h >= 30 ? "MID" : "SMALL";
 }
 
-// What a tiny label's QR carries: the code, a space, then the spec (60 letters,
-// as the server's own payload cuts it) — the app reads the code up to the first
-// space. Since 10 Nov 2026 ("bhai chote qr me bhi bda matter padh sakte h but
-// isme kyun nhi pad paa rha" … "code+detail hi chahiye") the spec is written in
-// the QR's own letters: capitals, digits, space and $ % * + - . / : — any other
-// letter ( ) , # " … becomes a space and & a +. A QR of only those letters
-// packs 11 bits per two letters instead of 8 per letter, so code + a 60-letter
-// spec is 33 x 33 squares instead of 41 x 41, and each square can be 4 printer
-// dots. The old "CODE | spec" labels still scan (the code ends at the "|").
+// What a tiny label's QR carries: the code, a space, then the spec (up to 68
+// letters, as the server's own payload cuts it: "68 kar de", 10 Nov 2026) — the app
+// reads the code up to the first space. Since 10 Nov 2026 ("bhai chote qr me
+// bhi bda matter padh sakte h but isme kyun nhi pad paa rha" … "code+detail hi
+// chahiye") the spec is written in the QR's own letters: capitals, digits,
+// space and $ % * + - . / : — any other letter ( ) , # " … becomes a space and
+// & a +. A QR of only those letters packs 11 bits per two letters instead of 8
+// per letter: up to 89 of them fit a 33 x 33 QR (level M, as the encoder
+// counts), whose squares can be 4 printer dots on the 15 mm roll; one letter
+// more and it is 37 x 37 at 3 dots. So a tiny label's spec stops where the
+// whole QR reaches 89 letters — 67 after a 21-letter code (bigger labels keep
+// 68). The old "CODE | spec" labels still scan (the code ends at the "|").
+export const QR_SPEC_MAX = 68;
+const TINY_QR_MAX = 89;
 const QR_LETTERS = /[^0-9A-Z $%*+\-./:]/g;
-export const qrDetail = (s) => String(s || "").trim().slice(0, 60).toUpperCase()
-  .replace(/&/g, "+").replace(QR_LETTERS, " ").replace(/\s+/g, " ").trim();
-export const tinyQr = (p) => [p.code, qrDetail(p.part?.specification)].filter(Boolean).join(" ");
+export const qrDetail = (s, max = QR_SPEC_MAX) => String(s || "").toUpperCase()
+  .replace(/&/g, "+").replace(QR_LETTERS, " ").replace(/\s+/g, " ").trim().slice(0, max).trim();
+export const tinyQr = (p) => {
+  const code = String(p.code || "");
+  const spec = qrDetail(p.part?.specification, Math.min(QR_SPEC_MAX, TINY_QR_MAX - code.length - 1));
+  return [code, spec].filter(Boolean).join(" ");
+};
 
 // Squares on printer dots (the GoDEX G530 is 300 dpi). A square of 3 dots or
 // a mix of 3 and 4 smudges on the thermal roll — the heat spreads the black

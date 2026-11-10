@@ -62,6 +62,11 @@ def test_the_qr_carries_code_spec_and_location_and_a_scan_finds_the_packet():
     nospec = _part(5, spec=None)
     n = svc.old_stock_pack(nospec.id, 1, "UNIT", user="sup")["packets"][0]
     assert n["qr"] == f"{n['code']} | {nospec.location}"
+    # The spec goes in up to 68 letters (10 Nov 2026: "68 kar de"; was 60).
+    long_spec = "SCANNER 1950GSR-2-1-INT WITH 5VDC POWER ADAPTER ,232 PORT (HONEYWELL)"
+    lp = _part(5, spec=long_spec)
+    q = svc.old_stock_pack(lp.id, 1, "UNIT", user="sup")["packets"][0]
+    assert q["qr"] == f"{q['code']} | {long_spec[:68]} | {lp.location}"
 
 
 def test_older_spk_codes_keep_working():
