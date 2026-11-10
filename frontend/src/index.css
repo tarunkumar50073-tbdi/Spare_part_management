@@ -57,16 +57,23 @@
 /* A warning that must not be missed — the older-stock-first (FIFO) note on the
    packet issue form (10 Nov 2026: "warning red color me blink karti huyi
    dikhayi de taaki uski taraf dhyan jaaye aise note koi nhi padega" … "text
-   red backgrond app wala sahi h"): red text on the app's own note box, the
-   text blinking — slowly, and fully readable most of the time ("ye bling tej
-   kar rha h likha hua dikhayi nhi deta"): solid for most of each 1.6 s, one
-   short dip to half. */
-@keyframes text-blink {
-  0%, 60%, 100% { opacity: 1; }
-  80% { opacity: 0.45; }
+   red backgrond app wala sahi h" … "ye bling tej kar rha h likha hua dikhayi
+   nhi deta" … "pura bar bling ho only text nhi"): the whole bar blinks — the
+   app's amber note box flashes to red and back — while the red text stays
+   solid, so it can always be read. */
+@keyframes bar-blink {
+  0%, 100% { background-color: #fffbeb; border-color: #fde68a; }
+  50% { background-color: #fecaca; border-color: #ef4444; }
 }
-.text-blink {
-  animation: text-blink 1.6s ease-in-out infinite;
+@keyframes bar-blink-dark {
+  0%, 100% { background-color: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); }
+  50% { background-color: rgba(239, 68, 68, 0.3); border-color: #ef4444; }
+}
+.bar-blink {
+  animation: bar-blink 1.2s ease-in-out infinite;
+}
+.dark .bar-blink {
+  animation-name: bar-blink-dark;
 }
 
 /* Radiant text — a soft gradient sheen on prominent numbers/headings so they read
@@ -84,7 +91,7 @@
   .animate-rise,
   .ticker-track-x,
   .cta-blink,
-  .text-blink {
+  .bar-blink {
     animation: none !important;
   }
 }
