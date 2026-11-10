@@ -32,4 +32,8 @@ export const packetService = {
   recordPrint: (codes, { reprint = false, reason } = {}) => api.post("/spare-packets/print", { codes, reprint, reason }),
   cancel: (code, reason) => api.post(`/spare-packets/packets/${encodeURIComponent(code)}/cancel`, { reason }),
   issue: (code, payload) => api.post(`/spare-packets/packets/${encodeURIComponent(code)}/issue`, payload),
+  // Several labels of ONE part to one person in one go (10 Nov 2026): the
+  // check as labels are scanned in (changes nothing), then the issue — all or none.
+  issueCheck: (codes, config) => api.post("/spare-packets/packets/issue-check", { codes }, config),
+  issueMany: (payload) => api.post("/spare-packets/packets/issue-many", payload),
 };

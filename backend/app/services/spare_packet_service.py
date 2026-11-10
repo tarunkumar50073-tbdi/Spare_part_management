@@ -84,6 +84,7 @@ QR_SEP = " | "
 QR_SPEC_MAX = 68                   # 10 Nov 2026: "68 kar de" (was 60)
 _ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"     # no 0 / O / 1 / I to misread
 MAX_PER_CALL = 500
+MAX_ISSUE_AT_ONCE = 50                # labels of one part in one issue
 MAX_QTY = Decimal("1000000")
 PAGE_SIZE, MAX_PAGE_SIZE = 25, 100
 # When receipts started being kept (app_settings): the first time the receipts
@@ -1032,6 +1033,93 @@ class SparePacketService:
         db.session.refresh(packet)
         result["packet"] = self.packet_dict(packet)
         return result
+
+    # ---- several labels of one part, one person, one go ---------------------------------------
+    # 10 Nov 2026: "agar user 1 baar me same part 4 qty. le jaayega" … "1 baar me scan karke 4
+    # nhi jud sakte" … "ek hi part jaise cntr1541 … 4 qty … agar part hi alag alaag h to wo to
+    # alag alag hi issue hone chahiye". The labels are scanned into one issue; the person and
+    # department are given once; all go out together or none does. Each label is still its own
+    # ISSUE line (its code the reference), oldest first.
+
+    def _issue_set(self, codes):
+        """The labels of one issue: each once (as scanned), all of ONE part, all available."""
+        ordered = []
+        for c in codes or []:
+            n = normalize_code(c)
+            if n and n not in ordered:
+                ordered.append(n)
+        if not ordered:
+            raise BadRequestError("No labels to issue")
+        if len(ordered) > MAX_ISSUE_AT_ONCE:
+            raise BadRequestError(f"At most {MAX_ISSUE_AT_ONCE} labels in one issue")
+        packets = [self._packet(c) for c in ordered]
+        first = packets[0]
+        for p in packets[1:]:
+            if p.part_id != first.part_id:
+                raise BadRequestError(
+                    f"Label {p.code} is {p.part.part_no}, not {first.part.part_no} — a different part is "
+                    "issued separately",
+                    errors={"code": "OTHER_PART", "packet": self.packet_dict(p)})
+        for p in packets:
+            if p.status == "QC_PENDING":
+                raise BadRequestError(f"Label {p.code} waits for quality (QC) in ERP — it cannot be issued yet",
+                                      errors={"code": "NOT_AVAILABLE", "packet": self.packet_dict(p)})
+            if p.status != "AVAILABLE":
+                raise BadRequestError(
+                    f"Label {p.code} was already issued{(' to ' + p.department) if p.department else ''}"
+                    if p.status == "ISSUED" else f"Label {p.code} was cancelled — it cannot be issued",
+                    errors={"code": "NOT_AVAILABLE", "packet": self.packet_dict(p)})
+        return packets
+
+    def fifo_check_set(self, packets):
+        """The oldest available packet of the part, outside this set, that came
+        in on an earlier day than the newest one in it — what issuing the set
+        would skip; None when nothing older waits."""
+        ids = {p.id for p in packets}
+        newest = max(p.batch.received_on for p in packets)
+        for q in self._fifo_query(packets[0].part_id):
+            if q.id not in ids:
+                return q if q.batch.received_on < newest else None
+        return None
+
+    def issue_check(self, codes):
+        """What the issue form shows as labels are scanned in: the labels, the
+        total, and whether older stock is skipped. Changes nothing."""
+        packets = self._issue_set(codes)
+        older = self.fifo_check_set(packets)
+        return {
+            "part_id": packets[0].part_id, "count": len(packets),
+            "qty": _n(sum(p.qty for p in packets)), "uom": packets[0].uom,
+            "packets": [self.packet_dict(p) for p in packets],
+            "fifo": {"ok": older is None, "oldest": self.packet_dict(older) if older else None},
+        }
+
+    def issue_many(self, codes, department, user=None, employee_id=None, issued_to_mobile=None, issued_to=None,
+                   remarks=None, override_reason=None, scan_source=None):
+        """Issue several labels of one part to one person at once — all or none."""
+        packets = self._issue_set(codes)
+        reason = _text(override_reason, 255, "FIFO reason")
+        older = self.fifo_check_set(packets)
+        if older is not None and not reason:
+            newest = max(p.batch.received_on for p in packets)
+            raise BadRequestError(
+                f"Older stock first: packet {older.code} (received {older.batch.received_on:%d-%b-%Y}) "
+                f"should go before these (received up to {newest:%d-%b-%Y}). "
+                "Issue that one, or give a reason to issue these.",
+                errors={"code": "FIFO", "oldest": self.packet_dict(older)})
+        packets.sort(key=lambda p: (p.batch.received_on, p.batch_id, p.seq, p.id))
+        results = []
+        with atomic():
+            for p in packets:
+                results.append(self.issue(
+                    p.code, department, user=user, employee_id=employee_id, issued_to_mobile=issued_to_mobile,
+                    issued_to=issued_to, remarks=remarks, override_reason=reason, scan_source=scan_source))
+        return {
+            "count": len(results), "qty": _n(sum(p.qty for p in packets)), "uom": packets[0].uom,
+            "part_id": packets[0].part_id, "part_no": packets[0].part.part_no,
+            "issued_to": results[0]["issue"].get("issued_to"),
+            "issues": [r["issue"] for r in results], "packets": [r["packet"] for r in results],
+        }
 
     # ---- labels -------------------------------------------------------------------------------
 

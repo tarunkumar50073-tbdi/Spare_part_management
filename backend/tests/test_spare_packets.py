@@ -575,3 +575,84 @@ def test_undo_needs_the_delete_right(app):
     assert c.post(url, json={}).status_code == 400
     resp = c.post(url, json={"reason": "wrong receipt"})
     assert resp.status_code == 200 and resp.get_json()["data"]["verify_status"] == "PENDING"
+
+
+# ---- several labels of ONE part in one issue (10 Nov 2026) ------------------------------------------
+# "1 baar me scan karke 4 nhi jud sakte" … "ek hi part jaise cntr1541 … 4 qty" … "part hi alag
+# alaag h to wo to alag alag hi issue hone chahiye" … "tabhi to part ki history banegei".
+
+def _units(n=11):
+    p = _part(qty=n)
+    return p, svc.old_stock_pack(p.id, n, "UNIT", user="sup")["packets"]
+
+
+def test_four_labels_of_one_part_go_out_in_one_issue_each_its_own_line():
+    p, units = _units()
+    codes = [units[3]["code"], units[0]["code"] + " PCIMR6-12-1.0", units[7]["code"], units[1]["code"]]
+    check = svc.issue_check(codes + [units[0]["code"]])                 # the same label twice counts once
+    assert check["count"] == 4 and check["qty"] == 4 and check["fifo"]["ok"] is True
+    out = svc.issue_many(codes, DEPT, user="tester", issued_to="Ravi", remarks="line 3 jig")
+    assert out["count"] == 4 and out["qty"] == 4 and out["part_no"] == p.part_no
+    assert [x["code"] for x in out["packets"]] == sorted(x["code"] for x in out["packets"])   # oldest first
+    assert all(x["status"] == "ISSUED" and x["department"] == DEPT for x in out["packets"])
+    assert _on_hand(p) == 7
+    lines = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").all()
+    assert len(lines) == 4 and {x.reference for x in lines} == {units[i]["code"] for i in (0, 1, 3, 7)}
+    assert all("line 3 jig" in x.remarks for x in lines)
+    with pytest.raises(BadRequestError, match="already issued"):
+        svc.issue_check([units[2]["code"], units[3]["code"]])            # one of them went already
+
+
+def test_a_different_part_or_a_used_label_stops_the_whole_issue():
+    p, units = _units(6)
+    other, others = _units(3)
+    with pytest.raises(BadRequestError, match="different part is issued separately") as exc:
+        svc.issue_many([units[0]["code"], others[0]["code"]], DEPT, user="tester", issued_to="Ravi")
+    assert exc.value.errors["code"] == "OTHER_PART"
+    svc.issue(units[2]["code"], DEPT, user="tester", issued_to="Ravi")
+    with pytest.raises(BadRequestError, match="already issued"):
+        svc.issue_many([units[0]["code"], units[1]["code"], units[2]["code"]], DEPT, user="tester")
+    assert _on_hand(p) == 5 and _on_hand(other) == 3                   # nothing of either went out
+    assert SparePacket.query.filter_by(code=units[0]["code"]).one().status == "AVAILABLE"
+    with pytest.raises(NotFoundError):
+        svc.issue_many([units[0]["code"], "TB20261110NOPART-01"], DEPT, user="tester")
+    with pytest.raises(BadRequestError, match="No labels"):
+        svc.issue_check([" ", None])
+
+
+def test_labels_that_skip_an_older_day_need_one_reason_for_all():
+    p, a, b, pa, pb = _bolts()                                          # 5 packets of 25 Oct, 10 of 27 Oct
+    newer = [pb[0]["code"], pb[1]["code"]]
+    assert svc.issue_check(newer)["fifo"]["oldest"]["code"] == pa[0]["code"]
+    with pytest.raises(BadRequestError, match="Older stock first") as exc:
+        svc.issue_many(newer, DEPT, user="tester", issued_to="Ravi")
+    assert exc.value.errors["code"] == "FIFO" and _on_hand(p) == 300
+    out = svc.issue_many(newer, DEPT, user="tester", issued_to="Ravi", override_reason="user asked for this lot")
+    assert all(x["fifo_override_reason"] == "user asked for this lot" for x in out["packets"])
+    # All five 25 Oct packets in one issue skip nothing; with one 27 Oct packet they still skip nothing.
+    assert svc.issue_check([x["code"] for x in pa] + [pb[2]["code"]])["fifo"]["ok"] is True
+    assert svc.issue_check([x["code"] for x in pa[:4]] + [pb[2]["code"]])["fifo"]["ok"] is False
+
+
+def test_issue_many_api_takes_the_scan_part_issue_right(app):
+    p, units = _units(5)
+    viewer = _user({"spare_packets": {"view": True}})
+    issuer = _user({"scan_part": {"view": True, "create": True}})
+    c = app.test_client()
+
+    def as_(u):
+        with c.session_transaction() as s:
+            s["user_id"] = u.id
+
+    codes = [units[0]["code"], units[1]["code"], units[2]["code"]]
+    as_(viewer)
+    assert c.post("/api/v1/spare-packets/packets/issue-check", json={"codes": codes}).status_code == 403
+    assert c.post("/api/v1/spare-packets/packets/issue-many", json={"codes": codes, "department": DEPT}).status_code == 403
+    as_(issuer)
+    r = c.post("/api/v1/spare-packets/packets/issue-check", json={"codes": codes})
+    assert r.status_code == 200 and r.get_json()["data"]["qty"] == 3
+    assert c.post("/api/v1/spare-packets/packets/issue-many", json={"codes": codes}).status_code == 400   # no department
+    assert c.post("/api/v1/spare-packets/packets/issue-many", json={"codes": "x", "department": DEPT}).status_code == 400
+    r = c.post("/api/v1/spare-packets/packets/issue-many", json={"codes": codes, "department": DEPT, "issued_to": "Ravi"})
+    assert r.status_code == 200 and r.get_json()["data"]["count"] == 3 and "3 labels" in r.get_json()["message"]
+    assert _on_hand(p) == 2
