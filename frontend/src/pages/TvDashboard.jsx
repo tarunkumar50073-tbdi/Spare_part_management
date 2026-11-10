@@ -1582,8 +1582,9 @@ export default function TvDashboard() {
             stock health (full width)
             value by section | excess aging
             receipt vs issue | issue & consumption
-            management action tracker (full width)
             stock value trend | ERP vs physical
+            management action tracker (full width, last — the store, 10 Nov
+              2026: "management action tracker sabse niche")
           LANDSCAPE (laptop / wide monitor): four columns in three titled rows:
             Stock overview      health · value by section · part mix · excess aging
             Movement & control  receipt vs issue · issue & consumption · stock value trend · ERP vs physical
@@ -1947,7 +1948,7 @@ export default function TvDashboard() {
       {/* Which problem, how big, how much money, and WHO must act — the same
           lines, owners and target dates as the app's Action Tracker page. A
           line opens its list where the board has one. */}
-      <Card className="min-w-0 p-[0.7vh] order-6 col-span-2 landscape:col-span-3 landscape:order-12">
+      <Card className="min-w-0 p-[0.7vh] order-9 col-span-2 landscape:col-span-3 landscape:order-12">
         <PanelHead icon={ListChecks} color={C.red} title="Management Action Tracker"
           note={tracker ? `${fmtInt(tracker.summary?.open)} open${tracker.summary?.overdue ? ` · ${fmtInt(tracker.summary.overdue)} overdue` : ""} · worst first` : undefined} />
         {mgState !== "ok" || !tracker ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="12vh" /> : (
