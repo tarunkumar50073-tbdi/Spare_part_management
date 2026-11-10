@@ -269,7 +269,7 @@ def test_a_packet_qr_scan_names_the_packet_and_an_unknown_one_is_not_mappable():
     assert newer["fifo"]["ok"] is False and newer["fifo"]["oldest"]["code"] == pa[0]["code"]
     with pytest.raises(NotFoundError) as exc:
         BarcodeService().resolve(STORE, "SPK-ZZZZZZZZ", user="tester")
-    assert exc.value.errors["result"] == "FAILED"
+    assert exc.value.errors["result"] == "NO_PACKET"          # its own words on Scan Part, never "Map to Part"
 
 
 # ---- the API and its rights ------------------------------------------------------------------------------

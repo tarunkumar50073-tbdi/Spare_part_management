@@ -167,8 +167,9 @@ class BarcodeService:
 
         A failure raises with ``errors = {"result", "code"}``; result is one of
         UNKNOWN_BARCODE, INACTIVE_BARCODE, OTHER_STORE, INACTIVE_PART,
-        CODE_TOO_LONG, FAILED. ``code`` is the value as scanned (trimmed; a bin
-        sheet QR's " | description" cut off).
+        CODE_TOO_LONG, NO_PACKET (a packet label with no packet), FAILED.
+        ``code`` is the value as scanned (trimmed; a bin sheet QR's
+        " | description" cut off).
         """
         if scan_source not in SCAN_SOURCES:
             scan_source = "MANUAL_ENTRY"
@@ -292,8 +293,11 @@ class BarcodeService:
         if scanned is not None:
             code = scanned[:SCAN_CODE_MAX]          # the audit keeps what was read, at its width
         if packet is None:
+            # A DX Store packet label the app has no packet for (a sample or
+            # test print, labels never made): NO_PACKET, so Scan Part says so
+            # instead of "nothing scanned" (10 Nov 2026). Audited as FAILED.
             self._audit(code, "FAILED", scan_source, scan_mode, user, store_code)
-            raise self._scan_failure(NotFoundError, f"No packet found for '{code}'", "FAILED", code)
+            raise self._scan_failure(NotFoundError, f"No packet found for '{code}'", "NO_PACKET", code)
         part = packet.part
         if part.store_code != store_code:
             self._audit(code, "UNKNOWN_BARCODE", scan_source, scan_mode, user, store_code)

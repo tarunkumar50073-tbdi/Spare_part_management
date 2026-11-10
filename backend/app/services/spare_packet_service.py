@@ -165,8 +165,17 @@ _CODE_END = re.compile(r"[|\\/\s]")
 
 def normalize_code(code):
     """A packet code as typed or scanned — a whole QR read (CODE | spec |
-    location) gives its code, whatever the scanner made of the "|"."""
-    return _CODE_END.split((code or "").strip(), 1)[0].strip().upper()
+    location) gives its code, whatever the scanner made of the "|".
+
+    A TB code is taken from anywhere in the read (10 Nov 2026): the wireless
+    gun sometimes drops an Enter, so the tail of the scan before sits in front
+    of the code ("232 PORT HONEYWELLTB20261110CGMM0810-01 SCANNER …", or a
+    stray "h" before "TB…"), and two reads can run together."""
+    text = (code or "").strip().upper()
+    found = TB_CODE.search(text)
+    if found:
+        return found.group(0)
+    return _CODE_END.split(text, 1)[0].strip()
 
 
 def is_packet_code(code):

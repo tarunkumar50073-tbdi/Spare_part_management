@@ -91,6 +91,14 @@ def test_older_spk_codes_keep_working():
     tiny = "TB20261110CNTR3953-01 LOOP PIPE DIM 11.5 SENSOR BLOCK"
     assert normalize_code(tiny) == "TB20261110CNTR3953-01" and is_packet_code(tiny)
     assert BarcodeService().resolve(STORE, f"{code} SOME SPEC", user="tester")["packet"]["code"] == code
+    # A wireless gun that drops an Enter (10 Nov 2026): the tail of the read
+    # before, or a stray letter, sits in front of the code; two reads run on.
+    assert normalize_code("232 PORT HONEYWELLTB20261110CGMM0810-01 SCANNER 1950") == "TB20261110CGMM0810-01"
+    assert normalize_code("hTB20261110CNTR3953-01 LOOP PIPE IM") == "TB20261110CNTR3953-01"
+    assert normalize_code("TB20261110CGMM0810-01 SCANNER 232 PORT TB20261110CGMM0810-02 SCANNER") == "TB20261110CGMM0810-01"
+    assert normalize_code("spk-ab12cd34") == "SPK-AB12CD34" and normalize_code("CNTR0332") == "CNTR0332"
+    tb = svc.old_stock_pack(_part(5).id, 1, "UNIT", user="sup")["packets"][0]["code"]
+    assert BarcodeService().resolve(STORE, f"232 PORT HONEYWELL{tb} SCANNER", user="tester")["packet"]["code"] == tb
 
 
 def test_old_stock_batches_never_show_as_receipts():

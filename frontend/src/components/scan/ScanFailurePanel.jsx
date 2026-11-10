@@ -13,6 +13,7 @@ import { barcodeService } from "../../services/barcodeService.js";
 //   INACTIVE_BARCODE a mapping that was switched off  -> Search / Cancel
 //   OTHER_STORE      a part of another store          -> Search / Cancel
 //   INACTIVE_PART    the part is deactivated          -> Cancel
+//   NO_PACKET        a packet label, no such packet   -> Search / Cancel
 //   FAILED           nothing came through             -> Cancel
 //   CODE_TOO_LONG    longer than any label or mapping -> Search / Cancel
 //   NETWORK          no answer from the server        -> Try again / Cancel
@@ -37,6 +38,13 @@ const COPY = {
   INACTIVE_PART: {
     tone: "rose", icon: Ban, title: "Part Inactive",
     sub: "An administrator must reactivate the part in Part Master before it can be issued, returned or labelled.",
+  },
+  // A DX Store packet label (TB… / SPK-…) read in full, but no packet has that
+  // code (10 Nov 2026: a test / preview print showed "Nothing Scanned").
+  NO_PACKET: {
+    tone: "rose", icon: XCircle, title: "Packet Not Found",
+    sub: "The label was read, but no packet with this code was made in the app — a sample or test print, or labels that were never made. Make the labels in Packets & QR Labels, or search the Part No.",
+    search: true,
   },
   FAILED: {
     tone: "rose", icon: XCircle, title: "Nothing Scanned",
