@@ -152,10 +152,17 @@ def _who(user):
     return (str(user) if user else "SYSTEM")[:60]
 
 
+# What can stand between the code and the rest of a QR read. A scanner set to
+# another keyboard layout, or used with Caps Lock on / Num Lock off, types the
+# "|" as "\\" (10 Nov 2026: "TB10112026CNTR1544-01 \\ pcimr5-10-1"), so a
+# backslash, a slash or a space ends the code too; a packet code has none.
+_CODE_END = re.compile(r"[|\\/\s]")
+
+
 def normalize_code(code):
     """A packet code as typed or scanned — a whole QR read (CODE | spec |
-    location) gives its code."""
-    return (code or "").split("|", 1)[0].strip().upper()
+    location) gives its code, whatever the scanner made of the "|"."""
+    return _CODE_END.split((code or "").strip(), 1)[0].strip().upper()
 
 
 def is_packet_code(code):

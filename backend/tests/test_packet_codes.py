@@ -74,6 +74,12 @@ def test_older_spk_codes_keep_working():
     assert is_packet_code("TB28102026CNTR0332-01 | HSS TAP | R5-S1-B1(1)")
     assert not is_packet_code("CNTR0332") and not is_packet_code("TB2810")
     assert normalize_code(" tb28102026cntr0332-01 | spec | loc ") == "TB28102026CNTR0332-01"
+    # A scanner on another keyboard layout / Caps Lock types "|" as "\\" and
+    # the spec in lower case (10 Nov 2026): the code still comes through.
+    assert normalize_code("TB10112026CNTR1544-01 \\ pcimr5-10-1") == "TB10112026CNTR1544-01"
+    assert normalize_code("TB10112026CNTR1544-01\\PCIMR5-10-1.0") == "TB10112026CNTR1544-01"
+    assert normalize_code("tb10112026cntr1544-01 / PCIMR5") == "TB10112026CNTR1544-01"
+    assert is_packet_code("TB10112026CNTR1544-01 \\ pcimr5-10-1")
 
 
 def test_old_stock_batches_never_show_as_receipts():
