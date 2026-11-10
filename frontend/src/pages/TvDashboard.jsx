@@ -355,14 +355,19 @@ function ErpChips({ erp, state }) {
 // instead of pushing the action off the card. `tight` = the card is half-width on
 // the portrait wall, so the action keeps only its arrow there; `note` is plain
 // right-hand text (not a button).
-function PanelHead({ icon: Icon, color, title, action, onAction, note, tight = false }) {
+// `short`: the title on the portrait wall, where a half-width card cut a long
+// one to "Tied-up ₹ · Excess & Disco…" (the store, 10 Nov 2026: "title pure
+// nhi aa rhen"). Landscape keeps the full title.
+function PanelHead({ icon: Icon, color, title, short, action, onAction, note, tight = false }) {
   return (
     <div className="flex items-center justify-between gap-[1vh] mb-[0.4vh] landscape:mb-[0.6vh]">
       <div className="flex items-center gap-[0.8vh] min-w-0">
         <span className="w-[2.4vh] h-[2.4vh] landscape:w-[3vh] landscape:h-[3vh] rounded-[0.8vh] flex items-center justify-center shrink-0 [&>svg]:w-[1.45vh] [&>svg]:h-[1.45vh] landscape:[&>svg]:w-[1.7vh] landscape:[&>svg]:h-[1.7vh]" style={{ background: `${color}22`, boxShadow: `inset 0 0 0 1px ${color}22` }}>
           <Icon size={20} style={{ color }} />
         </span>
-        <h3 className="dx-radiant text-[1.45vh] landscape:text-[1.6vh] font-bold text-[var(--dx-t1)] truncate">{title}</h3>
+        <h3 className="dx-radiant text-[1.45vh] landscape:text-[1.6vh] font-bold text-[var(--dx-t1)] truncate">
+          {short ? <><span className="landscape:hidden">{short}</span><span className="hidden landscape:inline">{title}</span></> : title}
+        </h3>
       </div>
       {note && <span className="shrink-0 text-[1.05vh] landscape:text-[1.1vh] text-[var(--dx-t4)] whitespace-nowrap">{note}</span>}
       {action && (
@@ -1705,7 +1710,7 @@ export default function TvDashboard() {
           (GRN / gate entry). The ERP mirror only reaches back to its horizon, so
           the last band is "no inward since then" — a floor, not an exact age. */}
       <Card className="min-w-0 p-[0.7vh] order-3 landscape:order-5">
-        <PanelHead tight icon={Hourglass} color={STATUS.above} title="Tied-up ₹ · Excess & Discontinued"
+        <PanelHead tight icon={Hourglass} color={STATUS.above} title="Tied-up ₹ · Excess & Discontinued" short="Excess & Discontinued ₹"
           action="View Details" onAction={agingBands ? openAgingAll : openExcess} />
         {mgState !== "ok" || !aging ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.6vh" />
           : !aging.total?.parts ? (
@@ -1827,7 +1832,7 @@ export default function TvDashboard() {
               9:16 board stays one screen (it ran ~75 px past it on 24 Oct, and
               105 px with four departments). */}
           <div className="portrait:absolute portrait:inset-[0.7vh] portrait:overflow-hidden">
-          <PanelHead icon={FileBarChart} color={C.purple} title="Issue & Consumption · This Month" />
+          <PanelHead icon={FileBarChart} color={C.purple} title="Issue & Consumption · This Month" short="Issue & Consumption · Month" />
           {deptState !== "ok" ? <PanelState state={deptState} onRetry={reload} h="8vh" /> : (
             <div className="space-y-[0.5vh] landscape:space-y-[0.8vh] landscape:pt-[0.3vh]">
               {issueMonth && issueMonth.total?.issues > 0 && (
