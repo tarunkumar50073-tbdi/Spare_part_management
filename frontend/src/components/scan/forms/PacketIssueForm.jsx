@@ -116,11 +116,12 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
         <>
           {older && (
             <div className="space-y-2">
-              {/* Red and blinking (10 Nov 2026: "warning red color me blink karti
-                  huyi dikhayi de … aise note koi nhi padega"). */}
-              <div role="alert" className="alert-blink flex items-start gap-2.5 rounded-lg px-3.5 py-3 text-[14px] font-semibold leading-snug text-white">
-                <TriangleAlert size={22} className="mt-0.5 shrink-0" aria-hidden="true" />
-                <p>
+              {/* Red blinking text on the app's own note box (10 Nov 2026:
+                  "warning red color me blink karti huyi dikhayi de … aise note
+                  koi nhi padega" … "text red backgrond app wala sahi h"). */}
+              <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-[14px] font-semibold leading-snug text-red-600 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-red-400">
+                <TriangleAlert size={22} className="text-blink mt-0.5 shrink-0" aria-hidden="true" />
+                <p className="text-blink">
                   <span className="font-extrabold uppercase tracking-wide">Older stock first!</span>{" "}
                   Packet <span className="font-mono font-bold">{older.code}</span> (received {fmtDate(older.receipt.received_on)}, {fmtQty(older.qty, older.uom)}
                   {older.location ? ` at ${older.location}` : ""}) should go before this one (received {fmtDate(packet.receipt.received_on)}).

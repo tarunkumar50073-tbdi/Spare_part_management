@@ -56,15 +56,15 @@
 
 /* A warning that must not be missed — the older-stock-first (FIFO) note on the
    packet issue form (10 Nov 2026: "warning red color me blink karti huyi
-   dikhayi de taaki uski taraf dhyan jaaye aise note koi nhi padega"). Red that
-   flashes darker with a pulsing glow; the white text stays readable throughout. */
-@keyframes alert-blink {
-  0%, 100% { background-color: #dc2626; box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
-  50% { background-color: #991b1b; box-shadow: 0 0 0 7px rgba(220, 38, 38, 0); }
+   dikhayi de taaki uski taraf dhyan jaaye aise note koi nhi padega" … "text
+   red backgrond app wala sahi h"): red text on the app's own note box, the
+   text blinking. */
+@keyframes text-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
 }
-.alert-blink {
-  background-color: #dc2626;
-  animation: alert-blink 0.9s ease-in-out infinite;
+.text-blink {
+  animation: text-blink 1s ease-in-out infinite;
 }
 
 /* Radiant text — a soft gradient sheen on prominent numbers/headings so they read
@@ -82,7 +82,7 @@
   .animate-rise,
   .ticker-track-x,
   .cta-blink,
-  .alert-blink {
+  .text-blink {
     animation: none !important;
   }
 }
