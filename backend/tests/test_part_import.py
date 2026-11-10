@@ -89,3 +89,82 @@ def test_import_history_lists_runs():
     svc.bulk_import_excel(buf, store_code="MAINTENANCE", filename="hist.xlsx")
     hist = svc.import_history(limit=20)
     assert any(x["filename"] == "hist.xlsx" for x in hist)
+
+
+def test_rates_only_file_keeps_the_existing_uom():
+    """10 Nov 2026: a file with Part No, Description and Rate but no UOM column
+    must not turn an existing part's UOM into PCS — a blank leaves every field
+    alone."""
+    svc = PartService()
+    pn = _uniq()
+    db.session.add(Part(part_no=pn, part_name="Oil", uom="LTR", part_type="OTHER",
+                        store_code="MAINTENANCE", unit_price=0))
+    db.session.commit()
+    buf = _xlsx([(pn, "Oil", 125.5)], headers=("Part No", "Description", "Rate"))
+    res = svc.bulk_import_excel(buf, store_code="MAINTENANCE", filename="rates.xlsx")
+    assert res["updated"] == 1 and res["failed"] == 0
+    p = Part.query.filter_by(part_no=pn).first()
+    assert p.uom == "LTR"
+    assert float(p.unit_price) == 125.5
+    # a blank UOM cell in a file that has the column leaves it alone too
+    svc.bulk_import_excel(_xlsx([(pn, "Oil", None)]), store_code="MAINTENANCE", filename="blank.xlsx")
+    assert Part.query.filter_by(part_no=pn).first().uom == "LTR"
+
+
+def test_new_part_without_uom_gets_pcs():
+    svc = PartService()
+    pn = _uniq()
+    svc.bulk_import_excel(_xlsx([(pn, "Bolt")], headers=("Part No", "Part Name")),
+                          store_code="MAINTENANCE", filename="new.xlsx")
+    assert Part.query.filter_by(part_no=pn).first().uom == "PCS"
+
+
+def test_part_no_matches_case_and_space_insensitively():
+    """The one-shot part lookup keeps the old rule: ' imp-x ' finds IMP-X."""
+    svc = PartService()
+    pn = _uniq(); _existing(pn)
+    res = svc.preview_import(_xlsx([(f" {pn.lower()} ", "", "NO")]))
+    assert res["counts"]["update"] == 1
+    res = svc.bulk_import_excel(_xlsx([(f" {pn.lower()} ", "", "KG")]), store_code="MAINTENANCE", filename="c.xlsx")
+    assert res["updated"] == 1 and res["inserted"] == 0
+    assert Part.query.filter_by(part_no=pn).first().uom == "KG"
+
+
+def test_same_new_part_twice_in_a_file_is_one_part():
+    """A Part No repeated in the file: the first row adds it, the second
+    updates that new part (it is not added twice)."""
+    svc = PartService()
+    pn = _uniq()
+    res = svc.bulk_import_excel(_xlsx([(pn, "First", "NO"), (pn, "Second", "KG")]),
+                                store_code="MAINTENANCE", filename="twice.xlsx")
+    assert res["inserted"] == 1 and res["updated"] == 1
+    rows = Part.query.filter_by(part_no=pn).all()
+    assert len(rows) == 1 and rows[0].uom == "KG"
+
+
+def test_import_and_preview_read_the_parts_once(app):
+    """One query for all parts, not one per row (a 743-row file over a slow
+    network timed out on 10 Nov 2026)."""
+    from sqlalchemy import event
+    svc = PartService()
+    pns = [_uniq() for _ in range(30)]
+    for pn in pns:
+        db.session.add(Part(part_no=pn, part_name="X", uom="NO", part_type="OTHER", store_code="MAINTENANCE"))
+    db.session.commit()
+    buf_rows = [(pn, "", "NO") for pn in pns]
+    seen = []
+
+    def count(conn, cursor, statement, *a):
+        if "FROM parts" in statement and statement.lstrip().upper().startswith("SELECT"):
+            seen.append(statement)
+
+    engine = db.engine
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        svc.preview_import(_xlsx(buf_rows))
+        assert len(seen) <= 2, len(seen)
+        seen.clear()
+        svc.bulk_import_excel(_xlsx(buf_rows), store_code="MAINTENANCE", filename="once.xlsx")
+        assert len(seen) <= 2, len(seen)
+    finally:
+        event.remove(engine, "before_cursor_execute", count)

@@ -112,6 +112,17 @@ SPARE_EXPORT_COLUMNS = [
 SPARE_TEMPLATE_COLUMNS = [label for label, key in SPARE_EXPORT_COLUMNS if key not in ("supplier", "status_label")]
 
 
+def _parts_by_no():
+    """Every part by its lower-cased Part No, read once per import or preview.
+
+    Both used to look each row up on its own (a query per row, plus an
+    autoflush before it). With the database across the network that was
+    hundreds of round trips: on 10 Nov 2026 a 743-row file over Tailscale took
+    minutes and the preview came back as an error. Part No matching stays
+    case-insensitive and trimmed, as PartRepository.get_by_part_no does."""
+    return {(p.part_no or "").strip().lower(): p for p in Part.query.all()}
+
+
 def _section_ids():
     """(store code, SECTION NAME) -> section id, for the active sections."""
     from app.models.store import Section, Store
@@ -310,17 +321,21 @@ class PartService:
         """
         stats = {"inserted": 0, "updated": 0}
         section_ids = _section_ids()
+        parts = _parts_by_no()
+        suppliers = {}
 
         def row_processor(raw_row):
             part_no = to_text(raw_row.get("part_no"))
             if not part_no:
                 raise ValueError("Part No is required")
 
-            existing = self.repo.get_by_part_no(part_no)
+            existing = parts.get(part_no.strip().lower())
             category_raw = to_text(raw_row.get("category"), "").upper().replace(" ", "").replace("-", "").replace("/", "")
             category = CATEGORY_ALIASES.get(category_raw)
             supplier_code = to_text(raw_row.get("supplier_code"))
-            supplier = self.supplier_repo.get_by_vendor_code(supplier_code) if supplier_code else None
+            if supplier_code and supplier_code not in suppliers:
+                suppliers[supplier_code] = self.supplier_repo.get_by_vendor_code(supplier_code)
+            supplier = suppliers.get(supplier_code) if supplier_code else None
 
             # min/max belong in here, not only on the Part(...) below. They
             # were update-only-for-new-rows, so the intended way to fill the
@@ -329,7 +344,11 @@ class PartService:
             # nothing at all. Every other field on this dict was already
             # updatable; these two were simply left out.
             fields = {
-                "uom": to_text(raw_row.get("uom"), "PCS") or "PCS",
+                # Blank (or no UOM column at all) leaves an existing part's
+                # UOM alone like every other field here; it used to reset it
+                # to PCS, so a rates-only file would have turned every KG / MTR
+                # / LTR part into PCS. A new part still gets PCS below.
+                "uom": to_text(raw_row.get("uom"), "") or None,
                 "barcode": to_text(raw_row.get("barcode"), "") or None,
                 "min_stock_level": to_number(raw_row.get("min_stock_level"), None),
                 "reorder_level": to_number(raw_row.get("reorder_level"), None),
@@ -382,19 +401,25 @@ class PartService:
             # blank Min column needs the column default rather than None.
             if new_fields["min_stock_level"] is None:
                 new_fields["min_stock_level"] = 0
+            if new_fields["uom"] is None:
+                new_fields["uom"] = "PCS"
             if new_fields["category"] is None and store_code == SPARE_STORE:
                 new_fields["category"] = SPARE_CATEGORY
             # The row's own Section wins over the one the upload was made from.
             row_section = new_fields.pop("section_id", None)
 
-            db.session.add(Part(
+            part = Part(
                 part_no=part_no,
                 part_name=part_name,
                 part_type=part_type,
                 store_code=store_code,
                 section_id=row_section or section_id,
                 **new_fields,
-            ))
+            )
+            db.session.add(part)
+            # The same Part No further down the file updates this new part,
+            # as the per-row lookup (after its autoflush) used to.
+            parts[part_no.strip().lower()] = part
             stats["inserted"] += 1
 
         data = io.BytesIO(file_stream.read())
@@ -445,12 +470,13 @@ class PartService:
         preview = []
         seen = {}
         section_ids = _section_ids()
+        parts = _parts_by_no()
         for row_no, raw in rows:
             part_no = to_text(raw.get("part_no"))
             part_name = to_text(raw.get("part_name"))
             section_name = to_text(raw.get("section"), "")
             action, reason = "INSERT", None
-            existing = self.repo.get_by_part_no(part_no) if part_no else None
+            existing = parts.get(part_no.strip().lower()) if part_no else None
             part_store = existing.store_code if existing else store_code
             if not part_no:
                 action, reason = "ERROR", "Part No is required"
