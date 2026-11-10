@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useState } from "react";
-import { ArrowUpFromLine, IdCard } from "lucide-react";
+import { ArrowUpFromLine, IdCard, TriangleAlert } from "lucide-react";
 import PersonPicker from "../../PersonPicker.jsx";
 import { packetService } from "../../../services/packetService.js";
 import { fmtDate, fmtStamp } from "../../../lib/format.js";
@@ -116,11 +116,17 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
         <>
           {older && (
             <div className="space-y-2">
-              <Note tone="warn">
-                Older stock first: packet {older.code} (received {fmtDate(older.receipt.received_on)}, {fmtQty(older.qty, older.uom)}
-                {older.location ? ` at ${older.location}` : ""}) should go before this one (received {fmtDate(packet.receipt.received_on)}).
-                Issue that one — or give a reason to issue this one.
-              </Note>
+              {/* Red and blinking (10 Nov 2026: "warning red color me blink karti
+                  huyi dikhayi de … aise note koi nhi padega"). */}
+              <div role="alert" className="alert-blink flex items-start gap-2.5 rounded-lg px-3.5 py-3 text-[14px] font-semibold leading-snug text-white">
+                <TriangleAlert size={22} className="mt-0.5 shrink-0" aria-hidden="true" />
+                <p>
+                  <span className="font-extrabold uppercase tracking-wide">Older stock first!</span>{" "}
+                  Packet <span className="font-mono font-bold">{older.code}</span> (received {fmtDate(older.receipt.received_on)}, {fmtQty(older.qty, older.uom)}
+                  {older.location ? ` at ${older.location}` : ""}) should go before this one (received {fmtDate(packet.receipt.received_on)}).
+                  Issue that one — or give a reason to issue this one.
+                </p>
+              </div>
               <Field label="Reason to issue this one first" required htmlFor={`${uid}-why`} error={show("reason")}>
                 <input id={`${uid}-why`} value={reason} maxLength={255} onChange={(e) => setReason(e.target.value)}
                   className="input-field" placeholder="e.g. older packet damaged, user asked for this lot" />
