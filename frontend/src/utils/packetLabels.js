@@ -43,7 +43,7 @@ export const LABEL_SIZES = [
   { key: "T1", label: "Tiny (upright)", w: 15, h: 20 },
   { key: "T2", label: "Tiny (lying)", w: 20, h: 15 },
   // The store's GoDEX G530 roll, 25 mm across x 15 mm a label (5 Nov 2026,
-  // test print scanned): the tiny layout, QR (code | spec) and the TB code.
+  // test print scanned): the tiny layout, QR (code + spec) and the TB code.
   { key: "T3", label: "Tiny roll", w: 25, h: 15 },
   { key: "S", label: "Small part", w: 50, h: 25 },
   { key: "M", label: "Medium", w: 75, h: 50 },
@@ -69,18 +69,45 @@ export function labelTier(h, w = 100) {
   return h >= 42 ? "FULL" : h >= 30 ? "MID" : "SMALL";
 }
 
-// What a tiny label's QR carries: the code, then the spec (as the server's own
-// payload cuts it, 60 letters) — the app reads the code before the first "|".
-export const tinyQr = (p) => [p.code, String(p.part?.specification || "").trim().slice(0, 60)].filter(Boolean).join(" | ");
+// What a tiny label's QR carries: the code, a space, then the spec (60 letters,
+// as the server's own payload cuts it) — the app reads the code up to the first
+// space. Since 10 Nov 2026 ("bhai chote qr me bhi bda matter padh sakte h but
+// isme kyun nhi pad paa rha" … "code+detail hi chahiye") the spec is written in
+// the QR's own letters: capitals, digits, space and $ % * + - . / : — any other
+// letter ( ) , # " … becomes a space and & a +. A QR of only those letters
+// packs 11 bits per two letters instead of 8 per letter, so code + a 60-letter
+// spec is 33 x 33 squares instead of 41 x 41, and each square can be 4 printer
+// dots. The old "CODE | spec" labels still scan (the code ends at the "|").
+const QR_LETTERS = /[^0-9A-Z $%*+\-./:]/g;
+export const qrDetail = (s) => String(s || "").trim().slice(0, 60).toUpperCase()
+  .replace(/&/g, "+").replace(QR_LETTERS, " ").replace(/\s+/g, " ").trim();
+export const tinyQr = (p) => [p.code, qrDetail(p.part?.specification)].filter(Boolean).join(" ");
 
-// The tiny label: the QR (code and spec) and the code under it, as wide as the
-// label allows.
+// Squares on printer dots (the GoDEX G530 is 300 dpi). A square of 3 dots or
+// a mix of 3 and 4 smudges on the thermal roll — the heat spreads the black
+// into the white — and the scanner gun gives up; 4 dots and up reads.
+export const PRINTER_DPI = 300;
+export const DOTS_PER_MM = PRINTER_DPI / 25.4;
+export const MIN_QR_DOTS = 3;
+// The most whole dots a square can take for n squares to fit in maxMm (never
+// under 3).
+export function qrDots(n, maxMm) {
+  return Math.max(MIN_QR_DOTS, Math.floor((maxMm * DOTS_PER_MM) / n));
+}
+
+// The tiny label: the QR (code and spec) and the code under it, the QR's
+// squares as many whole printer dots as the label allows.
 function tinyHtml(packets, w, h, zoom) {
   const pad = TINY.pad;
   const longest = Math.max(...packets.map((p) => String(p.code || "").length), 8);
   const codePt = Math.min(TINY.maxCodePt, ((w - 2 * pad) / (longest * 0.6)) / 0.3528);
   const codeMm = codePt * 0.3528 * 1.1;
-  const qr = Math.max(8, Math.min(w - 2 * pad, h - 2 * pad - codeMm - 0.3));
+  const room = Math.max(8, Math.min(w - 2 * pad, h - 2 * pad - codeMm - 0.3));
+  const qrOf = (p) => {
+    const svg = qrSvgString(tinyQr(p), { size: 200, quiet: 0 });
+    const n = Number(svg.match(/viewBox="0 0 (\d+)/)[1]);
+    return { svg, mm: (n * qrDots(n, (room * n) / (n + 1))) / DOTS_PER_MM };
+  };
   const fit = zoom ? `body { zoom: ${zoom}; }` : "";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -90,14 +117,17 @@ function tinyHtml(packets, w, h, zoom) {
            width: ${w}mm; height: ${h}mm; padding: ${pad}mm; gap: 0.3mm; color: #000;
            page-break-after: always; break-after: page; }
     .lbl:last-child { page-break-after: auto; break-after: auto; }
-    .q { width: ${qr.toFixed(1)}mm; } .q svg { display: block; width: 100%; height: auto; }
+    .q svg { display: block; width: 100%; height: auto; }
     .code { font-family: "Courier New", monospace; font-weight: 700; white-space: nowrap; line-height: 1.1;
             font-size: ${codePt.toFixed(2)}pt; }
     ${fit}
-  </style></head><body>${packets.map((p) => `<div class="lbl">
-    <div class="q">${qrSvgString(tinyQr(p), { size: 200, quiet: 1 })}</div>
+  </style></head><body>${packets.map((p) => {
+    const q = qrOf(p);
+    return `<div class="lbl">
+    <div class="q" style="width: ${q.mm.toFixed(2)}mm">${q.svg}</div>
     <div class="code">${esc(p.code)}</div>
-  </div>`).join("")}</body></html>`;
+  </div>`;
+  }).join("")}</body></html>`;
 }
 
 // The lines a text takes at `perLine` letters a line, words kept whole where

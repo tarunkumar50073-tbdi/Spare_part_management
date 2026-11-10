@@ -9,7 +9,7 @@ import { barcodeService } from "../../services/barcodeService.js";
 import { packetService } from "../../services/packetService.js";
 import { printLabels } from "../../utils/barcodeRender.js";
 import { LABEL_LIMITS, LABEL_SIZES, labelTier, packetLabelsHtml } from "../../utils/packetLabels.js";
-import { autoQrMm, defaultTune, labelPng, savedTune, saveTune } from "../../utils/labelImage.js";
+import { defaultTune, labelPng, qrFit, savedTune, saveTune } from "../../utils/labelImage.js";
 import { helperPrint, helperStatus, pickPrinter, savePrinter } from "../../utils/labelHelper.js";
 
 // The Packets & QR Labels dialogs (the store's spec of 27 Oct 2026): verify a
@@ -520,9 +520,10 @@ function LabelPreview({ html, size, sizeOk }) {
 // Fine-tuning of one label size on this PC (5 Nov 2026: "parametrs adjust k
 // sath ok h ... brightness left right etc"): where the label sits and how big
 // the QR and text are. Darkness is the printer's own setting (its driver).
+// The QR size steps one printer dot a square at a time (10 Nov 2026: squares
+// of whole dots read; 2-3 dot ones smudged and the gun could not read them).
 function TuneControls({ tune, setTune, size, packet }) {
-  const auto = useMemo(() => autoQrMm(packet, size), [packet, size.w, size.h]); // eslint-disable-line react-hooks/exhaustive-deps
-  const qr = tune.qr || auto;
+  const fit = useMemo(() => qrFit(packet, size, tune), [packet, size.w, size.h, tune]); // eslint-disable-line react-hooks/exhaustive-deps
   const r1 = (v) => Math.round(v * 10) / 10;
   const step = (label, value, unit, onMinus, onPlus, minusText, plusText) => (
     <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 dark:border-navy-700">
@@ -545,8 +546,8 @@ function TuneControls({ tune, setTune, size, packet }) {
           () => setTune({ ...tune, dx: r1(tune.dx - 0.5) }), () => setTune({ ...tune, dx: r1(tune.dx + 0.5) }), "◀ Left", "Right ▶")}
         {step("Up / Down", `${tune.dy > 0 ? "+" : ""}${r1(tune.dy)}`, " mm",
           () => setTune({ ...tune, dy: r1(tune.dy - 0.5) }), () => setTune({ ...tune, dy: r1(tune.dy + 0.5) }), "▲ Up", "Down ▼")}
-        {step("QR size", r1(qr), " mm",
-          () => setTune({ ...tune, qr: Math.max(5, r1(qr - 0.5)) }), () => setTune({ ...tune, qr: r1(qr + 0.5) }), "− Smaller", "Bigger +")}
+        {step("QR size", r1(fit.side), " mm",
+          () => setTune({ ...tune, mod: Math.max(3, fit.dots - 1) }), () => setTune({ ...tune, mod: Math.min(fit.most, fit.dots + 1) }), "− Smaller", "Bigger +")}
         {step("Text size", Math.round(tune.text), "%",
           () => setTune({ ...tune, text: Math.max(50, tune.text - 5) }), () => setTune({ ...tune, text: Math.min(200, tune.text + 5) }), "− Smaller", "Bigger +")}
       </div>

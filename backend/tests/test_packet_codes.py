@@ -81,6 +81,11 @@ def test_older_spk_codes_keep_working():
     assert normalize_code("TB10112026CNTR1544-01\\PCIMR5-10-1.0") == "TB10112026CNTR1544-01"
     assert normalize_code("tb10112026cntr1544-01 / PCIMR5") == "TB10112026CNTR1544-01"
     assert is_packet_code("TB10112026CNTR1544-01 \\ pcimr5-10-1")
+    # A tiny label's QR since 10 Nov 2026: the code, a space, the spec in the
+    # QR's own letters (so its squares can be 4 printer dots).
+    tiny = "TB20261110CNTR3953-01 LOOP PIPE DIM 11.5 SENSOR BLOCK"
+    assert normalize_code(tiny) == "TB20261110CNTR3953-01" and is_packet_code(tiny)
+    assert BarcodeService().resolve(STORE, f"{code} SOME SPEC", user="tester")["packet"]["code"] == code
 
 
 def test_old_stock_batches_never_show_as_receipts():
