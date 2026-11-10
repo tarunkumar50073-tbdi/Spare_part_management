@@ -534,6 +534,24 @@ function DeptBar({ name, value, pct, color }) {
   );
 }
 
+// A department on the portrait wall's half-width card: name and qty over a
+// thin bar, two to a line, so four departments take the height one DeptBar row
+// had. One DeptBar row per department made the card, and with it the whole
+// 9:16 board, grow past the screen as soon as a second department issued.
+function DeptCell({ name, value, pct, color }) {
+  return (
+    <div className="min-w-0">
+      <div className="flex items-baseline justify-between gap-[0.5vh] text-[1.2vh] leading-none">
+        <span className="truncate font-medium text-[var(--dx-t2)]">{name}</span>
+        <span className="shrink-0 font-bold tabular-nums text-[var(--dx-t1)]">{fmtInt(value)}</span>
+      </div>
+      <div className="mt-[0.3vh] h-[0.6vh] rounded-full bg-[var(--dx-track)] overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: gradCss(color, 90) }} />
+      </div>
+    </div>
+  );
+}
+
 // One band of the excess-aging card: how much of the money above max last came
 // in that long ago. The portrait wall card is half width, so it shows the short
 // label and drops the part count; landscape has room for both.
@@ -1798,13 +1816,19 @@ export default function TvDashboard() {
       </Card>
 
       {/* ---------- department-wise issue ---------- */}
-        <Card className="min-w-0 p-[0.7vh] order-5 landscape:order-8">
+        <Card className="relative min-w-0 p-[0.7vh] order-5 landscape:order-8">
           {/* This shift's issues have their own tile (Issued Today). Here, the
               month: how much went out and where it was used (the store, 22 Oct
               2026: "kitna issue hua and kahan consume hua wo data mile"). */}
+          {/* On the portrait wall the card takes the height of the Receipt vs
+              Issue card beside it and never more (its content is laid over the
+              card, not stacked in it), so however many departments issue, the
+              9:16 board stays one screen (it ran ~75 px past it on 24 Oct, and
+              105 px with four departments). */}
+          <div className="portrait:absolute portrait:inset-[0.7vh] portrait:overflow-hidden">
           <PanelHead icon={FileBarChart} color={C.purple} title="Issue & Consumption · This Month" />
           {deptState !== "ok" ? <PanelState state={deptState} onRetry={reload} h="8vh" /> : (
-            <div className="space-y-[0.5vh] landscape:space-y-[0.8vh] pt-[0.3vh]">
+            <div className="space-y-[0.5vh] landscape:space-y-[0.8vh] landscape:pt-[0.3vh]">
               {issueMonth && issueMonth.total?.issues > 0 && (
                 <div className="grid grid-cols-3 gap-[0.5vh]">
                   {[
@@ -1812,26 +1836,43 @@ export default function TvDashboard() {
                     { label: "Returned", value: fmtInt(issueMonth.total.returned), sub: "came back", color: C.muted },
                     { label: "Consumed", value: fmtInt(issueMonth.total.net_qty), sub: fmtMoney(issueMonth.total.net_value), color: C.purple },
                   ].map((t) => (
-                    <div key={t.label} className="min-w-0 rounded-xl px-[0.8vh] py-[0.4vh]" style={{ background: "var(--dx-track)" }}>
-                      <div className="text-[1.05vh] landscape:text-[1.2vh] leading-tight text-[var(--dx-t3)] truncate">{t.label}</div>
+                    <div key={t.label} className="min-w-0 rounded-xl px-[0.8vh] py-[0.25vh] landscape:py-[0.4vh]" style={{ background: "var(--dx-track)" }}>
+                      <div className="text-[1.05vh] landscape:text-[1.2vh] leading-none landscape:leading-tight text-[var(--dx-t3)] truncate">{t.label}</div>
                       <div className="text-[1.7vh] landscape:text-[2.1vh] font-extrabold leading-none tabular-nums" style={{ color: t.color }}>{t.value}</div>
                       <div className="hidden landscape:block mt-[0.2vh] text-[1.05vh] leading-tight text-[var(--dx-t4)] truncate">{t.sub}</div>
                     </div>
                   ))}
                 </div>
               )}
-              {/* Each consuming department, the most issued first; each opens its issues this month. */}
-              {deptData.length ? deptData.slice(0, 4).map((d) => (
-                <Tap key={d.name} className="rounded-md px-[0.3vh] -mx-[0.3vh]" onOpen={() => openDept(d)}
-                  label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
-                  <DeptBar {...d} />
-                </Tap>
-              ))
+              {/* Each consuming department, the most issued first; each opens its
+                  issues this month. A row each in landscape; two to a line on the
+                  portrait wall (DeptCell). */}
+              {deptData.length ? (
+                <>
+                  <div className="hidden landscape:block space-y-[0.8vh]">
+                    {deptData.slice(0, 4).map((d) => (
+                      <Tap key={d.name} className="rounded-md px-[0.3vh] -mx-[0.3vh]" onOpen={() => openDept(d)}
+                        label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
+                        <DeptBar {...d} />
+                      </Tap>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-[1.2vh] gap-y-[0.5vh] landscape:hidden">
+                    {deptData.slice(0, 4).map((d) => (
+                      <Tap key={d.name} className="min-w-0 rounded-md px-[0.2vh] -mx-[0.2vh]" onOpen={() => openDept(d)}
+                        label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
+                        <DeptCell {...d} />
+                      </Tap>
+                    ))}
+                  </div>
+                </>
+              )
                 : <div className="text-[1.4vh] text-[var(--dx-t4)] py-[2.2vh] text-center">No issue recorded this month</div>}
               {/* No "Used at" line / machine list since 28 Oct 2026: nothing
                   records one since Confirm Installation went. */}
             </div>
           )}
+          </div>
         </Card>
 
       {/* ---------- stock value trend ---------- */}
