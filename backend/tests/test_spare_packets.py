@@ -131,6 +131,32 @@ def test_4_5_10_three_oldest_packets_go_whole_and_the_oldest_keeps_priority():
     assert _on_hand(p) == 220
 
 
+def test_packets_that_came_in_the_same_day_are_the_same_age():
+    """10 Nov 2026: three CNTR1543 packets, all old stock counted 05 Nov but
+    packed from two receipts, warned "received 05 Nov should go before this
+    one (received 05 Nov)". Same day = same age: no FIFO warning between
+    them; an older day still warns."""
+    p = _part()
+    first = _receive(p, "GRN-S1", date(2026, 10, 25), 40)
+    svc.verify(first.id, 40, user="sup")
+    p1 = svc.pack(first.id, "PACKET", packet_qty=20, user="sup")["packets"]
+    second = _receive(p, "GRN-S2", date(2026, 10, 25), 40)          # another receipt, the same day
+    svc.verify(second.id, 40, user="sup")
+    p2 = svc.pack(second.id, "PACKET", packet_qty=20, user="sup")["packets"]
+    later = _receive(p, "GRN-S3", date(2026, 10, 27), 20)
+    svc.verify(later.id, 20, user="sup")
+    p3 = svc.pack(later.id, "PACKET", packet_qty=20, user="sup")["packets"]
+    scan = BarcodeService().resolve(STORE, p2[0]["code"], user="tester")["packet"]
+    assert scan["fifo"]["ok"] is True                                   # no warning on the same day
+    out = _issue(p2[0]["code"])                                         # and no reason asked
+    assert out["packet"]["status"] == "ISSUED" and not out["packet"]["fifo_override_reason"]
+    fifo = svc.fifo(p.id)["packets"]
+    assert [x["issue_first"] for x in fifo] == [True, True, True, False]  # both 25 Oct receipts first
+    with pytest.raises(BadRequestError, match="Older stock first"):
+        _issue(p3[0]["code"])                                          # 27 Oct while 25 Oct waits
+    assert {x["code"] for x in fifo[:3]} == {p1[0]["code"], p1[1]["code"], p2[1]["code"]}
+
+
 # ---- 6: never twice ------------------------------------------------------------------------------------
 
 def test_6_the_same_packet_cannot_be_issued_twice(monkeypatch):

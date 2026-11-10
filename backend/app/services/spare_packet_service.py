@@ -955,13 +955,16 @@ class SparePacketService:
                 .order_by(SpareBatch.received_on, SpareBatch.id, SparePacket.seq, SparePacket.id))
 
     def fifo_check(self, packet):
-        """None when the packet is from the oldest receipt that still has
-        packets; otherwise that oldest packet — issuing this one would skip it."""
+        """None when nothing older waits: no available packet came in on an
+        earlier day than this one. Otherwise the oldest packet — issuing this
+        one would skip it. Material of the same day is the same age, whichever
+        receipt it was packed from (10 Nov 2026: three CNTR1543 packets, all
+        old stock counted 05 Nov, warned "received 05 Nov should go before
+        received 05 Nov" — "isme 1543-1 hi to h phir fifo warnig kyu")."""
         first = self._fifo_query(packet.part_id).first()
         if first is None or first.batch_id == packet.batch_id:
             return None
-        a, b = first.batch, packet.batch
-        if (a.received_on, a.id) < (b.received_on, b.id):
+        if first.batch.received_on < packet.batch.received_on:
             return first
         return None
 
@@ -971,10 +974,11 @@ class SparePacketService:
         if part is None:
             raise NotFoundError(f"Part {part_id} not found")
         rows = self._fifo_query(part_id).all()
-        first_receipt = rows[0].batch_id if rows else None
+        # Issue first: every packet of the oldest day (same day = same age).
+        first_day = rows[0].batch.received_on if rows else None
         return {
             "part": self._part_dict(part), **self.figures(part_id),
-            "packets": [{**self.packet_dict(p), "rank": i + 1, "issue_first": p.batch_id == first_receipt}
+            "packets": [{**self.packet_dict(p), "rank": i + 1, "issue_first": p.batch.received_on == first_day}
                         for i, p in enumerate(rows)],
         }
 
