@@ -153,8 +153,12 @@ export default function MainLayout() {
         {/* Now the rail is an overlay, the content spans the full width — cap and
             centre it so the cards keep their intended density (a huge gap opened
             in the KPI tiles once they stretched edge to edge). */}
+        {/* Room at the foot of every page for the floating TO TOP button and
+            the Store Saathi round (10 Nov 2026: "ye top par jaane wala button
+            yhan aata h jisse forwerd buttion dikhayi nhi deta"): scrolled to the
+            end, a table's Previous / Next and "Page 1 of 3" sit above them. */}
         <main className="flex-1 overflow-x-hidden">
-          <div className="max-w-[1600px] mx-auto p-4 lg:p-8">
+          <div className="max-w-[1600px] mx-auto p-4 pb-28 lg:p-8 lg:pb-28">
             <ErrorBoundary resetKey={location.pathname}>
               <Outlet />
             </ErrorBoundary>
