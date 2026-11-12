@@ -164,8 +164,19 @@ class ERPSyncService:
         from app.models.erp_stock import ERPStock
         from app.models.part import Part
         from app.utils.erp_unit import is_plant_unit
+        from app.services.erp_grn_posting_service import ErpGrnPostingService
         totals, insp = {}, {}
-        for r in self.erp.fetch_rows("current_stock", ["item_cd", "clos_stock", "under_insp", "unit_cd"]):
+        cols = ["item_cd", "clos_stock", "under_insp", "unit_cd"]
+        try:
+            # created_at: when ERP rebuilt the table (a time of day; 12 Nov 2026).
+            raw = self.erp.fetch_rows("current_stock", cols + ["created_at"])
+        except Exception:  # noqa: BLE001 — a renamed column must not stop the stock read
+            logger.warning("ERP current_stock read without created_at", exc_info=True)
+            raw = self.erp.fetch_rows("current_stock", cols)
+        # When ERP's under-inspection figure was made: a GRN newer than it is
+        # in none of it (ErpGrnPostingService.record_snapshot).
+        ErpGrnPostingService.record_snapshot(raw)
+        for r in raw:
             # This plant's unit only (5 Nov 2026: Plant 1 = unit 10001).
             if not is_plant_unit(r.get("unit_cd")):
                 continue

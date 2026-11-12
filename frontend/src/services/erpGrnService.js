@@ -15,6 +15,9 @@ export const erpGrnService = {
   // Adds every accepted, not-yet-added line now -> { posted: [{part_id, part_no,
   // grn_no, qty}], skipped_off }. The ERP sync does the same after every run.
   post: (storeCode) => api.post("/erp-grn/post", null, { params: { store_code: storeCode } }),
+  // A "Check with ERP" line: take back what was added beyond what ERP accepts.
+  takeBack: (storeCode, partId, grnNo) => api.post("/erp-grn/take-back", { part_id: partId, grn_no: grnNo },
+    { params: { store_code: storeCode } }),
   settings: () => api.get("/erp-grn/settings"),
   // Admin only. from_date is "YYYY-MM-DD".
   saveSettings: ({ enabled, from_date }) => api.put("/erp-grn/settings", { enabled, from_date }),

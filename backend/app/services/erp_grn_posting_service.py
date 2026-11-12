@@ -25,6 +25,15 @@ dated on/before the part's stock count, and NOT on that count's "Waiting for
 QC" list, is taken as already in that stock ("list k alawa grn pending bhi na
 dikhayen") and never added.
 
+ERP's figure is as of its last rebuild (12 Nov 2026): termsdb.current_stock
+is rebuilt once a night (every row's created_at is ~02:00), while GRN lines
+reach srv_report in the day. A GRN dated on or after the day of that rebuild is
+in no under-inspection figure yet - it is quality pending until a rebuild
+after it says otherwise, and it takes nothing of the figure from the older
+lines. (Before this, GRNs 1085 / 1086 of 6 Nov and 1090 / 1091 of 11 Nov were
+added the evening they were made, as "cleared", while ERP held them in QC.)
+Every ERP read notes when the figure was rebuilt (record_snapshot).
+
 Posting rules, all to avoid counting anything twice:
   * matched on item_cd = Part No. (the ERP item code), spare store parts only;
   * a part never physically counted is skipped — its first count includes it;
@@ -38,8 +47,10 @@ Posting rules, all to avoid counting anything twice:
     added once quality clears it, whatever its GRN date;
   * a GRN dated before the configured "post from" date is never auto-posted;
   * each (part, GRN no.) is posted once; if ERP later accepts more on the same
-    GRN only the difference is added; a reduction is flagged, never reversed
-    silently.
+    GRN only the difference is added; a reduction is flagged ("Check with
+    ERP"), never reversed silently - a user takes it back (take_back) with a
+    RECEIPT row of minus that qty on the same GRN, and the GRN is added again
+    once quality accepts it.
 RECEIPT rows with status ERP_GRN are ERP-originated, so the ERP stock-write
 push leaves them out (models/spare_stock.ERP_ORIGIN_RECEIPT_STATUSES).
 
@@ -47,8 +58,9 @@ ERP gives no quality date — only the GRN date. The time the app first saw the
 accepted qty (the sync that read it) is when the stock-in is recorded, and the
 row says so.
 """
+import hashlib
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import func
 
@@ -75,6 +87,13 @@ PENDING_KEY = "erp_grn_pending_at_count"
 DEFAULTS = {"enabled": True, "from_date": "2026-09-26"}
 STATUS = "ERP_GRN"
 ERP_USER = "ERP-GRN"
+# When ERP last rebuilt its current stock (record_snapshot):
+# {"mark": fingerprint of the rows, "seen_at": first read that saw them,
+#  "taken_at": the rebuild, plant clock}.
+SNAPSHOT_KEY = "erp_stock_snapshot"
+# Before a rebuild is noted: the app's last read of ERP's stock less this is
+# taken as the day of ERP's figure (its rebuild runs at ~02:00).
+FALLBACK_LAG = timedelta(hours=3)
 
 
 def _f(v):
@@ -91,6 +110,20 @@ def _plant_date(stamp):
     if stamp.tzinfo is None:
         stamp = stamp.replace(tzinfo=timezone.utc)
     return stamp.astimezone().date()
+
+
+def _time_of(value):
+    """ERP's created_at as a time of day: a time, a datetime or its text."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.time()
+    if isinstance(value, time):
+        return value
+    try:
+        return time.fromisoformat(str(value).strip()[:15])
+    except ValueError:
+        return None
 
 
 def _as_date(value):
@@ -181,6 +214,69 @@ class ErpGrnPostingService:
             db.session.expunge(row)          # nothing to keep: no empty row
         return len(lines)
 
+    # ---- ERP's under-inspection figure: as of when ----
+
+    @staticmethod
+    def record_snapshot(rows, now=None):
+        """Note when ERP last rebuilt its current stock, from the rows of one
+        read of it (item_cd, unit_cd, clos_stock, under_insp, created_at). The
+        rows' fingerprint changes when ERP rebuilds; the first read that sees a
+        new one dates the rebuild at the last time of day of its created_at
+        at or before that read (ERP gives a time, no date). Rows unchanged keep
+        the old date - an ERP rebuild that did not run is never taken as one.
+        `now` is the plant clock (the server's). No commit: it rides on the
+        caller's (the ERP read). Returns the saved note."""
+        import json
+        lines = sorted("|".join(str(r.get(k)) for k in ("item_cd", "unit_cd", "clos_stock", "under_insp", "created_at"))
+                       for r in rows)
+        mark = hashlib.sha1("\n".join(lines).encode("utf-8")).hexdigest()
+        row = AppSetting.query.filter_by(key=SNAPSHOT_KEY).first()
+        try:
+            saved = json.loads(row.value) if row is not None and row.value else {}
+        except (TypeError, ValueError):
+            saved = {}
+        if isinstance(saved, dict) and saved.get("mark") == mark:
+            return saved
+        seen = (now or datetime.now()).replace(microsecond=0)
+        times = [t for t in (_time_of(r.get("created_at")) for r in rows) if t is not None]
+        taken = None
+        if times:
+            at = max(times).replace(microsecond=0)
+            day = seen.date() if at <= seen.time() else seen.date() - timedelta(days=1)
+            taken = datetime.combine(day, at)
+        note = {"mark": mark, "seen_at": seen.isoformat(),
+                "taken_at": taken.isoformat() if taken else None}
+        if row is None:
+            row = AppSetting(key=SNAPSHOT_KEY)
+            db.session.add(row)
+        row.value = json.dumps(note)
+        row.updated_by = "ERP-SYNC"
+        return note
+
+    @staticmethod
+    def snapshot_day():
+        """The day of ERP's under-inspection figure: a GRN dated before it is in
+        the figure, one dated on or after it is not yet. The noted rebuild's day
+        (record_snapshot); before one is noted, the day of the app's last read
+        of ERP's stock less FALLBACK_LAG; None when it was never read."""
+        saved = AppSetting.get_value(SNAPSHOT_KEY)
+        if isinstance(saved, dict) and saved.get("taken_at"):
+            try:
+                return datetime.fromisoformat(saved["taken_at"]).date()
+            except ValueError:
+                pass
+        last = db.session.query(func.max(ERPStock.synced_at)).scalar()
+        if last is None:
+            return None
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        return (last.astimezone() - FALLBACK_LAG).date()
+
+    @staticmethod
+    def _fresh(grn_date, snap_day):
+        """A GRN newer than ERP's figure: dated on or after the day of it."""
+        return snap_day is not None and grn_date is not None and grn_date >= snap_day
+
     @staticmethod
     def _under_inspection(part_ids):
         """{part id: qty ERP holds under inspection, or None when ERP's figure
@@ -198,13 +294,16 @@ class ErpGrnPostingService:
                 out[pid] = float(under) if under is not None else None
         return out
 
-    @staticmethod
-    def _held_lines(grouped, under):
+    @classmethod
+    def _held_lines(cls, grouped, under, snap_day=None):
         """{(part id, GRN no.)} ERP holds under inspection: per part, its newest
         GRN lines with no accepted and no rejected qty, while ERP's figure lasts
-        (a line it covers even in part is held)."""
+        (a line it covers even in part is held). A line newer than the figure
+        (_fresh) is in none of it, so takes none of it."""
         waiting = defaultdict(list)
         for (pid, grn_no), g in grouped.items():
+            if cls._fresh(g.get("grn_date"), snap_day):
+                continue
             if not g["accept"] and not g["reject"]:
                 waiting[pid].append((g.get("grn_date") or date.min, grn_no, g["receipt"]))
         held = set()
@@ -318,7 +417,8 @@ class ErpGrnPostingService:
         posted = self._posted(part_ids)
         waiting = self.pending_at_count()
         under = self._under_inspection(part_ids)
-        held = self._held_lines(grouped, under)
+        snap_day = self.snapshot_day()
+        held = self._held_lines(grouped, under, snap_day)
         # The department each GRN is for (5 Nov 2026: "jo 5 grn pending h usme
         # dept bhi h kya") - ERP's SRV copy carries no GRN location, so it is
         # the part's section: its group ("Tool Room") or the section itself.
@@ -330,10 +430,13 @@ class ErpGrnPostingService:
             rejected = round(g["reject"], 2) if g["reject"] is not None else None
             erp_read = under.get(pid) is not None
             in_insp = (pid, grn_no) in held
+            fresh = self._fresh(g.get("grn_date"), snap_day)
             # ERP holds none of it under inspection and rejected none: quality
             # cleared it into ERP's stock, though the SRV line shows no accepted
-            # qty (5 Nov 2026) - taken as accepted at its receipt qty.
-            cleared = erp_read and not in_insp and not accepted and not rejected and g["receipt"] > 0
+            # qty (5 Nov 2026) - taken as accepted at its receipt qty. Never a
+            # line newer than ERP's figure: that figure cannot have it yet.
+            cleared = (erp_read and not fresh and not in_insp and not accepted and not rejected
+                       and g["receipt"] > 0)
             if cleared:
                 accepted = round(g["receipt"], 2)
             already = posted.get((pid, self._key(grn_no)), 0.0)
@@ -353,6 +456,10 @@ class ErpGrnPostingService:
                     state, reason = "REJECTED", "Rejected by quality in ERP — not stock"
                 elif erp_read and in_insp:
                     state, reason = "QUALITY_PENDING", "Under inspection in ERP — quality clearance pending"
+                elif erp_read and fresh:
+                    state, reason = "QUALITY_PENDING", (
+                        f"GRN created in ERP — quality clearance pending (ERP's under-inspection figure is "
+                        f"from {snap_day:%d.%m.%Y}, before this GRN; it shows on ERP's next stock refresh)")
                 elif erp_read:
                     state, reason = "SKIPPED", "ERP holds nothing of this GRN under inspection — not quality pending"
                 elif counted and baseline and grn_date and grn_date <= baseline and not was_waiting:
@@ -391,7 +498,7 @@ class ErpGrnPostingService:
                 "receipt_qty": round(g["receipt"], 2), "accept_qty": accepted, "reject_qty": rejected,
                 "posted_qty": already, "to_post": to_post, "state": state, "reason": reason,
                 "baseline_date": baseline.isoformat() if baseline else None,
-                "under_inspection": in_insp, "accept_inferred": cleared,
+                "under_inspection": in_insp, "accept_inferred": cleared, "newer_than_erp_figure": fresh,
                 "section": sections[part.section_id].name if part.section_id in sections else None,
                 "dept": ((sections[part.section_id].group_name or sections[part.section_id].name)
                          if part.section_id in sections else None),
@@ -412,7 +519,9 @@ class ErpGrnPostingService:
         counts = defaultdict(int)
         for r in rows:
             counts[r["state"]] += 1
+        snap_day = self.snapshot_day()
         return {"settings": self.settings(), "erp": self.mirror_freshness(),
+                "erp_quality_as_of": snap_day.isoformat() if snap_day else None,
                 "counts": dict(counts), "rows": rows}
 
     # ---- writing ----
@@ -482,3 +591,60 @@ class ErpGrnPostingService:
             done.append({"part_id": line["part_id"], "part_no": line["part_no"],
                          "grn_no": line["grn_no"], "qty": qty})
         return {"posted": done, "skipped_off": False}
+
+    def take_back(self, store_code, part_id, grn_no, user=None):
+        """Take back what was added to store stock from a GRN beyond what ERP
+        accepts on it now - a "Check with ERP" line (12 Nov 2026: four GRNs
+        added while ERP still held them in QC; the store: "a kar de"). The qty
+        leaves available stock as a RECEIPT row of minus that qty on the same
+        GRN (status ERP_GRN), so the GRN counts as added that much less and is
+        added again once quality accepts it in ERP. Refused when that stock is
+        no longer there, or is in labelled packets."""
+        key = self._key(grn_no)
+        line = next((l for l in self.lines(store_code, part_id=part_id) if self._key(l["grn_no"]) == key), None)
+        if line is None:
+            raise BadRequestError("No ERP GRN line of this part with that GRN no.")
+        if line["state"] != "CHECK":
+            raise BadRequestError("Only a \u201cCheck with ERP\u201d line can be taken back")
+        accepted = line["accept_qty"] or 0.0
+        with atomic():
+            stock_row = SpareStock.query.filter_by(part_id=part_id).with_for_update().first()
+            already = self._posted([part_id]).get((part_id, key), 0.0)
+            qty = round(already - accepted, 2)
+            if qty <= 0:
+                raise BadRequestError("Nothing to take back: no more was added from this GRN than ERP accepts")
+            on_hand = float(stock_row.qty_on_hand or 0) if stock_row is not None else 0.0
+            if on_hand + 1e-9 < qty:
+                raise BadRequestError(
+                    f"Only {on_hand:g} of this part is in stock, less than the {qty:g} to take back - part of it "
+                    "has gone out since. Correct the stock with a count instead.")
+            from app.models.spare_packet import SpareBatch, SparePacket
+            refs = [lid for (lid,) in db.session.query(SpareStockLedger.id).filter(
+                SpareStockLedger.part_id == part_id, SpareStockLedger.txn_type == "RECEIPT",
+                SpareStockLedger.status == STATUS, func.upper(func.trim(SpareStockLedger.reference)) == key)]
+            batches = [b for (b,) in db.session.query(SpareBatch.id).filter(
+                SpareBatch.part_id == part_id,
+                (func.upper(func.trim(SpareBatch.grn_no)) == key) | SpareBatch.ledger_id.in_(refs or [-1]))]
+            labelled = float(db.session.query(func.coalesce(func.sum(SparePacket.qty), 0)).filter(
+                SparePacket.batch_id.in_(batches or [-1]),
+                SparePacket.status.in_(("AVAILABLE", "ISSUED"))).scalar() or 0)
+            if labelled > accepted + 1e-9:
+                raise BadRequestError(
+                    f"{labelled:g} of this GRN is in packets with QR labels - cancel those packets first.")
+            why = ("ERP still holds it under quality inspection" if line["under_inspection"] or not accepted
+                   else f"ERP accepts {accepted:g}")
+            remarks = (f"Taken back: ERP GRN {line['grn_no']} ({line['grn_date']}) - {already:g} was added but "
+                       f"{why}; added again when quality accepts it in ERP")
+            _, _, ledger = self.stock._write(
+                part_id, round(on_hand - qty, 2), "RECEIPT", reference=line["grn_no"], remarks=remarks[:255],
+                user=user, extra={"status": STATUS, "invoice_no": line["invoice_no"]}, return_ledger=True)
+            self.journal.record(
+                part_id, "GRN", qty, store_code=store_code, user=user,
+                prev_status="STOCK_AVAILABLE", new_status="QUALITY_PENDING",
+                from_bucket="AVAILABLE", to_bucket="QUALITY_PENDING",
+                ledger_id=ledger.id if ledger else None,
+                supplier_name=line["ven_name"], ven_cd=line["ven_cd"], grn_no=line["grn_no"],
+                invoice_no=line["invoice_no"], remarks=remarks,
+            )
+        return {"part_id": part_id, "part_no": line["part_no"], "grn_no": line["grn_no"], "qty": qty,
+                "stock_now": round(on_hand - qty, 2)}

@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import toast from "react-hot-toast";
 import {
   ChevronRight, CircleCheck, CircleDashed, CircleDot, ClipboardCheck, Database, FileCheck2, FileText, Hourglass, Lock,
-  PackageCheck, PackagePlus, RefreshCw, ShieldCheck, Truck, TriangleAlert, Workflow, X,
+  PackageCheck, PackagePlus, RefreshCw, ShieldCheck, Truck, TriangleAlert, Undo2, Workflow, X,
 } from "lucide-react";
 import CardHead from "../../components/CardHead.jsx";
 import ErrorState from "../../components/ErrorState.jsx";
@@ -259,7 +259,8 @@ function PostingRules({ fromDate }) {
     ["Counted parts only.", "A part that has never been physically counted is left alone — its first count will include what ERP received."],
     ["GRNs after the part's last count.", "A GRN dated on or before the part's last count (or its opening stock) is already in that count, so it is not added again."],
     [`GRNs dated from ${fromDate ? fmtDate(fromDate) : "the start date"}.`, "Older GRNs are part of the counts the store already did."],
-    ["Once per GRN.", "Each part's GRN adds its accepted qty once. If ERP later accepts more on the same GRN only the difference is added; if ERP shows less than was added, the line reads “Check with ERP” — nothing is taken back silently."],
+    ["A GRN made today waits for ERP's next stock refresh.", "ERP refreshes what it holds in quality once a night (around 2 AM). Until then a new GRN with no accepted qty stays “Quality pending (ERP)” — it is never taken as cleared the same day."],
+    ["Once per GRN.", "Each part's GRN adds its accepted qty once. If ERP later accepts more on the same GRN only the difference is added; if ERP shows less than was added, the line reads “Check with ERP” — nothing is taken back silently. “Take back” on that line takes the extra out of stock; it is added again once quality accepts it in ERP."],
     ["ERP is never written.", "The app only reads ERP's GRN register. The stock-in appears in the part's history as “Receipt (ERP GRN)” with the GRN no."],
   ];
   return (
@@ -401,6 +402,12 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
   const { data, isPending, isError, error, refetch, isFetching } = useErpGrnPreview(code);
   const [posting, setPosting] = useState(false);
   const [result, setResult] = useState(null);
+  // POST /erp-grn/take-back takes the Store Stock or the Receiving & GRN edit
+  // (update) right: a "Check with ERP" line's extra qty out of stock (12 Nov 2026).
+  const canBackStock = useCan("store_stock", "update");
+  const canBackReceiving = useCan("receiving", "update");
+  const canTakeBack = canBackStock || canBackReceiving;
+  const [takingBack, setTakingBack] = useState(null);
 
   const all = useMemo(() => (Array.isArray(data?.rows) ? data.rows : []), [data]);
   const partRows = useMemo(() => (partFilter
@@ -436,6 +443,46 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
       setPosting(false);
     }
   };
+
+  const extraOf = (r) => Math.round((Number(r.posted_qty || 0) - Number(r.accept_qty || 0)) * 100) / 100;
+  const takeBack = async (r) => {
+    const qty = extraOf(r);
+    const ok = await confirm({
+      title: "Take back from store stock",
+      message: `Takes ${num(qty)} of ${r.part_no} out of available store stock. GRN ${r.grn_no} was added, but ERP `
+        + (Number(r.accept_qty) > 0 ? `accepts only ${num(r.accept_qty)}.` : "has not accepted it — it is still in quality.")
+        + " It is added again once quality accepts it in ERP. ERP is not written.",
+      confirmText: `Take back ${num(qty)}`,
+      danger: true,
+    });
+    if (!ok) return;
+    setTakingBack(lineKey(r));
+    try {
+      const res = await erpGrnService.takeBack(code, r.part_id, r.grn_no);
+      toast.success(res.data?.message || `${num(qty)} taken back from store stock`);
+      qc.invalidateQueries({ queryKey: ["stock"] });
+    } catch { /* the interceptor toasts the server's message */ } finally {
+      setTakingBack(null);
+    }
+  };
+  // The Reason cell of a "Check with ERP" line carries its Take back button.
+  const columns = LINE_COLUMNS.map((c) => (c.key !== "reason" ? c : {
+    ...c,
+    render: (r) => (
+      <div>
+        {c.render(r)}
+        {r.state === "CHECK" && canTakeBack && extraOf(r) > 0 && (
+          <button type="button" disabled={takingBack === lineKey(r)}
+            onClick={(e) => { e.stopPropagation(); takeBack(r); }}
+            title="Take the qty ERP has not accepted out of store stock; it is added again when quality accepts it"
+            className="btn-secondary mt-1.5 inline-flex items-center gap-1 !px-2 !py-1 text-[11px]">
+            <Undo2 size={12} aria-hidden="true" />
+            {takingBack === lineKey(r) ? "Taking back…" : `Take back ${num(extraOf(r))}`}
+          </button>
+        )}
+      </div>
+    ),
+  }));
 
   const addButton = canAdd ? (
     <button type="button" onClick={addNow} disabled={posting || isPending || !enabled || toAdd === 0}
@@ -525,7 +572,7 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
 
           <Table
             key={`${stateFilter || "all"}|${partFilter || ""}`}
-            columns={LINE_COLUMNS}
+            columns={columns}
             rows={rows}
             rowKey={lineKey}
             searchable={rows.length > 8 ? "Search part, GRN no, supplier…" : false}
