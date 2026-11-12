@@ -1345,10 +1345,10 @@ def test_stock_report_is_one_line_of_totals_with_the_daily_stock_report_attached
     assert html.endswith(f"{_SIGNATURE_HTML}</p></body></html>") and html.count(_SIGNATURE_HTML) == 1
     assert rows == untouched and facts_read == ["MAINTENANCE"]
 
-    # The attachment is the Daily Stock Report — the workbook the Reports page
-    # downloads (its own tests are in test_stock_mis_report.py).
+    # The attachment is the Daily Stock Report (MIS) — the workbook the Reports
+    # page downloads (its own tests are in test_stock_mis_report.py).
     stored = row.attachments[0]
-    assert (stored.filename, stored.mime) == (f"Daily Stock Report {day:%d.%m.%Y}.xlsx", _XLSX)
+    assert (stored.filename, stored.mime) == (f"Daily Stock Report (MIS) {day:%d.%m.%Y}.xlsx", _XLSX)
     assert message["attachments"] == [{"filename": stored.filename, "size": len(stored.content)}]
     book = load_workbook(io.BytesIO(stored.content))
     assert book.sheetnames == ["Summary", "Stock Detail", "Critical & Reorder", "Excess", "Category Summary"]

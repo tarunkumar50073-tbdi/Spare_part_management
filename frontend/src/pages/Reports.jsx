@@ -24,13 +24,12 @@ const reportDate = () => dotted(isoDay(new Date()));
 // (the store, 14 Oct 2026: "daily mis k alawa only daily stock report").
 const STOCK_WORKBOOKS = [
   {
-    path: "/spare-stock/daily-report", file: "Daily Stock Report", title: "Daily Stock Report (MIS)",
+    path: "/spare-stock/daily-report", file: "Daily Stock Report (MIS)", title: "Daily Stock Report (MIS)",
     text: <>One print-ready workbook: a summary page with the key figures and sign-off, then the full stock
       detail, critical &amp; reorder, excess and category sheets.</>,
   },
   {
-    path: "/spare-stock/daily-stock-only", file: "Daily Stock Report (Stock Only)",
-    title: "Daily Stock Report (Stock Only)",
+    path: "/spare-stock/daily-stock-only", file: "Daily Stock Report", title: "Daily Stock Report",
     text: "Only the stock: every active part with its location, quantity in stock and min / reorder / max — "
       + "dark red at zero, red at or below min or reorder, green in between, yellow above max, grey not counted. "
       + "One sheet, ready to print.",

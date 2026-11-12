@@ -67,7 +67,7 @@ BUILD_FAILED = "list_build_failed"
 # and Status say how urgent a part is, by the same rule: nothing on the shelf
 # in solid dark red, at or below its min in red, the rest of the list — above
 # the min, at or below the reorder level — in orange. The two reds are those
-# of the Daily Stock Report (Stock Only)'s In Stock cell (stock_mis_report
+# of the Daily Stock Report's In Stock cell (stock_mis_report
 # LEVEL_BANDS, where AT the min counts as red too) and the orange is the app's
 # Reorder status tint, so a part reads the same in every sheet he gets. As
 # (fill, text); Order Qty is only bold — it is the figure Purchase acts on.

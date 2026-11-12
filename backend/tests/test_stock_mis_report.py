@@ -173,14 +173,15 @@ def _values(ws, row):
 
 def test_attachment_and_workbook_shape(report):
     built, wb = report
-    assert built["filename"] == "Daily Stock Report 13.10.2026.xlsx"
+    # The MIS file is the "(MIS)" one: the plain name is the stock-only report's.
+    assert built["filename"] == "Daily Stock Report (MIS) 13.10.2026.xlsx"
     assert built["filename"].isascii()
     assert built["mime"] == XLSX_MIME
     assert built["content"][:2] == b"PK"
 
     assert wb.sheetnames == SHEETS
     assert wb.active.title == "Summary"
-    assert wb.properties.title == "Daily Stock Report"
+    assert wb.properties.title == "Daily Stock Report (MIS)"
     assert wb.properties.creator == "TBDI Digital SMP"
     for ws in wb.worksheets:
         assert ws.sheet_view.showGridLines is False
@@ -444,7 +445,7 @@ def test_print_setup(wb):
 def test_default_clock_and_missing_logo(report, monkeypatch):
     monkeypatch.setattr(stock_mis_report, "LOGO", stock_mis_report.LOGO + ".missing")
     built = daily_stock_report(STORE)
-    assert built["filename"] == f"Daily Stock Report {datetime.now():%d.%m.%Y}.xlsx"     # the plant clock
+    assert built["filename"] == f"Daily Stock Report (MIS) {datetime.now():%d.%m.%Y}.xlsx"   # the plant clock
     wb = load_workbook(io.BytesIO(built["content"]))
     assert wb.sheetnames == SHEETS
     assert wb["Summary"]._images == []                        # built without the picture, no crash
@@ -492,7 +493,7 @@ def test_route_sends_the_workbook(report, client):
     assert resp.mimetype == XLSX_MIME
     disposition = resp.headers["Content-Disposition"]
     assert disposition.startswith("attachment")
-    assert re.search(r'filename="?Daily Stock Report \d{2}\.\d{2}\.\d{4}\.xlsx"?', disposition)
+    assert re.search(r'filename="?Daily Stock Report \(MIS\) \d{2}\.\d{2}\.\d{4}\.xlsx"?', disposition)
     wb = load_workbook(io.BytesIO(resp.data))
     assert wb.sheetnames == SHEETS
     assert _tile(wb["Summary"], "Total Parts")[0] == 11
@@ -503,7 +504,7 @@ def test_route_sends_the_workbook(report, client):
 def test_stock_only_workbook(report):
     """One sheet with only the stock; each part as the MIS Stock Detail has it."""
     built = stock_only_report(STORE, now=NOW)
-    assert built["filename"] == "Daily Stock Report (Stock Only) 13.10.2026.xlsx"
+    assert built["filename"] == "Daily Stock Report 13.10.2026.xlsx"            # no "Stock Only" any more
     assert built["mime"] == XLSX_MIME
     wb = load_workbook(io.BytesIO(built["content"]))
     assert wb.sheetnames == ["Stock List"]
@@ -523,8 +524,9 @@ def test_stock_only_workbook(report):
     assert by["MISB01"]["In Stock"] == 0
     assert by["MISB03"]["In Stock"] == 2.5
 
-    assert ws.cell(1, 1).value == "Daily Stock Report · Stock List"
+    assert ws.cell(1, 1).value == "Daily Stock Report"                         # no "· Stock List" in the title
     assert ws.cell(1, 7).value == "Report date: 13.10.2026"          # over the last four columns
+    assert ws.cell(2, 5).value is None                                # no colour key beside the store
     assert "G1:J1" in {str(r) for r in ws.merged_cells.ranges}
     # 11 parts, 8 of them with stock (MISA01 and MISB01 at 0, MISA07 not counted).
     assert _values(ws, 3) == ["Total", 11, "With stock: 8"]
@@ -535,7 +537,7 @@ def test_stock_only_workbook(report):
     assert (ws.page_setup.fitToWidth, ws.page_setup.fitToHeight) == (1, 0)
     assert int(ws.page_setup.paperSize) == 9
     assert ws.print_title_rows == "$4:$4"
-    assert ws.oddFooter.left.text == "Daily Stock Report (Stock Only) · 13.10.2026"
+    assert ws.oddFooter.left.text == "Daily Stock Report · 13.10.2026"
 
 
 def test_stock_only_colours_in_stock_by_the_levels():
@@ -593,7 +595,7 @@ def test_stock_only_route(report, client):
     _login(client, "ADMIN")
     resp = client.get(STOCK_ONLY_URL, query_string={"store_code": STORE})
     assert resp.status_code == 200 and resp.mimetype == XLSX_MIME
-    assert re.search(r'filename="?Daily Stock Report \(Stock Only\) \d{2}\.\d{2}\.\d{4}\.xlsx"?',
+    assert re.search(r'filename="?Daily Stock Report \d{2}\.\d{2}\.\d{4}\.xlsx"?',
                      resp.headers["Content-Disposition"])
     assert load_workbook(io.BytesIO(resp.data)).sheetnames == ["Stock List"]
 

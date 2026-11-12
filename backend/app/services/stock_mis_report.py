@@ -18,7 +18,7 @@ What is not known is left empty — a part with no rate has no value, and is
 counted as such in the notes; a level stored as 0 is a level not set — never
 printed as a zero or a dash.
 
-Beside it, the Daily Stock Report (Stock Only): one sheet, Stock List, with
+Beside it, the Daily Stock Report itself: one sheet, Stock List, with
 the stock of every active part and its levels — section, part no.,
 description, location, UOM, quantity in stock, min, reorder level and max —
 read from the same figures, so it always agrees with the MIS (the store, 14 Oct
@@ -26,6 +26,10 @@ read from the same figures, so it always agrees with the MIS (the store, 14 Oct
 ho", then "min, max, reorder bhi add kar"). Its In Stock cell is solid dark
 red at zero, red at or below the min or reorder level, green between the
 levels, yellow above the max, and grey "Not counted" for a part never counted.
+Its name is just "Daily Stock Report", with no "Stock Only" and no "Stock List"
+in the title (12 Nov 2026: "daily stock report ka naam daily stock report hi kar
+de stock only hta de"); so the two files never share a name, the MIS workbook's
+file is the "Daily Stock Report (MIS)", as its card on Reports already says.
 """
 import io
 import os
@@ -56,7 +60,7 @@ from app.utils.excel_io import _excel_safe
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 REPORT = "Daily Stock Report"
-STOCK_ONLY = f"{REPORT} (Stock Only)"
+MIS_FILE = f"{REPORT} (MIS)"
 COMPANY = "Toyota Boshoku Device India"
 SYSTEM = "TBDI Digital SMP"
 LOGO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -604,12 +608,13 @@ def _body_looks(wb):
     return looks
 
 
-def _list_top(ws, wb, data, title, heads, lead, note, totals, date_cols=2):
+def _list_top(ws, wb, data, title, heads, lead, note, totals, date_cols=2, heading=None):
     """The four heading rows of a list sheet. `heads` are the (label, width) of
     its columns; `lead` is how many of them the store's name takes on the left
     of row 2; `totals` are the (first column, last column, value, kind) cells of
     the totals row; `date_cols` how many of the last columns the report date
-    takes (more on a sheet of narrow columns, so it is not cut off)."""
+    takes (more on a sheet of narrow columns, so it is not cut off);
+    `heading` the title row's text, by default "Daily Stock Report · <title>"."""
     width = len(heads)
     for col, (_, col_width) in enumerate(heads, start=1):
         ws.column_dimensions[get_column_letter(col)].width = col_width
@@ -617,7 +622,7 @@ def _list_top(ws, wb, data, title, heads, lead, note, totals, date_cols=2):
         ws.row_dimensions[row].height = height
 
     band = {"color": WHITE, "fill": NAVY, "border": None}
-    _span(ws, TITLE_ROW, 1, width - date_cols, f"{REPORT} · {title}",
+    _span(ws, TITLE_ROW, 1, width - date_cols, heading or f"{REPORT} · {title}",
           _look(wb, size=14, bold=True, indent=1, **band))
     _span(ws, TITLE_ROW, width - date_cols + 1, width, f"Report date: {data['today']:%d.%m.%Y}",
           _look(wb, bold=True, h="right", indent=1, **band))
@@ -668,13 +673,13 @@ def _list_rows(ws, looks, columns, records):
 
 
 def _list_sheet(wb, data, title, tab, columns, records, lead, note, totals, frozen,
-                landscape=True, date_cols=2, report=REPORT):
+                landscape=True, date_cols=2, report=REPORT, heading=None):
     """A sortable list: headings, rows, panes frozen under the header and after
     the first `frozen` columns, a filter on the header row. `columns` are
     (label, record key, width, kind)."""
     ws = wb.create_sheet(title)
     _list_top(ws, wb, data, title, [(label, width) for label, _, width, _ in columns], lead, note, totals,
-              date_cols)
+              date_cols, heading)
     last = _list_rows(ws, _body_looks(wb), columns, records)
     end = get_column_letter(len(columns))
     ws.auto_filter.ref = f"A{HEAD_ROW}:{end}{last}"
@@ -847,11 +852,11 @@ def _stock_list_sheet(wb, data):
     held = sum(1 for p in parts if (p["qty"] or 0) > 0)
     _list_sheet(
         wb, data, "Stock List", NAVY, columns, parts, lead=4, frozen=3,
-        note="In Stock: dark red 0 · red at / below min or reorder · green between · yellow above max"
-             " · grey not counted",
+        # No colour key on the sheet (12 Nov 2026: "ye heading nhi chahiye").
+        note=None,
         totals=((1, 2, "Total", "label"), (3, 4, len(parts), "parts"),
                 (5, 10, f"With stock: {_grouped(held)}", "label_right")),
-        landscape=True, date_cols=4, report=STOCK_ONLY)
+        landscape=True, date_cols=4, heading=REPORT)
 
 
 # ---- the workbooks ----
@@ -866,7 +871,7 @@ def daily_stock_report(store_code="MAINTENANCE", now=None):
     stamp = _utc_naive(now or utcnow()) + _local_offset()
     data = _gather(store_code, stamp)
     wb = Workbook()
-    wb.properties.title = REPORT
+    wb.properties.title = MIS_FILE
     wb.properties.creator = SYSTEM
     _summary_sheet(wb, data)
     _detail_sheet(wb, data)
@@ -875,20 +880,20 @@ def daily_stock_report(store_code="MAINTENANCE", now=None):
     _category_sheet(wb, data)
     buf = io.BytesIO()
     wb.save(buf)
-    return {"filename": f"{REPORT} {stamp:%d.%m.%Y}.xlsx", "mime": XLSX_MIME, "content": buf.getvalue()}
+    return {"filename": f"{MIS_FILE} {stamp:%d.%m.%Y}.xlsx", "mime": XLSX_MIME, "content": buf.getvalue()}
 
 
 def stock_only_report(store_code="MAINTENANCE", now=None):
-    """Build the Daily Stock Report (Stock Only) of a store as an .xlsx: the one
-    Stock List sheet. Same clock, figures and return shape as
+    """Build the Daily Stock Report of a store as an .xlsx: the one Stock List
+    sheet. Same clock, figures and return shape as
     daily_stock_report."""
     stamp = _utc_naive(now or utcnow()) + _local_offset()
     data = _gather(store_code, stamp)
     wb = Workbook()
     wb.remove(wb.active)
-    wb.properties.title = STOCK_ONLY
+    wb.properties.title = REPORT
     wb.properties.creator = SYSTEM
     _stock_list_sheet(wb, data)
     buf = io.BytesIO()
     wb.save(buf)
-    return {"filename": f"{STOCK_ONLY} {stamp:%d.%m.%Y}.xlsx", "mime": XLSX_MIME, "content": buf.getvalue()}
+    return {"filename": f"{REPORT} {stamp:%d.%m.%Y}.xlsx", "mime": XLSX_MIME, "content": buf.getvalue()}

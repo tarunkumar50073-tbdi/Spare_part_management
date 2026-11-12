@@ -592,7 +592,7 @@ def daily_report():
 @bp.route("/daily-stock-only", methods=["GET"])
 @permission_required(SPARE_STOCK_VIEW, "view")
 def daily_stock_only():
-    """The Daily Stock Report (Stock Only): one sheet with only the stock of
+    """The Daily Stock Report: one sheet with only the stock of
     every active part (services/stock_mis_report). Store-scoped like the MIS."""
     report = stock_only_report(_store_code())
     return send_file(io.BytesIO(report["content"]), as_attachment=True,
