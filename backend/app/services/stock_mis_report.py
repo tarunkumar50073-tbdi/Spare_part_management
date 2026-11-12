@@ -374,7 +374,7 @@ def _letterhead(ws, wb, data):
     _span(ws, 1, 3, 8, REPORT.upper(), _look(wb, size=20, bold=True, v="bottom", indent=1, **band))
     _span(ws, 2, 3, 8, f"{COMPANY} · {data['store']}",
           _look(wb, size=11, v="top", indent=1, shrink=True, **band))
-    _span(ws, 1, 9, GRID, f"Report date: {data['today']:%d.%m.%Y}",
+    _span(ws, 1, 9, GRID, f"Date: {data['today']:%d.%m.%Y}",
           _look(wb, size=11, bold=True, h="right", v="bottom", indent=1, **band))
     _span(ws, 2, 9, GRID, f"Generated: {data['stamp']:%d.%m.%Y %H:%M}",
           _look(wb, size=9, h="right", v="top", indent=1, **band))
@@ -624,7 +624,7 @@ def _list_top(ws, wb, data, title, heads, lead, note, totals, date_cols=2, headi
     band = {"color": WHITE, "fill": NAVY, "border": None}
     _span(ws, TITLE_ROW, 1, width - date_cols, heading or f"{REPORT} · {title}",
           _look(wb, size=14, bold=True, indent=1, **band))
-    _span(ws, TITLE_ROW, width - date_cols + 1, width, f"Report date: {data['today']:%d.%m.%Y}",
+    _span(ws, TITLE_ROW, width - date_cols + 1, width, f"Date: {data['today']:%d.%m.%Y}",
           _look(wb, bold=True, h="right", indent=1, **band))
     _span(ws, STORE_ROW, 1, lead, f"{COMPANY} · {data['store']}",
           _look(wb, size=9, bold=True, color=NAVY, border=None, indent=1))

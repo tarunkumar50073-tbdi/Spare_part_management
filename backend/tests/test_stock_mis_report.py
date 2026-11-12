@@ -195,7 +195,7 @@ def test_summary_header_and_key_figures(wb):
     texts = [c.value for row in ws.iter_rows() for c in row if isinstance(c.value, str)]
     assert "DAILY STOCK REPORT" in texts
     assert "Toyota Boshoku Device India · MIS Test Store" in texts
-    assert "Report date: 13.10.2026" in texts
+    assert "Date: 13.10.2026" in texts
     assert any(t.startswith("Generated: 13.10.2026 ") for t in texts)
     assert "System-generated report · TBDI Digital SMP" in texts
     for box in ("Prepared by (Store)", "Checked by", "Approved by"):
@@ -525,7 +525,7 @@ def test_stock_only_workbook(report):
     assert by["MISB03"]["In Stock"] == 2.5
 
     assert ws.cell(1, 1).value == "Daily Stock Report"                         # no "· Stock List" in the title
-    assert ws.cell(1, 7).value == "Report date: 13.10.2026"          # over the last four columns
+    assert ws.cell(1, 7).value == "Date: 13.10.2026"          # over the last four columns
     assert ws.cell(2, 5).value is None                                # no colour key beside the store
     assert "G1:J1" in {str(r) for r in ws.merged_cells.ranges}
     # 11 parts, 8 of them with stock (MISA01 and MISB01 at 0, MISA07 not counted).
