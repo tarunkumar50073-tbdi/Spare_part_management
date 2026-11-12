@@ -69,6 +69,8 @@ LOGO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 OUT, BELOW, REORDER, EXCESS, HEALTHY, NOT_COUNTED = (
     "Out of Stock", "Below Minimum", "Reorder", "Above Maximum", "Healthy", "Not Counted")
 DISCONTINUED = "Discontinued"
+# The Daily Stock Report's Status column: a part still in use, or DISCONTINUED.
+ACTIVE = "Active"
 STATUSES = (OUT, BELOW, REORDER, EXCESS, HEALTHY, DISCONTINUED, NOT_COUNTED)
 # The order list, worst first.
 TO_ORDER = {OUT: 0, BELOW: 1, REORDER: 2}
@@ -240,6 +242,9 @@ def _gather(store_code, stamp):
             "reorder": r["reorder_level"] or None,
             "max": r["max_stock_level"] or None,
             "status": status,
+            # Not required any more — kept apart from status, which says
+            # "Not Counted" first for a discontinued part never counted.
+            "discontinued": bool(r.get("discontinued")),
             # A rate of 0 is a missing rate, not a free part: no rate, no value.
             "rate": rate or None,
             "value": r["stock_value"] if rate else None,
@@ -605,6 +610,7 @@ def _body_looks(wb):
     for status in STATUSES:
         fill, ink, _ = TINTS[status]
         looks[status] = _look(wb, h="center", bold=True, color=ink, fill=fill, **cell)
+    looks[ACTIVE] = _look(wb, h="center", **cell)
     return looks
 
 
@@ -838,16 +844,20 @@ def _level_band(part):
 
 
 def _stock_list_sheet(wb, data):
-    """The stock sheet: where each part is, how many are in stock and its
-    levels — no status, rate or value. In Stock is coloured by _level_band. A4
-    landscape, one page wide, as many pages long as the list."""
+    """The stock sheet: where each part is, how many are in stock, its levels
+    and whether it is Active or Discontinued (12 Nov 2026: "status lga de active
+    and discontinue ka") — no stock status, rate or value. In Stock is coloured
+    by _level_band; Discontinued is the grey chip. A4 landscape, one page wide,
+    as many pages long as the list."""
     columns = (
         ("Sr No", None, 5.5, "sr"), ("Section", "section", 16, "text"), ("Part No", "part_no", 10.5, "code"),
         ("Description", "name", 40, "text"), ("Location", "location", 14, "text"),
         ("UOM", "uom", 6, "mid"), ("In Stock", "qty", 10.5, "level"), ("Min", "min", 7.5, "qty"),
         ("Reorder Level", "reorder", 8.5, "qty"), ("Max", "max", 7.5, "qty"),
+        ("Status", "state", 11, "status"),
     )
-    parts = [{**p, "band": _level_band(p)} for p in data["parts"]]
+    parts = [{**p, "band": _level_band(p), "state": DISCONTINUED if p["discontinued"] else ACTIVE}
+             for p in data["parts"]]
     # A part never counted has no figure, so it is not "with stock" either.
     held = sum(1 for p in parts if (p["qty"] or 0) > 0)
     _list_sheet(
@@ -855,7 +865,7 @@ def _stock_list_sheet(wb, data):
         # No colour key on the sheet (12 Nov 2026: "ye heading nhi chahiye").
         note=None,
         totals=((1, 2, "Total", "label"), (3, 4, len(parts), "parts"),
-                (5, 10, f"With stock: {_grouped(held)}", "label_right")),
+                (5, 11, f"With stock: {_grouped(held)}", "label_right")),
         landscape=True, date_cols=4, heading=REPORT)
 
 

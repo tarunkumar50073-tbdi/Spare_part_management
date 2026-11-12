@@ -50,7 +50,7 @@ DETAIL_HEAD = ["Sr No", "Section", "Category", "Part No", "Description", "Specif
 URL = "/api/v1/spare-stock/daily-report"
 STOCK_ONLY_URL = "/api/v1/spare-stock/daily-stock-only"
 STOCK_ONLY_HEAD = ["Sr No", "Section", "Part No", "Description", "Location", "UOM", "In Stock", "Min",
-                   "Reorder Level", "Max"]
+                   "Reorder Level", "Max", "Status"]
 
 
 def _part(section, part_no, qty, name=None, category=None, mn=0, mx=None, ro=None, rate=None,
@@ -515,7 +515,8 @@ def test_stock_only_workbook(report):
     assert [r["Part No"] for r in rows] == [r["Part No"] for r in detail]     # same parts, same order
     for mine, mis in zip(rows, detail):
         # A part never counted says so here; the MIS leaves the cell empty.
-        want = {k: mis[k] for k in STOCK_ONLY_HEAD}
+        # Status here is Active / Discontinued, not the MIS stock status.
+        want = {k: mis[k] for k in STOCK_ONLY_HEAD if k != "Status"} | {"Status": "Active"}
         if mis["In Stock"] is None:
             want["In Stock"] = "Not counted"
         assert mine == want, mine["Part No"]
@@ -525,12 +526,12 @@ def test_stock_only_workbook(report):
     assert by["MISB03"]["In Stock"] == 2.5
 
     assert ws.cell(1, 1).value == "Daily Stock Report"                         # no "· Stock List" in the title
-    assert ws.cell(1, 7).value == "Date: 13.10.2026"          # over the last four columns
+    assert ws.cell(1, 8).value == "Date: 13.10.2026"          # over the last four columns
     assert ws.cell(2, 5).value is None                                # no colour key beside the store
-    assert "G1:J1" in {str(r) for r in ws.merged_cells.ranges}
+    assert "H1:K1" in {str(r) for r in ws.merged_cells.ranges}
     # 11 parts, 8 of them with stock (MISA01 and MISB01 at 0, MISA07 not counted).
     assert _values(ws, 3) == ["Total", 11, "With stock: 8"]
-    assert ws.auto_filter.ref == "A4:J15"
+    assert ws.auto_filter.ref == "A4:K15"
     assert ws.freeze_panes == "D5"
     # A4 landscape, one page wide, as many long as it needs, header on every page.
     assert ws.page_setup.orientation == "landscape"
@@ -570,7 +571,31 @@ def test_stock_only_colours_in_stock_by_the_levels():
     assert cells["MISA07"].value == "Not counted"
     assert cells["MISU01"].fill.fill_type is None                     # 3 in stock, no levels: no colour
     # The row banding leaves the coloured column alone, or even rows would hide it.
-    assert [str(cf.sqref) for cf in ws.conditional_formatting] == ["A5:F15 H5:J15"]
+    assert [str(cf.sqref) for cf in ws.conditional_formatting] == ["A5:F15 H5:J15"]   # nor Status
+
+
+def test_stock_only_status_active_or_discontinued(report):
+    """Status says Active, or Discontinued in the grey chip — even for a
+    discontinued part never counted (12 Nov 2026)."""
+    parts = Part.query.filter(Part.part_no.in_(["MISB02", "MISA07"])).all()
+    try:
+        for part in parts:
+            part.discontinued = True
+        db.session.commit()
+        ws = load_workbook(io.BytesIO(stock_only_report(STORE, now=NOW)["content"]))["Stock List"]
+    finally:
+        for part in parts:
+            part.discontinued = False
+        db.session.commit()
+    heads, rows = _list(ws)
+    col = heads.index("Status") + 1
+    by = {r["Part No"]: r for r in rows}
+    assert {p: r["Status"] for p, r in by.items() if r["Status"] != "Active"} == {
+        "MISB02": "Discontinued", "MISA07": "Discontinued"}
+    assert by["MISA07"]["In Stock"] == "Not counted"
+    cells = {ws.cell(r, 3).value: ws.cell(r, col) for r in range(5, ws.max_row + 1)}
+    assert cells["MISB02"].fill.fgColor.rgb.endswith("E2E8F0")       # the grey Discontinued chip
+    assert cells["MISA01"].fill.fill_type is None                     # Active: plain
 
 
 def test_stock_only_at_the_minimum_is_red_without_a_reorder_level():
@@ -587,7 +612,7 @@ def test_stock_only_at_the_minimum_is_red_without_a_reorder_level():
 def test_stock_only_empty_store_builds():
     wb = load_workbook(io.BytesIO(stock_only_report("MIS-NO-SUCH-STORE", now=NOW)["content"]))
     ws = wb["Stock List"]
-    assert (ws.max_row, ws.auto_filter.ref) == (4, "A4:J4")
+    assert (ws.max_row, ws.auto_filter.ref) == (4, "A4:K4")
     assert _values(ws, 3) == ["Total", 0, "With stock: 0"]
 
 

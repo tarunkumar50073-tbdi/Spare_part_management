@@ -30,7 +30,8 @@ const STOCK_WORKBOOKS = [
   },
   {
     path: "/spare-stock/daily-stock-only", file: "Daily Stock Report", title: "Daily Stock Report",
-    text: "Only the stock: every active part with its location, quantity in stock and min / reorder / max — "
+    text: "Only the stock: every active part with its location, quantity in stock, min / reorder / max and "
+      + "status (Active / Discontinued) — "
       + "dark red at zero, red at or below min or reorder, green in between, yellow above max, grey not counted. "
       + "One sheet, ready to print.",
   },
