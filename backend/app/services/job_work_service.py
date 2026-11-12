@@ -36,6 +36,17 @@ GRN posting; never for a part not counted, or a challan on / before its count
 (the count already holds it). A line cancelled in ERP or gone from it is put
 back — unless a count since has taken it in (post_stock_out()).
 
+RGP status (12 Nov 2026: "issue hokar jo bhi part ja rha h spare part store se
+wo sabhi" - when each RGP was made, how many parts and qty, how much came back,
+how much is pending and for how many days): every challan of this plant made
+from an issue slip for a spare-store part, any party (rgp_summary()). What came
+back is the party's GRN of the same part dated on / after the challan, the
+oldest challan first - ERP's GRN carries no RGP no., so this is the app's match
+until IT gives the RGP receiving detail. The GRNs are read with the challans,
+from ERP's SRV register for those parties and parts, all dates (the GRN mirror
+keeps only recent months), and kept in app_settings (RECEIPTS_KEY); the mirror
+fills in any newer line.
+
 The app never creates, edits, approves or cancels an RGP. When ERP cannot be
 read, the returns and links stay as they are and the failure is shown (and
 logged) with when the last good read was.
@@ -63,6 +74,10 @@ RGP_TYPE = "Returnable Gate Pass (RGP)"
 FOC_TYPE, RETURNABLE = "General FOC", "RETURNABLE"
 SPARE_STORE = "MAINTENANCE"
 SETTING_KEY = "erp_rgp_sync"
+# The RGP parties' GRNs of the RGP parts, read with the challans (rgp_summary):
+# {"read_at": iso, "grns": [[party, item, grn no., grn date, receipt qty], ...]}.
+RECEIPTS_KEY = "erp_rgp_receipts"
+_CHALLAN_UNIT = re.compile(r"^[A-Z]+(\d{3})/")
 # Returns a store person unlinked: auto_link() leaves them to the person.
 MANUAL_KEY = "erp_rgp_manual_returns"
 AUTO_BY = "Auto (ERP challan)"
@@ -70,6 +85,8 @@ AUTO_BY = "Auto (ERP challan)"
 JOB_WORK_OUT = "JOB_WORK_OUT"
 OUT_BY = "ERP-CHALLAN"
 _ISSUE_SLIP = re.compile(r"IS\d+")
+# The slip no. as ERP writes it in doc_no: 26-27/001IS7762.
+_ISSUE_SLIP_FULL = re.compile(r"\d{2}-\d{2}/\d{3}IS\d+|IS\d+")
 STOCK_STATES = {
     "OUT": "Taken out of store stock",
     "WILL_OUT": "Goes out of store stock at the next ERP read",
@@ -109,6 +126,14 @@ def _day(v):
     return None
 
 
+def _plant_challan(no):
+    """True when a challan no. is this plant's: FO001/1714/26-27 is unit 10001,
+    FO002/1/26-27 Plant 2. A number of another form is kept."""
+    from app.utils.erp_unit import unit_segment
+    m = _CHALLAN_UNIT.match((no or "").strip().upper())
+    return m is None or m.group(1) == unit_segment()
+
+
 def _num(v):
     try:
         return float(str(v).replace(",", "").strip()) if v not in (None, "") else None
@@ -145,7 +170,56 @@ class JobWorkService:
         finally:
             conn.close()
 
-    def sync(self, rows=None):
+    @staticmethod
+    def _read_returns(parties, items):
+        """ERP's GRN lines of these parties and parts, all dates — one read-only
+        SELECT on the SRV register: [[party, item, grn no., grn date, receipt qty]]."""
+        if not parties or not items:
+            return []
+        from flask import current_app
+        from app.services.erp_db_client import ERPDBClient
+        conn = ERPDBClient()._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                'SELECT vendor_cd, upper(trim(item_cd)), grn_no, grn_date, receipt_qty FROM "{s}"."srv_report" '
+                "WHERE vendor_cd = ANY(%s) AND upper(trim(item_cd)) = ANY(%s)".format(
+                    s=current_app.config.get("ERP_DB_SCHEMA", "termsdb")),
+                (sorted(parties), sorted(items)))
+            return [list(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def _keep_returns(self, rows, grns=None):
+        """Read and keep the GRNs of the parties and parts on issue-slip
+        challans (rgp_summary). A failed read keeps the last good one."""
+        parties = {_txt(r.get("party_cd"), 40) for r in rows if _ISSUE_SLIP.search(str(r.get("doc_no") or "").upper())}
+        items = {(_txt(r.get("item_cd"), 40) or "").upper() for r in rows
+                 if _ISSUE_SLIP.search(str(r.get("doc_no") or "").upper())}
+        parties.discard(None)
+        items.discard("")
+        try:
+            got = self._read_returns(parties, items) if grns is None else grns
+        except Exception as exc:  # noqa: BLE001 — the challans still count; the old GRNs stay
+            logger.warning("ERP RGP GRN read failed: %s: %s", type(exc).__name__, exc)
+            return None
+        keep = self._clean_returns(got)
+        AppSetting.set_value(RECEIPTS_KEY, {"read_at": utcnow().isoformat(), "grns": keep}, "SYSTEM")
+        return len(keep)
+
+    @staticmethod
+    def _clean_returns(got):
+        """ERP's GRN rows as kept: [party, ITEM, grn no., ISO date, qty], blanks left out."""
+        keep = []
+        for party, item, grn_no, grn_date, qty in got:
+            day = _day(grn_date)
+            q = _num(qty)
+            if not grn_no or day is None or not q:
+                continue
+            keep.append([str(party).strip(), str(item).strip().upper(), str(grn_no).strip(), day.isoformat(), q])
+        return keep
+
+    def sync(self, rows=None, grns=None):
         """Read ERP's challan lines and bring ErpRgpLine in line: new lines
         added, known ones updated (status, qty …), lines gone from the read and
         on no return dropped — never a second line for the same challan + item,
@@ -154,7 +228,8 @@ class JobWorkService:
         and logged, not raised."""
         state = AppSetting.get_value(SETTING_KEY, {}) or {}
         try:
-            rows = self._read_erp() if rows is None else rows
+            from_erp = rows is None
+            rows = self._read_erp() if from_erp else rows
             now = utcnow()
             known = {(l.challan_no, l.item_cd): l for l in ErpRgpLine.query.all()}
             added = updated = 0
@@ -197,9 +272,11 @@ class JobWorkService:
                         dropped += 1
             linked = self.auto_link()
             moved = self.post_stock_out()
+            # Rows handed in (a test) read no GRNs from ERP unless they are handed in too.
+            returns = self._keep_returns(rows, grns) if (from_erp or grns is not None) else None
             state = {**state, "ok": True, "last_ok_at": now.isoformat(), "last_error": None, "last_error_at": None,
                      "lines": len(rows), "added": added, "updated": updated, "dropped": dropped, "auto_linked": linked,
-                     "stock_out": moved["out"], "stock_back": moved["back"]}
+                     "stock_out": moved["out"], "stock_back": moved["back"], "rgp_grns": returns}
         except Exception as exc:  # noqa: BLE001 — ERP down, not set up, table renamed: shown, not fatal
             db.session.rollback()
             logger.warning("ERP RGP read failed: %s: %s", type(exc).__name__, exc)
@@ -514,6 +591,115 @@ class JobWorkService:
         return {"rows": [{**self._line_dict(r), **stock.get(r.id, {}),
                           "linked_return": rets.get(links[r.id].return_id) if r.id in links else None}
                          for r in rows], "sync": self.status()}
+
+    # ---- RGP status (12 Nov 2026) ------------------------------------------------------------
+
+    def _returns(self, lines=()):
+        """{(party, ITEM): [[grn no., grn date, qty], ...]} oldest first — the GRNs
+        kept with the last RGP read, plus any newer line of the GRN mirror.
+        Before any read was kept (a machine whose ERP read has not run this
+        code yet), ERP is read here for `lines`' parties and parts — read only,
+        nothing saved — so old RGPs do not show as pending."""
+        from app.models.receiving_register import ReceivingRegister
+        saved = AppSetting.get_value(RECEIPTS_KEY, {}) or {}
+        seen, pool = set(), {}
+        rows = [tuple(g) for g in (saved.get("grns") or []) if len(g) == 5]
+        if not saved.get("read_at") and lines:
+            try:
+                got = self._read_returns({(l.party_cd or "").strip() for l in lines} - {""},
+                                         {(l.item_cd or "").strip().upper() for l in lines} - {""})
+                rows += [tuple(g) for g in self._clean_returns(got)]
+                saved = {"read_at": utcnow().isoformat()}
+            except Exception as exc:  # noqa: BLE001 — ERP not reachable: the mirror alone
+                logger.warning("ERP RGP GRN read for the RGP status failed: %s: %s", type(exc).__name__, exc)
+        for r in ReceivingRegister.query.filter(ReceivingRegister.ven_cd.isnot(None)).with_entities(
+                ReceivingRegister.ven_cd, ReceivingRegister.item_cd, ReceivingRegister.grn_no,
+                ReceivingRegister.grn_date, ReceivingRegister.receipt_qty):
+            if r[2] and r[3] and r[4]:
+                rows.append((r[0].strip(), (r[1] or "").strip().upper(), r[2].strip(), r[3].isoformat(), float(r[4])))
+        for party, item, grn_no, day, qty in rows:
+            key = (party, item, grn_no.upper())
+            if key in seen:
+                continue
+            seen.add(key)
+            pool.setdefault((party, item), []).append([grn_no, date.fromisoformat(str(day)[:10]), float(qty)])
+        for grns in pool.values():
+            grns.sort(key=lambda g: (g[1], g[0]))
+        return pool, saved.get("read_at")
+
+    def rgp_summary(self, today=None):
+        """Every RGP of this plant made from an issue slip for a spare-store
+        part, any party: when made, parts, qty sent, qty back on the party's
+        GRNs (matched, oldest challan first), pending, days open — each with its
+        lines and the GRNs matched to them. Open RGPs first, oldest first."""
+        from app.services.erp_grn_posting_service import _plant_date
+        today = today or _plant_date(utcnow())
+        spare = {(c or "").upper(): (pid, name) for c, pid, name in db.session.query(
+            func.upper(func.trim(Part.part_no)), Part.id, Part.part_name).filter(Part.store_code == SPARE_STORE)}
+        lines = [l for l in ErpRgpLine.query.all()
+                 if (l.status or "") != "CANCEL" and _ISSUE_SLIP.search((l.doc_no or "").upper())
+                 and (l.item_cd or "").strip().upper() in spare and _plant_challan(l.challan_no)]
+        lines.sort(key=lambda l: (l.challan_date or date.min, l.challan_no or "", l.id))
+        pool, read_at = self._returns(lines)
+        left = {k: [list(g) for g in v] for k, v in pool.items()}
+        rgps = {}
+        for l in lines:
+            item = l.item_cd.strip().upper()
+            sent = float(l.qty or 0)
+            need, got = sent, []
+            for g in left.get(((l.party_cd or "").strip(), item), []):
+                if need <= 1e-9:
+                    break
+                if g[2] <= 1e-9 or (l.challan_date and g[1] < l.challan_date):
+                    continue
+                take = round(min(need, g[2]), 2)
+                g[2] = round(g[2] - take, 2)
+                need = round(need - take, 2)
+                got.append({"grn_no": g[0], "grn_date": g[1].isoformat(), "qty": take})
+            back = round(sent - need, 2)
+            rgp = rgps.setdefault(l.challan_no, {
+                "challan_no": l.challan_no, "challan_date": _iso(l.challan_date), "party_cd": l.party_cd,
+                "party_name": l.party_name, "issue_slips": [], "gate_status": l.status, "lines": []})
+            slip = _ISSUE_SLIP_FULL.search((l.doc_no or "").upper())
+            slip = slip.group(0) if slip else l.doc_no
+            if slip and slip not in rgp["issue_slips"]:
+                rgp["issue_slips"].append(slip)
+            rgp["lines"].append({"part_id": spare[item][0], "part_no": l.item_cd, "part_name": spare[item][1] or l.item_desc,
+                                 "uom": l.uom, "qty": sent, "back": back, "pending": round(need, 2), "grns": got})
+        out = []
+        for rgp in rgps.values():
+            sent = round(sum(x["qty"] for x in rgp["lines"]), 2)
+            back = round(sum(x["back"] for x in rgp["lines"]), 2)
+            pending = round(sent - back, 2)
+            day = date.fromisoformat(rgp["challan_date"]) if rgp["challan_date"] else None
+            last = max((g["grn_date"] for x in rgp["lines"] for g in x["grns"]), default=None)
+            state = "CLOSED" if pending <= 1e-9 else ("PART_BACK" if back > 0 else "OPEN")
+            rgp.update({"parts": len(rgp["lines"]), "qty": sent, "back": back, "pending": pending, "state": state,
+                        "last_return": last,
+                        "days_open": (today - day).days if (day and state != "CLOSED") else None,
+                        "days_taken": ((date.fromisoformat(last) - day).days if (day and last and state == "CLOSED")
+                                       else None)})
+            out.append(rgp)
+        # Open ones first, the oldest on top; then the closed ones, newest first.
+        waiting = sorted((r for r in out if r["state"] != "CLOSED"), key=lambda r: (r["challan_date"] or "", r["challan_no"]))
+        closed = sorted((r for r in out if r["state"] == "CLOSED"), key=lambda r: (r["challan_date"] or "", r["challan_no"]),
+                        reverse=True)
+        out = waiting + closed
+        parties = {}
+        for r in out:
+            p = parties.setdefault(r["party_cd"], {"party_cd": r["party_cd"], "party_name": r["party_name"],
+                                                   "rgps": 0, "open": 0, "qty": 0.0, "back": 0.0, "pending": 0.0})
+            p["rgps"] += 1
+            p["open"] += r["state"] != "CLOSED"
+            p["qty"] = round(p["qty"] + r["qty"], 2)
+            p["back"] = round(p["back"] + r["back"], 2)
+            p["pending"] = round(p["pending"] + r["pending"], 2)
+        open_ = [r for r in out if r["state"] != "CLOSED"]
+        return {"rows": out,
+                "parties": sorted(parties.values(), key=lambda p: (-p["open"], -p["rgps"], p["party_name"] or "")),
+                "totals": {"rgps": len(out), "open": len(open_), "pending_qty": round(sum(r["pending"] for r in open_), 2),
+                           "oldest_days": max((r["days_open"] for r in open_), default=None)},
+                "grns_read_at": read_at, "today": today.isoformat(), "sync": self.status()}
 
     # ---- shapes ---------------------------------------------------------------------------------
 

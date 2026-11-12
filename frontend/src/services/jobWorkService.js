@@ -11,4 +11,6 @@ export const jobWorkService = {
   link: (returnId, rgpLineId) => api.post(`/job-work/returns/${returnId}/link`, { rgp_line_id: rgpLineId }),
   unlink: (returnId) => api.post(`/job-work/returns/${returnId}/unlink`),
   rgp: (q, config) => api.get("/job-work/rgp", { params: { q: q || undefined }, ...config }),
+  // { rows: [RGP: sent / back / pending / days, lines + GRNs], parties, totals, grns_read_at, today, sync }
+  rgpSummary: (config) => api.get("/job-work/rgp/summary", config),
 };

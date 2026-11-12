@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { AlertTriangle, Hammer, Link2, Search, Unlink } from "lucide-react";
+import { AlertTriangle, ChevronRight, Hammer, Link2, Search, Unlink } from "lucide-react";
 import Modal from "../../components/Modal.jsx";
 import ErrorState from "../../components/ErrorState.jsx";
 import { useCan } from "../../components/Can.jsx";
@@ -21,8 +21,9 @@ import { jobWorkService } from "../../services/jobWorkService.js";
 //
 //   Returns       each job work return: Pending RGP · RGP available – pending
 //                 match · RGP linked · API sync failed
-//   ERP challans  the returnable challan lines as last read from ERP, and which
-//                 return each is on
+//   ERP challans  RGP status (12 Nov 2026: every RGP made from an issue slip
+//                 for a spare part, any party — when, parts, qty, back,
+//                 pending, days), and the challan lines as last read from ERP
 
 const TABS = [{ key: "returns", label: "Job work returns" }, { key: "rgp", label: "ERP challans" }];
 
@@ -269,7 +270,178 @@ function LinkDialog({ ret, onClose, onLinked }) {
   );
 }
 
+// ---- RGP status (12 Nov 2026: "issue hokar jo bhi part ja rha h spare part store se wo sabhi") ----
+
+const RGP_STATE = {
+  OPEN: { label: "Pending", cls: "badge-danger" },
+  PART_BACK: { label: "Part back", cls: "badge-warning" },
+  CLOSED: { label: "Closed", cls: "badge-success" },
+};
+const RGP_FILTERS = [{ key: "", label: "All" }, { key: "open", label: "Pending" }, { key: "closed", label: "Closed" }];
+const daysTone = (d) => (d > 30 ? "text-rose-600 dark:text-rose-400" : d > 15 ? "text-amber-600 dark:text-amber-400" : "text-slate-700 dark:text-slate-200");
+
+function Tile({ label, value, hint, tone = "" }) {
+  return (
+    <div className="card py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className={`mt-1 text-2xl font-bold tabular ${tone || "text-slate-800 dark:text-white"}`}>{value}</p>
+      {hint && <p className="text-[11px] text-slate-400">{hint}</p>}
+    </div>
+  );
+}
+
+function RgpRow({ r }) {
+  const [open, setOpen] = useState(false);
+  const st = RGP_STATE[r.state] || RGP_STATE.OPEN;
+  return (
+    <>
+      <tr className="cursor-pointer align-top text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-navy-800/40"
+        onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <td className="whitespace-nowrap px-3 py-2.5">
+          <div className="flex items-start gap-1.5">
+            <ChevronRight size={14} aria-hidden="true" className={`mt-0.5 shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+            <div><div className="font-mono font-semibold">{r.challan_no}</div><div className="text-[11px] text-slate-400">{fmtDate(r.challan_date)}</div></div>
+          </div>
+        </td>
+        <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11.5px]">{r.issue_slips.join(", ") || "—"}</td>
+        <td className="px-3 py-2.5"><div className="max-w-[220px] truncate" title={r.party_name}>{r.party_name}</div><div className="font-mono text-[11px] text-slate-400">{r.party_cd}</div></td>
+        <td className="px-3 py-2.5 text-right tabular">{num(r.parts)}</td>
+        <td className="px-3 py-2.5 text-right tabular">{num(r.qty)}</td>
+        <td className="px-3 py-2.5 text-right tabular text-emerald-700 dark:text-emerald-400">{num(r.back)}</td>
+        <td className={`px-3 py-2.5 text-right tabular font-semibold ${r.pending > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-400"}`}>{num(r.pending)}</td>
+        <td className="whitespace-nowrap px-3 py-2.5 text-right">
+          {r.days_open != null
+            ? <span className={`font-semibold tabular ${daysTone(r.days_open)}`}>{num(r.days_open)} days</span>
+            : r.days_taken != null
+              ? <span className="text-[11.5px] text-slate-400" title={`Last part back on ${fmtDate(r.last_return)}`}>back in {num(r.days_taken)} days</span>
+              : "—"}
+        </td>
+        <td className="px-3 py-2.5"><span className={`badge ${st.cls}`}>{st.label}</span></td>
+      </tr>
+      {open && (
+        <tr className="bg-slate-50/60 dark:bg-navy-950/30">
+          <td colSpan={9} className="px-3 pb-3 pt-1">
+            <table className="w-full text-[12px]">
+              <thead className="text-[10.5px] uppercase tracking-wide text-slate-400">
+                <tr><th className="px-2 py-1.5 text-left font-semibold">Part</th><th className="px-2 py-1.5 text-right font-semibold">Sent</th>
+                  <th className="px-2 py-1.5 text-right font-semibold">Back</th><th className="px-2 py-1.5 text-right font-semibold">Pending</th>
+                  <th className="px-2 py-1.5 text-left font-semibold">Came back on (party's GRN)</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+                {r.lines.map((l) => (
+                  <tr key={l.part_no} className="align-top">
+                    <td className="px-2 py-1.5"><span className="font-mono">{l.part_no}</span> <span className="text-slate-500">{l.part_name}</span></td>
+                    <td className="px-2 py-1.5 text-right tabular">{num(l.qty)} {l.uom}</td>
+                    <td className="px-2 py-1.5 text-right tabular text-emerald-700 dark:text-emerald-400">{num(l.back)}</td>
+                    <td className={`px-2 py-1.5 text-right tabular ${l.pending > 0 ? "font-semibold text-rose-600 dark:text-rose-400" : "text-slate-400"}`}>{num(l.pending)}</td>
+                    <td className="px-2 py-1.5">
+                      {l.grns.length
+                        ? l.grns.map((g) => <div key={`${g.grn_no}${g.grn_date}`} className="whitespace-nowrap"><span className="font-mono">{g.grn_no}</span> · {fmtDate(g.grn_date)} · {num(g.qty)}</div>)
+                        : <span className="text-slate-400">Not back yet</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function RgpStatus() {
+  const [party, setParty] = useState("");
+  const [state, setState] = useState("");
+  const [typed, setTyped] = useState("");
+  const q = useDebounced(typed).toUpperCase();
+  const list = useQuery({
+    queryKey: ["job-work", "rgp-summary"],
+    queryFn: () => jobWorkService.rgpSummary({ silent: true }).then((r) => r.data.data),
+    placeholderData: keepPreviousData,
+  });
+  const d = list.data;
+  const rows = useMemo(() => (d?.rows || []).filter((r) => (!party || r.party_cd === party)
+    && (!state || (state === "closed" ? r.state === "CLOSED" : r.state !== "CLOSED"))
+    && (!q || [r.challan_no, r.party_name, r.party_cd, ...r.issue_slips, ...r.lines.map((l) => `${l.part_no} ${l.part_name}`)]
+      .join(" ").toUpperCase().includes(q))), [d, party, state, q]);
+  const t = d?.totals;
+  if (list.isError) return <ErrorState title="RGP status did not load" message={errText(list.error)} onRetry={() => list.refetch()} />;
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Tile label="Pending RGPs" value={t ? num(t.open) : "…"} hint={t ? `of ${num(t.rgps)} RGPs made from an issue slip` : ""} tone={t?.open ? "text-rose-600 dark:text-rose-400" : ""} />
+        <Tile label="Pending qty" value={t ? num(t.pending_qty) : "…"} hint="Sent and not back yet" />
+        <Tile label="Oldest pending" value={t ? (t.oldest_days != null ? `${num(t.oldest_days)} days` : "—") : "…"} hint="Since the challan date" tone={t?.oldest_days > 30 ? "text-rose-600 dark:text-rose-400" : ""} />
+        <Tile label="Parties" value={d ? num(d.parties.length) : "…"} hint="With an RGP of a spare part" />
+      </div>
+      <p className="flex items-start gap-2 rounded-lg bg-sky-50 px-3 py-2 text-[11.5px] leading-relaxed text-sky-800 dark:bg-sky-500/10 dark:text-sky-200">
+        <AlertTriangle size={14} className="mt-px shrink-0" aria-hidden="true" />
+        <span>
+          Every RGP (General FOC returnable challan) made from an issue slip for a spare part, any party. <b>Back</b> = the party&apos;s GRN of the same part dated on / after the challan, the oldest RGP first — ERP&apos;s GRN does not carry the RGP no., so this is the app&apos;s match until IT gives the RGP receiving detail. Check a doubtful one in ERP.
+          {d?.grns_read_at && <> GRNs read {fmtStamp(d.grns_read_at)}.</>}
+        </span>
+      </p>
+      <div className="card p-0">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
+          {[{ party_cd: "", party_name: "All parties", open: t?.open }, ...(d?.parties || [])].map((p) => (
+            <button key={p.party_cd || "all"} type="button" aria-pressed={party === p.party_cd} onClick={() => setParty(p.party_cd)}
+              title={p.party_cd ? `${num(p.rgps)} RGPs · ${num(p.qty)} sent · ${num(p.back)} back · ${num(p.pending)} pending` : undefined}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${party === p.party_cd
+                ? "border-toyotared bg-toyotared text-white" : "border-slate-200 text-slate-700 hover:border-toyotared dark:border-navy-700 dark:text-slate-200"}`}>
+              <span className="max-w-[180px] truncate">{p.party_name}</span>
+              {p.open > 0 && <span className={`rounded-full px-1.5 text-[11px] font-semibold tabular ${party === p.party_cd ? "bg-white/20" : "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"}`}>{num(p.open)}</span>}
+            </button>
+          ))}
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            <span className="inline-flex rounded-lg border border-slate-200 p-0.5 dark:border-navy-700">
+              {RGP_FILTERS.map((f) => (
+                <button key={f.key || "all"} type="button" aria-pressed={state === f.key} onClick={() => setState(f.key)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium ${state === f.key ? "bg-slate-800 text-white dark:bg-white dark:text-navy-900" : "text-slate-600 dark:text-slate-300"}`}>
+                  {f.label}
+                </button>
+              ))}
+            </span>
+            <SearchBox value={typed} onChange={setTyped} placeholder="Challan, issue slip, part, party…" />
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[980px] text-left text-[12.5px]">
+            <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
+              <tr><TH>RGP (challan) · date</TH><TH>Issue slip</TH><TH>Party</TH><TH right>Parts</TH><TH right>Qty sent</TH><TH right>Back</TH><TH right>Pending</TH><TH right>Days</TH><TH>Status</TH></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+              {rows.map((r) => <RgpRow key={r.challan_no} r={r} />)}
+            </tbody>
+          </table>
+          {list.isPending && <p className="px-4 py-8 text-center text-sm text-slate-400">Loading…</p>}
+          {d && rows.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">{d.rows.length ? "No RGP matches." : "No RGP made from an issue slip for a spare part yet."}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const RGP_VIEWS = [{ key: "status", label: "RGP status" }, { key: "lines", label: "All challan lines" }];
+
 function RgpTab() {
+  const [view, setView] = useState("status");
+  return (
+    <div className="space-y-3">
+      <div role="tablist" aria-label="ERP challans" className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 dark:border-navy-800 dark:bg-navy-900">
+        {RGP_VIEWS.map((v) => (
+          <button key={v.key} type="button" role="tab" aria-selected={view === v.key} onClick={() => setView(v.key)}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold ${view === v.key ? "bg-slate-800 text-white dark:bg-white dark:text-navy-900" : "text-slate-600 dark:text-slate-300"}`}>
+            {v.label}
+          </button>
+        ))}
+      </div>
+      {view === "status" ? <RgpStatus /> : <RgpLines />}
+    </div>
+  );
+}
+
+function RgpLines() {
   const [typed, setTyped] = useState("");
   const q = useDebounced(typed);
   const list = useQuery({

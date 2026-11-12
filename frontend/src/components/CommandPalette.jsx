@@ -13,7 +13,7 @@ const NAV = [
   { label: "Dashboard", to: "/", keywords: "home overview store status" },
   { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr issue receive return rgp supplier barcode mapping label put away putaway bin location check multiple labels many labels ek saath" },
   { label: "Packets & QR Labels", to: "/spare-packets", mod: "spare_packets", keywords: "qr label lable print sticker tag packet packing fifo box label supplier label gate entry qr receipt old stock verify undo verify qc pending receipt to verify label printer godex printer setup direct print label helper print helper" },
-  { label: "Job Work & RGP", to: "/job-work", mod: "scan_part", keywords: "job work rgp challan coating isuzu oerlikon returnable foc repair vendor" },
+  { label: "Job Work & RGP", to: "/job-work", mod: "scan_part", keywords: "job work rgp challan coating isuzu oerlikon returnable foc repair vendor rgp pending rgp status rgp close industrial tooling issue slip" },
   { label: "Kiosk", to: "/part-search", mod: "part_kiosk", keywords: "part search kiosk find part photo kahan rakha location" },
   { label: "Work Queue", to: "/work-queue", mod: "work_queue", keywords: "grn quality inspection return rgp rework supplier pending" },
   { label: "Employee Master", to: "/employees", mod: "employees", keywords: "employee person mobile phone issued to code department" },

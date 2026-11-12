@@ -10,6 +10,7 @@ GET  /returns/<id>/candidates  q — the suggested RGP lines, and any found by q
 POST /returns/<id>/link        rgp_line_id
 POST /returns/<id>/unlink
 GET  /rgp                      q — ERP's RGP lines as last read
+GET  /rgp/summary              each issue-slip RGP of a spare part: sent, back on the party's GRNs, pending, days
 GET  /rgp/status               the last read: when, how many, any failure
 (ERP's RGPs are read with the automatic ERP read, every 2 minutes — no button.)
 """
@@ -83,6 +84,13 @@ def unlink(return_id):
 @permission_required(RIGHT, "view")
 def rgp_lines():
     return success_response(service.lines(q=request.args.get("q")))
+
+
+@bp.route("/rgp/summary", methods=["GET"])
+@permission_required(RIGHT, "view")
+def rgp_summary():
+    """Every RGP made from an issue slip for a spare part: sent, back, pending, days."""
+    return success_response(service.rgp_summary())
 
 
 @bp.route("/rgp/status", methods=["GET"])
