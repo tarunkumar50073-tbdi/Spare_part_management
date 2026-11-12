@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { AlertTriangle, ChevronRight, Hammer, Link2, Search, Unlink } from "lucide-react";
+import {
+  AlertTriangle, Building2, ChevronRight, FileClock, Hammer, Hourglass, Link2, PackageOpen, Search, Unlink,
+} from "lucide-react";
 import Modal from "../../components/Modal.jsx";
 import ErrorState from "../../components/ErrorState.jsx";
 import { useCan } from "../../components/Can.jsx";
@@ -280,12 +282,19 @@ const RGP_STATE = {
 const RGP_FILTERS = [{ key: "", label: "All" }, { key: "open", label: "Pending" }, { key: "closed", label: "Closed" }];
 const daysTone = (d) => (d > 30 ? "text-rose-600 dark:text-rose-400" : d > 15 ? "text-amber-600 dark:text-amber-400" : "text-slate-700 dark:text-slate-200");
 
-function Tile({ label, value, hint, tone = "" }) {
+// The Reports page's card look (12 Nov 2026: "rgp wale me bhi card design is
+// type ka"): red edge on the left, the icon in a rose square, title, figure, note.
+function Tile({ icon: Icon, label, value, hint, tone = "" }) {
   return (
-    <div className="card py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className={`mt-1 text-2xl font-bold tabular ${tone || "text-slate-800 dark:text-white"}`}>{value}</p>
-      {hint && <p className="text-[11px] text-slate-400">{hint}</p>}
+    <div className="card flex items-center gap-4 border-l-4 border-l-toyotared">
+      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-rose-50 text-toyotared dark:bg-rose-500/15">
+        <Icon size={22} aria-hidden="true" />
+      </span>
+      <div className="min-w-0">
+        <h3 className="font-semibold text-slate-800 dark:text-white">{label}</h3>
+        <p className={`text-2xl font-bold leading-tight tabular ${tone || "text-slate-800 dark:text-white"}`}>{value}</p>
+        {hint && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{hint}</p>}
+      </div>
     </div>
   );
 }
@@ -370,10 +379,10 @@ function RgpStatus() {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Tile label="Pending RGPs" value={t ? num(t.open) : "…"} hint={t ? `of ${num(t.rgps)} RGPs made from an issue slip` : ""} tone={t?.open ? "text-rose-600 dark:text-rose-400" : ""} />
-        <Tile label="Pending qty" value={t ? num(t.pending_qty) : "…"} hint="Sent and not back yet" />
-        <Tile label="Oldest pending" value={t ? (t.oldest_days != null ? `${num(t.oldest_days)} days` : "—") : "…"} hint="Since the challan date" tone={t?.oldest_days > 30 ? "text-rose-600 dark:text-rose-400" : ""} />
-        <Tile label="Parties" value={d ? num(d.parties.length) : "…"} hint="With an RGP of a spare part" />
+        <Tile icon={FileClock} label="Pending RGPs" value={t ? num(t.open) : "…"} hint={t ? `of ${num(t.rgps)} RGPs made from an issue slip` : ""} tone={t?.open ? "text-rose-600 dark:text-rose-400" : ""} />
+        <Tile icon={PackageOpen} label="Pending qty" value={t ? num(t.pending_qty) : "…"} hint="Sent and not back yet" />
+        <Tile icon={Hourglass} label="Oldest pending" value={t ? (t.oldest_days != null ? `${num(t.oldest_days)} days` : "—") : "…"} hint="Since the challan date" tone={t?.oldest_days > 30 ? "text-rose-600 dark:text-rose-400" : ""} />
+        <Tile icon={Building2} label="Parties" value={d ? num(d.parties.length) : "…"} hint="With an RGP of a spare part" />
       </div>
       <p className="flex items-start gap-2 rounded-lg bg-sky-50 px-3 py-2 text-[11.5px] leading-relaxed text-sky-800 dark:bg-sky-500/10 dark:text-sky-200">
         <AlertTriangle size={14} className="mt-px shrink-0" aria-hidden="true" />
