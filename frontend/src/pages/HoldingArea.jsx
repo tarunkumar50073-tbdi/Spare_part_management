@@ -133,7 +133,7 @@ export default function HoldingArea() {
               />
             </div>
             <p className="text-xs text-slate-400">Scan the part to confirm and complete the transfer.</p>
-            <BarcodeScanInput onScan={handleTransferScan} placeholder="Scan part barcode" />
+            <BarcodeScanInput onScan={handleTransferScan} placeholder="Scan part QR code" />
           </div>
         )}
       </Modal>

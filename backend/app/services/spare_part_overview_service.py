@@ -213,5 +213,5 @@ class SparePartOverviewService:
         if not (part.location or "").strip():
             add("info", "No location", "Nobody can be told where to find it")
         if label["labels_printed"] == 0:
-            add("info", "No barcode label", "Print a label so it can be scanned")
+            add("info", "No QR code label", "Print a label so it can be scanned")
         return alerts

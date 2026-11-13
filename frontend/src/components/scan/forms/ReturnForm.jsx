@@ -111,7 +111,7 @@ export default function ReturnForm({ scan, target, source, onDone, onCancel }) {
           && { label: "Line / Machine / Die", value: [it.line_name, it.line_no, it.machine, it.die_no].filter(Boolean).join(" · ") },
         { label: job ? "Job work reason" : "Return reason", value: reason },
         { label: "Returned by", value: byEmp ? `${byEmp.name}${byEmp.employee_code ? ` (${byEmp.employee_code})` : ""}` : payload.returned_by },
-        { label: "Found by", value: payload.identified_by === "QR" ? "QR / barcode scan" : "Part No. search (manual)" },
+        { label: "Found by", value: payload.identified_by === "QR" ? "QR code scan" : "Part No. search (manual)" },
         { label: "Note", value: payload.note },
         job ? { label: "Status", value: "Pending RGP — not stock" }
           : { label: "Available after return", value: fmtQty(Math.round((available + payload.qty) * 100) / 100, part.uom) },

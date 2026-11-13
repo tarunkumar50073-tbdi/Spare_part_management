@@ -42,7 +42,7 @@ class LabelPrintAudit(BaseModel):
     part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
 
     # The value encoded on the printed label (the internal Part No.).
-    barcode_value = db.Column(db.String(80), nullable=False)
+    barcode_value = db.Column("qr_code_value", db.String(80), nullable=False)   # column qr_code_value since 13 Nov 2026
 
     copies = db.Column(db.Integer, nullable=False, default=1)
     printed_by = db.Column(db.String(60), nullable=True)

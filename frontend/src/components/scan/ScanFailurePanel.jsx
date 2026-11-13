@@ -21,13 +21,13 @@ import { barcodeService } from "../../services/barcodeService.js";
 // that carried no errors.result.)
 const COPY = {
   UNKNOWN_BARCODE: {
-    tone: "amber", icon: TriangleAlert, title: "Unknown Supplier Barcode",
+    tone: "amber", icon: TriangleAlert, title: "Unknown Supplier QR Code",
     sub: "Not a Part No. of this store and not mapped yet",
     search: true,
   },
   INACTIVE_BARCODE: {
-    tone: "amber", icon: Ban, title: "Barcode Deactivated",
-    sub: "This code was mapped to a part, but the mapping has been switched off (damaged or retired label). A supervisor can switch it back on in that part's Barcodes panel — search the Part No. to open it.",
+    tone: "amber", icon: Ban, title: "QR Code Deactivated",
+    sub: "This code was mapped to a part, but the mapping has been switched off (damaged or retired label). A supervisor can switch it back on in that part's QR Codes panel — search the Part No. to open it.",
     search: true,
   },
   OTHER_STORE: {
@@ -54,7 +54,7 @@ const COPY = {
   // so it can't be mapped either; usually two labels read in one burst.
   CODE_TOO_LONG: {
     tone: "rose", icon: XCircle, title: "Code Too Long",
-    sub: "Longer than any DX Store label or mapped supplier barcode — scan one label at a time. Nothing was selected.",
+    sub: "Longer than any DX Store label or mapped supplier QR code — scan one label at a time. Nothing was selected.",
     search: true,
   },
   NETWORK: {
@@ -124,7 +124,7 @@ export default function ScanFailurePanel({ failure, canMap, storeCode, onSearch,
 
   const mapTo = async (p) => {
     const ok = await confirm({
-      title: "Map supplier barcode",
+      title: "Map supplier QR code",
       message: `Map ${mapCode} → ${p.part_no}${p.part_name ? ` (${p.part_name})` : ""}? After this, scanning ${multi ? "any of this supplier's labels with this item code" : mapCode} identifies ${p.part_no} straight away.`,
       confirmText: "Map to Part",
       danger: false,
@@ -198,7 +198,7 @@ export default function ScanFailurePanel({ failure, canMap, storeCode, onSearch,
             Which part of this store is <span className="font-mono">{mapCode}</span>?
           </p>
           <PartSearch storeCode={storeCode} onPick={mapTo} busy={saving} clearOnPick={false}
-            label="Part to map this barcode to" placeholder="Search the Part No. this barcode belongs to…" />
+            label="Part to map this QR code to" placeholder="Search the Part No. this QR code belongs to…" />
           <div className="mt-3 flex justify-end">
             <button type="button" className="btn-secondary" onClick={() => setMapping(false)} disabled={saving}>Back</button>
           </div>

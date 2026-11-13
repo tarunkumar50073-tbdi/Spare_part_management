@@ -1262,7 +1262,7 @@ function PartDetailModal({ part, sob, onClose }) {
               <DetailRow label="New Part No" value={part.new_part_no} />
               <DetailRow label="Old Part No" value={part.old_part_no} />
               <DetailRow label="Supplier" value={part.supplier_name} />
-              <DetailRow label="Barcode" value={part.barcode} />
+              <DetailRow label="QR Code" value={part.barcode} />
               <DetailRow label="Package Standard" value={detailNum(part.package_standard)} />
               <DetailRow label="Bin Capacity" value={detailNum(part.bin_capacity)} />
               <DetailRow label="Unit Price" value={detailMoney(part.unit_price)} />

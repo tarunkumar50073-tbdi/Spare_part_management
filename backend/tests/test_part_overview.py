@@ -56,7 +56,7 @@ def test_part_overview_reads_every_block_from_real_rows():
     labels = {a["label"]: a["severity"] for a in ov["alerts"]}
     assert labels["At reorder level"] == "warning"
     assert "Awaiting confirmation" not in labels                  # nobody confirms an issue any more
-    assert labels["No barcode label"] == "info"
+    assert labels["No QR code label"] == "info"
 
 
 def test_never_counted_part_says_so():

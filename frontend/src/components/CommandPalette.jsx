@@ -11,7 +11,7 @@ import { can, seesSpareStock } from "../utils/permissions.js";
 // Quick-jump destinations. `mod`/`admin` gate an entry to who may open it.
 const NAV = [
   { label: "Dashboard", to: "/", keywords: "home overview store status" },
-  { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr issue receive return rgp supplier barcode mapping label put away putaway bin location check multiple labels many labels ek saath" },
+  { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr code issue receive return rgp supplier barcode supplier qr code mapping label put away putaway bin location check multiple labels many labels ek saath" },
   { label: "Packets & QR Labels", to: "/spare-packets", mod: "spare_packets", keywords: "qr label lable print sticker tag packet packing fifo box label supplier label gate entry qr receipt old stock verify undo verify qc pending receipt to verify label printer godex printer setup direct print label helper print helper" },
   { label: "Job Work & RGP", to: "/job-work", mod: "scan_part", keywords: "job work rgp challan coating isuzu oerlikon returnable foc repair vendor rgp pending rgp status rgp close industrial tooling issue slip" },
   { label: "Kiosk", to: "/part-search", mod: "part_kiosk", keywords: "part search kiosk find part photo kahan rakha location" },
@@ -30,7 +30,7 @@ const NAV = [
   { label: "Urgent Challan Register", to: "/challans", mod: "challan_register", keywords: "urgent challan delivery challan dc without invoice po pending approval invoice later link invoice grn pending breakdown production critical gate register" },
   { label: "Rejection Mail", to: "/short-rejection?tab=rejection", mod: "rejection_request", keywords: "rejection reject srv rejection line rejection rqc punch mail rejection mail outlook" },
   { label: "ERP Control Center", to: "/erp-control", mod: "erp_control", keywords: "erp sync status reconciliation error pending" },
-  { label: "Data Quality", to: "/data-quality", mod: "data_quality", keywords: "missing min max rate location barcode completeness" },
+  { label: "Data Quality", to: "/data-quality", mod: "data_quality", keywords: "missing min max rate location barcode qr code completeness" },
   { label: "Action Tracker", to: "/action-tracker", mod: "action_tracker", keywords: "issues owner action by target date overdue open points management summary" },
   { label: "Notification Center", to: "/notifications", mod: "notifications", keywords: "alerts notification critical warning bell" },
   { label: "Suppliers", to: "/suppliers", keywords: "vendor supplier master" },

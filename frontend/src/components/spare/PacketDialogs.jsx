@@ -394,7 +394,7 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
       </div>
       <Choice value={labels} onChange={(v) => { setLabels(v); setSame(null); }} options={[
         ["OURS", "Print our QR labels", "One label per packet, printed next"],
-        ["SUPPLIER", "Supplier's label is on the box", "No printing — scan each box's own QR / barcode"]]} />
+        ["SUPPLIER", "Supplier's label is on the box", "No printing — scan each box's own QR code"]]} />
       {!supplier && (
         <div className="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-navy-700">
           <p className="text-[12px] font-bold uppercase tracking-wider text-slate-400">Label preview</p>

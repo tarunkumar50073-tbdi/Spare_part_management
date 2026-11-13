@@ -35,7 +35,7 @@ SERVICES = [
      "category": "Inventory", "icon": "📷", "mod": "scan_part",
      "keywords": ["scan", "barcode", "qr", "gun", "camera", "issue", "receive", "return",
                   "location", "rgp", "rework", "inspection",
-                  "supplier barcode", "mapping", "label",
+                  "supplier barcode", "supplier qr code", "qr code", "mapping", "label",
                   # 10 Nov 2026: several labels of one part to one person in one issue.
                   "multiple labels", "many labels", "4 qty", "ek saath", "ek sath"]},
     # The screens below were in the sidebar but not here, so Store Saathi
@@ -191,7 +191,7 @@ SERVICES = [
      "keywords": ["user", "admin", "password", "rights", "permission", "role", "add user"]},
     {"key": "settings", "title": "Settings", "route": "/settings",
      "category": "System", "icon": "⚙️", "admin": True,
-     "keywords": ["settings", "config", "label", "barcode label", "store visibility",
+     "keywords": ["settings", "config", "label", "barcode label", "qr code label", "store visibility",
                   "system status", "gear", "label helper", "download label helper", "direct print setup"]},
     {"key": "rights_matrix", "title": "Rights Matrix", "route": "/rights-matrix",
      "category": "System", "icon": "🔐", "admin": True,

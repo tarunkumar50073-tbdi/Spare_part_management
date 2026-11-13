@@ -383,7 +383,7 @@ export default function PartDrawer({ partId, onClose, back = null }) {
             <p className="flex items-center gap-1.5 text-[11px] text-slate-400">
               <CircleCheck size={12} aria-hidden="true" />
               Label: {ov.label.labels_printed ? `${ov.label.labels_printed} print(s) recorded` : "none printed yet"}
-              {ov.label.mapped_barcodes ? ` · ${ov.label.mapped_barcodes} supplier barcode(s) mapped` : ""}
+              {ov.label.mapped_barcodes ? ` · ${ov.label.mapped_barcodes} supplier QR code(s) mapped` : ""}
             </p>
           </div>
         )}

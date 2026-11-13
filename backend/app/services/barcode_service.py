@@ -235,7 +235,7 @@ class BarcodeService:
                     "UNKNOWN_BARCODE", code)
             raise self._scan_failure(
                 NotFoundError,
-                f"This code is {len(code)} characters long — a Part No. or mapped barcode is at "
+                f"This code is {len(code)} characters long — a Part No. or mapped QR code is at "
                 f"most {SCAN_CODE_MAX}, so it cannot identify a part. Search the Part No. instead.",
                 "CODE_TOO_LONG", code)
 
@@ -248,7 +248,7 @@ class BarcodeService:
             inactive = self.pb_repo.get_by_code(code)
             result = "INACTIVE_BARCODE" if inactive else "UNKNOWN_BARCODE"
             self._audit(code, result, scan_source, scan_mode, user, store_code)
-            message = (f"Barcode '{code}' has been deactivated" if inactive
+            message = (f"QR code '{code}' has been deactivated" if inactive
                        else f"No part found for code '{code}'")
             raise self._scan_failure(NotFoundError, message, result, code)
 
@@ -390,7 +390,7 @@ class BarcodeService:
         clash = self.pb_repo.get_by_code(part.part_no)
         if clash and clash.part_id != part.id:
             raise ConflictError(
-                f"Barcode '{part.part_no}' is already mapped to another part"
+                f"QR code '{part.part_no}' is already mapped to another part"
             )
         if clash and clash.part_id == part.id:
             return self.pb_repo.update(
@@ -694,7 +694,7 @@ class BarcodeService:
             raise NotFoundError(f"Part {part_id} not found")
         code = (code or "").strip()
         if not code:
-            raise BadRequestError("Supplier barcode value is required")
+            raise BadRequestError("Supplier QR code value is required")
         if symbology not in SYMBOLOGIES:
             symbology = "OTHER"
 
@@ -708,7 +708,7 @@ class BarcodeService:
                 return self.list_part_barcodes(part_id)
             # Already mapped (to this part while active, or to any other part).
             raise ConflictError(
-                f"Barcode '{code}' is already mapped"
+                f"QR code '{code}' is already mapped"
                 + ("" if clash.part_id == part_id else " to another part")
             )
 
@@ -718,7 +718,7 @@ class BarcodeService:
         # harmless alias and allowed.
         owner = self.part_repo.get_by_scan_code(code)
         if owner and owner.id != part_id:
-            raise ConflictError(f"Barcode '{code}' is the internal Part No. of another part")
+            raise ConflictError(f"QR code '{code}' is the internal Part No. of another part")
 
         if supplier_id is not None and not self.supplier_repo.get_by_id(supplier_id):
             raise NotFoundError(f"Supplier {supplier_id} not found")
@@ -732,8 +732,8 @@ class BarcodeService:
     def set_mapping_active(self, mapping_id, active, user=None):
         mapping = self.pb_repo.get_by_id(mapping_id)
         if not mapping:
-            raise NotFoundError(f"Barcode mapping {mapping_id} not found")
+            raise NotFoundError(f"QR code mapping {mapping_id} not found")
         if mapping.source == "INTERNAL" and not active:
-            raise ValidationError("The internal barcode cannot be deactivated")
+            raise ValidationError("The internal QR code cannot be deactivated")
         self.pb_repo.update(mapping, is_active=bool(active))
         return self.list_part_barcodes(mapping.part_id)

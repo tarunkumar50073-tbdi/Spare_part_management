@@ -47,7 +47,7 @@ GROUPS = (
         "spare_packets": "Packets and individual units with their own QR",
         "put_away_log": "Put-away confirmations",
         "label_print_audit": "Label prints and reprints",
-        "part_barcodes": "Barcodes mapped to parts (supplier codes)",
+        "part_qr_codes": "Supplier QR codes mapped to parts",
         "daily_stock_counts": "Daily stock counts",
         "scan_audit": "Every scan on Scan Part",
         "rgp_return_links": "Job work return linked to its ERP RGP",

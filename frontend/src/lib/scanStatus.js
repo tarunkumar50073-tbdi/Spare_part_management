@@ -132,7 +132,7 @@ export const BARCODE_SOURCE = {
 
 // Label print sources (spec 8) — LabelPrintAudit.source.
 export const PRINT_SOURCE = {
-  SUPPLIER_BARCODE: "Supplier Barcode",
+  SUPPLIER_BARCODE: "Supplier QR Code",
   ERP_SEARCH: "ERP Search",
   MANUAL_ENTRY: "Manual Entry",
   QR_SCAN: "QR Scan",

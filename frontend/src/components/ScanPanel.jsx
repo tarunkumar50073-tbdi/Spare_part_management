@@ -297,7 +297,7 @@ export default function ScanPanel({
             )}
           </div>
           <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">
-            {hint || "Point the rear camera at the part’s QR label or barcode."}
+            {hint || "Point the rear camera at the part’s QR label or QR code."}
           </p>
         </div>
       )}

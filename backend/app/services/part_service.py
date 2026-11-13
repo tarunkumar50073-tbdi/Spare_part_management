@@ -24,7 +24,7 @@ FIELD_ALIASES = {
     # Item Description (13 Nov 2026; "Part Name" / "Description" in older files).
     "part_name": ("itemdescription", "partname", "description"),
     "uom": {"uom", "unit", "unitofmeasure"},
-    "barcode": {"barcode", "qrcode", "scancode"},
+    "barcode": ("qrcode", "barcode", "scancode"),   # "QR Code" since 13 Nov 2026
     "part_type": {"parttype", "routing", "materialrouting"},
     "min_stock_level": {"minstocklevel", "minstock", "min"},
     "reorder_level": {"reorder", "reorderlevel", "reorderpoint", "reorderqty", "reoder", "reoderlevel"},
@@ -82,13 +82,13 @@ def _aliases_for(data):
     return FIELD_ALIASES
 
 TEMPLATE_COLUMNS = [
-    "Part No", "Item Description", "UOM", "Barcode", "Part Type (DOL/OTHER)", "Min Stock Level", "Reorder Level", "Max Stock Level",
+    "Part No", "Item Description", "UOM", "QR Code", "Part Type (DOL/OTHER)", "Min Stock Level", "Reorder Level", "Max Stock Level",
     "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "Model No", "New Part No", "Old Part No", "Package Standard",
     "Supplier Code", "Daily Consumption", "Unit Price", "Location", "Rework Location",
 ]
 
 EXPORT_COLUMNS = [
-    ("Part No", "part_no"), ("Item Description", "part_name"), ("UOM", "uom"), ("Barcode", "barcode"),
+    ("Part No", "part_no"), ("Item Description", "part_name"), ("UOM", "uom"), ("QR Code", "barcode"),
     ("Part Type", "part_type"), ("Min Stock Level", "min_stock_level"),
     ("Reorder Level", "reorder_level"), ("Max Stock Level", "max_stock_level"), ("Status", "status_label"),
     ("Category", "category"), ("Sub Category", "sub_category"), ("Model No", "specification"),
@@ -110,7 +110,7 @@ SPARE_EXPORT_COLUMNS = [
     ("Section", "section"), ("Category", "sub_category"), ("Model No", "specification"),
     ("Item Description", "part_name"), ("UOM", "uom"), ("Supplier", "supplier"),
     ("Min", "min_stock_level"), ("Max", "max_stock_level"), ("Reorder Level", "reorder_level"),
-    ("Rate", "unit_price"), ("Barcode", "barcode"),
+    ("Rate", "unit_price"), ("QR Code", "barcode"),
     ("Discontinued", "discontinued_label"), ("Status", "status_label"),
 ]
 SPARE_TEMPLATE_COLUMNS = [label for label, key in SPARE_EXPORT_COLUMNS if key not in ("supplier", "status_label")]

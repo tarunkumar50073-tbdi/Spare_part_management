@@ -45,7 +45,7 @@ PERMISSION_MODULES = [
     {"key": "erp_control", "label": "ERP Control Center"},
     {"key": "part_master", "label": "Part Master"},
     {"key": "data_quality", "label": "Data Quality"},
-    {"key": "supplier_barcodes", "label": "Supplier Barcodes"},
+    {"key": "supplier_barcodes", "label": "Supplier QR Codes"},
     {"key": "scan_audit", "label": "Scan Audit"},
     {"key": "departments", "label": "Department Emails"},
     # People parts are issued to (mobile no. -> name / code / department). The

@@ -16,7 +16,7 @@ import { TONE_CHIP, scanIcon } from "./scanIcons.js";
 // Part No. — and every supplier code mapped to it, active or switched off. A
 // mapped supplier code identifies the part on a scan exactly like its own QR;
 // the Part No. is never replaced, and a switched-off code stays listed as
-// history (scanning it says "Barcode Deactivated").
+// history (scanning it says "QR Code Deactivated").
 //
 // Anyone may look. Adding a code or switching one off / on needs the
 // supplier_barcodes edit right (the server checks it too). A write answers with
@@ -32,7 +32,7 @@ const CODE_MAX = 80; // part_barcodes.code — the longest code that can be mapp
 // A supplier code the server answered for with a reason (duplicate, another
 // part's Part No.) — or no answer, when it is not known whether it was saved.
 const errorText = (e) => (e?.response
-  ? e.response.data?.message || "The barcode was not saved."
+  ? e.response.data?.message || "The QR code was not saved."
   : "No answer from the server — check the list below before trying again.");
 
 function BarcodeRow({ b, partNo, canEdit, busy, onToggle }) {
@@ -50,7 +50,7 @@ function BarcodeRow({ b, partNo, canEdit, busy, onToggle }) {
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
           <span className={`break-all font-mono ${b.is_active ? "" : "text-slate-400 line-through decoration-slate-300"}`}>{b.code}</span>
-          {b.is_primary && <Star size={13} className="fill-amber-400 text-amber-400" aria-label="Primary barcode" />}
+          {b.is_primary && <Star size={13} className="fill-amber-400 text-amber-400" aria-label="Primary QR code" />}
           <span className={`badge ${b.is_active ? "badge-success" : "badge-neutral"}`}>{b.is_active ? "Active" : "Inactive"}</span>
         </p>
         <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -197,8 +197,8 @@ export default function BarcodesPanel({ part, barcodes, defaultOpen = false, onR
   const toggle = async (b) => {
     if (b.is_active) {
       const ok = await confirm({
-        title: "Switch off this supplier barcode?",
-        message: `After this, scanning ${b.code} no longer identifies ${part.part_no} — it says "Barcode Deactivated". It stays listed and can be switched on again.`,
+        title: "Switch off this supplier QR code?",
+        message: `After this, scanning ${b.code} no longer identifies ${part.part_no} — it says "QR Code Deactivated". It stays listed and can be switched on again.`,
         confirmText: "Deactivate",
       });
       if (!ok) { onRelease?.(); return; }
@@ -217,11 +217,11 @@ export default function BarcodesPanel({ part, barcodes, defaultOpen = false, onR
   };
 
   return (
-    <section className="card p-4" aria-label="Barcodes">
+    <section className="card p-4" aria-label="QR Codes">
       <button type="button" aria-expanded={open} aria-controls={bodyId}
         onClick={() => { setOpen((o) => !o); onRelease?.(); }}
         className="flex w-full items-center justify-between gap-2 text-left">
-        <span className="kpi-label">Barcodes</span>
+        <span className="kpi-label">QR Codes</span>
         <span className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           {summary}
           <ChevronDown size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
@@ -231,7 +231,7 @@ export default function BarcodesPanel({ part, barcodes, defaultOpen = false, onR
       {open && (
         <div id={bodyId} className="mt-3">
           {list == null ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">The server did not send this part&apos;s barcode list.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">The server did not send this part&apos;s QR code list.</p>
           ) : (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-navy-800 dark:border-navy-700">
               {/* Every part has its QR (it is the Part No.); the server keeps a

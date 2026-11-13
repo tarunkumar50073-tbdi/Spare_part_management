@@ -119,7 +119,7 @@ function DoneStrip({ message, onDismiss }) {
 
 function IdleCard() {
   const ways = [
-    { icon: ScanLine, text: "Scan — the part’s QR label or the supplier’s barcode, with the scanner gun" },
+    { icon: ScanLine, text: "Scan — the part’s QR label or the supplier’s QR code, with the scanner gun" },
     { icon: Search, text: "Search Part No. — by number, description or rack location" },
     { icon: Keyboard, text: "Manual Entry — type a code when a label won’t scan" },
   ];
@@ -484,7 +484,7 @@ export default function ScanPart() {
   const primaryKey = scan?.primary_action ?? null;
   const primary = actions.find((a) => a.key === primaryKey && a.enabled && allowed(a.key)) || null;
   let step = "SCAN";
-  let hint = "Scan the part’s QR label or the supplier’s barcode — or search / type the Part No.";
+  let hint = "Scan the part’s QR label or the supplier’s QR code — or search / type the Part No.";
   let complete = false;
   if (action && formStep === "CONFIRM") {
     step = "CONFIRM"; hint = `${actionMeta?.label || "Action"} — read it back, then confirm to record it.`;

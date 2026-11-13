@@ -529,7 +529,7 @@ function CheckList({ meta, code, summary, canEdit, onClose }) {
       numCol("unit_price", "Rate", money),
       { key: "location", label: "Location", sortable: true, render: (r) => cell(r, "location", r.location || blank) },
       {
-        key: "barcode", label: "Barcode", sortable: true,
+        key: "barcode", label: "QR Code", sortable: true,
         render: (r) => (r.barcode ? <span className="font-mono text-xs">{r.barcode}</span> : blank),
       },
       {

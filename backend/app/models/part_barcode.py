@@ -30,7 +30,7 @@ SYMBOLOGIES = ("CODE128", "EAN13", "EAN8", "UPC", "QR", "OTHER")
 
 
 class PartBarcode(BaseModel):
-    __tablename__ = "part_barcodes"
+    __tablename__ = "part_qr_codes"   # "part_barcodes" until 13 Nov 2026 (rename_qr_columns.py)
 
     part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
 

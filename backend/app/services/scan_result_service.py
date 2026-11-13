@@ -132,7 +132,7 @@ BUCKET_WORDS = {
     "REJECTED": "rejected",
 }
 PRINT_SOURCE_LABELS = {
-    "SUPPLIER_BARCODE": "Supplier Barcode", "ERP_SEARCH": "ERP Search",
+    "SUPPLIER_BARCODE": "Supplier QR Code", "ERP_SEARCH": "ERP Search",
     "MANUAL_ENTRY": "Manual Entry", "QR_SCAN": "QR Scan", "REPRINT": "Reprint",
     "PART_MASTER": "Part Master", "STORE_STOCK": "Store Stock", "GATE_ENTRY": "Gate Entry",
 }

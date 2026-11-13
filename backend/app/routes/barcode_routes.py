@@ -182,7 +182,7 @@ def create_mapping():
         data["part_id"], data["code"], supplier_id=data.get("supplier_id"),
         symbology=data["symbology"], user=_username(),
     )
-    return success_response(result, "Supplier barcode mapped", 201)
+    return success_response(result, "Supplier QR code mapped", 201)
 
 
 @bp.route("/mapping/<int:mapping_id>/active", methods=["PUT"])
@@ -193,7 +193,7 @@ def set_mapping_active(mapping_id):
     # store's barcode (audit finding AUTHZ-1).
     mapping = barcode_repo.get_by_id(mapping_id)
     if not mapping:
-        raise NotFoundError(f"Barcode mapping {mapping_id} not found")
+        raise NotFoundError(f"QR code mapping {mapping_id} not found")
     _require_part_store(mapping.part_id)
     body = request.get_json(force=True) or {}
     active = bool(body.get("active", True))

@@ -12,7 +12,7 @@ const FAST_KEY_MS = 140; // avg inter-key gap at/above this = hand-typed (reject
 const DUP_MS = 700;      // gun: swallow a trailing CR/LF or a quick re-read
 const CAM_DUP_MS = 1500; // camera: ignore the same barcode briefly after a hit
 
-export default function BarcodeScanInput({ onScan, placeholder = "Scan a barcode with the gun…", autoFocus = true, disabled = false }) {
+export default function BarcodeScanInput({ onScan, placeholder = "Scan a QR code with the gun…", autoFocus = true, disabled = false }) {
   const [method, setMethod] = useState("gun"); // "gun" | "camera"
   const [value, setValue] = useState("");
   const [warn, setWarn] = useState("");
@@ -108,7 +108,7 @@ export default function BarcodeScanInput({ onScan, placeholder = "Scan a barcode
       isGun = avg < FAST_KEY_MS;
     }
     if (!isGun) {
-      setWarn("Please scan with the barcode gun — manual entry is disabled.");
+      setWarn("Please scan with the scanner gun — manual entry is disabled.");
       setTimeout(() => setWarn(""), 2500);
       return;
     }
@@ -210,7 +210,7 @@ export default function BarcodeScanInput({ onScan, placeholder = "Scan a barcode
             )}
           </div>
           <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-xs text-slate-400">Point the rear camera at the barcode.</span>
+            <span className="text-xs text-slate-400">Point the rear camera at the QR code.</span>
             <button type="button" onClick={() => setMethod("gun")}
               className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-toyotared">
               <Keyboard size={14} /> Use gun

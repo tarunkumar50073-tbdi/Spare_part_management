@@ -18,7 +18,9 @@ class Part(BaseModel):
     # Barcode/QR value scanned at verification — falls back to part_no at
     # scan-match time when blank, so parts without a distinct barcode label
     # still scan correctly off their part number.
-    barcode = db.Column(db.String(60), unique=True, nullable=True, index=True)
+    # The part's QR Code: column qr_code since 13 Nov 2026 ("jha bhi barcode name h usko qr code
+    # name kr de" - UI, table, backend); the code keeps calling it barcode.
+    barcode = db.Column("qr_code", db.String(60), unique=True, nullable=True, index=True)
 
     # Default Material Routing target (DOL = Store Location direct,
     # OTHER = RQC Inspection (BOP), TOOL_ROOM = forwarded to the tool

@@ -123,7 +123,7 @@ export default function PutAway() {
                 </p>
               )}
               <p className="text-xs text-slate-400 mb-2">Step 2: Scan the part to confirm</p>
-              <BarcodeScanInput onScan={handleScanPart} placeholder="Scan part barcode" />
+              <BarcodeScanInput onScan={handleScanPart} placeholder="Scan part QR code" />
             </div>
           )}
 

@@ -10,7 +10,7 @@ import PartSearch from "./PartSearch.jsx";
 // Every way ends in the same resolve on the server (audited, store-scoped), so
 // a part is identified the same however it was named.
 const INPUT_TABS = [
-  { key: "SCAN", label: "Scan Barcode / QR", short: "Scan", icon: ScanLine },
+  { key: "SCAN", label: "Scan QR Code", short: "Scan", icon: ScanLine },
   { key: "SEARCH", label: "Search Part No.", short: "Search", icon: Search },
   { key: "MANUAL", label: "Manual Entry", short: "Manual", icon: Keyboard },
 ];
@@ -34,7 +34,7 @@ function ManualEntry({ onSubmit, busy }) {
   return (
     <form onSubmit={submit}>
       <label htmlFor="scan-manual-code" className="text-sm text-slate-600 dark:text-slate-300">
-        Part No. or supplier barcode
+        Part No. or supplier QR code
       </label>
       <div className="mt-1 flex gap-2">
         <input

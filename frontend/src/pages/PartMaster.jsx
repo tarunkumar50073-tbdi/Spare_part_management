@@ -456,7 +456,7 @@ export default function PartMaster() {
     { key: "part_name", label: "Item Description" },
     { key: "specification", label: "Model No", render: (r) => r.specification || "—" },
     { key: "uom", label: "UOM" },
-    { key: "barcode", label: "Barcode", render: (r) => r.barcode || <span className="text-slate-300 dark:text-slate-600">—</span> },
+    { key: "barcode", label: "QR Code", render: (r) => r.barcode || <span className="text-slate-300 dark:text-slate-600">—</span> },
     // Section beside the Category: every spare is filed under the one broad
     // group "Maintenance/Tool Room", while the section (Maintenance / General /
     // Press Tool Room) tells parts apart (the store, 22 + 27 Oct 2026).
@@ -722,7 +722,7 @@ export default function PartMaster() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-500">Barcode</label>
+              <label className="text-xs font-medium text-slate-500">QR Code</label>
               <input
                 className="input-field mt-1"
                 value={form.barcode}
