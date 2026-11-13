@@ -7,7 +7,7 @@ from app.models.base import BaseModel
 class DailyStockCount(BaseModel):
     __tablename__ = "daily_stock_counts"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     count_date = db.Column(db.Date, nullable=False, index=True)
     counted_qty = db.Column(db.Numeric(12, 2), nullable=False)
 

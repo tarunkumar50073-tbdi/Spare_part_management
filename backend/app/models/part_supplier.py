@@ -15,7 +15,7 @@ from app.models.base import BaseModel
 class PartSupplier(BaseModel):
     __tablename__ = "part_suppliers"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     supplier_id = db.Column(db.Integer, db.ForeignKey("suppliers.id"), nullable=False)
     qty = db.Column(db.Numeric(14, 2), nullable=True)  # this supplier's share of current stock, if known
     share_pct = db.Column(db.Numeric(5, 2), nullable=True)  # SOB % from the supplier planning sheet, if known — a ratio, never merged into qty

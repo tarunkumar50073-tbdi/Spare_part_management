@@ -221,7 +221,7 @@ def test_photo_mode_counts_active_parts_only(app, make, photos):
 
 def test_model_no_and_item_description_are_saved_searched_exported_and_imported(app, make):
     from sqlalchemy import inspect
-    cols = {c["name"] for c in inspect(db.engine).get_columns("parts")}
+    cols = {c["name"] for c in inspect(db.engine).get_columns("part_master")}
     assert {"item_description", "model_no"} <= cols and not {"part_name", "specification"} & cols
     code, sec = make.store()
     editor = make.user({"part_master": {"view": True, "edit": True}})
@@ -432,8 +432,8 @@ def test_a_live_database_without_the_photos_column_gets_it_on_boot(app):
     runs: the column for the 2nd / 3rd photo is added by the portable step."""
     from sqlalchemy import inspect, text
     from app import _add_late_columns
-    names = lambda: {c["name"] for c in inspect(db.engine).get_columns("parts")}
-    db.session.execute(text("ALTER TABLE parts DROP COLUMN extra_images"))
+    names = lambda: {c["name"] for c in inspect(db.engine).get_columns("part_master")}
+    db.session.execute(text("ALTER TABLE part_master DROP COLUMN extra_images"))
     db.session.commit()
     assert "extra_images" not in names()
     _add_late_columns()

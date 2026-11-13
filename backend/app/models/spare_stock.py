@@ -79,7 +79,7 @@ CHECK_RESULTS = ("OK", "SHORT", "EXCESS", "DAMAGED")
 class SpareStock(BaseModel):
     __tablename__ = "spare_stock"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, unique=True, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, unique=True, index=True)
 
     # Maintained on every movement rather than summed from the ledger on read.
     # A spares store is read far more often than it moves — every dashboard
@@ -105,7 +105,7 @@ class SpareStock(BaseModel):
 class SpareStockLedger(BaseModel):
     __tablename__ = "spare_stock_ledger"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     qty_delta = db.Column(db.Numeric(12, 2), nullable=False)  # positive = in, negative = out
 
     # The resulting balance, stored rather than recomputed: it is what makes a

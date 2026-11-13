@@ -37,7 +37,7 @@ class PartRequest(BaseModel):
     reference_no = db.Column(db.String(30), unique=True, index=True, nullable=True)
     store_code = db.Column(db.String(30), nullable=True, index=True)
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     part_no = db.Column(db.String(30), nullable=True)
     part_name = db.Column(db.String(150), nullable=True)         # description snapshot
     assigned_location = db.Column(db.String(40), nullable=True)  # part.location snapshot

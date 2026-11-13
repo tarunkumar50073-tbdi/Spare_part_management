@@ -40,7 +40,7 @@ class RejectionRequest(BaseModel):
     kind = db.Column(db.String(10), nullable=False, index=True)
     status = db.Column(db.String(20), nullable=False, default="Requested", index=True)
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     item_cd = db.Column(db.String(60), nullable=False, index=True)
     item_desc = db.Column(db.String(255), nullable=True)
     uom = db.Column(db.String(20), nullable=True)

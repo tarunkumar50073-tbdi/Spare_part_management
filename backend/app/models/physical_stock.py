@@ -10,7 +10,7 @@ from app.models.base import BaseModel
 class PhysicalStock(BaseModel):
     __tablename__ = "physical_stock"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), unique=True, nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), unique=True, nullable=False, index=True)
     qty = db.Column(db.Numeric(14, 2), nullable=False, default=0)
     uploaded_at = db.Column(db.DateTime(timezone=True), nullable=False)
 

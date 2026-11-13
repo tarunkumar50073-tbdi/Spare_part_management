@@ -510,7 +510,7 @@ def _start_backup_worker(app):
 # on boot wherever they are missing, on any database.
 LATE_COLUMNS = (
     # The part's 2nd and 3rd photos, comma-separated file names (24 Oct 2026).
-    ("parts", "extra_images", "VARCHAR(200)"),
+    ("part_master", "extra_images", "VARCHAR(200)"),
     # A packet that carries the supplier's own label instead of ours: the code
     # read off that box (27 Oct 2026, "uske qr/bar ko map karenge").
     ("spare_packets", "supplier_code", "VARCHAR(255)"),
@@ -604,50 +604,50 @@ def _patch_schema():
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_ledger_ext_ref ON stock_ledger (ext_ref)"))
         db.session.commit()
 
-    part_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(parts)")).fetchall()]
+    part_cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(part_master)")).fetchall()]
     if "store_code" not in part_cols:
-        db.session.execute(text("ALTER TABLE parts ADD COLUMN store_code VARCHAR(30) REFERENCES stores(code)"))
-        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_parts_store_code ON parts (store_code)"))
+        db.session.execute(text("ALTER TABLE part_master ADD COLUMN store_code VARCHAR(30) REFERENCES stores(code)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_parts_store_code ON part_master (store_code)"))
         db.session.commit()
     if "section_id" not in part_cols:
-        db.session.execute(text("ALTER TABLE parts ADD COLUMN section_id INTEGER REFERENCES sections(id)"))
-        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_parts_section_id ON parts (section_id)"))
+        db.session.execute(text("ALTER TABLE part_master ADD COLUMN section_id INTEGER REFERENCES sections(id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_parts_section_id ON part_master (section_id)"))
         db.session.commit()
 
     for col in ("location", "rework_location"):
         if col not in part_cols:
-            db.session.execute(text(f"ALTER TABLE parts ADD COLUMN {col} VARCHAR(40)"))
+            db.session.execute(text(f"ALTER TABLE part_master ADD COLUMN {col} VARCHAR(40)"))
             db.session.commit()
 
     # BOP bin-stock sheet planning fields (added with the child part-master import).
     for col in ("no_of_row", "no_of_pallet", "store_rack_capacity", "total_store_rack_qty",
                 "monthly_peak_schedule_qty", "reck_covg_days"):
         if col not in part_cols:
-            db.session.execute(text(f"ALTER TABLE parts ADD COLUMN {col} NUMERIC(14, 2)"))
+            db.session.execute(text(f"ALTER TABLE part_master ADD COLUMN {col} NUMERIC(14, 2)"))
             db.session.commit()
 
     # Spare reorder point (part-master REORDER column) — order when stock hits it.
     if "reorder_level" not in part_cols:
-        db.session.execute(text("ALTER TABLE parts ADD COLUMN reorder_level NUMERIC(12, 2)"))
+        db.session.execute(text("ALTER TABLE part_master ADD COLUMN reorder_level NUMERIC(12, 2)"))
         db.session.commit()
 
     # The part's Model No. (Part.specification in the code; the column is
     # model_no since 13 Nov 2026) — searchable.
     if "model_no" not in part_cols and "specification" not in part_cols:
-        db.session.execute(text("ALTER TABLE parts ADD COLUMN model_no VARCHAR(255)"))
+        db.session.execute(text("ALTER TABLE part_master ADD COLUMN model_no VARCHAR(255)"))
         db.session.commit()
 
     # The part's one photo (file name in the part-images folder) — Part
     # Master, 21 Oct 2026.
     for col, kind in (("image_file", "VARCHAR(80)"),):
         if col not in part_cols:
-            db.session.execute(text(f"ALTER TABLE parts ADD COLUMN {col} {kind}"))
+            db.session.execute(text(f"ALTER TABLE part_master ADD COLUMN {col} {kind}"))
             db.session.commit()
 
     # Discontinued / not required any more (22 Oct 2026): kept with its stock,
     # out of every to-order and missing-level figure.
     if "discontinued" not in part_cols:
-        db.session.execute(text("ALTER TABLE parts ADD COLUMN discontinued BOOLEAN NOT NULL DEFAULT 0"))
+        db.session.execute(text("ALTER TABLE part_master ADD COLUMN discontinued BOOLEAN NOT NULL DEFAULT 0"))
         db.session.commit()
 
     # Reorder-mail recipient role: To / Cc / Bcc (older rows default to To).
@@ -752,7 +752,7 @@ def _patch_schema():
     #  - a part's gate history matches upper(item_code), which the plain
     #    item_code index cannot serve.
     for ddl in (
-        "CREATE INDEX IF NOT EXISTS ix_parts_store_active_no ON parts (store_code, is_active, part_no)",
+        "CREATE INDEX IF NOT EXISTS ix_parts_store_active_no ON part_master (store_code, is_active, part_no)",
         "CREATE INDEX IF NOT EXISTS ix_spare_stock_ledger_part_created ON spare_stock_ledger (part_id, created_at)",
         "CREATE INDEX IF NOT EXISTS ix_audit_logs_created_at ON audit_logs (created_at)",
         "CREATE INDEX IF NOT EXISTS ix_gate_entries_item_code_upper ON gate_entries (upper(item_code))",
@@ -953,7 +953,7 @@ def _seed_stores():
     db.session.commit()
 
     db.session.execute(
-        text("UPDATE parts SET store_code = :code WHERE store_code IS NULL"),
+        text("UPDATE part_master SET store_code = :code WHERE store_code IS NULL"),
         {"code": DEFAULT_STORE_CODE},
     )
     db.session.commit()

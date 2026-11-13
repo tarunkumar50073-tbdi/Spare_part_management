@@ -27,7 +27,7 @@ class RackBin(BaseModel):
 
     location = db.Column(db.String(20), nullable=False, index=True)
     rack_no = db.Column(db.String(20), nullable=False)
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     bin_capacity = db.Column(db.Numeric(12, 2), nullable=False)
     bins_allocated = db.Column(db.Integer, nullable=False, default=0)
     bins_occupied = db.Column(db.Integer, nullable=False, default=0)

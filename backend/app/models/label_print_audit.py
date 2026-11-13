@@ -39,7 +39,7 @@ PRINT_SOURCES = (
 class LabelPrintAudit(BaseModel):
     __tablename__ = "label_print_audit"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
 
     # The value encoded on the printed label (the internal Part No.).
     barcode_value = db.Column(db.String(80), nullable=False)

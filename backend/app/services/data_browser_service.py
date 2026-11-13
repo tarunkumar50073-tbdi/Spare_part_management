@@ -37,7 +37,7 @@ CELL_MAX = 300           # characters of one cell on screen (the download has it
 # A table not named here is listed under "Other".
 GROUPS = (
     ("Spare store", {
-        "parts": "Part Master — every part, its levels, location, rate",
+        "part_master": "Part Master — every part, its levels, location, rate",
         "spare_stock": "Physical stock of each part (In Stock)",
         "spare_stock_ledger": "Every stock movement: issue, receipt, return, count, adjustment",
         "spare_transactions": "Journal of every step (issue, return, install …), never changed",

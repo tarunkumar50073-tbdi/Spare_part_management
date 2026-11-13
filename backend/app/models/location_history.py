@@ -13,7 +13,7 @@ from app.models.base import BaseModel
 class SpareLocationHistory(BaseModel):
     __tablename__ = "spare_location_history"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     old_location = db.Column(db.String(60), nullable=True)
     new_location = db.Column(db.String(60), nullable=True)
     reason = db.Column(db.String(255), nullable=True)

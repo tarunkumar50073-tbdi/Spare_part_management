@@ -9,7 +9,7 @@ class BOM(BaseModel):
     __tablename__ = "boms"
 
     finished_good_id = db.Column(db.Integer, db.ForeignKey("finished_goods.id"), nullable=False, index=True)
-    child_part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    child_part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     qty_per_unit = db.Column(db.Numeric(12, 4), nullable=False)
 
     finished_good = db.relationship("FinishedGood")

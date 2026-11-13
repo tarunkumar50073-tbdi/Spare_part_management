@@ -14,7 +14,7 @@ from app.models.base import BaseModel
 class ProductionReceipt(BaseModel):
     __tablename__ = "production_receipts"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     qty_produced = db.Column(db.Numeric(12, 2), nullable=False)
     produced_at = db.Column(db.DateTime(timezone=True), nullable=False)
     production_order_no = db.Column(db.String(30), nullable=True)  # ERP's own production/work-order punch reference

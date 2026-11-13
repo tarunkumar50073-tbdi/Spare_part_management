@@ -6,7 +6,7 @@ CATEGORIES = ["BOP", "Import", "Maintenance/Tool Room", "Consumable", "In-Parts"
 
 
 class Part(BaseModel):
-    __tablename__ = "parts"
+    __tablename__ = "part_master"   # "parts" until 13 Nov 2026 (rename_part_columns.py)
 
     part_no = db.Column(db.String(30), unique=True, nullable=False, index=True)
     # The Item Description. In the database the column is item_description

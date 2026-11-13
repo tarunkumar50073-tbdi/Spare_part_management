@@ -66,7 +66,7 @@ class ChallanRegister(BaseModel):
     # VEN:<code> / SUP:<id> / NAME:<NAME> — one key per supplier, for the duplicate check.
     supplier_key = db.Column(db.String(180), nullable=False, index=True)
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     part_no = db.Column(db.String(60), nullable=False, index=True)
     part_description = db.Column(db.String(255), nullable=True)
     challan_qty = db.Column(db.Numeric(12, 2), nullable=False)

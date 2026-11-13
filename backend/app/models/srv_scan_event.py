@@ -13,7 +13,7 @@ class SRVScanEvent(BaseModel):
 
     gate_entry_no = db.Column(db.String(30), nullable=False, index=True)
     barcode = db.Column(db.String(60), nullable=False)
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=True)
     srv_id = db.Column(db.Integer, db.ForeignKey("srvs.id"), nullable=True, index=True)
     result = db.Column(db.String(12), nullable=False)
 

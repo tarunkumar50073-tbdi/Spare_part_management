@@ -29,7 +29,7 @@ class ScanAudit(BaseModel):
     scanned_code = db.Column(db.String(80), nullable=False, index=True)
 
     # The part it resolved to, or NULL when the scan did not resolve.
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=True, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=True, index=True)
 
     scan_source = db.Column(db.String(20), nullable=False)
     scan_mode = db.Column(db.String(20), nullable=False)

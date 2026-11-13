@@ -15,7 +15,7 @@ class QuarterlyInventory(BaseModel):
 
     fiscal_year = db.Column(db.String(10), nullable=False, index=True)  # e.g. "2026-27"
     quarter = db.Column(db.String(2), nullable=False, index=True)
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
 
     erp_quantity = db.Column(db.Numeric(12, 2), nullable=False)
     physical_quantity = db.Column(db.Numeric(12, 2), nullable=False)

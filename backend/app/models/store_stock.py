@@ -6,7 +6,7 @@ from app.models.base import BaseModel
 class PartStock(BaseModel):
     __tablename__ = "part_stock"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     location = db.Column(db.String(20), nullable=False)  # RECEIVING_STORE / PART_STORE
     qty_on_hand = db.Column(db.Numeric(12, 2), nullable=False, default=0)
 
@@ -24,7 +24,7 @@ class PartStock(BaseModel):
 class StockLedger(BaseModel):
     __tablename__ = "stock_ledger"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     srv_id = db.Column(db.Integer, db.ForeignKey("srvs.id"), nullable=True, index=True)
     production_receipt_id = db.Column(db.Integer, db.ForeignKey("production_receipts.id"), nullable=True, index=True)
     location = db.Column(db.String(20), nullable=False)

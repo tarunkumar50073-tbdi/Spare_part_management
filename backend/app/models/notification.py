@@ -16,7 +16,7 @@ class Notification(BaseModel):
     __tablename__ = "notifications"
 
     type = db.Column(db.String(30), nullable=False, index=True)
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=True)
     holding_entry_id = db.Column(db.Integer, db.ForeignKey("holding_entries.id"), nullable=True)
     message = db.Column(db.String(255), nullable=False)
     status = db.Column(db.String(10), nullable=False, default="ACTIVE", index=True)

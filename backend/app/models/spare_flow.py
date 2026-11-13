@@ -85,7 +85,7 @@ class SpareReceipt(BaseModel):
     __tablename__ = "spare_receipts"
 
     receipt_no = db.Column(db.String(30), nullable=False, unique=True, index=True)  # RCV-YYYYMMDD-NNN
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     store_code = db.Column(db.String(30), nullable=False, index=True)
     status = db.Column(db.String(20), nullable=False, default="RECEIVED", index=True)
 
@@ -152,7 +152,7 @@ class SpareReturn(BaseModel):
     __tablename__ = "spare_returns"
 
     return_no = db.Column(db.String(40), nullable=False, unique=True, index=True)  # RET-YYYYMMDD-NNN
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     store_code = db.Column(db.String(30), nullable=False, index=True)
     # The ISSUE ledger row this return is recorded against (never a free receipt).
     issue_id = db.Column(db.Integer, db.ForeignKey("spare_stock_ledger.id"), nullable=False, index=True)
@@ -239,7 +239,7 @@ class SpareRgp(BaseModel):
 
     rgp_no = db.Column(db.String(30), nullable=False, unique=True, index=True)  # RGP-YYYY-NNNNN
     erp_challan_no = db.Column(db.String(40), nullable=True, index=True)   # the ERP RGP challan, if typed
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     store_code = db.Column(db.String(30), nullable=False, index=True)
     source_return_id = db.Column(db.Integer, db.ForeignKey("spare_returns.id"), nullable=False, index=True)
     source_bucket = db.Column(db.String(20), nullable=True)   # RETURN_HOLD / DAMAGED
@@ -315,7 +315,7 @@ class SpareTransaction(BaseModel):
     inspection, RGP GRN); status-only events (GRN, RGP return, ...) have none."""
     __tablename__ = "spare_transactions"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     store_code = db.Column(db.String(30), nullable=True, index=True)
     txn_type = db.Column(db.String(24), nullable=False, index=True)
     qty = db.Column(db.Numeric(12, 2), nullable=True)

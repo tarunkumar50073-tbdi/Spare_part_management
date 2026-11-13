@@ -34,10 +34,10 @@ def old_db():
     # Every table the ledger's foreign keys point at (employees: the issue's
     # employee, from the Employee master) — as db.create_all leaves the live DB.
     con.executescript("""
-        CREATE TABLE parts (id INTEGER PRIMARY KEY, part_no VARCHAR(30));
+        CREATE TABLE part_master (id INTEGER PRIMARY KEY, part_no VARCHAR(30));
         CREATE TABLE suppliers (id INTEGER PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY);
-        INSERT INTO parts (id, part_no) VALUES (1, 'P-1');
+        INSERT INTO part_master (id, part_no) VALUES (1, 'P-1');
     """)
     con.execute(old_ddl)
     con.execute("CREATE INDEX ix_spare_stock_ledger_part_id ON spare_stock_ledger (part_id)")

@@ -14,7 +14,7 @@ class HoldingEntry(BaseModel):
     __tablename__ = "holding_entries"
 
     srv_id = db.Column(db.Integer, db.ForeignKey("srvs.id"), nullable=False, index=True)
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     invoice_no = db.Column(db.String(50), nullable=True)
 
     holding_qty = db.Column(db.Numeric(12, 2), nullable=False)  # original qty put into holding

@@ -17,7 +17,7 @@ from app.models.base import BaseModel
 class PutAwayLog(BaseModel):
     __tablename__ = "put_away_log"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     # Denormalised so the record reads on its own even if the part is later edited.
     part_no = db.Column(db.String(60), nullable=True)
     # The part's assigned (recorded) location, and what was actually scanned — on

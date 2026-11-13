@@ -32,7 +32,7 @@ def test_only_an_administrator_may_browse(app):
     c = app.test_client()
     _login(c, "STORE_USER", {"scan_part": {"view": True, "create": True, "update": True}})
     assert c.get(f"{URL}/tables").status_code == 403
-    assert c.get(f"{URL}/tables/parts").status_code == 403
+    assert c.get(f"{URL}/tables/part_master").status_code == 403
 
 
 def test_tables_rows_search_sort_and_no_secrets(app):
@@ -44,10 +44,10 @@ def test_tables_rows_search_sort_and_no_secrets(app):
     AppSetting.set_value("dbr_test_mail", {"host": "smtp.local", "smtp_password": "s3cret", "nested": {"api_key": "k"}})
 
     body = c.get(f"{URL}/tables").get_json()["data"]
-    parts = next(t for t in body["tables"] if t["name"] == "parts")
+    parts = next(t for t in body["tables"] if t["name"] == "part_master")
     assert parts["group"] == "Spare store" and parts["rows"] >= 1 and parts["about"]
 
-    got = c.get(f"{URL}/tables/parts", query_string={"q": "dbr-zeta", "sort": "part_no"}).get_json()["data"]
+    got = c.get(f"{URL}/tables/part_master", query_string={"q": "dbr-zeta", "sort": "part_no"}).get_json()["data"]
     assert [r["part_no"] for r in got["rows"]] == ["DBR-ZETA-1"] and got["total"] == 1
 
     users = c.get(f"{URL}/tables/users", query_string={"q": me.username}).get_json()["data"]
@@ -62,7 +62,7 @@ def test_tables_rows_search_sort_and_no_secrets(app):
     assert "smtp.local" in setting["value"] and "s3cret" not in setting["value"] and '"k"' not in setting["value"]
 
     assert c.get(f"{URL}/tables/no_such_table").status_code == 404
-    assert c.get(f"{URL}/tables/parts", query_string={"sort": "no_such_column"}).status_code == 400
+    assert c.get(f"{URL}/tables/part_master", query_string={"sort": "no_such_column"}).status_code == 400
 
     resp = c.get(f"{URL}/tables/users/export", query_string={"q": me.username})
     assert resp.status_code == 200

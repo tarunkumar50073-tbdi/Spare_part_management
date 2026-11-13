@@ -32,7 +32,7 @@ SYMBOLOGIES = ("CODE128", "EAN13", "EAN8", "UPC", "QR", "OTHER")
 class PartBarcode(BaseModel):
     __tablename__ = "part_barcodes"
 
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
 
     # The scannable value. Globally unique: one barcode value maps to exactly
     # one internal part (spec rule). For an INTERNAL row this equals the Part No.

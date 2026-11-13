@@ -39,7 +39,7 @@ class SpareBatch(BaseModel):
 
     receipt_no = db.Column(db.String(30), nullable=False, unique=True, index=True)
     store_code = db.Column(db.String(30), nullable=False, index=True)
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     # ERP_GRN (an accepted ERP GRN line), RECEIPT (another receipt row of the
     # ledger) or OPENING (stock already on the shelf, made into a batch).
     source = db.Column(db.String(12), nullable=False)
@@ -84,7 +84,7 @@ class SparePacket(BaseModel):
     code = db.Column(db.String(24), nullable=False, unique=True, index=True)
     kind = db.Column(db.String(8), nullable=False)                    # PACKET | UNIT
     batch_id = db.Column(db.Integer, db.ForeignKey("spare_batches.id"), nullable=False, index=True)
-    part_id = db.Column(db.Integer, db.ForeignKey("parts.id"), nullable=False, index=True)
+    part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
     seq = db.Column(db.Integer, nullable=False)                       # 1, 2, 3 … within its receipt
     qty = db.Column(db.Numeric(12, 2), nullable=False)
     uom = db.Column(db.String(10), nullable=True)
