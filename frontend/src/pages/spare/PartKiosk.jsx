@@ -13,6 +13,7 @@ import { can } from "../../utils/permissions.js";
 import { num } from "../../lib/format.js";
 import { partService } from "../../services/partService.js";
 import { partKioskService } from "../../services/partKioskService.js";
+import { scanSearch } from "../../lib/scanText.js";
 
 // Part Search — the kiosk outside the spare store (the store, 25 Oct 2026:
 // "spare store k bahar ki taraf 1 kiosk system lagega jisme user part search kar
@@ -133,7 +134,8 @@ export default function PartKiosk() {
   }, [open]);
 
   useEffect(() => {
-    const t = setTimeout(() => setQ(typed.trim()), 300);
+    // A scanned packet label searches by its part no. (13 Nov 2026).
+    const t = setTimeout(() => setQ(scanSearch(typed.trim())), 300);
     return () => clearTimeout(t);
   }, [typed]);
 

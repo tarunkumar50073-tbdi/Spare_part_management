@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { Camera, Flashlight, Play, ScanLine, SwitchCamera } from "lucide-react";
+import useGunEnd from "../hooks/useGunEnd.js";
 
 // One scan surface for the Spare store, two ways in:
 //  • Scanner gun (USB/Bluetooth HID) — types the barcode into a focused field
@@ -82,7 +83,11 @@ export default function ScanPanel({
     return () => document.removeEventListener("mouseup", onDocClick);
   }, [method, busy, autoFocus]);
 
+  // A scanner that sends no Enter (Honeywell 1950GSR, 13 Nov 2026) ends here
+  // when its burst goes quiet (hooks/useGunEnd).
+  const gunEnd = useGunEnd(() => submit());
   const onKeyDown = (e) => {
+    gunEnd(e);
     if (e.key === "Enter") { e.preventDefault(); submit(); return; }
     if (e.key.length === 1) keyTimesRef.current.push(Date.now());
   };

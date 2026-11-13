@@ -9,6 +9,7 @@ import {
   ALERTS_REFRESH_MS, alertsKey, alertsStoreFor, canOpenAction, fetchAlerts,
 } from "../services/spareAlertsService.js";
 import { partService } from "../services/partService.js";
+import { scanSearch } from "../lib/scanText.js";
 import { storeDashboardService } from "../services/storeDashboardService.js";
 import { useStores } from "../context/StoreContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -287,7 +288,8 @@ export default function Topbar({ title, showSearch = true }) {
   // Server-side, so it stays a substring match over part no, old part no and
   // name, and so the part's other supplier variants (SOB) come back with it.
   useEffect(() => {
-    const kw = query.trim();
+    // A scanned packet label searches by its part no. (13 Nov 2026).
+    const kw = scanSearch(query.trim());
     if (kw.length < 2) {
       setMatches([]);
       setSearching(false);

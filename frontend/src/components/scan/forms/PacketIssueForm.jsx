@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { ArrowUpFromLine, IdCard, TriangleAlert, X } from "lucide-react";
 import PersonPicker from "../../PersonPicker.jsx";
+import useGunEnd from "../../../hooks/useGunEnd.js";
 import { packetService } from "../../../services/packetService.js";
 import { fmtDate, fmtStamp } from "../../../lib/format.js";
 import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
@@ -72,6 +73,8 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
       setTimeout(() => nextRef.current?.focus(), 0);
     }
   };
+  // A scanner that sends no Enter adds the label when its burst goes quiet.
+  const gunEnd = useGunEnd(() => addLabel());
   const removeLabel = async (code) => {
     setAddMsg(null);
     const rest = all.map((p) => p.code).filter((c) => c !== code);
@@ -206,7 +209,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
               error={addMsg} hint={`Only labels of ${part.part_no} — another part is issued on its own, so each part keeps its history.`}>
               <input id={`${uid}-next`} ref={nextRef} value={next} autoFocus autoComplete="off" disabled={adding}
                 onChange={(e) => setNext(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLabel(); } }}
+                onKeyDown={(e) => { gunEnd(e); if (e.key === "Enter") { e.preventDefault(); addLabel(); } }}
                 className="input-field font-mono" placeholder={adding ? "Checking…" : "Scan the next label of this part"} />
             </Field>
           </div>

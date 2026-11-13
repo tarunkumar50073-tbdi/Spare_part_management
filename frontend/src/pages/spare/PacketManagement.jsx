@@ -8,6 +8,7 @@ import { useCan } from "../../components/Can.jsx";
 import { useStores } from "../../context/StoreContext.jsx";
 import { fmtDate, fmtStamp, num } from "../../lib/format.js";
 import { packetService } from "../../services/packetService.js";
+import { scanSearch } from "../../lib/scanText.js";
 import {
   CancelDialog, MakeLabelsDialog, PrintDialog, UnverifyDialog, VerifyDialog, errText,
 } from "../../components/spare/PacketDialogs.jsx";
@@ -137,7 +138,7 @@ function ReceiptsTab({ storeCode }) {
   const qc = useQueryClient();
   const [status, setStatus] = useState("");
   const [typed, setTyped] = useState("");
-  const q = useDebounced(typed);
+  const q = scanSearch(useDebounced(typed), "part");   // a scanned label: its part no.
   const [page, setPage] = useState(1);
   useEffect(() => { setPage(1); }, [status, q]);
   const [dialog, setDialog] = useState(null);           // { kind: VERIFY | MAKE | PRINT, ... }
@@ -320,7 +321,7 @@ function OldStockTab({ storeCode }) {
   const [rack, setRack] = useState("");
   const [show, setShow] = useState("todo");
   const [typed, setTyped] = useState("");
-  const q = useDebounced(typed);
+  const q = scanSearch(useDebounced(typed), "part");   // a scanned label: its part no.
   const [page, setPage] = useState(1);
   useEffect(() => { setPage(1); }, [section, rack, show, q]);
   useEffect(() => { setRack(""); }, [section]);
@@ -439,7 +440,7 @@ function PacketsTab({ storeCode }) {
   const qc = useQueryClient();
   const [status, setStatus] = useState("AVAILABLE");
   const [typed, setTyped] = useState("");
-  const q = useDebounced(typed);
+  const q = scanSearch(useDebounced(typed), "code");   // a scanned label: its packet code
   const [page, setPage] = useState(1);
   useEffect(() => { setPage(1); }, [status, q]);
   const [dialog, setDialog] = useState(null);
@@ -561,7 +562,7 @@ function FifoDialog({ partId, onClose }) {
 
 function IssuedTab({ storeCode }) {
   const [typed, setTyped] = useState("");
-  const q = useDebounced(typed);
+  const q = scanSearch(useDebounced(typed), "code");   // a scanned label: its packet code
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
