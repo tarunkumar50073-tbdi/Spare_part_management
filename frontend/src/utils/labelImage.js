@@ -18,7 +18,7 @@
 // a square at a time (tune.mod). The old fixed size in mm (tune.qr) is no
 // longer used.
 import { QRCodeDecoderErrorCorrectionLevel, QRCodeEncoder } from "@zxing/library";
-import { DOTS_PER_MM, PRINTER_DPI, TIERS, TINY, fitPt, labelTier, qrDots, tinyQr } from "./packetLabels.js";
+import { DOTS_PER_MM, PRINTER_DPI, TIERS, TINY, codePtMax, fitPt, labelTier, qrDots, tinyQr } from "./packetLabels.js";
 
 export const DPI = PRINTER_DPI;
 const PX = DOTS_PER_MM;                // dots per mm
@@ -124,7 +124,7 @@ function pickDots(n, autoMm, roomMm, tune) {
 function tinyFit(p, w, h, tune) {
   const pad = TINY.pad;
   const code = String(p.code || "");
-  const autoPt = Math.min(TINY.maxCodePt, ((w - 2 * pad) / (Math.max(code.length, 8) * 0.6)) / PT);
+  const autoPt = Math.min(codePtMax(labelTier(h, w)), ((w - 2 * pad) / (Math.max(code.length, 8) * 0.6)) / PT);
   const codePt = autoPt * (tune.text / 100);
   const codeMm = codePt * PT * 1.1;
   const rows = qrRows(tinyQr(p));
@@ -201,7 +201,7 @@ function drawFull(ctx, p, w, h, tier, tune) {
 export function qrFit(packet, size, tune = savedTune(size)) {
   const w = Number(size.w), h = Number(size.h);
   const tier = labelTier(h, w);
-  const f = tier === "TINY" ? tinyFit(packet, w, h, tune) : fullFit(packet, w, h, tier, tune);
+  const f = tinyFit(packet, w, h, tune);   // every size: the tiny layout (13 Nov 2026)
   return { n: f.n, dots: f.dots, auto: f.auto, most: f.most, side: f.side };
 }
 
@@ -216,8 +216,7 @@ export function labelCanvas(packet, size, tune = savedTune(size)) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   const tier = labelTier(h, w);
-  if (tier === "TINY") drawTiny(ctx, packet, w, h, tune);
-  else drawFull(ctx, packet, w, h, tier, tune);
+  drawTiny(ctx, packet, w, h, tune);       // every size: QR + code only (13 Nov 2026)
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {

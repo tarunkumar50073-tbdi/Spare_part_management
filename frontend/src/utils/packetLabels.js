@@ -39,6 +39,10 @@ const esc = (s) => String(s == null ? "" : s)
 // to keep its dots as big as can be at 12-14 mm; every bigger label's QR keeps
 // code | spec | location.
 export const TINY = { pad: 0.6, maxCodePt: 5 };
+// Every size prints the tiny label's layout - the QR and the code under it - since
+// 13 Nov 2026 ("bade & chote lable par same chape" ... "bilkul chhote jaisa");
+// a bigger label only gets a bigger QR and code.
+export const codePtMax = (tier) => (tier === "TINY" ? TINY.maxCodePt : 10);
 
 // The sizes offered on the print dialog, smallest first (mm).
 export const LABEL_SIZES = [
@@ -108,10 +112,10 @@ export function qrDots(n, maxMm) {
 
 // The tiny label: the QR (code and spec) and the code under it, the QR's
 // squares as many whole printer dots as the label allows.
-function tinyHtml(packets, w, h, zoom) {
+function tinyHtml(packets, w, h, zoom, maxPt = TINY.maxCodePt) {
   const pad = TINY.pad;
   const longest = Math.max(...packets.map((p) => String(p.code || "").length), 8);
-  const codePt = Math.min(TINY.maxCodePt, ((w - 2 * pad) / (longest * 0.6)) / 0.3528);
+  const codePt = Math.min(maxPt, ((w - 2 * pad) / (longest * 0.6)) / 0.3528);
   const codeMm = codePt * 0.3528 * 1.1;
   const room = Math.max(8, Math.min(w - 2 * pad, h - 2 * pad - codeMm - 0.3));
   const qrOf = (p) => {
@@ -187,7 +191,7 @@ export function packetLabelsHtml(packets, { size, zoom } = {}) {
   const w = clamp(Number(size?.w) || 100, LABEL_LIMITS.minW, LABEL_LIMITS.maxW);
   const h = clamp(Number(size?.h) || 50, LABEL_LIMITS.minH, LABEL_LIMITS.maxH);
   const tier = labelTier(h, w);
-  if (tier === "TINY") return tinyHtml(packets, w, h, zoom);
+  return tinyHtml(packets, w, h, zoom, codePtMax(tier));
   const t = TIERS[tier];
   const k = clamp(Math.min(w / t.ref[0], h / t.ref[1]), 0.85, 1.5);
   const pt = (v) => (v * k).toFixed(1);
