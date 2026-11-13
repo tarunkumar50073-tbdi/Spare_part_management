@@ -20,7 +20,7 @@ const NAV = [
   { label: "Store Stock", to: "/store-stock-spare", mod: "store_stock", keywords: "inventory on hand count upload opening stock erp waiting for qc" },
   { label: "Part Ledger — Stock Ledger", to: "/spare-part-history", mod: "part_ledger", keywords: "valuation history opening closing movement" },
   { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },
-  { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data model no item description" },
+  { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data model no item description qr list qr pdf" },
   { label: "Critical · Reorder · Excess", to: "/inventory-control", mod: "inventory_control", keywords: "short critical zero reorder excess aging order qty" },
   { label: "Issuance Report", to: "/consumption", mod: "consumption", keywords: "issuance issue list issued issue report who took taken by issued to person kisko diya kitna diya consumption consumed usage net returned trend top parts department category yesterday last month financial year fy full pack excel pdf charts" },
   { label: "Gate Entry", to: "/gate-entry", mod: "gate_entry", keywords: "gate entry receiving arrival inward vehicle" },

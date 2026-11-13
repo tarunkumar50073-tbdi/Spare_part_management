@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { Pencil, Trash2, Search, Repeat2, Camera, ImageOff, ImagePlus, X } from "lucide-react";
+import { Pencil, Trash2, Search, Repeat2, Camera, ImageOff, ImagePlus, X, QrCode, Download } from "lucide-react";
+import api from "../services/api.js";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
 import Modal from "../components/Modal.jsx";
@@ -448,6 +449,34 @@ export default function PartMaster() {
       activeCode ? { store_code: activeCode } : undefined,
     );
 
+  // The QR list as a PDF, with the filters on screen (13 Nov 2026: "part master k
+  // according qr list dekh sake download ka sake pdf file"): view opens it in a
+  // new tab, download saves it.
+  const [qrBusy, setQrBusy] = useState(false);
+  const qrParams = () => ({
+    store_code: activeCode || undefined, keyword: keyword || undefined, missing: missing || undefined,
+    section_id: filters.section_id || undefined, rack: filters.rack || undefined,
+    category: filters.category || undefined, sub_category: filters.sub_category || undefined,
+  });
+  const qrList = async (download) => {
+    const tab = download ? null : window.open("", "_blank");
+    setQrBusy(true);
+    try {
+      if (download) {
+        await downloadFile("/parts/qr-list.pdf", `Part QR List ${new Date().toLocaleDateString("en-GB").replaceAll("/", ".")}.pdf`, qrParams());
+      } else {
+        const res = await api.get("/parts/qr-list.pdf", { responseType: "blob", params: qrParams() });
+        const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+        if (tab) tab.location.href = url; else window.open(url, "_blank");
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+    } catch (_) {
+      if (tab) tab.close();
+    } finally {
+      setQrBusy(false);
+    }
+  };
+
   const columns = [
     { key: "photo", label: "Photo", exportValue: (r) => (r.image_file ? "Yes" : ""), render: photoCell },
     { key: "part_no", label: "Part No" },
@@ -546,6 +575,14 @@ export default function PartMaster() {
           <Link to="/part-photos" className="btn-secondary">
             <Camera size={16} aria-hidden="true" /> Photo Mode
           </Link>
+          <button type="button" className="btn-secondary" disabled={qrBusy} onClick={() => qrList(false)}
+            title="Every part on this list with its QR — 21 a page (PDF). The filters above apply.">
+            <QrCode size={16} aria-hidden="true" /> {qrBusy ? "Making…" : "QR List"}
+          </button>
+          <button type="button" className="btn-secondary" disabled={qrBusy} onClick={() => qrList(true)}
+            aria-label="Download the QR list PDF" title="Download the QR list (PDF)">
+            <Download size={16} aria-hidden="true" />
+          </button>
           {/* No Line / Machine / Die button since 30 Oct 2026: nothing records a
               line or machine since Confirm Installation went. */}
           <ExcelActions

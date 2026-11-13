@@ -135,3 +135,16 @@ class Part(BaseModel):
         out = super().to_dict()
         out["photos"] = self.photo_files
         return out
+
+
+# A new part gets its QR Code at once - its Part No. (13 Nov 2026: "part master
+# me koi naya part add ho to uska qr ban jaaye"; every existing part's QR Code
+# was filled with its Part No. the same day). Whichever way it is made - the
+# form, an Excel import, a script - and only when none was given.
+from sqlalchemy import event  # noqa: E402
+
+
+@event.listens_for(Part, "before_insert")
+def _qr_code_from_part_no(mapper, connection, target):
+    if not (target.barcode or "").strip() and (target.part_no or "").strip():
+        target.barcode = target.part_no.strip()

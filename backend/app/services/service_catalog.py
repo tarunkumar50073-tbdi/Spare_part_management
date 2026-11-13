@@ -78,7 +78,7 @@ SERVICES = [
     {"key": "part_master", "title": "Part Master", "route": "/parts",
      "category": "Masters", "icon": "🔩", "mod": "part_master",
      "keywords": ["part", "master", "min", "max", "reorder level", "rate", "price", "category",
-                  "add part", "edit part", "import parts", "part list", "model no", "item description"]},
+                  "add part", "edit part", "import parts", "part list", "model no", "item description", "qr list", "qr pdf", "qr code list"]},
     {"key": "scan_audit", "title": "Scan Audit", "route": "/scan-audit",
      "category": "Masters", "icon": "🧾", "mod": "scan_audit",
      "keywords": ["scan", "audit", "log", "scan history", "who scanned"]},

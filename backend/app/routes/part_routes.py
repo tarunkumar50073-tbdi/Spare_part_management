@@ -56,6 +56,36 @@ def list_parts():
     return paginated_response([p.to_dict() for p in items], pagination)
 
 
+@bp.route("/qr-list.pdf", methods=["GET"])
+@permission_required("part_master", "view")
+def qr_list_pdf():
+    """The Part Master's QR list as a PDF, with the screen's own filters
+    (13 Nov 2026: "qr list dekh sake download ka sake pdf file"). ?download=1
+    saves it; without, the browser shows it."""
+    import io
+    from app.models.store import Section
+    from app.services import part_qr_list
+    from app.extensions import db
+    is_active = {"true": True, "false": False}.get((request.args.get("is_active") or "true").lower(), True)
+    store_code = scoped_store(request.args.get("store_code"))
+    section_id = request.args.get("section_id", type=int)
+    query = service.list_parts(
+        keyword=request.args.get("keyword"), is_active=is_active, store_code=store_code, section_id=section_id,
+        missing=request.args.get("missing"), category=request.args.get("category") or None,
+        sub_category=request.args.get("sub_category") or None, rack=request.args.get("rack") or None)
+    parts = query.all()
+    bits = [b for b in (
+        store_code,
+        (db.session.get(Section, section_id).name if section_id and db.session.get(Section, section_id) else None),
+        request.args.get("rack") and f"Rack {request.args.get('rack')}",
+        request.args.get("sub_category") and f"Category {request.args.get('sub_category')}",
+        request.args.get("keyword") and f"Search \"{request.args.get('keyword')}\"") if b]
+    pdf = part_qr_list.build(parts, "Part Master QR List", " · ".join(bits))
+    name = f"Part QR List {__import__('datetime').date.today():%d.%m.%Y}.pdf"
+    return send_file(io.BytesIO(pdf), mimetype="application/pdf",
+                     as_attachment=request.args.get("download") == "1", download_name=name)
+
+
 @bp.route("/missing-counts", methods=["GET"])
 def missing_counts():
     """The three chip counts in one call, so the screen doesn't fetch three

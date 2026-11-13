@@ -76,6 +76,10 @@ def seeded():
                    unit_price=2, location="R4"),
         "F": _part(sec, "F", None, is_active=False, location=None),
     }
+    # A new part gets its Part No. as its QR Code (13 Nov 2026); these stand for
+    # parts that have none, as before that.
+    for key in ("B", "C", "D", "E", "F"):
+        p[key].barcode = None
     db.session.add_all([
         LabelPrintAudit(part_id=p["A"].id, barcode_value=p["A"].part_no, copies=1),
         PartBarcode(part_id=p["C"].id, code=f"SUP-{n}-C", source="SUPPLIER", is_active=True),
