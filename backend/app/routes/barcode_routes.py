@@ -6,7 +6,7 @@ status and admin supplier barcode mapping + scan audit. Store-scoped like the
 rest of the Spare Parts module; mutations that are ERP/admin territory are
 decorated accordingly.
 """
-from flask import Blueprint, request, session
+from flask import Blueprint, current_app, request, session
 
 from app.repositories.barcode_repository import PartBarcodeRepository
 from app.repositories.part_repository import PartRepository
@@ -15,7 +15,7 @@ from app.schemas.barcode_schema import (
 )
 from app.services.auth_service import AuthService
 from app.services.barcode_service import BarcodeService
-from app.utils.authz import permission_required, require_store_access, scoped_store
+from app.utils.authz import current_user, permission_required, require_store_access, scoped_store, sees_spare_stock
 from app.utils.event_bus import publish
 from app.utils.exceptions import BadRequestError, NotFoundError
 from app.utils.response import success_response
@@ -81,6 +81,17 @@ def resolve():
         store_code, data["code"], scan_source=data["scan_source"],
         scan_mode=data["scan_mode"], user=_username(),
     )
+    # One round trip instead of two (13 Nov 2026: the live site is reached
+    # through Cloudflare, ~0.5 s a request — "live par bhi 5-7 sec"): asked
+    # for, the part's Scan Part workstation comes back with the resolve, read
+    # under the same right as GET /spare-flow/parts/<id>/scan-result. Should
+    # that read fail, the screen simply asks for it as before.
+    if body.get("with_result") and result.get("part_id") and sees_spare_stock(current_user()):
+        try:
+            from app.services.scan_result_service import ScanResultService
+            result["scan_result"] = ScanResultService().build(result["part_id"])
+        except Exception:  # noqa: BLE001 — the resolve itself stands
+            current_app.logger.warning("Scan result with the resolve failed", exc_info=True)
     return success_response(result, "Resolved")
 
 

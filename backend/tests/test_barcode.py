@@ -550,3 +550,23 @@ def test_label_config_accepts_qr_and_linear_codes_not_ean13(client):
             assert r.status_code == 200 and r.get_json()["data"]["symbology"] == sym
             assert r.get_json()["data"]["show_location"] is False
         assert client.put("/api/v1/admin/label-config", json={"symbology": "EAN13"}).status_code == 422
+
+
+def test_resolve_brings_the_scan_result_when_asked_and_allowed(client):
+    """13 Nov 2026 ("live par bhi 5-7 sec"): one round trip instead of two — the
+    Scan Part workstation comes back with the resolve, under the same right as
+    GET /spare-flow/parts/<id>/scan-result; never for a login without it."""
+    p = _part()
+    _login(client, _store_user(perms={"scan_part": {"view": True}}).id)
+    body = {"code": p.part_no, "store_code": "MAINTENANCE", "scan_source": "USB_SCANNER", "with_result": True}
+    data = client.post("/api/v1/barcode/resolve", json=body).get_json()["data"]
+    assert data["part_id"] == p.id
+    alone = client.get(f"/api/v1/spare-flow/parts/{p.id}/scan-result").get_json()["data"]
+    assert data["scan_result"]["part"]["part_no"] == alone["part"]["part_no"] == p.part_no
+    assert set(data["scan_result"]) == set(alone)
+    # Not asked: the resolve is as before.
+    assert "scan_result" not in _resolve(client, p.part_no).get_json()["data"]
+    # A login that may resolve but not see the spare stock gets no workstation.
+    _login(client, _store_user(perms={}).id)
+    data = client.post("/api/v1/barcode/resolve", json=body).get_json()["data"]
+    assert data["part_id"] == p.id and "scan_result" not in data

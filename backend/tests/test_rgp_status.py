@@ -145,7 +145,7 @@ def test_before_any_grn_read_is_kept_the_status_reads_erp_itself_and_saves_nothi
         return [[party, p.part_no, "RGPT-SR7", "15-07-2025", "2"]]
     monkeypatch.setattr(JobWorkService, "_read_returns", staticmethod(read))
     rgp = _rgp(jobs.rgp_summary(today=TODAY), no)
-    assert (rgp["back"], rgp["state"]) == (2, "CLOSED") and [party] in [a[0] for a in asked]
+    assert (rgp["back"], rgp["state"]) == (2, "CLOSED") and party in asked[0][0]   # other tests' parties may be read too
     assert AppSetting.get_value(RECEIPTS_KEY) is None                       # nothing saved by a read of the page
 
     def down(parties, items):

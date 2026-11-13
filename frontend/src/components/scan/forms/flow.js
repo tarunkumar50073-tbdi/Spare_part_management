@@ -167,10 +167,14 @@ export const isStoreDepartment = (name) => {
 };
 
 /** Active departments from the department master (global, not store-scoped). */
+// The active departments — one definition, so Scan Part can read them ahead
+// of the first Issue (13 Nov 2026) under the same cache entry.
+export const departmentsQuery = {
+  queryKey: ["departments", "active"],
+  queryFn: () => departmentService.list(true).then((r) => r.data.data || []),
+  staleTime: 5 * 60_000,
+};
+
 export function useDepartments() {
-  return useQuery({
-    queryKey: ["departments", "active"],
-    queryFn: () => departmentService.list(true).then((r) => r.data.data || []),
-    staleTime: 5 * 60_000,
-  });
+  return useQuery(departmentsQuery);
 }

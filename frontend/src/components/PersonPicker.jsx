@@ -23,6 +23,14 @@ const SHIFT_PILL = {
   G: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
 };
 
+// Who is on duty — one definition, so Scan Part can read it ahead of the first
+// Issue (13 Nov 2026) under the same cache entry.
+export const onDutyQuery = {
+  queryKey: ["employees", "on-duty"],
+  queryFn: () => employeeService.onDuty({}, { silent: true }).then((r) => r.data.data),
+  staleTime: 60_000,
+};
+
 export function ShiftBadge({ shift }) {
   if (!shift) return null;
   const short = ["A", "B", "G"].includes(shift);
@@ -65,11 +73,7 @@ export default function PersonPicker({
   const [hi, setHi] = useState(-1);
   const [reading, setReading] = useState(false);
   const inputRef = useRef(null);
-  const duty = useQuery({
-    queryKey: ["employees", "on-duty"],
-    queryFn: () => employeeService.onDuty({}, { silent: true }).then((r) => r.data.data),
-    staleTime: 60_000,
-  });
+  const duty = useQuery(onDutyQuery);
   const rows = duty.data?.rows || [];
   const failed = (duty.data?.rosters || []).filter((x) => !x.ok);
   const matches = useMemo(() => {

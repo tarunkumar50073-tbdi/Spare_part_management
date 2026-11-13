@@ -26,6 +26,8 @@ import HistoryModal from "../components/scan/HistoryModal.jsx";
 import { scanIcon } from "../components/scan/scanIcons.js";
 import PartTimeline from "../components/spare/PartTimeline.jsx";
 import useScanWorkstation from "../hooks/useScanWorkstation.js";
+import { onDutyQuery } from "../components/PersonPicker.jsx";
+import { departmentsQuery } from "../components/scan/forms/flow.js";
 import { ACTIONS, SCAN_MODE } from "../lib/scanStatus.js";
 import { can } from "../utils/permissions.js";
 
@@ -193,6 +195,14 @@ export default function ScanPart() {
   const canWorkQueue = useCan("work_queue");
 
   const { ident, failure, resolving, resolve, openById, clear, clearFailure, scanQuery } = useScanWorkstation(storeCode);
+  // Who is on duty and the departments, read while the screen waits for the
+  // first scan — the Issue form then opens with them, not one more round trip
+  // after the scan (13 Nov 2026: ~0.5 s a request through Cloudflare).
+  useEffect(() => {
+    if (!canCreate) return;
+    qc.prefetchQuery(onDutyQuery);
+    qc.prefetchQuery(departmentsQuery);
+  }, [qc, canCreate]);
   // The modes this user may switch to: one that names a right needs it.
   const modes = useMemo(() => Object.keys(SCAN_MODE).filter((k) => can(user, SCAN_MODE[k].mod)), [user]);
   // ISSUE (SCAN_MODE). A link's ?mode= wins over this terminal's last one.

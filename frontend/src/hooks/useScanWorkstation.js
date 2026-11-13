@@ -59,11 +59,15 @@ export default function useScanWorkstation(storeCode) {
     try {
       // silent: the failure panel explains the error itself, so the global
       // interceptor must not toast it on top.
+      // with_result: the part's workstation comes back in the same answer —
+      // one round trip, not two (13 Nov 2026: ~0.5 s a request through
+      // Cloudflare). A server without it answers as before and it is read below.
       const res = await api.post("/barcode/resolve", {
-        store_code: storeCode, code, scan_source: scanSource, scan_mode: scanMode,
+        store_code: storeCode, code, scan_source: scanSource, scan_mode: scanMode, with_result: true,
       }, { silent: true });
       if (seq !== seqRef.current) return false;
       const d = res.data.data;
+      if (d.scan_result) qc.setQueryData(scanResultKey(d.part_id), d.scan_result);
       setFailure(null);
       setIdent({
         partId: d.part_id, via, source: identSource(via, d.resolved_by),
@@ -73,8 +77,9 @@ export default function useScanWorkstation(storeCode) {
         // issues it whole (forms/PacketIssueForm).
         packet: d.packet || null,
       });
-      // Re-scanning the part already on screen must show it as it is NOW.
-      qc.invalidateQueries({ queryKey: scanResultKey(d.part_id) });
+      // Re-scanning the part already on screen must show it as it is NOW: the
+      // answer just read is that; without it, read it again.
+      if (!d.scan_result) qc.invalidateQueries({ queryKey: scanResultKey(d.part_id) });
       return true;
     } catch (err) {
       if (seq !== seqRef.current) return false;
@@ -109,9 +114,10 @@ export default function useScanWorkstation(storeCode) {
     queryKey: scanResultKey(partId),
     queryFn: () => spareFlowService.scanResult(partId).then((r) => r.data.data),
     enabled: partId != null,
-    // Always re-read on (re)identification — a cached copy of this part from
-    // an earlier scan is only a first paint, never the answer.
-    staleTime: 0,
+    // Re-read on (re)identification — a cached copy of this part from an
+    // earlier scan is only a first paint, never the answer. The copy a scan
+    // has just brought (with_result) is the answer for a few seconds.
+    staleTime: 5_000,
     // A refused part (403 / 404) will not change on a retry, and every failed
     // request is toasted; the card offers its own Retry.
     retry: false,
