@@ -273,7 +273,11 @@ function KeepLoose({ part, receiptId, first, onBack, onDone }) {
 export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose }) {
   const part = receipt ? receipt.part : old.part;
   const unit = (receipt ? receipt.uom : old.part.uom) || "";
-  const [kind, setKind] = useState("PACKET");
+  // The part's Pkt Qty (Part Master, 13 Nov 2026): our packets always hold it;
+  // a part without one is not packed — labelled piece by piece, or by the
+  // supplier's own boxes.
+  const std = Number(part.packet_qty) || 0;
+  const [kind, setKind] = useState(std ? "PACKET" : "UNIT");
   const [size, setSize] = useState("");
   const [count, setCount] = useState("");
   const [counted, setCounted] = useState("");
@@ -283,12 +287,15 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
   const [same, setSame] = useState(null);               // { code, fields } while mapping a same-on-every-box code
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const supplierBoxes = labels === "SUPPLIER";
+  const perPacket = supplierBoxes ? Number(size) || 0 : std;
   const args = useMemo(() => ({
-    kind, packet_qty: kind === "PACKET" ? Number(size) || undefined : undefined,
+    kind, packet_qty: kind === "PACKET" ? perPacket || undefined : undefined,
     last_smaller: kind === "PACKET" && lastSmaller,
+    supplier: supplierBoxes || undefined,
     ...(receipt ? { count: count === "" ? undefined : Number(count) } : { counted_qty: Number(counted) || undefined }),
-  }), [kind, size, count, counted, lastSmaller, receipt]);
-  const ready = (kind === "UNIT" || Number(size) > 0) && (Boolean(receipt) || Number(counted) > 0);
+  }), [kind, perPacket, supplierBoxes, count, counted, lastSmaller, receipt]);
+  const ready = (kind === "UNIT" || perPacket > 0) && (Boolean(receipt) || Number(counted) > 0);
   const [asked, setAsked] = useState(args);
   useEffect(() => { const t = setTimeout(() => setAsked(args), 300); return () => clearTimeout(t); }, [args]);
   const plan = useQuery({
@@ -321,7 +328,8 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
     setBusy(true);
     setError(null);
     try {
-      const body = { ...args, supplier_codes: supplier ? boxes : undefined };
+      const { supplier: _s, ...rest } = args;
+      const body = { ...rest, supplier_codes: supplier ? boxes : undefined };
       const r = await (receipt ? packetService.pack(receipt.id, body) : packetService.oldStockPack(part.id, body));
       toast.success(r.data.message);
       onMade(r.data.data);
@@ -367,10 +375,23 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
         ["PACKET", "Small parts packet", "Nuts, bolts, washers … many in one packet, one QR"],
         ["UNIT", "Individual part", "Each piece its own QR"]]} />
       <div className="grid gap-3 sm:grid-cols-3">
-        {kind === "PACKET" && (
-          <Field label="Quantity per packet" required hint="Any number — not fixed">
+        {kind === "PACKET" && supplierBoxes && (
+          <Field label="Quantity per box" required hint="As the supplier packed it">
             <input type="number" min="0" step="any" inputMode="decimal" className={inputCls(false, "w-full text-lg font-semibold")}
               value={size} onChange={(e) => setSize(e.target.value)} autoFocus={Boolean(receipt)} placeholder="e.g. 20" />
+          </Field>
+        )}
+        {kind === "PACKET" && !supplierBoxes && (
+          <Field label="Quantity per packet" hint={std ? "Pkt Qty from Part Master — change it there" : undefined}>
+            {std ? (
+              <p className="flex min-h-[46px] items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-lg font-semibold text-slate-800 dark:border-navy-700 dark:bg-navy-800/60 dark:text-white">
+                {num(std)} <span className="ml-1.5 text-[13px] font-medium text-slate-500">{unit}</span>
+              </p>
+            ) : (
+              <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+                {part.part_no} has no Pkt Qty in Part Master, so it is not packed. Set its Pkt Qty there, or pick Individual part.
+              </p>
+            )}
           </Field>
         )}
         {receipt && (

@@ -39,7 +39,10 @@ FIELD_ALIASES = {
     "discontinued": {"discontinued", "notrequired", "discontinue"},
     "new_part_no": {"newpartno", "newpartnumber"},
     "old_part_no": {"oldpartno", "oldpartnumber", "referencecode"},
-    "package_standard": {"packagestandard", "packgstnd", "packingstandard"},
+    # The Spare store calls it Pkt Qty (13 Nov 2026): the qty each of our QR
+    # packets of the part holds; only a part with one is packed.
+    "package_standard": {"packagestandard", "packgstnd", "packingstandard",
+                         "pktqty", "pktqyt", "packetqty", "pkt", "packqty", "qtyperpacket", "packetquantity"},
     "supplier_code": {"suppliercode", "vendorcode"},
     "daily_consumption": {"dailyconsumption", "consumption", "dailyconsumptionqty"},
     "unit_price": {"unitprice", "rate", "price"},
@@ -108,7 +111,7 @@ SPARE_CATEGORY = "Maintenance/Tool Room"
 SPARE_EXPORT_COLUMNS = [
     ("Part No", "part_no"), ("Location", "location"), ("Rework Location", "rework_location"),
     ("Section", "section"), ("Category", "sub_category"), ("Model No", "specification"),
-    ("Item Description", "part_name"), ("UOM", "uom"), ("Supplier", "supplier"),
+    ("Pkt Qty", "package_standard"), ("Item Description", "part_name"), ("UOM", "uom"), ("Supplier", "supplier"),
     ("Min", "min_stock_level"), ("Max", "max_stock_level"), ("Reorder Level", "reorder_level"),
     ("Rate", "unit_price"), ("QR Code", "barcode"),
     ("Discontinued", "discontinued_label"), ("Status", "status_label"),
@@ -362,6 +365,8 @@ class PartService:
                 "specification": to_text(raw_row.get("specification"), "") or None,
                 "new_part_no": to_text(raw_row.get("new_part_no"), "") or None,
                 "old_part_no": to_text(raw_row.get("old_part_no"), "") or None,
+                # Pkt Qty: 0 takes the part off the packed list (a blank cell
+                # leaves it, as every field), so 0 is kept and cleared below.
                 "package_standard": to_number(raw_row.get("package_standard"), None),
                 "supplier_id": supplier.id if supplier else None,
                 "daily_consumption": to_number(raw_row.get("daily_consumption"), None),
@@ -389,6 +394,8 @@ class PartService:
                 for key, value in fields.items():
                     if value is not None:
                         setattr(existing, key, value)
+                if fields.get("package_standard") is not None and float(fields["package_standard"]) <= 0:
+                    existing.package_standard = None
                 stats["updated"] += 1
                 return
 
@@ -400,6 +407,8 @@ class PartService:
                 part_type = "OTHER"
 
             new_fields = dict(fields)
+            if new_fields.get("package_standard") is not None and float(new_fields["package_standard"]) <= 0:
+                new_fields["package_standard"] = None
             # min_stock_level is NOT NULL on the model, so a new row with a
             # blank Min column needs the column default rather than None.
             if new_fields["min_stock_level"] is None:

@@ -151,6 +151,11 @@ def _plan_args(data):
                 count=data.get("count"), last_smaller=bool(data.get("last_smaller")))
 
 
+def _supplier(data):
+    """The plan of boxes with the supplier's own label (their qty, not the Pkt Qty)."""
+    return bool(data.get("supplier")) or data.get("supplier_codes") is not None
+
+
 @bp.route("/receipts/<int:receipt_id>/unverify", methods=["POST"])
 @permission_required(RIGHT, "delete")
 def unverify(receipt_id):
@@ -165,7 +170,8 @@ def unverify(receipt_id):
 @permission_required(RIGHT, "view")
 def plan(receipt_id):
     r = _receipt(receipt_id)
-    p = service.plan(r, **_plan_args(_body()))
+    data = _body()
+    p = service.plan(r, **_plan_args(data), supplier=_supplier(data))
     sizes = [float(s) for s in p["sizes"]]
     return success_response({
         "packable": p["packable"], "count": len(sizes), "packet_qty": sizes[0],
@@ -221,7 +227,8 @@ def _old_args(data):
 def old_stock_plan(part_id):
     part = _part(part_id)
     data = _body()
-    return success_response(service.old_stock_plan(part.id, data.get("counted_qty"), **_old_args(data)))
+    return success_response(service.old_stock_plan(part.id, data.get("counted_qty"), **_old_args(data),
+                                                   supplier=_supplier(data)))
 
 
 @bp.route("/old-stock/<int:part_id>/pack", methods=["POST"])

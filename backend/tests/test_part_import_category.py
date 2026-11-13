@@ -89,8 +89,8 @@ def test_the_spare_export_is_the_dx_layout_and_reads_back():
                         section_id=sec.id, location="R2-S1-B3", min_stock_level=2, max_stock_level=6))
     db.session.commit()
     head, rows = _sheet(PartService().export_all(STORE))
-    assert head[:9] == ["Part No", "Location", "Rework Location", "Section", "Category", "Model No",
-                        "Item Description", "UOM", "Supplier"]
+    assert head[:10] == ["Part No", "Location", "Rework Location", "Section", "Category", "Model No",
+                         "Pkt Qty", "Item Description", "UOM", "Supplier"]
     assert not {"Main Category", "Sub Category", "Part Type", "Store"} & set(head)
     row = next(r for r in rows if r[head.index("Part No")] == "PIC-EXP-1")
     assert (row[head.index("Section")], row[head.index("Category")], row[head.index("Item Description")]) == (

@@ -12,7 +12,7 @@ import { can, seesSpareStock } from "../utils/permissions.js";
 const NAV = [
   { label: "Dashboard", to: "/", keywords: "home overview store status" },
   { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr code issue receive return rgp supplier barcode supplier qr code mapping label put away putaway bin location check multiple labels many labels ek saath machine line kis machine m/c" },
-  { label: "Packets & QR Labels", to: "/spare-packets", mod: "spare_packets", keywords: "qr label lable print sticker tag packet packing fifo box label supplier label gate entry qr receipt old stock verify undo verify qc pending receipt to verify label printer godex printer setup direct print label helper print helper" },
+  { label: "Packets & QR Labels", to: "/spare-packets", mod: "spare_packets", keywords: "qr label lable print sticker tag packet packing fifo box label supplier label gate entry qr receipt old stock verify undo verify qc pending receipt to verify label printer godex printer setup direct print label helper print helper pkt qty packet qty" },
   { label: "Job Work & RGP", to: "/job-work", mod: "scan_part", keywords: "job work rgp challan coating isuzu oerlikon returnable foc repair vendor rgp pending rgp status rgp close industrial tooling issue slip" },
   { label: "Kiosk", to: "/part-search", mod: "part_kiosk", keywords: "part search kiosk find part photo kahan rakha location" },
   { label: "Work Queue", to: "/work-queue", mod: "work_queue", keywords: "grn quality inspection return rgp rework supplier pending" },
@@ -20,7 +20,7 @@ const NAV = [
   { label: "Store Stock", to: "/store-stock-spare", mod: "store_stock", keywords: "inventory on hand count upload opening stock erp waiting for qc" },
   { label: "Part Ledger — Stock Ledger", to: "/spare-part-history", mod: "part_ledger", keywords: "valuation history opening closing movement" },
   { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },
-  { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data model no item description qr list qr pdf" },
+  { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data model no item description qr list qr pdf pkt qty packet qty" },
   { label: "Critical · Reorder · Excess", to: "/inventory-control", mod: "inventory_control", keywords: "short critical zero reorder excess aging order qty" },
   { label: "Issuance Report", to: "/consumption", mod: "consumption", keywords: "issuance issue list issued issue report who took taken by issued to person kisko diya kitna diya consumption consumed usage net returned trend top parts department category yesterday last month financial year fy full pack excel pdf charts" },
   { label: "Gate Entry", to: "/gate-entry", mod: "gate_entry", keywords: "gate entry receiving arrival inward vehicle" },

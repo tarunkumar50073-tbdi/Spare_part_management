@@ -29,7 +29,7 @@ _seq = {"n": 0}
 def _part(qty=10):
     _seq["n"] += 1
     p = Part(part_no=f"LM-{_seq['n']}", part_name=f"Line Machine Part {_seq['n']}", uom="NOS",
-             part_type="OTHER", store_code=STORE)
+             part_type="OTHER", store_code=STORE, package_standard=20)
     db.session.add(p)
     db.session.commit()
     SpareStockService().set_quantity(p.id, qty, txn_type="OPENING")

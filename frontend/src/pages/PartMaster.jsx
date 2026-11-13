@@ -329,7 +329,7 @@ export default function PartMaster() {
       specification: form.specification.trim() === "" ? null : form.specification.trim(),
       new_part_no: form.new_part_no.trim() === "" ? null : form.new_part_no.trim(),
       old_part_no: form.old_part_no.trim() === "" ? null : form.old_part_no.trim(),
-      package_standard: form.package_standard === "" ? null : Number(form.package_standard),
+      package_standard: form.package_standard === "" || !(Number(form.package_standard) > 0) ? null : Number(form.package_standard),
       supplier_id: form.supplier_id === "" ? null : Number(form.supplier_id),
       daily_consumption: form.daily_consumption === "" ? null : Number(form.daily_consumption),
       unit_price: form.unit_price === "" ? null : Number(form.unit_price),
@@ -487,6 +487,12 @@ export default function PartMaster() {
     // jagah model no" — the old, never-filled Model No. field is gone.
     { key: "part_name", label: "Item Description" },
     { key: "specification", label: "Model No", render: (r) => r.specification || "—" },
+    // Pkt Qty (13 Nov 2026): the spare store packs a part in QR packets only
+    // when it has one, always that many a packet.
+    ...(sectioned ? [{
+      key: "package_standard", label: "Pkt Qty",
+      render: (r) => (r.package_standard ? Number(r.package_standard) : <span className="text-slate-300 dark:text-slate-600">—</span>),
+    }] : []),
     { key: "uom", label: "UOM" },
     { key: "barcode", label: "QR Code", render: (r) => r.barcode || <span className="text-slate-300 dark:text-slate-600">—</span> },
     // Section beside the Category: every spare is filed under the one broad
@@ -832,13 +838,17 @@ export default function PartMaster() {
           )}
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="text-xs font-medium text-slate-500">Package Standard</label>
+              <label className="text-xs font-medium text-slate-500">{sectioned ? "Pkt Qty" : "Package Standard"}</label>
               <input
-                type="number" step="0.01"
+                type="number" step="0.01" min="0"
                 className="input-field mt-1"
                 value={form.package_standard}
                 onChange={(e) => setForm({ ...form, package_standard: e.target.value })}
+                placeholder={sectioned ? "Blank = not packed" : undefined}
               />
+              {sectioned && (
+                <p className="mt-1 text-[11px] text-slate-400">Qty in one QR packet. Only parts with a Pkt Qty are packed.</p>
+              )}
             </div>
             <div>
               <label className="text-xs font-medium text-slate-500">Daily Consumption</label>

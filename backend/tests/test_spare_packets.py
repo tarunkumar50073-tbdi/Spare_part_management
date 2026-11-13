@@ -40,11 +40,11 @@ def _grn_settings():
     AppSetting.set_value(SETTING_KEY, {"enabled": True, "from_date": "2026-09-26"})
 
 
-def _part(qty=0, name="HEX BOLT M8X25"):
-    """A part counted on 1 Sep 2026 at `qty`."""
+def _part(qty=0, name="HEX BOLT M8X25", pkt=20):
+    """A part counted on 1 Sep 2026 at `qty`, packed `pkt` a packet (its Pkt Qty)."""
     _seq["n"] += 1
     p = Part(part_no=f"PKT-{_seq['n']}", part_name=f"{name} {_seq['n']}", uom="NOS",
-             part_type="OTHER", store_code=STORE, location=f"R1-S1-B{_seq['n']}")
+             part_type="OTHER", store_code=STORE, location=f"R1-S1-B{_seq['n']}", package_standard=pkt)
     db.session.add(p)
     db.session.commit()
     SpareStockService().set_quantity(p.id, qty, txn_type="OPENING")
@@ -497,6 +497,8 @@ def test_the_same_code_on_every_box_is_mapped_to_the_part_and_the_receipt_kept_l
 def test_old_stock_and_supplier_code_api_rights(app):
     tag = f"T{_seq['n']}"
     p = _old_part(12, "R7-S1-B1", tag)
+    p.package_standard = 6                  # its Pkt Qty
+    db.session.commit()
     viewer = _user({"spare_packets": {"view": True}})
     maker = _user({"spare_packets": {"view": True, "create": True}})
     c = app.test_client()
@@ -656,3 +658,39 @@ def test_issue_many_api_takes_the_scan_part_issue_right(app):
     r = c.post("/api/v1/spare-packets/packets/issue-many", json={"codes": codes, "department": DEPT, "issued_to": "Ravi"})
     assert r.status_code == 200 and r.get_json()["data"]["count"] == 3 and "3 labels" in r.get_json()["message"]
     assert _on_hand(p) == 2
+
+
+# ---- Pkt Qty: only a part with one is packed, that many a packet (13 Nov 2026) ------------------
+
+def test_only_a_part_with_a_pkt_qty_is_packed_and_always_by_it():
+    p = _part(pkt=None)
+    r = _receive(p, "GRN-PQ1", date(2026, 10, 25), 60)
+    svc.verify(r.id, 60, user="sup")
+    with pytest.raises(BadRequestError, match="no Pkt Qty in Part Master") as exc:
+        svc.pack(r.id, "PACKET", packet_qty=20)
+    assert exc.value.errors == {"code": "NO_PKT_QTY"}
+    # Individual-part labels need no Pkt Qty.
+    assert svc.plan(db.session.get(SpareBatch, r.id), "UNIT")["sizes"][0] == 1
+    # Set in Part Master: packed by it - the qty need not be sent, another one is refused.
+    p.package_standard = 30
+    db.session.commit()
+    assert [float(x) for x in svc.plan(db.session.get(SpareBatch, r.id), "PACKET")["sizes"]] == [30, 30]
+    with pytest.raises(BadRequestError, match="packed 30 a packet"):
+        svc.pack(r.id, "PACKET", packet_qty=20)
+    made = svc.pack(r.id, "PACKET", user="sup")["packets"]
+    assert [x["qty"] for x in made] == [30, 30]
+    assert made[0]["part"]["packet_qty"] == 30
+
+
+def test_supplier_boxes_keep_their_own_qty_and_old_stock_follows_the_pkt_qty():
+    p = _part(pkt=None)
+    r = _receive(p, "GRN-PQ2", date(2026, 10, 25), 40)
+    svc.verify(r.id, 40, user="sup")
+    boxes = [f"SUPBOX-{p.part_no}-{i}" for i in (1, 2, 3, 4)]
+    made = svc.pack(r.id, "PACKET", packet_qty=10, supplier_codes=boxes, user="sup")["packets"]
+    assert [x["qty"] for x in made] == [10, 10, 10, 10]
+    old = _part(25, name="OLDPQ", pkt=10)
+    plan = svc.old_stock_plan(old.id, 25, "PACKET", last_smaller=True)
+    assert (plan["count"], plan["packet_qty"], plan["last_qty"]) == (3, 10, 5)
+    with pytest.raises(BadRequestError, match="no Pkt Qty"):
+        svc.old_stock_plan(_part(5, name="OLDNOPQ", pkt=None).id, 5, "PACKET", packet_qty=5)

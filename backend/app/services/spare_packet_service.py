@@ -551,9 +551,20 @@ class SparePacketService:
             width = 3
         return [f"{prefix}{last + i:0{width}d}" for i in range(1, n + 1)]
 
-    def plan(self, receipt, kind, packet_qty=None, count=None, last_smaller=False):
+    @staticmethod
+    def standard_qty(part):
+        """The part's Pkt Qty (Part Master package_standard), or None. Only a
+        part with one is packed in our packets, always that many a packet
+        (the store, 13 Nov 2026: "jinme qty h wo hi pack honge" ... "agar kisi
+        part ki pkt qty standard badla pade to badal sake" - in Part Master)."""
+        v = part.package_standard if part is not None else None
+        return Decimal(str(v)) if v is not None and float(v) > 0 else None
+
+    def plan(self, receipt, kind, packet_qty=None, count=None, last_smaller=False, supplier=False):
         """How a receipt's remaining verified quantity would be packed: the
-        packets' quantities, and what stays loose. Nothing is written."""
+        packets' quantities, and what stays loose. Nothing is written.
+        Packets with our labels hold the part's Pkt Qty; boxes that carry the
+        supplier's own label (`supplier`) hold what the supplier put in them."""
         if receipt.verify_status not in ("VERIFIED", "MISMATCH"):
             raise BadRequestError("Verify the receipt physically first — labels come after the count")
         if receipt.loose_note:
@@ -564,8 +575,21 @@ class SparePacketService:
             raise BadRequestError("Everything verified on this receipt is already packed")
         if kind == "UNIT":
             size = Decimal("1")
-        elif kind == "PACKET":
+        elif kind == "PACKET" and supplier:
             size = _qty(packet_qty, "Quantity per packet")
+        elif kind == "PACKET":
+            std = self.standard_qty(receipt.part)
+            if std is None:
+                raise BadRequestError(
+                    f"{receipt.part.part_no} has no Pkt Qty in Part Master — only parts with a Pkt Qty are packed. "
+                    "Set it there to pack this part, or label each piece (Individual part).",
+                    errors={"code": "NO_PKT_QTY"})
+            if packet_qty not in (None, "") and _qty(packet_qty, "Quantity per packet") != std:
+                raise BadRequestError(
+                    f"{receipt.part.part_no} is packed {_n(std)} a packet (Pkt Qty in Part Master) — "
+                    "change it there to pack another quantity",
+                    errors={"code": "PKT_QTY", "pkt_qty": _n(std)})
+            size = std
         else:
             raise BadRequestError("Choose Small Parts Packet or Individual Part")
         full = math.floor(round(packable / float(size), 6))
@@ -600,7 +624,7 @@ class SparePacketService:
         with atomic():
             self._lock_stock(receipt.part_id)
             db.session.refresh(receipt)
-            plan = self.plan(receipt, kind, packet_qty, count, last_smaller)
+            plan = self.plan(receipt, kind, packet_qty, count, last_smaller, supplier=supplier_codes is not None)
             boxes = (self._box_codes(supplier_codes, len(plan["sizes"]), receipt.part)
                      if supplier_codes is not None else None)
             total = float(sum(plan["sizes"]))
@@ -868,6 +892,7 @@ class SparePacketService:
             rows.append({"part": {"id": part.id, "part_no": part.part_no, "part_name": part.part_name,
                                   "uom": part.uom, "location": part.location,
                                   "specification": part.specification,
+                                  "packet_qty": _n(self.standard_qty(part)),
                                   "section": sections.get(part.section_id), "section_id": part.section_id},
                          "rack": r, **row})
         rows.sort(key=lambda x: ((x["part"]["section"] or "~").lower(), _natural(x["rack"]),
@@ -895,7 +920,7 @@ class SparePacketService:
                 .distinct().all())
         return [{"id": i, "name": n} for i, n in sorted(rows, key=lambda r: (r[1] or "").lower())]
 
-    def _old_plan(self, part, counted, kind, packet_qty, last_smaller):
+    def _old_plan(self, part, counted, kind, packet_qty, last_smaller, supplier=False):
         """How `counted` of the part's unlabelled shelf stock would be packed —
         a plan of an opening batch not yet made."""
         figs = self.old_figures(part.id)
@@ -907,12 +932,16 @@ class SparePacketService:
                 + (f", waiting in receipts {wait:g}" if wait else "")
                 + ") — put the extra stock right first (stock count), then label it")
         draft = SpareBatch(verify_status="VERIFIED", verified_qty=counted, qty=counted, part_id=part.id)
-        return self.plan(draft, kind, packet_qty, None, last_smaller), figs
+        draft.part = part
+        plan = self.plan(draft, kind, packet_qty, None, last_smaller, supplier=supplier)
+        if draft in db.session:          # pulled in through part's backref: never saved
+            db.session.expunge(draft)
+        return plan, figs
 
-    def old_stock_plan(self, part_id, counted_qty, kind, packet_qty=None, last_smaller=False):
+    def old_stock_plan(self, part_id, counted_qty, kind, packet_qty=None, last_smaller=False, supplier=False):
         part = self._part(part_id)
         counted = _qty(counted_qty, "Counted on the shelf")
-        plan, figs = self._old_plan(part, counted, (kind or "").upper(), packet_qty, last_smaller)
+        plan, figs = self._old_plan(part, counted, (kind or "").upper(), packet_qty, last_smaller, supplier)
         return {"figures": figs, **self._plan_out(plan)}
 
     @staticmethod
@@ -933,7 +962,7 @@ class SparePacketService:
         kind = (kind or "").upper()
         with atomic():
             self._lock_stock(part.id)
-            plan, _ = self._old_plan(part, counted, kind, packet_qty, last_smaller)
+            plan, _ = self._old_plan(part, counted, kind, packet_qty, last_smaller, supplier_codes is not None)
             sizes = plan["sizes"]
             smaller = len(sizes) > 1 and sizes[-1] != sizes[0]
             note = _text(remarks, 120, "Remarks")
@@ -1336,6 +1365,7 @@ class SparePacketService:
         return {"id": part.id, "part_no": part.part_no, "part_name": part.part_name, "uom": part.uom,
                 "location": part.location, "rework_location": part.rework_location,
                 "specification": part.specification,
+                "packet_qty": _n(SparePacketService.standard_qty(part)),
                 "section": section.name if section else None}
 
     def receipt_dict(self, r, counted_on=None):

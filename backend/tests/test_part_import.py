@@ -168,3 +168,25 @@ def test_import_and_preview_read_the_parts_once(app):
         assert len(seen) <= 2, len(seen)
     finally:
         event.remove(engine, "before_cursor_execute", count)
+
+
+def test_pkt_qty_column_sets_and_zero_clears_the_packet_qty():
+    """The Spare store's Pkt Qty (13 Nov 2026) is Part.package_standard: the
+    store's own file heading "Pkt Qty." sets it, 0 takes the part off the packed
+    list, a blank cell leaves it, and the spare export carries it."""
+    svc = PartService()
+    a, b, c = _uniq(), _uniq(), _uniq()
+    for pn in (a, b, c):
+        _existing(pn)
+    hdr = ("Part No", "Item Description", "Pkt Qty.")
+    svc.bulk_import_excel(_xlsx([(a, "", 30), (b, "", 10), (c, "", None)], hdr), store_code="MAINTENANCE")
+    got = {p.part_no: p.package_standard for p in Part.query.filter(Part.part_no.in_([a, b, c]))}
+    assert (float(got[a]), float(got[b]), got[c]) == (30, 10, None)
+    svc.bulk_import_excel(_xlsx([(a, "", 0), (b, "", None)], hdr), store_code="MAINTENANCE")
+    got = {p.part_no: p.package_standard for p in Part.query.filter(Part.part_no.in_([a, b]))}
+    assert got[a] is None and float(got[b]) == 10            # 0 clears, blank keeps
+    new = _uniq()
+    svc.bulk_import_excel(_xlsx([(new, "New Bolt", 0)], hdr), store_code="MAINTENANCE")
+    assert Part.query.filter_by(part_no=new).one().package_standard is None
+    from app.services.part_service import SPARE_EXPORT_COLUMNS
+    assert ("Pkt Qty", "package_standard") in SPARE_EXPORT_COLUMNS

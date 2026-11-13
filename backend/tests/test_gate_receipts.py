@@ -37,7 +37,7 @@ def _settings():
 def _part(qty=5):
     _n["n"] += 1
     p = Part(part_no=f"GTE-{_n['n']}", part_name=f"AIR CYLINDER {_n['n']}", uom="NOS", part_type="OTHER",
-             store_code=STORE, location=f"R2-S1-B{_n['n']}", specification="MGPM20-150Z")
+             store_code=STORE, location=f"R2-S1-B{_n['n']}", specification="MGPM20-150Z", package_standard=3)
     db.session.add(p)
     db.session.commit()
     SpareStockService().set_quantity(p.id, qty, txn_type="OPENING")

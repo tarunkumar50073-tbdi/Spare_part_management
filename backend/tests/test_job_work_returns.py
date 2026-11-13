@@ -30,7 +30,7 @@ packets, returns, jobs = SparePacketService(), SpareReturnService(), JobWorkServ
 def _part(qty):
     _seq["n"] += 1
     p = Part(part_no=f"JW-{_seq['n']}-{datetime.now().microsecond}", part_name=f"BOLT M8 {_seq['n']}", uom="NOS",
-             part_type="OTHER", store_code=STORE, location=f"R9-S1-B{_seq['n']}")
+             part_type="OTHER", store_code=STORE, location=f"R9-S1-B{_seq['n']}", package_standard=qty or None)
     db.session.add(p)
     db.session.commit()
     SpareStockService().set_quantity(p.id, qty, txn_type="OPENING")
