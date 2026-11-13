@@ -9,9 +9,7 @@ same filters, in Part No. order.
 import io
 from datetime import datetime
 
-from reportlab.graphics import renderPDF
-from reportlab.graphics.barcode.qr import QrCodeWidget
-from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.barcode.qrencoder import QRCode, QRErrorCorrectLevel
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfbase.pdfmetrics import stringWidth
@@ -47,11 +45,35 @@ def _wrap(text, font, size, width, lines):
 
 
 def _qr(c, value, x, y, size):
-    w = QrCodeWidget(value, barLevel="M")
-    x0, y0, x1, y1 = w.getBounds()
-    d = Drawing(size, size, transform=[size / (x1 - x0), 0, 0, size / (y1 - y0), 0, 0])
-    d.add(w)
-    renderPDF.draw(d, c, x, y)
+    """The QR straight onto the page: each row's dark run as one rectangle, in
+    one path (13 Nov 2026: the drawing widget took 79 s for the whole store)."""
+    qr = QRCode(None, QRErrorCorrectLevel.M)
+    qr.addData(value)
+    # One fixed mask (any of the eight is a valid QR) instead of trying all
+    # eight for the "best" one: eight times faster over a whole store.
+    qr.version = qr.calculate_version()
+    qr.makeImpl(False, 0)
+    n = qr.getModuleCount()
+    m = size / (n + 2)                               # a one-module quiet zone each side
+    # In module units (whole numbers) straight into the page's content stream:
+    # formatting thousands of float rectangles was most of the time.
+    runs = []
+    for r in range(n):
+        col = 0
+        while col < n:
+            if qr.isDark(r, col):
+                start = col
+                while col < n and qr.isDark(r, col):
+                    col += 1
+                runs.append(f"{start + 1} {r + 1} {col - start} 1 re")
+            else:
+                col += 1
+    c.saveState()
+    c.setFillGray(0)
+    # Top-left origin, y down, one unit = one module.
+    c.transform(m, 0, 0, -m, x, y + size)
+    c._code.append(" ".join(runs) + " f")
+    c.restoreState()
 
 
 def build(parts, title, subtitle=""):

@@ -460,6 +460,9 @@ export default function PartMaster() {
   });
   const qrList = async (download) => {
     const tab = download ? null : window.open("", "_blank");
+    // The tab is opened at the click (a pop-up blocker allows that) and says it
+    // is on its way, so it is never a blank page while the PDF is made.
+    if (tab) tab.document.write("<title>Part QR List</title><p style='font:16px sans-serif;padding:24px'>Making the QR list…</p>");
     setQrBusy(true);
     try {
       if (download) {
