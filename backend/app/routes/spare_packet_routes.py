@@ -349,7 +349,7 @@ def issue_many():
         data.get("codes"), data.get("department"), user=_who(), employee_id=data.get("employee_id"),
         issued_to_mobile=data.get("issued_to_mobile"), issued_to=data.get("issued_to"),
         remarks=data.get("remarks"), override_reason=data.get("override_reason"),
-        scan_source=data.get("scan_source"),
+        scan_source=data.get("scan_source"), line_name=data.get("line_name"), machine=data.get("machine"),
     )
     publish("stock", {"part_id": first.part_id, "action": "issue"})
     who = out.get("issued_to")
@@ -368,7 +368,7 @@ def issue(code):
         code, data.get("department"), user=_who(), employee_id=data.get("employee_id"),
         issued_to_mobile=data.get("issued_to_mobile"), issued_to=data.get("issued_to"),
         remarks=data.get("remarks"), override_reason=data.get("override_reason"),
-        scan_source=data.get("scan_source"),
+        scan_source=data.get("scan_source"), line_name=data.get("line_name"), machine=data.get("machine"),
     )
     publish("stock", {"part_id": p.part_id, "action": "issue"})
     who = out["issue"].get("issued_to")

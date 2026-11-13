@@ -984,7 +984,7 @@ class SparePacketService:
         }
 
     def issue(self, code, department, user=None, employee_id=None, issued_to_mobile=None, issued_to=None,
-              remarks=None, override_reason=None, scan_source=None):
+              remarks=None, override_reason=None, scan_source=None, line_name=None, machine=None):
         """Issue a whole packet (or one individual unit): its full quantity,
         once, to a department + person, through the same issue as Scan Part's
         (ISSUE ledger row, journal). Skipping an older receipt's packets needs
@@ -1026,6 +1026,7 @@ class SparePacketService:
                 packet.part_id, float(packet.qty), department, reference=packet.code, remarks=note[:255],
                 user=user, issued_to=issued_to, employee_id=employee_id, issued_to_mobile=issued_to_mobile,
                 scanned_code=packet.code, scan_source=scan_source, from_packet=True,
+                line_name=line_name, machine=machine,
             )
             SparePacket.query.filter_by(id=packet.id).update(
                 {"issue_ledger_id": result["issue"]["id"], "issued_to": (result["issue"].get("issued_to") or "")[:120]},
@@ -1095,7 +1096,7 @@ class SparePacketService:
         }
 
     def issue_many(self, codes, department, user=None, employee_id=None, issued_to_mobile=None, issued_to=None,
-                   remarks=None, override_reason=None, scan_source=None):
+                   remarks=None, override_reason=None, scan_source=None, line_name=None, machine=None):
         """Issue several labels of one part to one person at once — all or none."""
         packets = self._issue_set(codes)
         reason = _text(override_reason, 255, "FIFO reason")
@@ -1113,7 +1114,8 @@ class SparePacketService:
             for p in packets:
                 results.append(self.issue(
                     p.code, department, user=user, employee_id=employee_id, issued_to_mobile=issued_to_mobile,
-                    issued_to=issued_to, remarks=remarks, override_reason=reason, scan_source=scan_source))
+                    issued_to=issued_to, remarks=remarks, override_reason=reason, scan_source=scan_source,
+                    line_name=line_name, machine=machine))
         return {
             "count": len(results), "qty": _n(sum(p.qty for p in packets)), "uom": packets[0].uom,
             "part_id": packets[0].part_id, "part_no": packets[0].part.part_no,

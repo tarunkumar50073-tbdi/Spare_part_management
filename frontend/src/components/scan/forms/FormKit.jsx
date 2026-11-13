@@ -1,4 +1,6 @@
 import React, { useContext, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { spareStockService } from "../../../services/spareStockService.js";
 import { ArrowRight, CircleAlert, Info, Lock, TriangleAlert } from "lucide-react";
 import ActionConfirm, { StepLabel } from "../ActionConfirm.jsx";
 import { useCan } from "../../Can.jsx";
@@ -259,4 +261,80 @@ export function DepartmentSelect({ id, value, onChange, error, noStore = false }
       {shown.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
     </select>
   );
+}
+
+
+// ---- Line + Machine on the issue (13 Nov 2026: "kis line par kis m/c par issue hua") ----
+// Optional. An issue to the Tool Room offers its presses, any other department the
+// plant's machines from maintenance_db; the list is read on the server, read only.
+export const NO_PLACE = { line: "", machine: "" };
+export const machineSource = (department) => (/tool/i.test(department || "") ? "TOOL_ROOM" : "MAINTENANCE");
+
+export function useMachines(department) {
+  const source = machineSource(department);
+  return useQuery({
+    queryKey: ["plant-machines", source],
+    queryFn: () => spareStockService.plantMachines(department).then((r) => r.data.data),
+    enabled: Boolean(department),
+    staleTime: 10 * 60_000,
+  });
+}
+
+/** Line, then Machine (only that line's), both optional. A department that
+ *  switches to the other list clears what was picked. */
+export function LineMachinePicker({ id, department, value, onChange }) {
+  const { data, isPending, isError, refetch } = useMachines(department);
+  const source = machineSource(department);
+  const was = useRef(source);
+  useEffect(() => {
+    if (was.current !== source) { was.current = source; if (value.line || value.machine) onChange(NO_PLACE); }
+  }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lines = data?.lines || [];
+  const line = lines.find((l) => l.line === value.line);
+  const zones = [];
+  for (const l of lines) {
+    const z = zones.find((x) => x.zone === l.zone);
+    if (z) z.lines.push(l); else zones.push({ zone: l.zone, lines: [l] });
+  }
+  const off = !department || isPending;
+  const failed = isError || (data && !data.ok);
+  return (
+    <>
+      <Field label="Line" htmlFor={`${id}-line`}
+        hint={!department ? "Choose the department first" : source === "TOOL_ROOM" ? "Tool Room presses" : "Optional"}
+>
+        <select id={`${id}-line`} value={value.line} disabled={off || failed}
+          onChange={(e) => onChange({ line: e.target.value, machine: "" })} className={inputCls(false, "text-base")}>
+          <option value="">{department && isPending ? "Loading lines…" : "Select line (optional)…"}</option>
+          {zones.map((z) => (z.zone && zones.length > 1 ? (
+            <optgroup key={z.zone} label={z.zone.replace(/_/g, " ")}>
+              {z.lines.map((l) => <option key={`${z.zone}|${l.line}`} value={l.line}>{l.line.replace(/_/g, " ")}</option>)}
+            </optgroup>
+          ) : z.lines.map((l) => <option key={`${z.zone}|${l.line}`} value={l.line}>{l.line.replace(/_/g, " ")}</option>)))}
+        </select>
+        {failed && (
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-400" role="status">
+            Machine list couldn&apos;t be read — issue without it, or{" "}
+            <button type="button" onClick={() => refetch()} className="font-semibold underline underline-offset-2">retry</button>.
+          </p>
+        )}
+      </Field>
+      <Field label="Machine" htmlFor={`${id}-mc`} hint={value.line ? `${line?.machines.length || 0} on this line` : "Pick the line first"}>
+        <select id={`${id}-mc`} value={value.machine} disabled={!line}
+          onChange={(e) => onChange({ ...value, machine: e.target.value })} className={inputCls(false, "text-base")}>
+          <option value="">Select machine (optional)…</option>
+          {(line?.machines || []).map((m) => (
+            <option key={m.code} value={m.code}>{m.name ? `${m.code} — ${m.name}` : m.code}</option>
+          ))}
+        </select>
+      </Field>
+    </>
+  );
+}
+
+/** "YHB_SS_05 — Rail Assy M/c # 02" for the review, from the list when it has the name. */
+export function machineText(lines, value) {
+  if (!value.machine) return null;
+  const m = (lines || []).find((l) => l.line === value.line)?.machines.find((x) => x.code === value.machine);
+  return m?.name ? `${m.code} — ${m.name}` : value.machine;
 }

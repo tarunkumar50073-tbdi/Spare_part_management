@@ -5,13 +5,13 @@ import PersonPicker from "../../PersonPicker.jsx";
 import { spareFlowService } from "../../../services/spareFlowService.js";
 import { num } from "../../../lib/format.js";
 import { partBins } from "../../../utils/binLocation.js";
-import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
+import { DepartmentSelect, Facts, Field, FormShell, LineMachinePicker, NO_PLACE, Note, machineText, useMachines } from "./FormKit.jsx";
 import PacketIssueForm from "./PacketIssueForm.jsx";
 import { clean, fmtQty, isStoreDepartment, qtyError, qtyOf, stepMin, useActionFlow, useDepartments } from "./flow.js";
 
 // ISSUE (spec 11): the store hands the part to a department + person. Only
-// what the store knows at the counter is asked; the store's work ends at the
-// issue (no line / machine step since 27 Oct 2026). The quantity can never
+// what the store knows at the counter is asked, plus (optional, 13 Nov 2026) the
+// line + machine the part goes to, from the plant list. The quantity can never
 // exceed what is available.
 // Scanning is mainly for issuance: the workstation opens this form by itself
 // as soon as a part with stock is identified.
@@ -79,6 +79,9 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
   // operator chose is never overwritten.
   const [autoDept, setAutoDept] = useState(null);
   const [remarks, setRemarks] = useState("");
+  // Where the part goes: line + machine, optional (13 Nov 2026).
+  const [place, setPlace] = useState(NO_PLACE);
+  const { data: machineList } = useMachines(department);
   const [tried, setTried] = useState(false);
   const emp = person.employee;
   // A part with a rework location sits in two bins — Fresh (new parts) and
@@ -100,7 +103,7 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
 
   // Has the operator entered anything? An untouched form that the workstation
   // opened by itself is dropped without a question when the next part is scanned.
-  const dirty = Boolean(department || emp || person.typed?.trim() || remarks.trim()) || Number(qty) !== Number(startQty);
+  const dirty = Boolean(department || emp || person.typed?.trim() || remarks.trim() || place.line) || Number(qty) !== Number(startQty);
   useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
 
   // The picked person's record says Store: nothing was filled in, and why is said.
@@ -132,6 +135,7 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
     const payload = {
       qty: qtyOf(qty), department, remarks: clean(remarks),
       employee_id: emp.id, issued_to: emp.name,
+      line_name: place.line || undefined, machine: place.machine || undefined,
       scan_source: source || undefined,
     };
     const code = emp.employee_code ? ` (${emp.employee_code})` : "";
@@ -143,6 +147,8 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
         { label: "Employee code", value: emp.employee_code },
         { label: "Department", value: department },
         { label: "Shift", value: emp.shift },
+        { label: "Line", value: place.line ? place.line.replace(/_/g, " ") : null },
+        { label: "Machine", value: machineText(machineList?.lines, place) },
         ...binFacts({ label: "From location", value: part.location }),
         { label: "Available after issue", value: fmtQty(Math.round((available - payload.qty) * 100) / 100, part.uom) },
         { label: "Remarks", value: payload.remarks },
@@ -178,6 +184,7 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
           <QtyStepper id={`${uid}-qty`} value={qty} onChange={setQty} min={stepMin(available)} max={available}
             disabled={available <= 0} size="lg" label="Issue quantity" />
         </Field>
+        <LineMachinePicker id={`${uid}-place`} department={department} value={place} onChange={setPlace} />
         <Field label="Remarks" htmlFor={`${uid}-rem`}>
           <input id={`${uid}-rem`} value={remarks} maxLength={255} onChange={(e) => setRemarks(e.target.value)}
             className="input-field" placeholder="Optional" />

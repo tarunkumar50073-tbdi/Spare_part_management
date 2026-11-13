@@ -4,7 +4,7 @@ import PersonPicker from "../../PersonPicker.jsx";
 import useGunEnd from "../../../hooks/useGunEnd.js";
 import { packetService } from "../../../services/packetService.js";
 import { fmtDate, fmtStamp } from "../../../lib/format.js";
-import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
+import { DepartmentSelect, Facts, Field, FormShell, LineMachinePicker, NO_PLACE, Note, machineText, useMachines } from "./FormKit.jsx";
 import { clean, fmtQty, isStoreDepartment, useActionFlow, useDepartments } from "./flow.js";
 
 // ISSUE of a whole packet or one individual unit — what a packet / unit QR
@@ -33,6 +33,9 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   const [department, setDepartment] = useState("");
   const [autoDept, setAutoDept] = useState(null);
   const [remarks, setRemarks] = useState("");
+  // Where the part goes: line + machine, optional (13 Nov 2026).
+  const [place, setPlace] = useState(NO_PLACE);
+  const { data: machineList } = useMachines(department);
   const [reason, setReason] = useState("");
   const [tried, setTried] = useState(false);
   // The other labels of this part in this issue, as the server checked them,
@@ -101,7 +104,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     setAutoDept(fill || null);
   };
 
-  const dirty = Boolean(department || emp || person.typed?.trim() || remarks.trim() || reason.trim() || many);
+  const dirty = Boolean(department || emp || person.typed?.trim() || remarks.trim() || place.line || reason.trim() || many);
   useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
 
   const errors = {
@@ -125,6 +128,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     if (!valid) return;
     const payload = {
       department, remarks: clean(remarks), employee_id: emp.id, issued_to: emp.name,
+      line_name: place.line || undefined, machine: place.machine || undefined,
       override_reason: older ? reason.trim() : undefined,
       scan_source: source || undefined,
     };
@@ -141,6 +145,8 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
         { label: "Employee code", value: emp.employee_code },
         { label: "Department", value: department },
         { label: "Shift", value: emp.shift },
+        { label: "Line", value: place.line ? place.line.replace(/_/g, " ") : null },
+        { label: "Machine", value: machineText(machineList?.lines, place) },
         many ? { label: "Received", value: days }
           : { label: "Received", value: `${fmtDate(packet.receipt.received_on)} · ${packet.receipt.receipt_no}` },
         { label: "From location", value: packet.location || part.location },
@@ -258,6 +264,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
                 {qtyText} <span className="ml-2 text-[12px] font-medium text-slate-500">{many ? `${all.length} labels, each whole` : `whole ${what}`}</span>
               </p>
             </Field>
+            <LineMachinePicker id={`${uid}-place`} department={department} value={place} onChange={setPlace} />
             <Field label="Remarks" htmlFor={`${uid}-rem`}>
               <input id={`${uid}-rem`} value={remarks} maxLength={200} onChange={(e) => setRemarks(e.target.value)}
                 className="input-field" placeholder="Optional" />

@@ -8,6 +8,9 @@ const csvIds = (ids) => (ids && ids.length ? ids.join(",") : undefined);
 // this is one store's stock, and the API refuses to answer without it.
 export const spareStockService = {
   list: (params) => api.get("/spare-stock", { params }),
+  // The lines + machines an issue to `department` can name (13 Nov 2026), from
+  // the Maintenance / Tool Room databases.
+  plantMachines: (department) => api.get("/employees/machines", { params: { department } }),
   // sectionId is optional — omitted for the whole store, passed by the section
   // screen so it never quotes the store's figures as its own. sectionIds (an
   // array) scopes to a section group and takes precedence over sectionId.

@@ -42,6 +42,17 @@ def on_duty():
                                                     force=request.args.get("refresh") in ("1", "true")))
 
 
+# Beside the on-duty list: the issue counter's other plant-side list (13 Nov 2026).
+@bp.route("/machines", methods=["GET"])
+@permission_required("scan_part", "view")
+def machine_list():
+    """The lines and machines an issue to `department` can name — read only
+    from the Maintenance / Tool Room databases; refresh=1 reads them again."""
+    from app.services.machine_list_service import MachineListService
+    return success_response(MachineListService().lines(
+        request.args.get("department"), force=request.args.get("refresh") in ("1", "true")))
+
+
 @bp.route("", methods=["GET"])
 @permission_required(("scan_part", "employees"), "view")
 def list_employees():

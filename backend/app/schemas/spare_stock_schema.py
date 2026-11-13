@@ -68,7 +68,9 @@ class SpareIssueSchema(Schema):
     employee_id = fields.Integer(allow_none=True)
     # As typed ("+91 98765-43210" too) — normalised in the service.
     issued_to_mobile = fields.String(allow_none=True, validate=validate.Length(max=20))
-    machine = fields.String(allow_none=True, validate=validate.Length(max=60))  # optional (legacy one-stage)
+    # Where the part goes, optional, from the plant's machine list (13 Nov 2026).
+    line_name = fields.String(allow_none=True, validate=validate.Length(max=60))
+    machine = fields.String(allow_none=True, validate=validate.Length(max=60))
     returnable = fields.Boolean(load_default=False)  # a die/tool expected back
     reference = fields.String(allow_none=True, validate=validate.Length(max=80))
     remarks = fields.String(allow_none=True, validate=validate.Length(max=255))

@@ -37,7 +37,9 @@ SERVICES = [
                   "location", "rgp", "rework", "inspection",
                   "supplier barcode", "supplier qr code", "qr code", "mapping", "label",
                   # 10 Nov 2026: several labels of one part to one person in one issue.
-                  "multiple labels", "many labels", "4 qty", "ek saath", "ek sath"]},
+                  "multiple labels", "many labels", "4 qty", "ek saath", "ek sath",
+                  # 13 Nov 2026: the issue names the line + machine the part goes to.
+                  "machine", "line", "kis machine", "kis line", "m/c"]},
     # The screens below were in the sidebar but not here, so Store Saathi
     # could not name them: "qr lable print karne h" got Reports and Scan Part
     # (28 Oct 2026). No "stock" / "issue" words — the assistant matches by

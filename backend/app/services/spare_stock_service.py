@@ -537,7 +537,7 @@ class SpareStockService:
     def issue(self, part_id, qty, department, machine=None, returnable=False,
               reference=None, remarks=None, user=None, issued_to=None, status=None,
               scanned_code=None, scan_source=None, employee_id=None, issued_to_mobile=None,
-              from_packet=False):
+              from_packet=False, line_name=None):
         """Stage 1 of the two-stage issue: the store issues a spare to a
         department + person. Machine/line are NOT required here — the store may
         not know where it will be fitted; the user confirms those later
@@ -569,7 +569,10 @@ class SpareStockService:
             raise BadRequestError("The store hands parts out — choose the department the part is for")
         if department not in self._valid_department_names():
             raise BadRequestError(f"Unknown department '{department}'")
-        machine = _clean(machine)
+        # Where the part goes — line + machine, optional, picked from the plant's
+        # machine list (13 Nov 2026: "kis line par kis m/c par issue hua").
+        machine = (_clean(machine) or "")[:60] or None
+        line_name = (_clean(line_name) or "")[:60] or None
         issued_to = _clean(issued_to)
         emp = self._issue_person(employee_id, issued_to_mobile)
         person = {"employee_id": None, "issued_to_mobile": None, "issued_to_code": None}
@@ -602,14 +605,14 @@ class SpareStockService:
                 part.id, round(on_hand - qty, 2), "ISSUE",
                 reference=reference, remarks=remarks, user=user,
                 department=department, machine=machine, returnable=bool(returnable),
-                extra={"issued_to": issued_to, "status": status, **person},
+                extra={"issued_to": issued_to, "status": status, "line_name": line_name, **person},
                 return_ledger=True,
             )
             self.journal.record(
                 part.id, "ISSUE", qty, store_code=part.store_code, user=user,
                 new_status=status, from_bucket="AVAILABLE", to_bucket="ISSUED",
                 issue_id=ledger.id, ledger_id=ledger.id,
-                department=department, issued_to=issued_to, machine=machine, **person,
+                department=department, issued_to=issued_to, machine=machine, line_name=line_name, **person,
                 remarks=remarks, scanned_code=_clean(scanned_code), scan_source=_clean(scan_source),
             )
         result = self._row_dict(part, row)

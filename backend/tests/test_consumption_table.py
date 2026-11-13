@@ -740,7 +740,7 @@ def test_table_endpoint(client, make, plant_at):
 
     columns = {
         "list": ["Date", "Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Department",
-                 "Issued to Dept", "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
+                 "Issued to Dept", "Issued To", "Line", "Machine", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
                  "Status"],
         "day": ["Date", "Day", *FIGURES],
         "week": ["Week", *FIGURES],
@@ -1048,7 +1048,7 @@ def test_reports_page_no_longer_offers_consumption(client, make):
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Department",
-                "Issued to Dept", "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
+                "Issued to Dept", "Issued To", "Line", "Machine", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
                 "Status")
 LIST_FIGURES = ("Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value")
 ISSUED = ("Issues", "Parts", "Qty Issued", "Value")
