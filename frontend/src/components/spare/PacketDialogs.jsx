@@ -430,8 +430,10 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
 // on the make-labels dialog's preview or the print dialog, the same either way.
 // v2 (5 Nov 2026): the default became the store's 25 x 15 roll ("default kar
 // de jo abhi test kiya tha"), so a size remembered from before starts there.
-const SIZE_KEY = "dx_packet_label_size_v2";
-const DEFAULT_SIZE = { key: "T3" };
+// v3 (13 Nov 2026): the default became the polyester 20 x 20 roll ("ye setting
+// default kar de"); every PC starts on it again, and can still pick another.
+const SIZE_KEY = "dx_packet_label_size_v3";
+const DEFAULT_SIZE = { key: "P20" };
 // What every size prints since 13 Nov 2026 (utils/packetLabels.js): the QR and its code only.
 const TINY_LINES = "QR and the TB code only (the QR carries the code and the model no.)";
 
