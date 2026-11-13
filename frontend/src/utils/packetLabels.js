@@ -51,6 +51,9 @@ export const LABEL_SIZES = [
   // The store's GoDEX G530 roll, 25 mm across x 15 mm a label (5 Nov 2026,
   // test print scanned): the tiny layout, QR (code + spec) and the TB code.
   { key: "T3", label: "Tiny roll", w: 25, h: 15 },
+  // The store's polyester roll, 20 x 20 mm (13 Nov 2026: "polister lablel 20*20
+  // ka roll h uske hisab se bhi setting kar de"): the same QR + code layout.
+  { key: "P20", label: "Polyester roll", w: 20, h: 20 },
   { key: "S", label: "Small part", w: 50, h: 25 },
   { key: "M", label: "Medium", w: 75, h: 50 },
   { key: "L", label: "Large part", w: 100, h: 50 },

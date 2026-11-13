@@ -8,7 +8,7 @@ import { fmtDate, num } from "../../lib/format.js";
 import { barcodeService } from "../../services/barcodeService.js";
 import { packetService } from "../../services/packetService.js";
 import { printLabels } from "../../utils/barcodeRender.js";
-import { LABEL_LIMITS, LABEL_SIZES, labelTier, packetLabelsHtml, tinyQr } from "../../utils/packetLabels.js";
+import { LABEL_LIMITS, LABEL_SIZES, packetLabelsHtml, tinyQr } from "../../utils/packetLabels.js";
 import { defaultTune, labelPng, qrFit, savedTune, saveTune } from "../../utils/labelImage.js";
 import { helperPrint, helperStatus, pickPrinter, savePrinter } from "../../utils/labelHelper.js";
 
@@ -432,9 +432,7 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
 // de jo abhi test kiya tha"), so a size remembered from before starts there.
 const SIZE_KEY = "dx_packet_label_size_v2";
 const DEFAULT_SIZE = { key: "T3" };
-// What every size prints since 4 Nov 2026 (utils/packetLabels.js).
-const LABEL_LINES = "Part No., description (whole), location, code under the QR";
-// A tiny label (cylinder / thin part, 4 Nov 2026): the QR and its code only.
+// What every size prints since 13 Nov 2026 (utils/packetLabels.js): the QR and its code only.
 const TINY_LINES = "QR and the TB code only (the QR carries the code and the model no.)";
 
 function savedSize() {
@@ -490,7 +488,7 @@ function LabelSizePicker({ ls }) {
         </div>
       )}
       <p className="mt-1.5 text-[12px] text-slate-500 dark:text-slate-400">
-        {sizeOk ? `${size.w} × ${size.h} mm — ${labelTier(size.h, size.w) === "TINY" ? TINY_LINES : LABEL_LINES}. Set the same size on the label printer.`
+        {sizeOk ? `${size.w} × ${size.h} mm — ${TINY_LINES}. Set the same size on the label printer.`
           : `Size must be ${LABEL_LIMITS.minW}–${LABEL_LIMITS.maxW} mm wide and ${LABEL_LIMITS.minH}–${LABEL_LIMITS.maxH} mm high.`}
       </p>
       {/* Labels print through this PC's browser, to the printer plugged into
