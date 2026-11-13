@@ -9,6 +9,7 @@ import { useStores } from "../../context/StoreContext.jsx";
 import { fmtDate, fmtStamp, num } from "../../lib/format.js";
 import { packetService } from "../../services/packetService.js";
 import { scanSearch } from "../../lib/scanText.js";
+import useGunEnd from "../../hooks/useGunEnd.js";
 import {
   CancelDialog, MakeLabelsDialog, PrintDialog, UnverifyDialog, VerifyDialog, errText,
 } from "../../components/spare/PacketDialogs.jsx";
@@ -66,13 +67,35 @@ function useDebounced(text, ms = 300) {
   return v;
 }
 
-function SearchBox({ value, onChange, placeholder }) {
+function SearchBox({ value, onChange, placeholder, onScan }) {
+  // A scanner's burst (with or without Enter) or an Enter typed by hand is a
+  // scan: onScan gets the text, so the tab can open the one part it found.
+  const gun = useGunEnd(() => onScan?.(value));
   return (
     <span className="relative">
       <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-      <input className="input-field w-72 py-1.5 pl-8 text-[13px]" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      <input className="input-field w-72 py-1.5 pl-8 text-[13px]" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+        onKeyDown={(e) => { gun(e); if (e.key === "Enter") onScan?.(e.currentTarget.value); }} />
     </span>
   );
+}
+
+// Scan a part's QR (or a label) on Receipts / Old stock and its label dialog
+// opens by itself when exactly one row there needs it (13 Nov 2026: "scan
+// karte hi ... dialog apne aap khul jaaye"); the dialog then starts on Small
+// parts packet for a part with a Pkt Qty, Individual part for the rest.
+// Several rows, or none, leave the list as it is.
+function useScanOpen(q, list, actionOf, open) {
+  const [want, setWant] = useState(null);
+  const scanned = (text) => setWant(scanSearch((text || "").trim(), "part") || null);
+  useEffect(() => {
+    if (!want || want !== q || !list.data || list.isFetching) return;
+    setWant(null);
+    const todo = (list.data.rows || []).map((r) => [r, actionOf(r)]).filter(([, a]) => a);
+    if (todo.length === 1) open(todo[0][0], todo[0][1]);
+    else if (todo.length > 1) toast(`${todo.length} rows need labels — pick one`);
+  }, [want, q, list.data, list.isFetching]); // eslint-disable-line react-hooks/exhaustive-deps
+  return scanned;
 }
 
 function Pager({ data, page, setPage }) {
@@ -176,6 +199,10 @@ function ReceiptsTab({ storeCode }) {
     const rows = printable(out.packets);
     setDialog(rows.length ? { kind: "PRINT", packets: rows } : null);
   };
+  const onScan = useScanOpen(q, list,
+    (r) => (!canCreate || r.qc === "IN_COUNT" || r.loose_note ? null
+      : r.verify_status === "PENDING" ? "VERIFY" : r.to_pack > 0 ? "MAKE" : null),
+    (r, kind) => setDialog({ kind, receipt: r }));
   return (
     <div className="card p-0">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
@@ -187,7 +214,7 @@ function ReceiptsTab({ storeCode }) {
             </button>
           ))}
         </div>
-        <SearchBox value={typed} onChange={setTyped} placeholder="Part, GRN, gate entry, supplier…" />
+        <SearchBox value={typed} onChange={setTyped} placeholder="Part, GRN, gate entry, supplier…" onScan={onScan} />
       </div>
       {list.isError ? <div className="p-4"><ErrorState title="Receipts did not load" message={errText(list.error)} onRetry={() => list.refetch()} /></div> : (
         <div className="overflow-x-auto">
@@ -334,6 +361,8 @@ function OldStockTab({ storeCode }) {
     placeholderData: keepPreviousData,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["packets"] });
+  const onScan = useScanOpen(q, list, (r) => (canCreate && r.to_label > 0 ? "MAKE" : null),
+    (r) => setDialog({ kind: "MAKE", row: r }));
   const d = list.data;
   const sum = d?.summary;
   const pct = sum && sum.parts ? Math.round((sum.done / sum.parts) * 100) : 0;
@@ -376,7 +405,7 @@ function OldStockTab({ storeCode }) {
               ))}
             </div>
           </div>
-          <SearchBox value={typed} onChange={setTyped} placeholder="Part, description, location…" />
+          <SearchBox value={typed} onChange={setTyped} placeholder="Part, description, location…" onScan={onScan} />
         </div>
         {list.isError ? <div className="p-4"><ErrorState title="Old stock did not load" message={errText(list.error)} onRetry={() => list.refetch()} /></div> : (
           <div className="overflow-x-auto">
