@@ -98,7 +98,7 @@ class ShortMailService:
             received = _received(ln.get("received_qty"), f"{part_no}: Received qty")
             if received >= invoiced:
                 raise BadRequestError(f"{part_no}: received {_num(received)} of {_num(invoiced)} is not short")
-            lines.append({"part_no": part_no, "description": _clean(ln.get("description"), 255, f"{part_no}: Description") or "",
+            lines.append({"part_no": part_no, "description": _clean(ln.get("description"), 255, f"{part_no}: Item Description") or "",
                           "invoice_qty": invoiced, "received_qty": received, "short_qty": invoiced - received})
         return {"supplier": supplier, "invoice_no": invoice_no, "invoice_date": invoice_date,
                 "received_on": received_on, "lines": lines}

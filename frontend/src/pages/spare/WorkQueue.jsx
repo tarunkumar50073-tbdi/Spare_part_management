@@ -112,7 +112,7 @@ function ActionLink({ row, action, target, canAct, primary = true }) {
 const partCol = {
   key: "part_no", label: "Part No", sortable: true,
   searchValue: (r) => `${r.part_no || ""} ${r.part_name || ""}`,
-  exportValue: (r) => r.part_no || "", exportAlso: { label: "Description", value: (r) => r.part_name || "" },
+  exportValue: (r) => r.part_no || "", exportAlso: { label: "Item Description", value: (r) => r.part_name || "" },
   render: (r) => (
     <div className="min-w-0">
       <div className="font-mono text-[13px] font-medium text-slate-800 dark:text-white">{r.part_no || "—"}</div>

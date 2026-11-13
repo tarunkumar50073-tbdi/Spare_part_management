@@ -22,7 +22,7 @@ const COLUMNS = [
       </div>
     ),
   },
-  { key: "part_name", label: "Part Name" },
+  { key: "part_name", label: "Item Description" },
   { key: "category", label: "Category", render: (r) => r.category || "—" },
   { key: "sub_category", label: "Sub Category", render: (r) => r.sub_category || "—" },
   { key: "supplier_name", label: "Supplier", render: (r) => r.supplier_name || "—" },

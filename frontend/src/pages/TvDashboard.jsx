@@ -2437,7 +2437,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
-              <th className="py-[0.7vh] pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
+              <th className="py-[0.7vh] pr-[1vh]">Part No.</th><th className="pr-[1vh]">Item Description</th>
               <th className="pr-[1vh] text-center">Stock</th>
               {showValue && <th className="pr-[1vh] text-center">{frame.valueLabel}</th>}
               <th className="pr-[1vh]">{age ? "Pending since" : "Status"}</th>
@@ -2625,7 +2625,7 @@ function TxnListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
               <th className="py-[0.7vh] pr-[1vh]">Date</th><th className="pr-[1vh]">Type</th><th className="pr-[1vh]">Part No.</th>
-              <th className="pr-[1vh]">Description</th><th className="pr-[1vh] text-center">Qty</th><th className="pr-[1vh] text-center">Balance</th>
+              <th className="pr-[1vh]">Item Description</th><th className="pr-[1vh] text-center">Qty</th><th className="pr-[1vh] text-center">Balance</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--dx-divide)]">
@@ -2713,7 +2713,7 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
-              <th className="py-[0.7vh] pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
+              <th className="py-[0.7vh] pr-[1vh]">Part No.</th><th className="pr-[1vh]">Item Description</th>
               <th className="pr-[1vh] text-center">ERP</th><th className="pr-[1vh] text-center">Physical</th>
               <th className="pr-[1vh] text-center">Gap</th><th className="pr-[1vh]">Status</th>
             </tr>
@@ -2776,7 +2776,7 @@ function SrvListView({ frame }) {
         <table className="w-full text-[1.45vh]">
           <thead>
             <tr className="text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t4)] border-b border-[var(--dx-border)]">
-              <th className="py-[0.7vh] pr-[1vh]">{rc ? "GRN No." : "SRV No."}</th><th className="pr-[1vh]">Part No.</th><th className="pr-[1vh]">Description</th>
+              <th className="py-[0.7vh] pr-[1vh]">{rc ? "GRN No." : "SRV No."}</th><th className="pr-[1vh]">Part No.</th><th className="pr-[1vh]">Item Description</th>
               {rc && <th className="pr-[1vh]">Department</th>}
               <th className="pr-[1vh]">Supplier</th><th className="pr-[1vh]">{rc ? "GRN Date" : "Gate Entry"}</th>
               <th className="pr-[1vh] text-center">{rc ? "Received" : "Qty"}</th><th className="pr-[1vh]">{rc ? "State (ERP)" : "Status"}</th>

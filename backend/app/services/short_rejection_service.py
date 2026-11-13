@@ -192,7 +192,7 @@ def line_columns(kind):
     here."""
     k = KINDS[kind]
     return ("GRN Date", "GRN No", "Lot (Gate Entry)", "Challan", "PO No", "Supplier Code", "Supplier",
-            "Part No", "Description", "Challan Qty", "Received Qty", "Accepted Qty", k["qty"], "Rate",
+            "Part No", "Item Description", "Challan Qty", "Received Qty", "Accepted Qty", k["qty"], "Rate",
             k["value"], "Days Pending", "Age", "Status")
 
 
@@ -833,7 +833,7 @@ def line_rows(out):
         "Challan": _challan({"challan_no": ln["challan_no"],
                              "challan_dt": date.fromisoformat(ln["challan_dt"]) if ln["challan_dt"] else None}),
         "PO No": ln["po_no"], "Supplier Code": ln["supplier_code"], "Supplier": ln["supplier_name"],
-        "Part No": ln["part_no"], "Description": ln["description"],
+        "Part No": ln["part_no"], "Item Description": ln["description"],
         "Challan Qty": _num(ln["challan_qty"]), "Received Qty": _num(ln["received_qty"]),
         "Accepted Qty": _num(ln["accepted_qty"]), cols["qty"]: _num(ln["qty"]), "Rate": _num(ln["rate"]),
         cols["value"]: _num(ln["value"]),

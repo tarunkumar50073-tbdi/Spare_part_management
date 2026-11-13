@@ -240,7 +240,7 @@ class RejectionRequestService:
         remark = _need(data, "remark", 255, "Reason / remark")
         row = RejectionRequest(
             store_code=store_code, kind=kind, part_id=part.id, item_cd=part.part_no,
-            item_desc=pick("item_desc", (rr.item_desc if rr else None) or part.part_name, 255, "Description"),
+            item_desc=pick("item_desc", (rr.item_desc if rr else None) or part.part_name, 255, "Item Description"),
             uom=_clean(data.get("uom"), 20, "UOM") or part.uom, hsn=_clean(data.get("hsn"), 20, "HSN"),
             ven_cd=pick("ven_cd", rr.ven_cd if rr else None, 60, "Vendor code"), ven_name=ven_name,
             challan_no=challan_no,

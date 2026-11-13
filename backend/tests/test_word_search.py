@@ -21,7 +21,7 @@ def _parts():
         "bolt": Part(part_no=f"{tag}-3", part_name="ALLEN BOLT M8 X 25", sub_category="Allen Bolt", uom="NOS",
                      part_type="OTHER", store_code=STORE, specification="SS 304"),
         "spring": Part(part_no=f"{tag}-4", part_name="COMPRESSION SPRING", sub_category="Spring", uom="NOS",
-                       part_type="OTHER", store_code=STORE, model_no="CS-12"),
+                       part_type="OTHER", store_code=STORE, specification="CS-12"),
     }
     db.session.add_all(rows.values())
     db.session.commit()

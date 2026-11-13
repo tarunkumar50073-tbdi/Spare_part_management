@@ -45,7 +45,7 @@ class PartKioskService:
         page = max(1, int(page or 1))
         per_page = max(1, min(int(per_page or PER_PAGE), MAX_PER_PAGE))
         fields = (Part.part_no, Part.old_part_no, Part.new_part_no, Part.part_name, Part.sub_category,
-                  Part.specification, Part.model_no)
+                  Part.specification)
         query = (db.session.query(Part, SpareStock.qty_on_hand, Section.name)
                  .outerjoin(SpareStock, SpareStock.part_id == Part.id)
                  .outerjoin(Section, Section.id == Part.section_id)
@@ -79,7 +79,7 @@ class PartKioskService:
         qty = max(_num(qty), 0) if counted else None          # a negative is never shown as stock
         return {
             "id": part.id, "part_no": part.part_no, "part_name": part.part_name,
-            "specification": part.specification, "model_no": part.model_no, "uom": part.uom,
+            "specification": part.specification, "uom": part.uom,
             "location": part.location, "rework_location": part.rework_location, "section": section,
             "qty": qty, "counted": counted, "available": bool(counted and qty > 0),
             "qc_pending": qc_pending, "discontinued": bool(part.discontinued),

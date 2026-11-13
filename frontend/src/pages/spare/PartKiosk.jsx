@@ -215,7 +215,7 @@ export default function PartKiosk() {
             )}
             <Search size={24} aria-hidden="true" className="ml-2 shrink-0 text-slate-400" />
             <input ref={input} autoFocus value={typed} onChange={(e) => type(e.target.value)} maxLength={80}
-              placeholder="Type Part No., name, specification or model no."
+              placeholder="Type Part No., item description or model no."
               aria-label="Search a part" enterKeyHint="search" autoComplete="off"
               className="min-w-0 flex-1 bg-transparent py-2.5 text-xl text-slate-900 outline-none dark:text-white" />
             {typed && (
@@ -276,7 +276,7 @@ export default function PartKiosk() {
 // stock — what the floor reads to pick the right part.
 function PartCard({ part: p, onOpen }) {
   const thumb = partService.imageUrl(p, true);
-  const spec = [p.specification, p.model_no && `Model ${p.model_no}`].filter(Boolean).join(" · ");
+  const spec = p.specification || "";
   return (
     <button type="button" onClick={onOpen}
       className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-toyotared dark:border-navy-800 dark:bg-navy-900">
@@ -344,7 +344,7 @@ function PartScreen({ part, onBack }) {
     return () => window.removeEventListener("keydown", key);
   }, [onBack, photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const spec = [part.specification, part.model_no && `Model ${part.model_no}`].filter(Boolean).join(" · ");
+  const spec = part.specification || "";
   const big = partService.imageUrl(part, false, n);
   return (
     // The whole screen's width, as before (the store, 28 Oct 2026: "photo badi

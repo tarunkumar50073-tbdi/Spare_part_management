@@ -70,7 +70,7 @@ export default function HoldingArea() {
   const columns = [
     { key: "fifo_priority", label: "FIFO #", render: (r) => <span className="font-semibold">{r.fifo_priority ?? "—"}</span> },
     { key: "part_no", label: "Part No" },
-    { key: "part_name", label: "Part Name" },
+    { key: "part_name", label: "Item Description" },
     { key: "invoice_no", label: "Invoice No", render: (r) => r.invoice_no || "—" },
     { key: "temporary_location", label: "Temp Location" },
     { key: "remaining_qty", label: "Holding Qty" },

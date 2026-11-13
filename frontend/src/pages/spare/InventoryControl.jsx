@@ -129,7 +129,7 @@ const PART_NO = {
   render: (r) => <span className="font-medium text-slate-800 dark:text-white">{r.part_no}</span>,
 };
 const DESCRIPTION = {
-  key: "part_name", label: "Description", sortable: true,
+  key: "part_name", label: "Item Description", sortable: true,
   render: (r) => <span className="block max-w-[240px] truncate" title={r.part_name || ""}>{r.part_name || "—"}</span>,
 };
 const SECTION = { key: "section", label: "Section", sortable: true };

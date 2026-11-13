@@ -137,7 +137,7 @@ export default function ReturnForm({ scan, target, source, onDone, onCancel }) {
       verify={
         <Facts items={[
           { label: "Part No.", value: part.part_no, strong: true },
-          { label: "Description", value: part.part_name },
+          { label: "Item Description", value: part.part_name },
           packet && { label: what === "packet" ? "Packet" : "Individual part", value: `${packet.code} · ${fmtQty(packet.qty, part.uom)}`, strong: true },
           { label: "Original department", value: issue?.department, empty: issue ? "Not recorded" : "Pick the issue" },
           issue && { label: "Issued to", value: issue.issued_to, empty: "Not recorded" },

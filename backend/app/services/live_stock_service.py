@@ -38,7 +38,7 @@ _rows_lock = threading.Lock()
 
 class LiveStockService:
     EXPORT_COLUMNS = [
-        ("Part No", "part_no"), ("Old Part No", "old_part_no"), ("Part Name", "part_name"), ("Category", "category"),
+        ("Part No", "part_no"), ("Old Part No", "old_part_no"), ("Item Description", "part_name"), ("Category", "category"),
         ("Sub Category", "sub_category"), ("Supplier", "supplier_name"), ("Rack Number", "rack_no"),
         ("Live Stock", "live_stock"), ("Coverage Day", "cov_days"), ("Status", "status"),
         ("Last ERP Sync Time", "last_erp_sync"),

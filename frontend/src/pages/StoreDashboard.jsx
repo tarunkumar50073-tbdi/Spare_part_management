@@ -1040,7 +1040,7 @@ function PendingSrvModal({ open, data, onClose }) {
               <tr>
                 <th className="text-left px-3 py-2">Supplier</th>
                 <th className="text-left px-3 py-2">Part No</th>
-                <th className="text-left px-3 py-2">Part Name</th>
+                <th className="text-left px-3 py-2">Item Description</th>
                 <th className="text-left px-3 py-2">Vehicle No</th>
                 <th className="text-left px-3 py-2">Status</th>
                 <th className="text-left px-3 py-2">Date</th>
@@ -1083,7 +1083,7 @@ function TodaysReceiptsModal({ open, rows, onClose }) {
                 <th className="text-left px-3 py-2">SRV No</th>
                 <th className="text-left px-3 py-2">Vendor</th>
                 <th className="text-left px-3 py-2">Part No</th>
-                <th className="text-left px-3 py-2">Part Name</th>
+                <th className="text-left px-3 py-2">Item Description</th>
                 <th className="text-left px-3 py-2">Qty Received</th>
                 <th className="text-left px-3 py-2">Status</th>
                 <th className="text-left px-3 py-2">Time</th>
@@ -1120,7 +1120,7 @@ function TodaysIssuesModal({ open, rows, onClose }) {
             <thead className="bg-slate-50 dark:bg-navy-800 text-slate-500">
               <tr>
                 <th className="text-left px-3 py-2">Part No</th>
-                <th className="text-left px-3 py-2">Part Name</th>
+                <th className="text-left px-3 py-2">Item Description</th>
                 <th className="text-left px-3 py-2">Qty Issued</th>
                 <th className="text-left px-3 py-2">Time</th>
               </tr>
@@ -1780,7 +1780,7 @@ export default function StoreDashboard() {
           onRowClick={openPartDetail}
           columns={[
             { key: "part_no", label: "Part No" },
-            { key: "part_name", label: "Part Name" },
+            { key: "part_name", label: "Item Description" },
             { key: "supplier_name", label: "Supplier", render: (r) => r.supplier_name || "—" },
             { key: "live_stock", label: "Stock", render: (r) => r.live_stock ?? "—" },
             { key: "cov_days", label: "Coverage", render: (r) => r.cov_days ?? "—" },

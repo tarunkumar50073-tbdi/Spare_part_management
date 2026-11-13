@@ -67,21 +67,21 @@ Report = namedtuple("Report", "key label description needs_dates columns build p
 # A plant-clock range: first / last day, and the UTC instants that bound it.
 Window = namedtuple("Window", "first last lo hi")
 
-STOCK_COLUMNS = ("Section", "Category", "Part No", "Description", "Specification", "Supplier",
+STOCK_COLUMNS = ("Section", "Category", "Part No", "Item Description", "Model No", "Supplier",
                  "Location", "UOM", "In Stock", "Min", "Reorder Level", "Max", "Status", "Rate",
                  "Stock Value")
-REORDER_COLUMNS = ("Section", "Category", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
+REORDER_COLUMNS = ("Section", "Category", "Part No", "Item Description", "Supplier", "Location", "UOM", "In Stock",
                    "Min", "Reorder Level", "Max", "Status", "Order Qty", "Rate", "Order Value")
-EXCESS_COLUMNS = ("Section", "Category", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
+EXCESS_COLUMNS = ("Section", "Category", "Part No", "Item Description", "Supplier", "Location", "UOM", "In Stock",
                   "Max", "Excess Qty", "Rate", "Excess Value")
-ISSUE_COLUMNS = ("Date & Time", "Issue No", "Reference", "Part No", "Description", "Section", "Qty Issued",
+ISSUE_COLUMNS = ("Date & Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Qty Issued",
                  "Department", "Consumer", "Issued To", "Emp Code", "Issued By", "Status",
                  "Returned Qty", "Still Out")
-RETURN_COLUMNS = ("Date & Time", "Return No", "Issue No", "Part No", "Description", "Qty", "Reason",
+RETURN_COLUMNS = ("Date & Time", "Return No", "Issue No", "Part No", "Item Description", "Qty", "Reason",
                   "Returned By", "Department", "Recorded By", "Result")
-RECEIPT_COLUMNS = ("Date", "GRN No", "Part No", "Description", "Section", "Qty", "Supplier",
+RECEIPT_COLUMNS = ("Date", "GRN No", "Part No", "Item Description", "Section", "Qty", "Supplier",
                    "Rate", "Value")
-ERP_COLUMNS = ("Part No", "Description", "Location", "ERP Stock", "In Stock",
+ERP_COLUMNS = ("Part No", "Item Description", "Location", "ERP Stock", "In Stock",
                "Gap (Physical - ERP)", "Status")
 
 # How an issue's status reads (models/spare_stock.ISSUE_STATUSES). No line /
@@ -261,7 +261,7 @@ class SpareReportService:
             back = returned.get(r.id, 0.0)
             out.append({
                 "Date & Time": _stamp(r.created_at), "Issue No": r.id, "Reference": r.reference,
-                "Part No": part.part_no, "Description": part.part_name,
+                "Part No": part.part_no, "Item Description": part.part_name,
                 "Section": sections.get(part.section_id), "Qty Issued": issued,
                 # Department = who took it, as typed (often the store's own
                 # people); Consumer = who uses it, by the part's section.
@@ -287,13 +287,13 @@ class SpareReportService:
                           *_in(L.created_at, win)).all())
         lines = [(_utc_naive(r.created_at), r.return_no, {
             "Date & Time": _stamp(r.created_at), "Return No": r.return_no, "Issue No": r.issue_id,
-            "Part No": part.part_no, "Description": part.part_name, "Qty": r.qty,
+            "Part No": part.part_no, "Item Description": part.part_name, "Qty": r.qty,
             "Reason": LEGACY_RETURN_REASONS.get(r.reason, r.reason), "Returned By": r.returned_by,
             "Department": r.department, "Recorded By": r.received_by, "Result": _return_result(r),
         }) for r, part in returns]
         lines += [(_utc_naive(e.created_at), e.return_no or "", {
             "Date & Time": _stamp(e.created_at), "Return No": e.return_no, "Issue No": e.return_of_id,
-            "Part No": part.part_no, "Description": part.part_name, "Qty": abs(float(e.qty_delta)),
+            "Part No": part.part_no, "Item Description": part.part_name, "Qty": abs(float(e.qty_delta)),
             "Reason": LEGACY_RETURN_REASONS.get(e.return_reason, e.return_reason),
             "Returned By": e.returned_by, "Department": e.department,
             "Recorded By": e.created_by, "Result": BACK_IN_STOCK,
@@ -316,14 +316,14 @@ class SpareReportService:
         sections = self._sections(store_code)
         return [{
             "Date": _date(e.created_at), "GRN No": e.reference, "Part No": part.part_no,
-            "Description": part.part_name, "Section": sections.get(part.section_id),
+            "Item Description": part.part_name, "Section": sections.get(part.section_id),
             "Qty": float(e.qty_delta), "Supplier": master or named, "Rate": part.unit_price,
             "Value": _money(e.qty_delta, part.unit_price),
         } for e, part, master, named in rows]
 
     def _erp_vs_physical(self, store_code, _win):
         return [{
-            "Part No": r["part_no"], "Description": r["part_name"], "Location": r["location"],
+            "Part No": r["part_no"], "Item Description": r["part_name"], "Location": r["location"],
             "ERP Stock": r["erp_qty"], "In Stock": r["physical_qty"],
             "Gap (Physical - ERP)": r["gap_qty"], "Status": ERP_WORDS.get(r["status"], r["status"]),
         } for r in self.stock.erp_gap(store_code)]

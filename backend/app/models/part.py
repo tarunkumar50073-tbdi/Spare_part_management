@@ -9,7 +9,10 @@ class Part(BaseModel):
     __tablename__ = "parts"
 
     part_no = db.Column(db.String(30), unique=True, nullable=False, index=True)
-    part_name = db.Column(db.String(150), nullable=False)
+    # The Item Description. In the database the column is item_description
+    # (13 Nov 2026: "part name ki jagah item description kr de" - frontend,
+    # backend and table); the code keeps calling it part_name.
+    part_name = db.Column("item_description", db.String(150), nullable=False)
     uom = db.Column(db.String(10), nullable=False, default="PCS")
 
     # Barcode/QR value scanned at verification — falls back to part_no at
@@ -67,12 +70,12 @@ class Part(BaseModel):
     # under category (e.g. category=BOP, sub_category=SOB/Seat Parts/...).
     category = db.Column(db.String(30), nullable=True)
     sub_category = db.Column(db.String(50), nullable=True)
-    # Free-text technical specification of the part (e.g. "SMPS 230VAC O/P
-    # DC12VDC 3A"). Shown on the drawer and searchable; Excel-uploadable.
-    specification = db.Column(db.String(255), nullable=True)
-    # The part's model no. as its maker prints it (e.g. "XVC1B3HK") — a column
-    # of the Part Master list since 21 Oct 2026; searchable, Excel-uploadable.
-    model_no = db.Column(db.String(60), nullable=True)
+    # The part's Model No. - its model / size code ("PCIMR5-10-0.2",
+    # "SFJT20-60-M8"), shown and headed "Model No." everywhere. In the database
+    # the column is model_no; the code keeps calling it specification. It was
+    # "Specification" until 13 Nov 2026, when the separate, never-filled Model
+    # No. field was dropped and this one took its name (rename_part_columns.py).
+    specification = db.Column("model_no", db.String(255), nullable=True)
     # The part's one photo: a file in the part-images folder, never the DB. A
     # new photo gets a new name, so the URL carrying it is never served stale
     # from a browser cache (services/part_image_service.py).

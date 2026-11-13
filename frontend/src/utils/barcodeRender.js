@@ -376,7 +376,7 @@ function charsPerLine(textW, pt, bold) {
 // abhi spec hi rhega", 23 Oct 2026). null when there is no Spec.
 function binIdent(row) {
   const spec = String(row.specification || "").trim();
-  return spec ? { label: "Spec", value: spec } : null;
+  return spec ? { label: "Model No", value: spec } : null;
 }
 
 // Layout for ONE column of `rows` at width `colW`, `k` rows tall. The DESCRIPTION

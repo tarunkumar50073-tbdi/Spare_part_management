@@ -98,12 +98,12 @@ class PartRepository(BaseRepository):
             # Partial match (so a part is found without typing the whole code),
             # word by word in any order (28 Oct 2026: "bearing", "bolt m8",
             # "6204 bearing"), across the Part No., its old / new numbers, the
-            # description, the category, spec, model and the supplier (code or
+            # item description, the category, the model no. and the supplier (code or
             # name). A left join keeps parts with no supplier.
             from app.utils.word_search import word_filters
             m = self.model
             query = query.outerjoin(Supplier, m.supplier_id == Supplier.id).filter(*word_filters(
-                (m.part_no, m.part_name, m.sub_category, m.specification, m.model_no, m.old_part_no,
+                (m.part_no, m.part_name, m.sub_category, m.specification, m.old_part_no,
                  m.new_part_no, Supplier.vendor_code, Supplier.supplier_name), keyword))
         if is_active is not None:
             query = query.filter(self.model.is_active == is_active)

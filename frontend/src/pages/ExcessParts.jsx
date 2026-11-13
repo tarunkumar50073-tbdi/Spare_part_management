@@ -28,7 +28,7 @@ const NEW_ROW_CLASS = "bg-sky-50 dark:bg-sky-500/10";
 
 const COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true },
-  { key: "part_name", label: "Part Name", sortable: true },
+  { key: "part_name", label: "Item Description", sortable: true },
   { key: "category", label: "Category", sortable: true, render: (r) => r.category || "—" },
   { key: "sub_category", label: "Sub Category", sortable: true, render: (r) => r.sub_category || "—" },
   { key: "live_stock", label: "Live Stock", sortable: true, align: "right", render: (r) => r.live_stock ?? "—" },

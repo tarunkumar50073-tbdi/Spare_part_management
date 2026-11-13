@@ -435,7 +435,7 @@ function exportSeries(d) {
 const TOP_COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true,
     render: (r) => <span className="font-medium text-slate-800 dark:text-white">{r.part_no}</span> },
-  { key: "name", label: "Description", sortable: true },
+  { key: "name", label: "Item Description", sortable: true },
   { key: "qty", label: "Qty Issued", align: "right", sortable: true, exportValue: (r) => r.qty,
     render: (r) => <span className="font-semibold tabular">{num(r.qty)}</span> },
   // Its own column, so the export keeps each quantity's unit (NO, PCS, MTR…).

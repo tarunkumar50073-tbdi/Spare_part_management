@@ -21,7 +21,8 @@ CATEGORY_ALIASES = {c.upper().replace(" ", "").replace("-", "").replace("/", "")
 
 FIELD_ALIASES = {
     "part_no": {"partno", "partnumber", "itemcode"},
-    "part_name": {"partname", "description", "itemdescription"},
+    # Item Description (13 Nov 2026; "Part Name" / "Description" in older files).
+    "part_name": ("itemdescription", "partname", "description"),
     "uom": {"uom", "unit", "unitofmeasure"},
     "barcode": {"barcode", "qrcode", "scancode"},
     "part_type": {"parttype", "routing", "materialrouting"},
@@ -30,8 +31,11 @@ FIELD_ALIASES = {
     "max_stock_level": {"maxstocklevel", "maxstock", "max"},
     "category": {"category"},
     "sub_category": {"subcategory"},
-    "specification": {"specification", "spec", "specs", "specdetails"},
-    "model_no": {"modelno", "model", "modelnumber", "partmodel", "partmodelno"},
+    # Model No. (13 Nov 2026, "specification ki jagah model no"). An older file
+    # headed "Specification" - or one with both "Specification" and the old,
+    # always-empty "Model No" column - is read by its Specification column.
+    "specification": ("specification", "spec", "specs", "specdetails",
+                      "modelno", "modelnumber", "partmodelno", "partmodel", "model"),
     "discontinued": {"discontinued", "notrequired", "discontinue"},
     "new_part_no": {"newpartno", "newpartnumber"},
     "old_part_no": {"oldpartno", "oldpartnumber", "referencecode"},
@@ -78,16 +82,16 @@ def _aliases_for(data):
     return FIELD_ALIASES
 
 TEMPLATE_COLUMNS = [
-    "Part No", "Part Name", "UOM", "Barcode", "Part Type (DOL/OTHER)", "Min Stock Level", "Reorder Level", "Max Stock Level",
-    "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "Specification", "Model No", "New Part No", "Old Part No", "Package Standard",
+    "Part No", "Item Description", "UOM", "Barcode", "Part Type (DOL/OTHER)", "Min Stock Level", "Reorder Level", "Max Stock Level",
+    "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category", "Model No", "New Part No", "Old Part No", "Package Standard",
     "Supplier Code", "Daily Consumption", "Unit Price", "Location", "Rework Location",
 ]
 
 EXPORT_COLUMNS = [
-    ("Part No", "part_no"), ("Part Name", "part_name"), ("UOM", "uom"), ("Barcode", "barcode"),
+    ("Part No", "part_no"), ("Item Description", "part_name"), ("UOM", "uom"), ("Barcode", "barcode"),
     ("Part Type", "part_type"), ("Min Stock Level", "min_stock_level"),
     ("Reorder Level", "reorder_level"), ("Max Stock Level", "max_stock_level"), ("Status", "status_label"),
-    ("Category", "category"), ("Sub Category", "sub_category"), ("Specification", "specification"), ("Model No", "model_no"),
+    ("Category", "category"), ("Sub Category", "sub_category"), ("Model No", "specification"),
     ("New Part No", "new_part_no"), ("Old Part No", "old_part_no"), ("Package Standard", "package_standard"),
     ("Supplier Code", "supplier_code"), ("Daily Consumption", "daily_consumption"), ("Unit Price", "unit_price"),
     ("Location", "location"), ("Rework Location", "rework_location"), ("Store", "store_code"),
@@ -103,10 +107,10 @@ SPARE_STORE = "MAINTENANCE"
 SPARE_CATEGORY = "Maintenance/Tool Room"
 SPARE_EXPORT_COLUMNS = [
     ("Part No", "part_no"), ("Location", "location"), ("Rework Location", "rework_location"),
-    ("Section", "section"), ("Category", "sub_category"), ("Specification", "specification"),
-    ("Description", "part_name"), ("UOM", "uom"), ("Supplier", "supplier"),
+    ("Section", "section"), ("Category", "sub_category"), ("Model No", "specification"),
+    ("Item Description", "part_name"), ("UOM", "uom"), ("Supplier", "supplier"),
     ("Min", "min_stock_level"), ("Max", "max_stock_level"), ("Reorder Level", "reorder_level"),
-    ("Rate", "unit_price"), ("Model No", "model_no"), ("Barcode", "barcode"),
+    ("Rate", "unit_price"), ("Barcode", "barcode"),
     ("Discontinued", "discontinued_label"), ("Status", "status_label"),
 ]
 SPARE_TEMPLATE_COLUMNS = [label for label, key in SPARE_EXPORT_COLUMNS if key not in ("supplier", "status_label")]
@@ -356,7 +360,6 @@ class PartService:
                 "category": category,
                 "sub_category": to_text(raw_row.get("sub_category"), "") or None,
                 "specification": to_text(raw_row.get("specification"), "") or None,
-                "model_no": to_text(raw_row.get("model_no"), "") or None,
                 "new_part_no": to_text(raw_row.get("new_part_no"), "") or None,
                 "old_part_no": to_text(raw_row.get("old_part_no"), "") or None,
                 "package_standard": to_number(raw_row.get("package_standard"), None),
@@ -391,7 +394,7 @@ class PartService:
 
             part_name = to_text(raw_row.get("part_name"))
             if not part_name:
-                raise ValueError("Part Name is required")
+                raise ValueError("Item Description is required")
             part_type = to_text(raw_row.get("part_type"), "OTHER").upper()
             if part_type not in ("DOL", "OTHER", "TOOL_ROOM"):
                 part_type = "OTHER"
@@ -543,7 +546,7 @@ class PartService:
                 "max_stock_level": float(part.max_stock_level) if part.max_stock_level is not None else "",
                 "status_label": "Active" if part.is_active else "Inactive",
                 "category": part.category or "", "sub_category": part.sub_category or "",
-                "specification": part.specification or "", "model_no": part.model_no or "",
+                "specification": part.specification or "",
                 "new_part_no": part.new_part_no or "", "old_part_no": part.old_part_no or "",
                 "package_standard": float(part.package_standard) if part.package_standard is not None else "",
                 "supplier_code": part.supplier.vendor_code if part.supplier else "",

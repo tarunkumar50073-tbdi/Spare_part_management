@@ -92,7 +92,7 @@ export default function RgpGrnForm({ scan, target, onDone, onCancel }) {
           { label: "RGP No.", value: rgp?.rgp_no, strong: true, empty: "Pick the RGP" },
           { label: "Supplier", value: rgp?.ven_name, empty: rgp ? "Not recorded" : "—" },
           { label: "Part No.", value: part.part_no },
-          { label: "Description", value: part.part_name },
+          { label: "Item Description", value: part.part_name },
           { label: "Back, GRN pending", value: rgp ? fmtQty(pending, part.uom) : null },
           { label: "RGP out date", value: rgp ? fmtDate(rgp.rgp_date) : null },
           reworkBin

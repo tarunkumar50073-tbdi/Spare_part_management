@@ -57,7 +57,7 @@ export default function SRVWorkflow() {
     { key: "srv_no", label: "SRV No", render: (r) => r.srv_no || <span className="text-slate-400">—</span> },
     { key: "vendor_code", label: "Vendor" },
     { key: "part_no", label: "Part" },
-    { key: "part_name", label: "Part Name" },
+    { key: "part_name", label: "Item Description" },
     { key: "qty_invoiced", label: "Invoiced" },
     { key: "qty_received", label: "Received", render: (r) => r.qty_received ?? "—" },
     {

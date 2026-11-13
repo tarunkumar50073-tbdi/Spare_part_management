@@ -20,7 +20,7 @@ const NAV = [
   { label: "Store Stock", to: "/store-stock-spare", mod: "store_stock", keywords: "inventory on hand count upload opening stock erp waiting for qc" },
   { label: "Part Ledger — Stock Ledger", to: "/spare-part-history", mod: "part_ledger", keywords: "valuation history opening closing movement" },
   { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },
-  { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data" },
+  { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data model no item description" },
   { label: "Critical · Reorder · Excess", to: "/inventory-control", mod: "inventory_control", keywords: "short critical zero reorder excess aging order qty" },
   { label: "Issuance Report", to: "/consumption", mod: "consumption", keywords: "issuance issue list issued issue report who took taken by issued to person kisko diya kitna diya consumption consumed usage net returned trend top parts department category yesterday last month financial year fy full pack excel pdf charts" },
   { label: "Gate Entry", to: "/gate-entry", mod: "gate_entry", keywords: "gate entry receiving arrival inward vehicle" },
@@ -150,7 +150,7 @@ export default function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search parts (no / name / spec / ref / location) or jump to a screen…"
+            placeholder="Search parts (no / item description / model no / ref / location) or jump to a screen…"
             className="w-full bg-transparent py-3.5 text-sm outline-none placeholder:text-slate-400"
             aria-label="Search"
           />
@@ -193,7 +193,7 @@ export default function CommandPalette() {
                         {p.part_name}{p.location ? ` · ${p.location}` : ""}
                       </span>
                       {p.specification && (
-                        <span className="truncate text-[11px] text-slate-400 dark:text-slate-500">Spec: {p.specification}</span>
+                        <span className="truncate text-[11px] text-slate-400 dark:text-slate-500">Model No: {p.specification}</span>
                       )}
                     </span>
                     <span className="shrink-0 text-right text-[11px] tabular text-slate-500 dark:text-slate-400">

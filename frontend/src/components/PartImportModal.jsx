@@ -54,8 +54,8 @@ export default function PartImportModal({ file, storeCode, sectionId, onClose, o
   const rejected = (preview?.rows || []).filter((r) => r.action === "ERROR");
   const downloadRejected = () =>
     downloadRows("rejected_rows",
-      rejected.map((r) => ({ Row: r.row, "Part No": r.part_no, "Part Name": r.part_name, Reason: r.reason })),
-      ["Row", "Part No", "Part Name", "Reason"]);
+      rejected.map((r) => ({ Row: r.row, "Part No": r.part_no, "Item Description": r.part_name, Reason: r.reason })),
+      ["Row", "Part No", "Item Description", "Reason"]);
 
   const footer = phase === "done" ? (
     <button className="btn-primary" onClick={onClose}>Close</button>
@@ -85,7 +85,7 @@ export default function PartImportModal({ file, storeCode, sectionId, onClose, o
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-slate-50 text-slate-600 dark:bg-navy-800 dark:text-slate-300">
                 <tr><th className="px-3 py-2 text-left">Row</th><th className="px-3 py-2 text-left">Part No</th>
-                  <th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-left">Action</th>
+                  <th className="px-3 py-2 text-left">Item Description</th><th className="px-3 py-2 text-left">Action</th>
                   <th className="px-3 py-2 text-left">Reason</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-navy-800">

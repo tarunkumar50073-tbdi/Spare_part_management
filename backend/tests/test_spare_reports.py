@@ -291,7 +291,7 @@ def test_a_wide_pdf_report_is_fitted_to_the_page(client, make, monkeypatch):
 
     assert squeeze(table._cellvalues) == squeeze(expected)
     # A long description breaks at its spaces, never inside a word.
-    description = table._cellvalues[1][report.columns.index("Description")]
+    description = table._cellvalues[1][report.columns.index("Item Description")]
     assert "\n" in description and description.replace("\n", " ") == words
 
 

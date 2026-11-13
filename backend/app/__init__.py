@@ -631,14 +631,15 @@ def _patch_schema():
         db.session.execute(text("ALTER TABLE parts ADD COLUMN reorder_level NUMERIC(12, 2)"))
         db.session.commit()
 
-    # Free-text specification (part-master Specification column) — searchable.
-    if "specification" not in part_cols:
-        db.session.execute(text("ALTER TABLE parts ADD COLUMN specification VARCHAR(255)"))
+    # The part's Model No. (Part.specification in the code; the column is
+    # model_no since 13 Nov 2026) — searchable.
+    if "model_no" not in part_cols and "specification" not in part_cols:
+        db.session.execute(text("ALTER TABLE parts ADD COLUMN model_no VARCHAR(255)"))
         db.session.commit()
 
-    # The part's model no. and its one photo (file name in the part-images
-    # folder) — Part Master, 21 Oct 2026.
-    for col, kind in (("model_no", "VARCHAR(60)"), ("image_file", "VARCHAR(80)")):
+    # The part's one photo (file name in the part-images folder) — Part
+    # Master, 21 Oct 2026.
+    for col, kind in (("image_file", "VARCHAR(80)"),):
         if col not in part_cols:
             db.session.execute(text(f"ALTER TABLE parts ADD COLUMN {col} {kind}"))
             db.session.commit()

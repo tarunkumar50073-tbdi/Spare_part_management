@@ -393,7 +393,8 @@ _BODY_ALIGN = Alignment(vertical="center")
 
 
 # Least width of a few columns by heading (format_table).
-_MIN_WIDTH = {"part no": 14, "item code": 14, "description": 30, "location": 14}
+_MIN_WIDTH = {"part no": 14, "item code": 14, "item description": 30, "description": 30, "model no": 16,
+              "location": 14}
 
 
 def format_table(ws):

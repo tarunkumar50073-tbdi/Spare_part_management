@@ -27,9 +27,9 @@ FIELD_ALIASES = {
 }
 REQUIRED_FIELDS = ["part_no", "counted_qty"]
 
-TEMPLATE_COLUMNS = [("Part No", "part_no"), ("Part Name", "part_name"), ("Counted Qty", "counted_qty")]
+TEMPLATE_COLUMNS = [("Part No", "part_no"), ("Item Description", "part_name"), ("Counted Qty", "counted_qty")]
 EXPORT_COLUMNS = [
-    ("Part No", "part_no"), ("Part Name", "part_name"), ("UOM", "uom"),
+    ("Part No", "part_no"), ("Item Description", "part_name"), ("UOM", "uom"),
     ("Counted Qty", "counted_qty"), ("Daily Consumption", "daily_consumption"),
     ("COV Days", "cov_days"), ("Indicator", "indicator"),
 ]

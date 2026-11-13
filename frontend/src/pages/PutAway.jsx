@@ -71,7 +71,7 @@ export default function PutAway() {
 
   const columns = [
     { key: "part_no", label: "Part No" },
-    { key: "part_name", label: "Part Name" },
+    { key: "part_name", label: "Item Description" },
     { key: "qty_received", label: "Qty", render: (r) => r.qty_received ?? r.qty_invoiced },
     { key: "srv_no", label: "SRV No", render: (r) => r.srv_no || "—" },
     {

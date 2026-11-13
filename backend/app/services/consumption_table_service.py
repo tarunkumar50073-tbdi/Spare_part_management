@@ -145,7 +145,7 @@ BY_WEEK_COLUMNS = WEEK + CONSUMED
 BY_MONTH_COLUMNS = MONTH + CONSUMED
 BY_YEAR_COLUMNS = YEAR + CONSUMED
 BY_FY_COLUMNS = FY + CONSUMED
-BY_PART_COLUMNS = ("Part No", "Description", "Section", "Department", "UOM", "Issues", "Qty Issued",
+BY_PART_COLUMNS = ("Part No", "Item Description", "Section", "Department", "UOM", "Issues", "Qty Issued",
                    "Qty Returned", "Net Qty", "Rate", "Value", "Net Value", "First Issued",
                    "Last Issued")
 BY_CATEGORY_COLUMNS = ("Department", "Category") + CONSUMED
@@ -155,11 +155,11 @@ BY_PERSON_COLUMNS = ("Issued To", "Emp Code", "Department") + CONSUMED
 # to (Press Shop, Weld Shop ...), not the consuming one — "kis kis depart ko
 # issue kiya", "part k according bhi" (the store, 27 Oct 2026).
 BY_ISSUED_TO_COLUMNS = ("Issued to Dept",) + CONSUMED
-BY_DEPT_PART_COLUMNS = ("Issued to Dept", "Part No", "Description", "UOM", "Issues", "Qty Issued",
+BY_DEPT_PART_COLUMNS = ("Issued to Dept", "Part No", "Item Description", "UOM", "Issues", "Qty Issued",
                         "Qty Returned", "Net Qty", "Rate", "Value", "Net Value")
 # The Issue list, in the Issue Register's words — Issued To = the person and the
 # mobile — with what came back against each issue beside what went out.
-LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Description", "Section", "Department",
+LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Department",
                 "Issued to Dept", "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
                 "Status")
 
@@ -814,7 +814,7 @@ class ConsumptionTableService:
 
     def _by_part(self, c, columns):
         groups, total = self._groups(c, lambda u: (u.part.id, {
-            "Part No": u.part.part_no, "Description": u.part.part_name, "Section": u.section,
+            "Part No": u.part.part_no, "Item Description": u.part.part_name, "Section": u.section,
             "Department": u.dept, "UOM": u.part.uom,
             "Rate": u.part.unit_price or None}))  # a rate of 0 is a missing rate
         ordered = sorted(groups.values(), key=lambda t: (*_by_money(t), t.cells["Part No"] or ""))
@@ -889,7 +889,7 @@ class ConsumptionTableService:
             if t is None:
                 t = dept[1][u.part.id] = _Tally({
                     "Issued to Dept": dept[0].cells["Issued to Dept"], "Part No": u.part.part_no,
-                    "Description": u.part.part_name, "UOM": u.part.uom,
+                    "Item Description": u.part.part_name, "UOM": u.part.uom,
                     "Rate": u.part.unit_price or None})            # a rate of 0 is a missing rate
             t.add(u)
             dept[0].add(u)
@@ -961,7 +961,7 @@ class ConsumptionTableService:
         on, at = _stamp(i.created_at).split(" ")
         cells = {
             "Date": on, "Time": at, "Issue No": i.id, "Reference": i.reference, "Part No": part.part_no,
-            "Description": part.part_name, "Section": u.section, "Department": u.dept,
+            "Item Description": part.part_name, "Section": u.section, "Department": u.dept,
             "Issued to Dept": _dept_taken(i), "Issued To": _issued_to(i), "Rate": part.unit_price or None,   # a rate of 0 is a missing rate
             "Status": _issue_status(i),
         }

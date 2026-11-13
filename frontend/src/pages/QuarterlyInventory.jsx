@@ -17,7 +17,7 @@ const TABS = ["Dashboard", "Detail", "FY Comparison", "Quarter Comparison", "Cha
 
 const DETAIL_COLUMNS = [
   { key: "part_no", label: "Part No" },
-  { key: "part_name", label: "Part Name" },
+  { key: "part_name", label: "Item Description" },
   { key: "category", label: "Category", render: (r) => r.category || "—" },
   { key: "sub_category", label: "Sub Category", render: (r) => r.sub_category || "—" },
   { key: "erp_quantity", label: "ERP Qty" },

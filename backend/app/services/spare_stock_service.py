@@ -48,7 +48,7 @@ ERP_FIELD_ALIASES = {
     "erp_qty": {"erpqty", "erpstock", "erpquantity", "erponhand", "qty", "quantity", "stock"},
 }
 ERP_REQUIRED_FIELDS = ["part_no", "erp_qty"]
-ERP_TEMPLATE_COLUMNS = ["Part No", "Description", "ERP Stock"]
+ERP_TEMPLATE_COLUMNS = ["Part No", "Item Description", "ERP Stock"]
 
 # A short-lived cache for the whole-store stock list. One dashboard refresh fires
 # list + summary + analytics, which each rebuild list_stock over every part; the
@@ -199,7 +199,7 @@ def _plant_key(fmt, column, offset):
     return func.strftime(fmt, column, f"{int(offset.total_seconds() // 60):+d} minutes")
 
 
-TEMPLATE_COLUMNS = ["Part No", "Description", "In Stock"]
+TEMPLATE_COLUMNS = ["Part No", "Item Description", "In Stock"]
 
 # The stock template's stamp (store, 16 Oct 2026, "Chhote data fix"). Download
 # Template is pre-filled with TODAY's stock, so an OLD copy uploaded again would
@@ -314,7 +314,7 @@ def _template_stamp(data):
 
 
 EXPORT_COLUMNS = [
-    ("Part No", "part_no"), ("Description", "part_name"), ("Location", "location"),
+    ("Part No", "part_no"), ("Item Description", "part_name"), ("Location", "location"),
     ("In Stock", "qty_on_hand"), ("Min", "min_stock_level"),
     ("Reorder Level", "reorder_level"), ("Max", "max_stock_level"),
     ("Shortfall", "shortfall"), ("Rate", "unit_price"), ("Stock Value", "stock_value"),
@@ -1198,8 +1198,8 @@ class SpareStockService:
             # the Live Dashboard can group on-hand parts by category and by status.
             "category": part.category, "sub_category": part.sub_category,
             "specification": part.specification,
-            # The Live Board's Find-part search reads the model no. and shows the photo.
-            "model_no": getattr(part, "model_no", None), "image_file": getattr(part, "image_file", None),
+            # The Live Board's Find-part search shows the photo.
+            "image_file": getattr(part, "image_file", None),
             "qty_on_hand": qty,
             "min_stock_level": minimum,
             "reorder_level": reorder,

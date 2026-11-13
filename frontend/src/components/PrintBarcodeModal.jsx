@@ -398,7 +398,7 @@ export default function PrintBarcodeModal({
           <>
             <dl className="divide-y divide-slate-100 rounded-lg border border-slate-200 px-3 dark:divide-navy-800 dark:border-navy-800">
               <Detail label="Part No.">{partNo}</Detail>
-              <Detail label="Description">{description || "—"}</Detail>
+              <Detail label="Item Description">{description || "—"}</Detail>
               <Detail label="Location">
                 {location || <span className="text-amber-600 dark:text-amber-400">— (not set)</span>}
               </Detail>

@@ -221,7 +221,7 @@ export default function PartDrawer({ partId, onClose, back = null }) {
 
             {p.specification && (
               <div className="text-xs text-slate-600 dark:text-slate-300">
-                <span className="font-semibold text-slate-500 dark:text-slate-400">Specification: </span>{p.specification}
+                <span className="font-semibold text-slate-500 dark:text-slate-400">Model No: </span>{p.specification}
               </div>
             )}
 

@@ -125,7 +125,7 @@ export default function RgpOutForm({ scan, target, onDone, onCancel }) {
       verify={
         <Facts items={[
           { label: "Part No.", value: part.part_no, strong: true },
-          { label: "Description", value: part.part_name },
+          { label: "Item Description", value: part.part_name },
           { label: "Returned qty eligible", value: ret ? fmtQty(eligible(ret), part.uom) : fmtQty(
             qtyOf(scan.buckets?.return_hold) + qtyOf(scan.buckets?.damaged), part.uom), strong: true },
           { label: "Current location",

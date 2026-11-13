@@ -30,7 +30,7 @@ const FIGURES = new Set(["Issues", "Parts", "Qty Issued", "Qty Returned", "Net Q
 const MONEY = new Set(["Rate", "Value", "Net Value"]);
 // Free text that would otherwise stretch a row across the screen; the whole
 // text is on hover.
-const LONG_TEXT = new Set(["Description", "Issued To"]);
+const LONG_TEXT = new Set(["Item Description", "Issued To"]);
 // The order the "How this table is counted" lines are read in (JSON hands the
 // server's keys back sorted). Some are about one view only (BASIS_VIEWS).
 const BASIS_KEYS = ["consumption", "list", "issued_to", "returns", "value", "period", "person"];

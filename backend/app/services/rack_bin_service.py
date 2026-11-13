@@ -23,7 +23,7 @@ REQUIRED_FIELDS = ["location", "rack_no", "part_no", "bin_capacity"]
 TEMPLATE_COLUMNS = ["Location", "Rack No", "Part No", "Bin Capacity", "Bins Allocated"]
 
 EXPORT_COLUMNS = [
-    ("Location", "location"), ("Rack No", "rack_no"), ("Part No", "part_no"), ("Part Name", "part_name"),
+    ("Location", "location"), ("Rack No", "rack_no"), ("Part No", "part_no"), ("Item Description", "part_name"),
     ("Bin Capacity", "bin_capacity"), ("Bins Allocated", "bins_allocated"),
 ]
 

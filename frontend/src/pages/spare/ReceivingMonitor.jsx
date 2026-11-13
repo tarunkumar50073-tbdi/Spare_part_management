@@ -157,7 +157,7 @@ const useErpGrnPreview = (code) => useQuery({
 });
 
 // Where no Description column follows, the part's name exports beside it.
-const partColNamed = { ...partCol, exportAlso: { label: "Description", value: (r) => r.part_name || "" }, };
+const partColNamed = { ...partCol, exportAlso: { label: "Item Description", value: (r) => r.part_name || "" }, };
 
 // The department a GRN is for: the part's section group ("Tool Room") or the
 // section itself ("Maintenance"), with the section under it when it differs
@@ -604,7 +604,7 @@ const GRN_COLUMNS = [
   { key: "grn_date", label: "GRN Date", sortable: true, render: (r) => fmtDate(r.grn_date) },
   { key: "grn_no", label: "GRN No", sortable: true, render: (r) => r.grn_no || dash },
   partCol,
-  { key: "description", label: "Description", render: (r) => <span className="block max-w-[240px] truncate">{r.description || "—"}</span> },
+  { key: "description", label: "Item Description", render: (r) => <span className="block max-w-[240px] truncate">{r.description || "—"}</span> },
   // Not the payload's `qty`: that falls back to the receipt qty when ERP has
   // no accepted qty yet, which would show quality-pending material as accepted.
   qtyCol("receipt_qty", "Received"),
@@ -681,7 +681,7 @@ const GATE_COLUMNS = [
   { key: "gate_entry_dt", label: "Gate date", sortable: true, render: (r) => fmtDate(r.gate_entry_dt) },
   { key: "gate_entry_no", label: "Gate entry", sortable: true, render: (r) => r.gate_entry_no || dash },
   partCol,
-  { key: "description", label: "Description", render: (r) => <span className="block max-w-[240px] truncate">{r.description || "—"}</span> },
+  { key: "description", label: "Item Description", render: (r) => <span className="block max-w-[240px] truncate">{r.description || "—"}</span> },
   qtyCol("qty", "Qty"),
   { key: "supplier", label: "Supplier", sortable: true, render: (r) => r.supplier || dash },
   { key: "po_no", label: "PO", render: (r) => r.po_no || dash },

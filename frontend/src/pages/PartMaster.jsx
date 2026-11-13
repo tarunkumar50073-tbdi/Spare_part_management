@@ -22,7 +22,7 @@ import { shrinkPhoto } from "../utils/shrinkPhoto.js";
 const EMPTY_FORM = {
   part_no: "", part_name: "", uom: "PCS", barcode: "", part_type: "OTHER",
   min_stock_level: 0, reorder_level: "", max_stock_level: "", is_active: true, discontinued: false,
-  category: "", sub_category: "", specification: "", model_no: "", new_part_no: "", old_part_no: "",
+  category: "", sub_category: "", specification: "", new_part_no: "", old_part_no: "",
   package_standard: "", supplier_id: "", daily_consumption: "", unit_price: "",
   // Without these two the create form could not say which store a part
   // belonged to, so every part added here landed with store_code = NULL and
@@ -302,7 +302,6 @@ export default function PartMaster() {
       category: row.category ?? "",
       sub_category: row.sub_category ?? "",
       specification: row.specification ?? "",
-      model_no: row.model_no ?? "",
       new_part_no: row.new_part_no ?? "",
       old_part_no: row.old_part_no ?? "",
       package_standard: row.package_standard ?? "",
@@ -327,7 +326,6 @@ export default function PartMaster() {
       category: form.category || null,
       sub_category: form.sub_category.trim() === "" ? null : form.sub_category.trim(),
       specification: form.specification.trim() === "" ? null : form.specification.trim(),
-      model_no: form.model_no.trim() === "" ? null : form.model_no.trim(),
       new_part_no: form.new_part_no.trim() === "" ? null : form.new_part_no.trim(),
       old_part_no: form.old_part_no.trim() === "" ? null : form.old_part_no.trim(),
       package_standard: form.package_standard === "" ? null : Number(form.package_standard),
@@ -453,9 +451,10 @@ export default function PartMaster() {
   const columns = [
     { key: "photo", label: "Photo", exportValue: (r) => (r.image_file ? "Yes" : ""), render: photoCell },
     { key: "part_no", label: "Part No" },
-    { key: "part_name", label: "Part Name" },
-    { key: "specification", label: "Specification", render: (r) => r.specification || "—" },
-    { key: "model_no", label: "Model No", render: (r) => r.model_no || <span className="text-slate-300 dark:text-slate-600">—</span> },
+    // 13 Nov 2026: "part name ki jagah item description" and "specification ki
+    // jagah model no" — the old, never-filled Model No. field is gone.
+    { key: "part_name", label: "Item Description" },
+    { key: "specification", label: "Model No", render: (r) => r.specification || "—" },
     { key: "uom", label: "UOM" },
     { key: "barcode", label: "Barcode", render: (r) => r.barcode || <span className="text-slate-300 dark:text-slate-600">—</span> },
     // Section beside the Category: every spare is filed under the one broad
@@ -532,8 +531,8 @@ export default function PartMaster() {
           <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
           <input
             className="input-field pl-9"
-            placeholder="Search part no, description, spec or supplier…"
-            aria-label="Search by part no, old or new part no, description, specification or supplier — any part of it"
+            placeholder="Search part no, item description, model no or supplier…"
+            aria-label="Search by part no, old or new part no, item description, model no or supplier — any part of it"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
@@ -694,7 +693,7 @@ export default function PartMaster() {
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-slate-500">Part Name</label>
+            <label className="text-xs font-medium text-slate-500">Item Description</label>
             <input
               className="input-field mt-1"
               value={form.part_name}
@@ -702,27 +701,16 @@ export default function PartMaster() {
               required
             />
           </div>
-          {/* The two the Part Master list shows beside the name. */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-slate-500">Specification</label>
-              <input
-                className="input-field mt-1"
-                maxLength={255}
-                value={form.specification}
-                onChange={(e) => setForm({ ...form, specification: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-500">Model No</label>
-              <input
-                className="input-field mt-1"
-                maxLength={60}
-                value={form.model_no}
-                placeholder="e.g. XVC1B3HK"
-                onChange={(e) => setForm({ ...form, model_no: e.target.value })}
-              />
-            </div>
+          {/* The part's model / size code, shown beside the Item Description. */}
+          <div>
+            <label className="text-xs font-medium text-slate-500">Model No</label>
+            <input
+              className="input-field mt-1"
+              maxLength={255}
+              value={form.specification}
+              placeholder="e.g. PCIMR5-10-0.2"
+              onChange={(e) => setForm({ ...form, specification: e.target.value })}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

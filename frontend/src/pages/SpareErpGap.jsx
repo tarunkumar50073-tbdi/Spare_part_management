@@ -158,7 +158,7 @@ export default function SpareErpGap() {
             <thead className="bg-slate-50 dark:bg-navy-800 text-slate-600 dark:text-slate-300">
               <tr>
                 <th className="text-left font-semibold px-3 py-3">Part No</th>
-                <th className="text-left font-semibold px-3 py-3">Part Name</th>
+                <th className="text-left font-semibold px-3 py-3">Item Description</th>
                 <th className="text-left font-semibold px-3 py-3">Location</th>
                 <th className="text-right font-semibold px-3 py-3">ERP Stock</th>
                 <th className="text-right font-semibold px-3 py-3">In Stock (Physical)</th>

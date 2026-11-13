@@ -819,7 +819,7 @@ def test_excess_list_puts_the_dearest_excess_first_and_attaches_every_part(
     assert (stored.filename, stored.mime) == (_excess_file(dept.name, day), _XLSX)
     assert stored.filename.isascii()                           # no long dash: Outlook shows the name as it is
     sheet, table = _sheet(stored)
-    assert table[0] == ["Section", "Category", "Part No", "Description", "Supplier", "Location", "UOM",
+    assert table[0] == ["Section", "Category", "Part No", "Item Description", "Supplier", "Location", "UOM",
                         "In Stock", "Max", "Excess Qty", "Rate", "Excess Value"]
     # Dearest excess first; the parts with no rate after them, largest quantity first. Only the parts
     # above a planned maximum: no E-NOMAX, H-OK or Z-MIN.
@@ -1354,7 +1354,7 @@ def test_stock_report_is_one_line_of_totals_with_the_daily_stock_report_attached
     assert book.sheetnames == ["Summary", "Stock Detail", "Critical & Reorder", "Excess", "Category Summary"]
     detail = [list(line) for line in book["Stock Detail"].iter_rows(values_only=True)]
     head = next(i for i, line in enumerate(detail) if "Part No" in line)
-    col = {name: detail[head].index(name) for name in ("Part No", "Description", "Supplier", "Status")}
+    col = {name: detail[head].index(name) for name in ("Part No", "Item Description", "Supplier", "Status")}
     by_no = {line[col["Part No"]]: line for line in detail[head + 1:] if line[col["Part No"]]}
     # Every part of the store, counted or not.
     assert sorted(by_no) == ["S-LOW", "S-NOCNT", "S-OK", "S-ORD", "S-OVER", "S-ZERO"]
@@ -1566,7 +1566,7 @@ def test_reorder_mail_is_one_line_of_totals_and_an_excel_of_every_part_with_supp
     # Worst first, as they were given. The supplier: the latest gate entry's vendor, kept as it was typed,
     # and empty for a part that never came through the gate.
     assert table == [
-        ["Section", "Category", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock", "Min",
+        ["Section", "Category", "Part No", "Item Description", "Supplier", "Location", "UOM", "In Stock", "Min",
          "Reorder Level", "Max", "Order Qty", "Rate", "Order Value", "Status"],
         ["Maintenance", "Bearing", "RO-ZERO", "Bearing <6204>", "Kiran Bearings <Pune> & Sons", "R1-S1-B1", "NOS",
          0, 2, 3, 9, 9, 12.5, 112.5, "Out of Stock"],
@@ -1680,9 +1680,9 @@ def test_without_colours_an_attachment_is_the_plain_build_export_sheet():
     and `legend`, xlsx_attachment hands over the sheet build_export makes, as
     it always did: the same cells and looks, no fill or bold in a data cell,
     nothing under the table."""
-    columns = ("Part No", "Description", "In Stock", "Status")
-    rows = [{"Part No": "P-1", "Description": '=HYPERLINK("http://x")', "In Stock": 0, "Status": "Out of Stock"},
-            {"Part No": "P-2", "Description": "Seal", "In Stock": 4.5, "Status": "Reorder"},
+    columns = ("Part No", "Item Description", "In Stock", "Status")
+    rows = [{"Part No": "P-1", "Item Description": '=HYPERLINK("http://x")', "In Stock": 0, "Status": "Out of Stock"},
+            {"Part No": "P-2", "Item Description": "Seal", "In Stock": 4.5, "Status": "Reorder"},
             {"Part No": "P-3"}]
     attachment = xlsx_attachment("Plain - 14.10.2026.xlsx", columns, rows)
     assert (attachment["filename"], attachment["mime"]) == ("Plain - 14.10.2026.xlsx", _XLSX)
@@ -2317,7 +2317,7 @@ def test_alert_critical_list_puts_the_worst_parts_first_under_the_totals(engine,
             assert absent not in body
     assert html.endswith(f"{_SIGNATURE_HTML}</p></body></html>")    # the shared signature closes the mail
     assert "<th" in html and html.count("<tr") == 5           # the header row and the four parts
-    for header in ("Part No", "Description", "Status", "Stock", "Min", "Max", "Location", "Section"):
+    for header in ("Part No", "Item Description", "Status", "Stock", "Min", "Max", "Location", "Section"):
         assert f">{header}</th>" in html and header in text
     assert ">12.5</td>" in html and ">R2-S1-B4</td>" in html and ">Maintenance</td>" in html
     # A description is data: it is shown, never run.

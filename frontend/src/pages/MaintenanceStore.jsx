@@ -284,7 +284,7 @@ function StockStatus({ status }) {
 
 const BELOW_MIN_COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true },
-  { key: "part_name", label: "Description", sortable: true },
+  { key: "part_name", label: "Item Description", sortable: true },
   { key: "location", label: "Location", render: (r) => r.location || "—" },
   { key: "qty_on_hand", label: "In Stock", sortable: true, align: "right", render: (r) => num(r.qty_on_hand) },
   { key: "min_stock_level", label: "Min", sortable: true, align: "right", render: (r) => num(r.min_stock_level) },
@@ -362,7 +362,7 @@ function MinMaxBar({ row }) {
 
 const EXCESS_COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true },
-  { key: "part_name", label: "Description", sortable: true },
+  { key: "part_name", label: "Item Description", sortable: true },
   { key: "location", label: "Location", render: (r) => r.location || "—" },
   { key: "qty_on_hand", label: "In Stock", sortable: true, align: "right", render: (r) => num(r.qty_on_hand) },
   { key: "max_stock_level", label: "Max", align: "right", render: (r) => num(r.max_stock_level) },
@@ -413,7 +413,7 @@ const ACTIVITY_COLUMNS = [
     },
   },
   { key: "part_no", label: "Part No", sortable: true },
-  { key: "part_name", label: "Description" },
+  { key: "part_name", label: "Item Description" },
   {
     key: "qty_delta", label: "Qty", align: "right",
     render: (r) => (
@@ -431,7 +431,7 @@ const ACTIVITY_COLUMNS = [
 const PENDING_COLUMNS = [
   { key: "srv_no", label: "SRV No", sortable: true, render: (r) => r.srv_no || "—" },
   { key: "part_no", label: "Part No", sortable: true },
-  { key: "part_name", label: "Description" },
+  { key: "part_name", label: "Item Description" },
   { key: "supplier_name", label: "Supplier", render: (r) => r.supplier_name || "—" },
   { key: "invoice_no", label: "Invoice", render: (r) => r.invoice_no || "—" },
   { key: "qty_received", label: "Qty", align: "right", render: (r) => num(r.qty_received ?? r.qty_invoiced) },
@@ -458,7 +458,7 @@ const ERP_LINE_PENDING_COLUMNS = [
     ),
   },
   { key: "part_no", label: "Part No", sortable: true },
-  { key: "part_name", label: "Description" },
+  { key: "part_name", label: "Item Description" },
   {
     key: "dept", label: "Department", sortable: true, sortValue: grnDeptText, exportValue: grnDeptText,
     render: (r) => (r.dept ? (
@@ -486,7 +486,7 @@ const erpLineKey = (r) => `${r.part_id}|${r.grn_no}`;
 // by — rate and stock value rather than Min/Max.
 const STOCK_VALUE_COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true, width: "112px" },
-  { key: "part_name", label: "Description", sortable: true },   // no width → fills + wraps
+  { key: "part_name", label: "Item Description", sortable: true },   // no width → fills + wraps
   { key: "location", label: "Location", width: "150px", render: (r) => r.location || "—" },
   { key: "qty_on_hand", label: "In Stock", sortable: true, align: "right", width: "92px", render: (r) => num(r.qty_on_hand) },
   { key: "unit_price", label: "Rate", sortable: true, align: "right", width: "100px", render: (r) => money(r.unit_price) },
@@ -504,7 +504,7 @@ const whenCol = {
 };
 const partCol = {
   key: "part_no", label: "Part No", sortable: true, searchValue: (r) => `${r.part_no || ""} ${r.part_name || ""}`,
-  exportAlso: { label: "Description", value: (r) => r.part_name || "" },
+  exportAlso: { label: "Item Description", value: (r) => r.part_name || "" },
   render: (r) => (
     <div className="min-w-0">
       <div className="font-mono text-[13px] font-medium text-slate-800 dark:text-white">{r.part_no || "—"}</div>
@@ -1720,7 +1720,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
                 <button className="btn-secondary py-1.5 text-[13px] shrink-0"
                   onClick={() => downloadXlsx(
                     `spare_consumed_${custom ? `${consFrom}_${consTo}` : "all"}`,
-                    ["Part No", "Description", "Qty Issued"],
+                    ["Part No", "Item Description", "Qty Issued"],
                     topConsumedData.map((p) => [p.part_no, p.part_name || "", Number(p.qty) || 0]),
                     "Consumed",
                   )}>
@@ -1968,7 +1968,7 @@ const COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true, width: "112px" },
   // No width → in the drill's fixed layout Description takes the remaining room
   // and WRAPS (fully visible, no horizontal scroll).
-  { key: "part_name", label: "Description", sortable: true },
+  { key: "part_name", label: "Item Description", sortable: true },
   { key: "location", label: "Location", sortable: true, width: "132px", render: (r) => r.location || "—" },
   {
     key: "rework_location",

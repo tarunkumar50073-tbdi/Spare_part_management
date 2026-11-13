@@ -435,7 +435,7 @@ const DEFAULT_SIZE = { key: "T3" };
 // What every size prints since 4 Nov 2026 (utils/packetLabels.js).
 const LABEL_LINES = "Part No., description (whole), location, code under the QR";
 // A tiny label (cylinder / thin part, 4 Nov 2026): the QR and its code only.
-const TINY_LINES = "QR and the TB code only (the QR carries the code and the spec)";
+const TINY_LINES = "QR and the TB code only (the QR carries the code and the model no.)";
 
 function savedSize() {
   try { return JSON.parse(localStorage.getItem(SIZE_KEY)) || DEFAULT_SIZE; } catch { return DEFAULT_SIZE; }

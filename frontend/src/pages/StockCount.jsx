@@ -130,7 +130,7 @@ export default function StockCount() {
             <thead className="bg-slate-50 dark:bg-navy-800 text-slate-600 dark:text-slate-300">
               <tr>
                 <th className="text-left font-semibold px-3 py-3">Part No</th>
-                <th className="text-left font-semibold px-3 py-3">Part Name</th>
+                <th className="text-left font-semibold px-3 py-3">Item Description</th>
                 <th className="text-left font-semibold px-3 py-3">UOM</th>
                 <th className="text-left font-semibold px-3 py-3">Counted Qty ({date})</th>
                 <th className="text-left font-semibold px-3 py-3">Peak Daily Requirement</th>

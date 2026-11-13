@@ -44,12 +44,12 @@ STORE = "MISRPT"
 # Noon UTC: the same calendar day on the plant clock wherever the server runs.
 NOW = datetime(2026, 10, 13, 12, 0)
 SHEETS = ["Summary", "Stock Detail", "Critical & Reorder", "Excess", "Category Summary"]
-DETAIL_HEAD = ["Sr No", "Section", "Category", "Part No", "Description", "Specification", "Supplier",
+DETAIL_HEAD = ["Sr No", "Section", "Category", "Part No", "Item Description", "Model No", "Supplier",
                "Location", "UOM", "In Stock", "Min", "Reorder Level", "Max", "Status", "Rate",
                "Stock Value"]
 URL = "/api/v1/spare-stock/daily-report"
 STOCK_ONLY_URL = "/api/v1/spare-stock/daily-stock-only"
-STOCK_ONLY_HEAD = ["Sr No", "Section", "Part No", "Description", "Location", "UOM", "In Stock", "Min",
+STOCK_ONLY_HEAD = ["Sr No", "Section", "Part No", "Item Description", "Location", "UOM", "In Stock", "Min",
                    "Reorder Level", "Max", "Status"]
 
 
@@ -299,7 +299,7 @@ def test_detail_sheet(wb):
 
     assert by["MISA06"] == {
         "Sr No": 6, "Section": "MIS Alpha", "Category": "Sensor", "Part No": "MISA06",
-        "Description": "Part MISA06", "Specification": "Spec MISA06", "Supplier": "ACME TOOLS",
+        "Item Description": "Part MISA06", "Model No": "Spec MISA06", "Supplier": "ACME TOOLS",
         "Location": "R1-S1-B1", "UOM": "NOS", "In Stock": 5, "Min": 2, "Reorder Level": None, "Max": 10,
         "Status": "Healthy", "Rate": 20.5, "Stock Value": 102.5,
     }
@@ -326,7 +326,7 @@ def test_detail_sheet(wb):
     cell = {head: ws.cell(5 + 9, col) for col, head in enumerate(heads, start=1)}     # MISB03
     # Text starting with = + - @ stays text, never a formula or a number — by
     # Excel's quote prefix, not an apostrophe in the text, which would print.
-    for head, text in (("Description", "=SUM(1,1)"), ("Specification", "-710619")):
+    for head, text in (("Item Description", "=SUM(1,1)"), ("Model No", "-710619")):
         assert (cell[head].value, cell[head].data_type, cell[head].quotePrefix) == (text, "s", True)
     assert not cell["Part No"].quotePrefix
     # Whole quantities are integers; a fraction keeps 2 places.
@@ -334,7 +334,7 @@ def test_detail_sheet(wb):
     whole = ws.cell(5, heads.index("Max") + 1)
     assert (whole.value, type(whole.value), whole.number_format) == (10, int, WHOLE)
     assert cell["Rate"].number_format == MONEY and cell["Rate"].alignment.horizontal == "right"
-    assert cell["Description"].alignment.wrap_text and cell["Specification"].alignment.wrap_text
+    assert cell["Item Description"].alignment.wrap_text and cell["Model No"].alignment.wrap_text
     # The Status cell wears the status' tint.
     status = heads.index("Status") + 1
     assert ws.cell(5, status).fill.fgColor.rgb.endswith("FFE4E6")     # Out of Stock
@@ -345,7 +345,7 @@ def test_detail_sheet(wb):
 def test_critical_and_reorder_sheet(wb):
     ws = wb["Critical & Reorder"]
     heads, rows = _list(ws)
-    assert heads == ["Sr No", "Section", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
+    assert heads == ["Sr No", "Section", "Part No", "Item Description", "Supplier", "Location", "UOM", "In Stock",
                      "Min", "Reorder Level", "Max", "Status", "Order Qty", "Rate", "Order Value"]
     # Worst first: zero stock (largest gap first), below minimum, then reorder.
     assert [(r["Part No"], r["Status"]) for r in rows] == [
@@ -364,7 +364,7 @@ def test_critical_and_reorder_sheet(wb):
 def test_excess_sheet(wb):
     ws = wb["Excess"]
     heads, rows = _list(ws)
-    assert heads == ["Sr No", "Section", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
+    assert heads == ["Sr No", "Section", "Part No", "Item Description", "Supplier", "Location", "UOM", "In Stock",
                      "Max", "Excess Qty", "Rate", "Excess Value"]
     # Dearest excess first; the part with no rate after the rated ones.
     assert [r["Part No"] for r in rows] == ["MISA04", "MISB02", "MISA05"]

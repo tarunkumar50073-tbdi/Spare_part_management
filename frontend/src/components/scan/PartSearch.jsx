@@ -28,7 +28,7 @@ function rank(p, q) {
 
 export default function PartSearch({
   storeCode, onPick, onSubmitText, busy = false, autoFocus = true, clearOnPick = true,
-  placeholder = "Part No., description, category, spec or location…", label = "Search part",
+  placeholder = "Part No., item description, category, model no. or location…", label = "Search part",
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -49,7 +49,7 @@ export default function PartSearch({
     // Word by word, any order, a plural finding its singular (28 Oct 2026).
     const matchers = wordMatchers(q);
     return parts
-      .filter((p) => matchesAll(`${p.part_no || ""} ${p.part_name || ""} ${p.type_name || ""} ${p.old_part_no || ""} ${p.new_part_no || ""} ${p.specification || ""} ${p.model_no || ""} ${p.location || ""}`.toLowerCase(), matchers))
+      .filter((p) => matchesAll(`${p.part_no || ""} ${p.part_name || ""} ${p.type_name || ""} ${p.old_part_no || ""} ${p.new_part_no || ""} ${p.specification || ""} ${p.location || ""}`.toLowerCase(), matchers))
       .map((p) => [rank(p, q), p])
       .sort((a, b) => a[0] - b[0] || String(a[1].part_no).localeCompare(String(b[1].part_no)))
       .slice(0, MAX_RESULTS)
@@ -146,7 +146,7 @@ export default function PartSearch({
               <span className="block truncate font-mono text-sm font-semibold text-slate-800 dark:text-white">{p.part_no}</span>
               <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">{p.part_name || "No description"}</span>
               {p.specification && (
-                <span className="block truncate text-[11px] text-slate-400 dark:text-slate-500">Spec: {p.specification}</span>
+                <span className="block truncate text-[11px] text-slate-400 dark:text-slate-500">Model No: {p.specification}</span>
               )}
             </span>
             <span className="shrink-0 text-right text-[11px] text-slate-500 dark:text-slate-400">

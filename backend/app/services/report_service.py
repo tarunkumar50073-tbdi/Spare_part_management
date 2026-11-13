@@ -191,29 +191,29 @@ class ReportService:
 
     REPORTS = {
         "srv": ("SRV Report", _srv_rows, [
-            ("SRV No", "srv_no"), ("Vendor", "vendor_code"), ("Part No", "part_no"), ("Part Name", "part_name"),
+            ("SRV No", "srv_no"), ("Vendor", "vendor_code"), ("Part No", "part_no"), ("Item Description", "part_name"),
             ("Qty Invoiced", "qty_invoiced"), ("Qty Received", "qty_received"), ("Short", "is_short"),
             ("QC Required", "qc_required"), ("Routing", "routing"), ("Status", "status"), ("Created At", "srv_created_at"),
         ]),
         "verification": ("Verification Report", _verification_rows, [
-            ("Part No", "part_no"), ("Part Name", "part_name"), ("Qty Invoiced", "qty_invoiced"),
+            ("Part No", "part_no"), ("Item Description", "part_name"), ("Qty Invoiced", "qty_invoiced"),
             ("Qty Received", "qty_received"), ("Short Qty", "short_qty"),
             ("Verified At", "verified_at"),
         ]),
         "pending_rqc": ("Pending RQC Report", _pending_rqc_rows, [
-            ("SRV No", "srv_no"), ("Part No", "part_no"), ("Part Name", "part_name"), ("Vendor", "vendor_code"),
+            ("SRV No", "srv_no"), ("Part No", "part_no"), ("Item Description", "part_name"), ("Vendor", "vendor_code"),
             ("Qty Received", "qty_received"), ("Forwarded At", "rqc_forwarded_at"),
         ]),
         "put_away": ("Put Away Report", _put_away_rows, [
-            ("SRV No", "srv_no"), ("Part No", "part_no"), ("Part Name", "part_name"),
+            ("SRV No", "srv_no"), ("Part No", "part_no"), ("Item Description", "part_name"),
             ("Put Away Status", "put_away_status"), ("Rack", "rack"), ("Put Away At", "put_away_at"),
         ]),
         "rack_stock": ("Rack Stock Report", _rack_stock_rows, [
-            ("Location", "location"), ("Rack No", "rack_no"), ("Part No", "part_no"), ("Part Name", "part_name"),
+            ("Location", "location"), ("Rack No", "rack_no"), ("Part No", "part_no"), ("Item Description", "part_name"),
             ("Bin Capacity", "bin_capacity"), ("Bins Allocated", "bins_allocated"),
         ]),
         "live_stock": ("Live Stock Report", _live_stock_rows, [
-            ("Part No", "part_no"), ("Part Name", "part_name"), ("UOM", "uom"),
+            ("Part No", "part_no"), ("Item Description", "part_name"), ("UOM", "uom"),
             ("Qty On Hand", "qty_on_hand"), ("Source", "source"),
         ]),
         "supplier": ("Supplier Report", _supplier_rows, [
@@ -228,7 +228,7 @@ class ReportService:
             ("ERP Value", "erp_value"), ("Gap Value", "gap_value"),
         ]),
         "inventory_variance": ("Inventory Variance Report", _inventory_variance_rows, [
-            ("Fiscal Year", "fiscal_year"), ("Quarter", "quarter"), ("Part No", "part_no"), ("Part Name", "part_name"),
+            ("Fiscal Year", "fiscal_year"), ("Quarter", "quarter"), ("Part No", "part_no"), ("Item Description", "part_name"),
             ("Category", "category"), ("ERP Quantity", "erp_quantity"), ("Physical Quantity", "physical_quantity"),
             ("Gap Quantity", "gap_quantity"), ("Gap Value", "gap_value"), ("Status", "status"),
         ]),
@@ -245,7 +245,7 @@ class ReportService:
             ("Variance Parts", "variance_parts"), ("Inventory Accuracy %", "inventory_accuracy_pct"), ("Gap Value", "gap_value"),
         ]),
         "top_oldest_excess": ("Top 10 Oldest Excess Parts", _top_oldest_excess_rows, [
-            ("Part No", "part_no"), ("Part Name", "part_name"), ("Category", "category"),
+            ("Part No", "part_no"), ("Item Description", "part_name"), ("Category", "category"),
             ("Live Stock", "live_stock"), ("COV Days", "cov_days"),
             ("Excess Since", "excess_since"), ("Days In Excess", "days_in_excess"),
         ]),

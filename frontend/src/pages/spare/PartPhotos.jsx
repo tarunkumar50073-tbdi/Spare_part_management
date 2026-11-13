@@ -322,9 +322,9 @@ export default function PartPhotos() {
                   <span className="min-w-0 flex-1">
                     <span className="block font-mono text-[15px] font-bold text-slate-900 dark:text-white">{p.part_no}</span>
                     <span className="mt-0.5 line-clamp-2 block text-[13px] text-slate-600 dark:text-slate-300">{p.part_name}</span>
-                    {(p.specification || p.model_no) && (
+                    {p.specification && (
                       <span className="mt-0.5 block truncate text-[11px] text-slate-400">
-                        {[p.model_no && `Model ${p.model_no}`, p.specification].filter(Boolean).join(" · ")}
+                        {p.specification}
                       </span>
                     )}
                     <span className="mt-1 flex items-center gap-1 text-[12px] font-semibold text-slate-500 dark:text-slate-400">

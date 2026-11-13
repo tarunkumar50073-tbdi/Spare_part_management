@@ -142,7 +142,7 @@ export default function InspectForm({ scan, target, onDone, onCancel }) {
       verify={
         <Facts items={[
           { label: "Part No.", value: part.part_no, strong: true },
-          { label: "Description", value: part.part_name },
+          { label: "Item Description", value: part.part_name },
           { label: "Waiting inspection", value: fmtQty(scan.buckets?.return_pending ?? 0, part.uom) },
           ret && { label: "Return reason", value: reasonLabel(ret.reason) },
           ret && { label: "From", value: `${ret.department || "—"}${ret.issued_to ? ` · ${ret.issued_to}` : ""}` },

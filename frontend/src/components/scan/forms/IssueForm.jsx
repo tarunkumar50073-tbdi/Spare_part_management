@@ -160,7 +160,7 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
       verify={
         <Facts items={[
           { label: "Part No.", value: part.part_no, strong: true },
-          { label: "Description", value: part.part_name },
+          { label: "Item Description", value: part.part_name },
           ...binFacts({ label: "Location", value: part.location, empty: "Not set" }),
           { label: "Available qty", value: fmtQty(available, part.uom), strong: true },
         ]} />

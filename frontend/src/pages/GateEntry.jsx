@@ -35,7 +35,7 @@ export default function GateEntry() {
     { key: "supplier_name", label: "Supplier" },
     { key: "invoice_no", label: "Invoice / Challan" },
     { key: "part_no", label: "Part No" },
-    { key: "part_name", label: "Part Name" },
+    { key: "part_name", label: "Item Description" },
     { key: "qty_invoiced", label: "Qty Invoiced" },
     {
       key: "gate_entry_time",

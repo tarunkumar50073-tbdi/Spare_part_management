@@ -23,10 +23,10 @@ FIELD_ALIASES = {
 }
 REQUIRED_FIELDS = ["part_no", "physical_qty"]
 
-TEMPLATE_COLUMNS = ["Part No", "Part Name", "Physical Qty"]
+TEMPLATE_COLUMNS = ["Part No", "Item Description", "Physical Qty"]
 
 EXPORT_COLUMNS = [
-    ("Part No", "part_no"), ("Part Name", "part_name"), ("Category", "category"),
+    ("Part No", "part_no"), ("Item Description", "part_name"), ("Category", "category"),
     ("ERP Stock", "erp_qty"), ("Physical Stock", "physical_qty"),
     ("Gap (Physical - ERP)", "gap_qty"), ("Status", "status"),
 ]

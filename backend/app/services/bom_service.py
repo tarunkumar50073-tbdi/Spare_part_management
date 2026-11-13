@@ -21,7 +21,7 @@ TEMPLATE_COLUMNS = ["Finished Good No", "Finished Good Name", "Part No", "Qty pe
 
 EXPORT_COLUMNS = [
     ("Finished Good No", "fg_no"), ("Finished Good Name", "fg_name"),
-    ("Part No", "part_no"), ("Part Name", "part_name"), ("Qty per Unit", "qty_per_unit"),
+    ("Part No", "part_no"), ("Item Description", "part_name"), ("Qty per Unit", "qty_per_unit"),
 ]
 
 

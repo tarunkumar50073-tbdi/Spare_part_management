@@ -111,7 +111,7 @@ export default function RackBinMaster() {
     { key: "location", label: "Location", sortable: true },
     { key: "rack_no", label: "Rack", sortable: true },
     { key: "part_no", label: "Part No", sortable: true },
-    { key: "part_name", label: "Part Name", sortable: true },
+    { key: "part_name", label: "Item Description", sortable: true },
     { key: "bin_capacity", label: "Bin Capacity", sortable: true, align: "right" },
     { key: "bins_allocated", label: "Bins Allocated", sortable: true, align: "right" },
     { key: "bins_occupied", label: "Occupied", sortable: true, align: "right" },

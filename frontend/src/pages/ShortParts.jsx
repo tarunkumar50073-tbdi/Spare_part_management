@@ -32,7 +32,7 @@ const COLUMNS = [
       </div>
     ),
   },
-  { key: "part_name", label: "Part Name", sortable: true },
+  { key: "part_name", label: "Item Description", sortable: true },
   { key: "category", label: "Category", sortable: true, render: (r) => r.category || "—" },
   { key: "sub_category", label: "Sub Category", sortable: true, render: (r) => r.sub_category || "—" },
   {

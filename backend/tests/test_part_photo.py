@@ -214,35 +214,57 @@ def test_photo_mode_counts_active_parts_only(app, make, photos):
     assert got["photos"]["total"] == 1
 
 
-# ---- model no. -----------------------------------------------------------------------------------
+# ---- Model No. / Item Description (13 Nov 2026) ---------------------------------------------------
+# "model no vala column hta de and specification ki jagah model no kr de and part name ki jagah item
+# description kr de": the part's model / size code is its Model No. (Part.specification, column
+# model_no); its name is the Item Description (Part.part_name, column item_description).
 
-def test_model_no_is_saved_searched_exported_and_imported(app, make):
+def test_model_no_and_item_description_are_saved_searched_exported_and_imported(app, make):
+    from sqlalchemy import inspect
+    cols = {c["name"] for c in inspect(db.engine).get_columns("parts")}
+    assert {"item_description", "model_no"} <= cols and not {"part_name", "specification"} & cols
     code, sec = make.store()
     editor = make.user({"part_master": {"view": True, "edit": True}})
     c = _as(app.test_client(), editor)
     r = c.post(URL, json={"part_no": f"PP-{_TAG}-M", "part_name": "Tower light", "store_code": code,
-                          "model_no": "XVC1B3HK"})
-    assert r.status_code == 201 and r.get_json()["data"]["model_no"] == "XVC1B3HK"
-    pid = r.get_json()["data"]["id"]
-    assert c.put(f"{URL}/{pid}", json={"model_no": "XVC1B3HK-2"}).get_json()["data"]["model_no"] == "XVC1B3HK-2"
+                          "specification": "XVC1B3HK"})
+    data = r.get_json()["data"]
+    assert r.status_code == 201 and data["specification"] == "XVC1B3HK" and data["part_name"] == "Tower light"
+    assert "model_no" not in data and "item_description" not in data          # the API keeps its names
+    pid = data["id"]
+    assert c.put(f"{URL}/{pid}", json={"specification": "XVC1B3HK-2"}).get_json()["data"]["specification"] == "XVC1B3HK-2"
     rows = c.get(URL, query_string={"store_code": code, "keyword": "xvc1b3"}).get_json()["data"]
     assert [p["id"] for p in rows] == [pid]
-    assert c.post(URL, json={"part_no": f"PP-{_TAG}-L", "part_name": "x", "store_code": code,
-                             "model_no": "M" * 61}).status_code == 422              # at most 60
     sheet = load_workbook(PartService().export_all(store_code=code)).active
     head = [cell.value for cell in sheet[1]]
-    assert head[head.index("Specification") + 1] == "Model No"
+    assert "Item Description" in head and "Model No" in head
+    assert not {"Part Name", "Description", "Specification"} & set(head) and head.count("Model No") == 1
     assert sheet.cell(row=2, column=head.index("Model No") + 1).value == "XVC1B3HK-2"
-    # Re-import with a "Model" heading fills it in; a blank cell leaves it alone.
+    assert sheet.cell(row=2, column=head.index("Item Description") + 1).value == "Tower light"
     from openpyxl import Workbook
-    wb = Workbook()
-    wb.active.append(["Part No", "Part Name", "Model"])
-    wb.active.append([f"PP-{_TAG}-M", "Tower light", "XVC-NEW"])
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    PartService().bulk_import_excel(buf, store_code=code)
-    assert db.session.get(Part, pid).model_no == "XVC-NEW"
+
+    def upload(*rows):
+        wb = Workbook()
+        for row in rows:
+            wb.active.append(row)
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        PartService().bulk_import_excel(buf, store_code=code)
+        db.session.expire_all()
+        return db.session.get(Part, pid)
+
+    # The new headings fill both in: a new part takes both, a known one its Model No.
+    upload(["Part No", "Item Description", "Model No"], [f"PP-{_TAG}-N", "Beacon light", "QLIGHT-1"],
+           [f"PP-{_TAG}-M", "Tower light LED", "XVC-NEW"])
+    new = Part.query.filter_by(part_no=f"PP-{_TAG}-N").one()
+    assert (new.part_name, new.specification) == ("Beacon light", "QLIGHT-1")
+    p = db.session.get(Part, pid)
+    assert (p.part_name, p.specification) == ("Tower light", "XVC-NEW")   # an import never renames a known part
+    # An older file - "Part Name" and "Specification", with the old, empty "Model No" column beside it -
+    # is read by its Specification column, never blanked by the empty one.
+    p = upload(["Part No", "Part Name", "Specification", "Model No"], [f"PP-{_TAG}-M", "Tower light", "XVC-OLD", None])
+    assert (p.part_name, p.specification) == ("Tower light", "XVC-OLD")
 
 
 # ---- filters -------------------------------------------------------------------------------------

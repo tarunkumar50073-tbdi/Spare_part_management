@@ -867,7 +867,7 @@ class SparePacketService:
                 continue
             rows.append({"part": {"id": part.id, "part_no": part.part_no, "part_name": part.part_name,
                                   "uom": part.uom, "location": part.location,
-                                  "specification": part.specification, "model_no": part.model_no,
+                                  "specification": part.specification,
                                   "section": sections.get(part.section_id), "section_id": part.section_id},
                          "rack": r, **row})
         rows.sort(key=lambda x: ((x["part"]["section"] or "~").lower(), _natural(x["rack"]),
@@ -1322,7 +1322,7 @@ class SparePacketService:
         like = f"%{text}%"
         rows = (Part.query.filter(Part.store_code == store_code, Part.is_active.is_(True),
                                   or_(Part.part_no.ilike(like), Part.part_name.ilike(like),
-                                      Part.specification.ilike(like), Part.model_no.ilike(like)))
+                                      Part.specification.ilike(like)))
                 .order_by(func.length(Part.part_no), Part.part_no).limit(max(1, min(int(limit), 50))).all())
         return [{**self._part_dict(p), **self.figures(p.id)} for p in rows]
 
@@ -1333,7 +1333,7 @@ class SparePacketService:
         section = db.session.get(Section, part.section_id) if part.section_id else None
         return {"id": part.id, "part_no": part.part_no, "part_name": part.part_name, "uom": part.uom,
                 "location": part.location, "rework_location": part.rework_location,
-                "specification": part.specification, "model_no": getattr(part, "model_no", None),
+                "specification": part.specification,
                 "section": section.name if section else None}
 
     def receipt_dict(self, r, counted_on=None):

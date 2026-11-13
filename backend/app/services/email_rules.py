@@ -180,8 +180,8 @@ ALERT_MESSAGE_MAX = 5000
 
 CRITICAL_STATUSES = ("Out of Stock", "Below Minimum")
 TOP_PARTS = 50      # rows in the critical parts table; the totals line counts them all
-CRITICAL_HEADERS = ("Part No", "Description", "Status", "Stock", "Min", "Max", "Location", "Section")
-EXCESS_COLUMNS = ("Section", "Category", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
+CRITICAL_HEADERS = ("Part No", "Item Description", "Status", "Stock", "Min", "Max", "Location", "Section")
+EXCESS_COLUMNS = ("Section", "Category", "Part No", "Item Description", "Supplier", "Location", "UOM", "In Stock",
                   "Max", "Excess Qty", "Rate", "Excess Value")
 # The excess sheet's colours, the store's (14 Oct 2026: "excess wali me karen"
 # — he chose "In Stock yellow + Excess Value ₹ ke hisaab se"). Every In Stock

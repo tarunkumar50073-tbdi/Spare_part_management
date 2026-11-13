@@ -499,7 +499,7 @@ def test_part_view(make, plant_at):
     # Net Value first, unrated parts after every rated one by Net Qty; never the cancelled p4.
     assert [r["Part No"] for r in rows] == [f.p1, f.p3, f.p6, f.p2, f.p5, "Total"]
     assert rows[0] == {
-        "Part No": f.p1, "Description": f.p1_name, "Section": f.s.live_name,
+        "Part No": f.p1, "Item Description": f.p1_name, "Section": f.s.live_name,
         "Department": f.group, "UOM": "NOS", "Issues": 2, "Qty Issued": 5, "Qty Returned": 1,
         "Net Qty": 4, "Rate": 10, "Value": 50, "Net Value": 40,
         "First Issued": "10.03.2026", "Last Issued": "01.04.2026"}
@@ -507,7 +507,7 @@ def test_part_view(make, plant_at):
         (f.old, 5, 5, 1, 5), (f.group, None, None, 6, None), (f.zed, None, None, 4, None),
         ("No section", None, None, 2, None)]
     total = rows[-1]
-    assert (total["Rate"], total["Description"]) == (None, None)
+    assert (total["Rate"], total["Item Description"]) == (None, None)
     assert _cut([total], "Issues", "Qty Issued", "Value", "Qty Returned", "Net Qty", "Net Value") == [
         (6, 18, 55, 1, 17, 45)]
 
@@ -739,7 +739,7 @@ def test_table_endpoint(client, make, plant_at):
     assert issuance == body
 
     columns = {
-        "list": ["Date", "Time", "Issue No", "Reference", "Part No", "Description", "Section", "Department",
+        "list": ["Date", "Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Department",
                  "Issued to Dept", "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
                  "Status"],
         "day": ["Date", "Day", *FIGURES],
@@ -747,11 +747,11 @@ def test_table_endpoint(client, make, plant_at):
         "month": ["Month", *FIGURES],
         "year": ["Year", *FIGURES],
         "fy": ["Financial Year", *FIGURES],
-        "part": ["Part No", "Description", "Section", "Department", "UOM", "Issues", "Qty Issued",
+        "part": ["Part No", "Item Description", "Section", "Department", "UOM", "Issues", "Qty Issued",
                  "Qty Returned", "Net Qty", "Rate", "Value", "Net Value", "First Issued", "Last Issued"],
         "department": ["Department", "Section", *FIGURES],
         "issued_to": ["Issued to Dept", *FIGURES],
-        "dept_part": ["Issued to Dept", "Part No", "Description", "UOM", "Issues", "Qty Issued", "Qty Returned",
+        "dept_part": ["Issued to Dept", "Part No", "Item Description", "UOM", "Issues", "Qty Issued", "Qty Returned",
                       "Net Qty", "Rate", "Value", "Net Value"],
         "person": ["Issued To", "Emp Code", "Department", *FIGURES],
         "category": ["Department", "Category", *FIGURES],
@@ -1047,7 +1047,7 @@ def test_reports_page_no_longer_offers_consumption(client, make):
 # workbook of it all — downloads only. One report since 18 Oct 2026.
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Description", "Section", "Department",
+LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Department",
                 "Issued to Dept", "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
                 "Status")
 LIST_FIGURES = ("Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value")
@@ -1203,7 +1203,7 @@ def test_issue_list_on_the_floor(make, plant_at):
         (None, None, None),
     ]
     assert "Line / Machine / Die" not in rows[0]       # nothing records one since 27 Oct 2026
-    assert rows[0]["Description"] == f.p1_name
+    assert rows[0]["Item Description"] == f.p1_name
     assert (out["subtotal_rows"], out["cancelled_rows"], out["unrated_issues"], out["issues"]) == ([2, 8], [5], 3, 6)
     # Date-wise never sees the cancelled issue either: the same Total.
     assert _cut([_view(f.s, "day", *SPRING)[-1]], *TOTAL_FIGURES) == _cut([rows[-1]], *TOTAL_FIGURES)
@@ -1273,9 +1273,9 @@ def test_issue_list_agrees_with_the_issue_register(make, plant_at):
         f.i1, f.i3, f.i2, f.i4, f.i5, f.i6, f.i7]
     for mine, theirs in zip(issues, register):
         assert f"{mine['Date']} {mine['Time']}" == theirs["Date & Time"], mine["Issue No"]
-        assert _cut([mine], "Reference", "Part No", "Description", "Section", "Department", "Status",
+        assert _cut([mine], "Reference", "Part No", "Item Description", "Section", "Department", "Status",
                     "Qty Issued") == (
-            _cut([theirs], "Reference", "Part No", "Description", "Section", "Consumer", "Status", "Qty Issued")), mine
+            _cut([theirs], "Reference", "Part No", "Item Description", "Section", "Consumer", "Status", "Qty Issued")), mine
     assert issues[3]["Reference"] == "DOC-77"
 
 

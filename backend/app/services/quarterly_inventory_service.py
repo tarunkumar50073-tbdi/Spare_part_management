@@ -22,7 +22,7 @@ FIELD_ALIASES = {
 }
 REQUIRED_FIELDS = ["part_no", "erp_quantity", "physical_quantity"]
 
-TEMPLATE_COLUMNS = ["Part No", "Part Name", "ERP Quantity", "Physical Quantity"]
+TEMPLATE_COLUMNS = ["Part No", "Item Description", "ERP Quantity", "Physical Quantity"]
 
 
 class QuarterlyInventoryService:

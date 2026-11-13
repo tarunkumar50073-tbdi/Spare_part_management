@@ -75,13 +75,13 @@ def make():
 
 def test_a_part_shows_its_stock_place_section_and_photos_but_no_money(make):
     code, sec = make.store()
-    p = make.part(code, sec, specification="DEEP GROOVE", model_no="6204ZZ", location="R4-S1-B1",
+    p = make.part(code, sec, specification="6204ZZ", location="R4-S1-B1",
                   rework_location="R9-S1-B2", qty=12)
     row = svc.search(code, p.part_no)["rows"][0]
     assert row["part_no"] == p.part_no and row["part_name"] == "BEARING 6204 ZZ"
     assert row["qty"] == 12 and row["available"] is True and row["uom"] == "NOS"
     assert row["location"] == "R4-S1-B1" and row["rework_location"] == "R9-S1-B2"
-    assert row["section"] == sec.name and row["specification"] == "DEEP GROOVE" and row["model_no"] == "6204ZZ"
+    assert row["section"] == sec.name and row["specification"] == "6204ZZ" and "model_no" not in row
     assert row["photos"] == [] and "image_file" in row
     for hidden in ("unit_price", "rate", "value", "min_stock_level", "max_stock_level", "reorder_level", "supplier_id"):
         assert hidden not in row, hidden

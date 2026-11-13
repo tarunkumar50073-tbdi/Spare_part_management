@@ -5,7 +5,7 @@ import { storeStockService } from "../services/storeStockService.js";
 
 const COLUMNS = [
   { key: "part_no", label: "Part No" },
-  { key: "part_name", label: "Part Name" },
+  { key: "part_name", label: "Item Description" },
   { key: "uom", label: "UOM" },
   { key: "qty_on_hand", label: "In Stock" },
 ];

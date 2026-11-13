@@ -44,7 +44,7 @@ def _sheet(buf):
     return head, list(ws.iter_rows(min_row=2, values_only=True))
 
 
-DX_HEAD = ["SR.NO", " ITEM CODE ", "LOCATION", "REWORK  ITEM LOCATION", "Section", "Category", "Specification",
+DX_HEAD = ["SR.NO", " ITEM CODE ", "LOCATION", "REWORK  ITEM LOCATION", "Section", "Category", "Model No",
            "    ITEM DESCRIPTION ", "UOM", "SUPPLIER", "MIN. ", "MAX.", "REODER.", "ERP", "PHYSICAL STOCK ", "Gap", "RATE"]
 
 
@@ -73,8 +73,8 @@ def test_the_dx_sheet_imports_as_it_is():
 
 
 def test_a_section_not_of_the_store_is_refused_for_its_row():
-    f = _file(["Part No", "Section", "Category", "Description"], ("PIC-NOSEC-1", "No Such Section", "Seal", "SEAL"))
-    preview = PartService().preview_import(_file(["Part No", "Section", "Category", "Description"],
+    f = _file(["Part No", "Section", "Category", "Item Description"], ("PIC-NOSEC-1", "No Such Section", "Seal", "SEAL"))
+    preview = PartService().preview_import(_file(["Part No", "Section", "Category", "Item Description"],
                                                  ("PIC-NOSEC-1", "No Such Section", "Seal", "SEAL")), store_code=STORE)
     assert preview["rows"][0]["action"] == "ERROR" and "not a section" in preview["rows"][0]["reason"]
     report = PartService().bulk_import_excel(f, store_code=STORE)
@@ -89,11 +89,11 @@ def test_the_spare_export_is_the_dx_layout_and_reads_back():
                         section_id=sec.id, location="R2-S1-B3", min_stock_level=2, max_stock_level=6))
     db.session.commit()
     head, rows = _sheet(PartService().export_all(STORE))
-    assert head[:9] == ["Part No", "Location", "Rework Location", "Section", "Category", "Specification",
-                        "Description", "UOM", "Supplier"]
+    assert head[:9] == ["Part No", "Location", "Rework Location", "Section", "Category", "Model No",
+                        "Item Description", "UOM", "Supplier"]
     assert not {"Main Category", "Sub Category", "Part Type", "Store"} & set(head)
     row = next(r for r in rows if r[head.index("Part No")] == "PIC-EXP-1")
-    assert (row[head.index("Section")], row[head.index("Category")], row[head.index("Description")]) == (
+    assert (row[head.index("Section")], row[head.index("Category")], row[head.index("Item Description")]) == (
         sec.name, "Bearing", "BEARING 6204")
 
     # Typed into and loaded back: the same file is the import.
@@ -135,13 +135,13 @@ def test_the_child_part_export_keeps_category_and_sub_category():
 
 
 def test_older_files_land_as_before():
-    old = _file(["Part No", "Part Name", "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category"],
+    old = _file(["Part No", "Item Description", "Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Sub Category"],
                 ("PIC-OLD-1", "SEAL", "Maintenance/Tool Room", "Seal"))
     PartService().bulk_import_excel(old, store_code=STORE)
     q = Part.query.filter_by(part_no="PIC-OLD-1").one()
     assert (q.sub_category, q.category) == ("Seal", "Maintenance/Tool Room")
 
-    mid = _file(["Part No", "Part Name", "Main Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Category"],
+    mid = _file(["Part No", "Item Description", "Main Category (BOP/Import/Maintenance-Tool Room/Consumable/In-Parts)", "Category"],
                 ("PIC-MID-1", "AIR CYLINDER", "Maintenance/Tool Room", "Cylinder"))
     PartService().bulk_import_excel(mid, store_code=STORE)
     p = Part.query.filter_by(part_no="PIC-MID-1").one()

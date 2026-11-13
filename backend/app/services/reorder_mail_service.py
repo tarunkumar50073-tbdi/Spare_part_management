@@ -57,7 +57,7 @@ REORDER_STATUSES = ("Out of Stock", "Below Minimum", "Reorder")
 _ORDER = {"Out of Stock": 0, "Below Minimum": 1, "Reorder": 2}
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-SHEET_COLUMNS = ("Section", "Category", "Part No", "Description", "Supplier", "Location", "UOM", "In Stock",
+SHEET_COLUMNS = ("Section", "Category", "Part No", "Item Description", "Supplier", "Location", "UOM", "In Stock",
                  "Min", "Reorder Level", "Max", "Order Qty", "Rate", "Order Value", "Status")
 # Why a department got no mail when its own list could not be built.
 BUILD_FAILED = "list_build_failed"
@@ -105,8 +105,8 @@ def part_cells(row, sections, suppliers):
     stock row is only read."""
     return {
         "Section": sections.get(row.get("section_id")), "Category": row.get("sub_category"),
-        "Part No": row.get("part_no"), "Description": row.get("part_name"),
-        "Specification": row.get("specification"), "Supplier": suppliers.get(str(row.get("part_id"))),
+        "Part No": row.get("part_no"), "Item Description": row.get("part_name"),
+        "Model No": row.get("specification"), "Supplier": suppliers.get(str(row.get("part_id"))),
         "Location": row.get("location"), "UOM": row.get("uom"), "In Stock": row.get("qty_on_hand"),
         "Min": row.get("min_stock_level"), "Reorder Level": row.get("reorder_level"),
         "Max": row.get("max_stock_level"), "Status": row.get("status"), "Rate": row.get("unit_price"),

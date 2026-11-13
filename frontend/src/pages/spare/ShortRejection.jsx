@@ -816,7 +816,7 @@ function LinesTable({ lines, totals, words, onPart }) {
     ? <>{ln.challan_no || "—"}{ln.challan_dt ? <span className="block text-[11px] text-slate-400">{day(ln.challan_dt)}</span> : null}</>
     : "—");
   const heads = [["GRN Date", "left"], ["GRN No", "left"], ["Lot (gate entry)", "left"], ["Challan", "left"],
-    ["PO No", "left"], ["Supplier", "left"], ["Part No", "left"], ["Description", "left"], ["Challan qty", "right"],
+    ["PO No", "left"], ["Supplier", "left"], ["Part No", "left"], ["Item Description", "left"], ["Challan qty", "right"],
     ["Received", "right"], ["Accepted", "right"], [words.qty, "right"], ["Rate", "right"], [words.value, "right"],
     ["Days pending", "left"], ["Status", "left"]];
   const qtyTone = words.tone === "amber" ? "text-amber-700 dark:text-amber-300" : "text-rose-700 dark:text-rose-300";

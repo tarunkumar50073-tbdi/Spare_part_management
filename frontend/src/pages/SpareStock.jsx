@@ -62,7 +62,7 @@ const statusesOf = (key) => FILTERS.find((f) => f.key === key)?.statuses || [key
 const REORDER_COLUMNS = [
   { key: "part_no", label: "Part No", sortable: true,
     searchValue: (r) => `${r.part_no} ${r.part_name || ""}`,
-    exportValue: (r) => r.part_no, exportAlso: { label: "Description", value: (r) => r.part_name || "" },
+    exportValue: (r) => r.part_no, exportAlso: { label: "Item Description", value: (r) => r.part_name || "" },
     render: (r) => (<><span className="font-medium">{r.part_no}</span> <span className="text-slate-400">{r.part_name}</span></>) },
   { key: "qty_on_hand", label: "In Stock", align: "right", sortable: true, render: (r) => num(r.qty_on_hand) },
   { key: "min_stock_level", label: "Min", align: "right", sortable: true, render: (r) => num(r.min_stock_level) },
@@ -353,7 +353,7 @@ export default function SpareStock() {
     () => enriched.filter((r) => selected.has(r.part_id)), [enriched, selected]);
   // One workbook shape for every client-side part export (selected rows, or the
   // current filtered view) — same columns as the server's full-store export.
-  const EXPORT_HEADERS = ["Part No", "Description", "Specification", "Category", "Section", "Location", "In Stock", "Min",
+  const EXPORT_HEADERS = ["Part No", "Item Description", "Model No", "Category", "Section", "Location", "In Stock", "Min",
     "Reorder Level", "Max", "UOM", "Rate", "Stock Value", "Status", "Last Issue", "Supplier", "Last Counted"];
   const toExportRow = (r) => [
     r.part_no, r.part_name || "", r.specification || "", r.type_name, r.section_name || "", r.location || "",
@@ -380,8 +380,8 @@ export default function SpareStock() {
   const dash = <span className="text-slate-300 dark:text-slate-600">—</span>;
   const columns = [
     { key: "part_no", label: "Part No", sortable: true },
-    { key: "part_name", label: "Description", sortable: true },
-    { key: "specification", label: "Specification", sortable: true, render: (r) => r.specification || dash },
+    { key: "part_name", label: "Item Description", sortable: true },
+    { key: "specification", label: "Model No", sortable: true, render: (r) => r.specification || dash },
     { key: "type_name", label: "Category", sortable: true },
     { key: "section_name", label: "Section", sortable: true, render: (r) => r.section_name || dash },
     { key: "rack", label: "Rack", sortable: true, render: (r) => r.rack || dash },

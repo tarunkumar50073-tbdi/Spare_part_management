@@ -715,8 +715,8 @@ def _unvalued(count, why="no rate"):
 def _detail_sheet(wb, data):
     columns = (
         ("Sr No", None, 5.5, "sr"), ("Section", "section", 14.5, "text"), ("Category", "category", 13.5, "text"),
-        ("Part No", "part_no", 10, "code"), ("Description", "name", 29, "text"),
-        ("Specification", "spec", 23, "text"), ("Supplier", "supplier", 18, "text"),
+        ("Part No", "part_no", 10, "code"), ("Item Description", "name", 29, "text"),
+        ("Model No", "spec", 23, "text"), ("Supplier", "supplier", 18, "text"),
         ("Location", "location", 12.5, "text"), ("UOM", "uom", 5.5, "mid"), ("In Stock", "qty", 7.5, "qty"),
         ("Min", "min", 6.5, "qty"), ("Reorder Level", "reorder", 7.5, "qty"), ("Max", "max", 6.5, "qty"),
         ("Status", "status", 12.5, "status"), ("Rate", "rate", 11, "money"),
@@ -733,7 +733,7 @@ def _detail_sheet(wb, data):
 def _reorder_sheet(wb, data):
     columns = (
         ("Sr No", None, 5.5, "sr"), ("Section", "section", 14.5, "text"), ("Part No", "part_no", 10, "code"),
-        ("Description", "name", 32, "text"), ("Supplier", "supplier", 21, "text"),
+        ("Item Description", "name", 32, "text"), ("Supplier", "supplier", 21, "text"),
         ("Location", "location", 12.5, "text"), ("UOM", "uom", 5.5, "mid"), ("In Stock", "qty", 8, "qty"),
         ("Min", "min", 6.5, "qty"), ("Reorder Level", "reorder", 7.5, "qty"), ("Max", "max", 6.5, "qty"),
         ("Status", "status", 13, "status"), ("Order Qty", "order_qty", 8.5, "qty"),
@@ -754,7 +754,7 @@ def _reorder_sheet(wb, data):
 def _excess_sheet(wb, data):
     columns = (
         ("Sr No", None, 5.5, "sr"), ("Section", "section", 15, "text"), ("Part No", "part_no", 10, "code"),
-        ("Description", "name", 36, "text"), ("Supplier", "supplier", 24, "text"),
+        ("Item Description", "name", 36, "text"), ("Supplier", "supplier", 24, "text"),
         ("Location", "location", 13, "text"), ("UOM", "uom", 5.5, "mid"), ("In Stock", "qty", 9, "qty"),
         ("Max", "max", 8, "qty"), ("Excess Qty", "excess_qty", 9, "qty"),
         ("Rate", "rate", 12, "money"), ("Excess Value", "excess_value", 14, "money"),
@@ -851,7 +851,7 @@ def _stock_list_sheet(wb, data):
     as many pages long as the list."""
     columns = (
         ("Sr No", None, 5.5, "sr"), ("Section", "section", 16, "text"), ("Part No", "part_no", 10.5, "code"),
-        ("Description", "name", 40, "text"), ("Location", "location", 14, "text"),
+        ("Item Description", "name", 40, "text"), ("Location", "location", 14, "text"),
         ("UOM", "uom", 6, "mid"), ("In Stock", "qty", 10.5, "level"), ("Min", "min", 7.5, "qty"),
         ("Reorder Level", "reorder", 8.5, "qty"), ("Max", "max", 7.5, "qty"),
         ("Status", "state", 11, "status"),
