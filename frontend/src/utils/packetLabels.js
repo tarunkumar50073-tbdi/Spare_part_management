@@ -2,7 +2,9 @@
 // carries the packet's own code — TB + date + Part No. + label no. since 28 Oct
 // 2026 (TB20261110CNTR3953-01, date YYYYMMDD since 10 Nov 2026; older ones
 // TB28102026CNTR0332-01 or SPK-XXXXXXXX) — then the spec and the
-// location ("naye date wala and spec and location"): packet.qr from the server,
+// location ("naye date wala and spec and location"). Since 13 Nov 2026 every size
+// carries the tiny label's QR — code + model no. — "bade & chote lable par same
+// chape" (tinyQr); packet.qr from the server is no longer printed,
 // read by the app up to the first "|". Every packet scans as itself; the label shows, as text, the Part No., description, the
 // part's specification and model no. (the store, 28 Oct 2026: "qr me spec /
 // model no bhi aana chahiye"), the packet quantity and the storage location —
@@ -170,7 +172,7 @@ export function fitPt(text, widthMm, heightMm, maxPt, minPt = 4.5) {
 function face(p, dsPt) {
   const part = p.part || {};
   return `<div class="lbl">
-    <div class="q">${qrSvgString(p.qr || p.code, { size: 200, quiet: 2 })}<div class="code">${esc(p.code)}</div></div>
+    <div class="q">${qrSvgString(tinyQr(p), { size: 200, quiet: 2 })}<div class="code">${esc(p.code)}</div></div>
     <div class="t">
       <div class="pn">${esc(part.part_no)}</div>
       ${part.part_name ? `<div class="ds" style="font-size:${dsPt(part.part_name).toFixed(2)}pt">${esc(part.part_name)}</div>` : ""}

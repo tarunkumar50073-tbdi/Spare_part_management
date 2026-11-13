@@ -8,7 +8,7 @@ import { fmtDate, num } from "../../lib/format.js";
 import { barcodeService } from "../../services/barcodeService.js";
 import { packetService } from "../../services/packetService.js";
 import { printLabels } from "../../utils/barcodeRender.js";
-import { LABEL_LIMITS, LABEL_SIZES, QR_SPEC_MAX, labelTier, packetLabelsHtml } from "../../utils/packetLabels.js";
+import { LABEL_LIMITS, LABEL_SIZES, labelTier, packetLabelsHtml, tinyQr } from "../../utils/packetLabels.js";
 import { defaultTune, labelPng, qrFit, savedTune, saveTune } from "../../utils/labelImage.js";
 import { helperPrint, helperStatus, pickPrinter, savePrinter } from "../../utils/labelHelper.js";
 
@@ -314,7 +314,7 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
   }, [receipt, part.part_no]);
   const sample = useMemo(() => packetLabelsHtml([{
     code: sampleCode, kind, uom: unit, location: part.location, part,
-    qr: [sampleCode, (part.specification || "").trim().slice(0, QR_SPEC_MAX), (part.location || "").trim()].filter(Boolean).join(" | "),
+    qr: tinyQr({ code: sampleCode, part }),
   }], { size: ls.size }), [kind, unit, part, sampleCode, ls.size.w, ls.size.h]); // eslint-disable-line react-hooks/exhaustive-deps
   const boxesOk = !supplier || (p && boxes.length === p.count);
   const make = async () => {

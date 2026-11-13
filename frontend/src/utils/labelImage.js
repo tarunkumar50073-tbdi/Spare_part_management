@@ -147,7 +147,8 @@ function fullFit(p, w, h, tier, tune) {
   const k = Math.min(1.5, Math.max(0.85, Math.min(w / t.ref[0], h / t.ref[1])));
   const pad = tier === "SMALL" ? 1.2 : 2;
   const box = Math.max(10, Math.min(h - 2 * pad - t.code * k * 0.42 - 0.5, w * 0.42));
-  const rows = qrRows(p.qr || p.code);
+  // The same QR on every size (13 Nov 2026: "bade & chote lable par same chape"): code + model no.
+  const rows = qrRows(tinyQr(p));
   const n = rows.length;
   return { t, k, pad, box, rows, ...pickDots(n, (box * n) / (n + 4), box, tune) };
 }
