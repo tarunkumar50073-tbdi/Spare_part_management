@@ -161,7 +161,8 @@ _TO_HINDI = {
     "stock": "स्टॉक", "store": "स्टोर", "tak": "तक", "theek": "ठीक", "to": "तो", "top": "टॉप", "total": "टोटल",
     "unka": "उनका", "unki": "उनकी", "upar": "ऊपर", "urgency": "अर्जेंसी", "use": "यूज़", "value": "वैल्यू",
     "wala": "वाला", "wale": "वाले", "wise": "वाइज़", "ya": "या", "ye": "ये", "zarurat": "ज़रूरत", "zero": "ज़ीरो",
-    "zyada": "ज़्यादा", "mehnge": "महंगे",
+    "zyada": "ज़्यादा", "mehnge": "महंगे", "usse": "उससे", "saare": "सारे", "new": "नया", "rework": "रीवर्क",
+    "hisab": "हिसाब", "dikhao": "दिखाओ", "bas": "बस",
 }
 _WORD = re.compile(r"[A-Za-z]+")
 
@@ -181,6 +182,9 @@ def _to_hindi(text):
     # A sentence that ends on a Hindi word ends with the danda.
     return re.sub(r"(?<=[\u0900-\u097F])\.(\s|$)", r"।\1", out)
 
+# The Hindi words of a complaint that carry no question.
+_SORRY_FILL_HI = {"ये", "यह", "है", "हैं", "गलत", "ग़लत", "सही", "नहीं", "दोबारा", "फिर", "से", "चेक", "करो", "कर",
+                  "भाई", "बताओ", "जवाब", "डेटा", "तो", "था", "थी", "हो", "गया", "गई", "बिल्कुल", "सॉरी"}
 # Words that only name the store as a whole: with a value / total / stock
 # word, the question is the store's summary ("spare store ki total value").
 _STORE_WORDS = {"spare", "spares", "store", "stores", "inventory", "total", "kul", "overall", "poora", "pura",
@@ -1155,7 +1159,10 @@ class AssistantService:
         text = (query or "").lower()
         english = re.search(r"\b(wrong|incorrect|mistake|again)\b", text) and not (
             set(_tokens(text)) & (_HINGLISH | {"galat", "glt", "galt", "ghalat"}))
-        rest = " ".join(t for t in _tokens(_SORRY.sub(" ", text)) if t not in _SORRY_FILL)
+        # Split on spaces, not _tokens: a Devanagari word's vowel signs are not
+        # word letters, so _tokens would break "ये" into pieces.
+        rest = " ".join(w for w in (x.strip("?।!,.\"'") for x in _SORRY.sub(" ", text).split())
+                        if w and w not in _SORRY_FILL and w not in _SORRY_FILL_HI)
         prev = (previous or "").strip()
         again = rest if rest else (prev if prev and not _SORRY.search(prev.lower()) else "")
         if not again:

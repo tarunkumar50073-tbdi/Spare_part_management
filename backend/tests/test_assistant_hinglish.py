@@ -477,3 +477,10 @@ def test_hindi_question_gets_a_hindi_answer(bot):
     assert "CNTR3200" in part and "है" in part                                                     # the code kept
     sorry = bot.ask("ये गलत है", previous="stock value batao")["answer"]
     assert sorry.startswith("सॉरी, गलती हो गयी।") or sorry.startswith("सॉरी"), sorry
+
+
+def test_hindi_complaint_alone_rechecks_the_question_before(bot, monkeypatch):
+    monkeypatch.setattr("app.services.spare_stock_service.invalidate_stock_cache", lambda: None)
+    d = bot.ask("ये गलत है", previous="मेंटेनेंस का स्टॉक")
+    assert d["answer"].startswith("सॉरी, गलती हो गई। मैंने डेटा दोबारा चेक किया — मेंटेनेंस"), d["answer"]
+    assert "usse" not in bot.ask("रीऑर्डर लिस्ट दिखाओ")["answer"]
