@@ -345,11 +345,12 @@ export default function AssistantWidget() {
     const q = (text ?? input).trim();
     if (!q || busy) return;
     const chat = chatRef.current;
+    const previous = [...messages].reverse().find((m) => m.role === "user")?.text;
     add({ role: "user", text: q });
     setInput("");
     setBusy(true);
     try {
-      const res = await assistantService.ask(q);
+      const res = await assistantService.ask(q, previous);
       if (chat !== chatRef.current) return;
       const d = res.data.data;
       add({ role: "bot", text: d.answer, results: d.results || [], suggestions: d.suggestions || [] });

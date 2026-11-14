@@ -162,7 +162,8 @@ def test_how_many_is_read(bot, q, n):
 
 def test_value_sums(bot):
     assert bot.ask("total stock value")["answer"] == (
-        "Total counted stock value is ₹7,21,412 across 6 priced parts. 8 of 9 parts are counted.")
+        "Total counted stock value is ₹7,21,412 across 6 priced parts. 8 of 9 parts are counted."
+        " 1 parts in stock have no rate, so they are not in this value.")
     assert bot.ask("kitne ka stock hai")["answer"].startswith("Gine hue stock ki kul value ₹7,21,412 hai")
     assert bot.ask("maintenance ki stock value")["answer"].startswith(
         "Gine hue stock ki kul value (Maintenance) ₹6,69,260 hai — 3 part ki rate ke saath.")
@@ -421,3 +422,44 @@ def test_every_sidebar_screen_is_in_the_bots_screen_list():
     palette = (side.parent / "CommandPalette.jsx").read_text(encoding="utf-8")
     jumps = {r.split("?")[0] for r in re.findall(r'to: "([^"]+)"', palette)}
     assert [r for r in routes if r.split("?")[0] not in jumps] == []
+
+
+# ---- "ye galat hai": sorry, read again, answer again (14 Nov 2026) ---------------------------------
+
+@pytest.mark.parametrize("q", ["spare store ki total value", "total stock bta", "stock value kitni h",
+                               "kul stock value", "store ki total value batao", "total value"])
+def test_the_store_total_asked_many_ways(bot, q):
+    d = bot.ask(q)
+    assert "kul value" in d["answer"] or "Total counted stock value" in d["answer"], q
+    assert _titles(d) == ["Stock value"]
+
+
+def test_the_value_says_how_many_parts_have_no_rate(bot):
+    d = bot.ask("stock value bta")
+    assert "rate nahi hai" in d["answer"]          # CNTR32001 has none but 0 stock; CNMM1313 has stock, no rate
+    assert " 1 part stock me hain" in d["answer"]
+
+
+def test_wrong_with_a_question_says_sorry_and_answers_it_afresh(bot, monkeypatch):
+    cleared = []
+    monkeypatch.setattr("app.services.spare_stock_service.invalidate_stock_cache", lambda: cleared.append(1))
+    d = bot.ask("wrong stock h ye total stock bta")
+    assert d["answer"].startswith("Sorry, galti ho gayi. Maine data dobara check kiya — ")
+    assert "kul value" in d["answer"] and cleared == [1]
+
+
+def test_wrong_alone_rechecks_the_question_before(bot, monkeypatch):
+    monkeypatch.setattr("app.services.spare_stock_service.invalidate_stock_cache", lambda: None)
+    d = bot.ask("ye galat hai", previous="CNTR3200 kitna hai")
+    assert d["answer"].startswith("Sorry, galti ho gayi") and "CNTR3200" in d["answer"]
+    d = bot.ask("galat h bhai")                                         # nothing before: asks which
+    assert d["answer"].startswith("Sorry! Kaunsa jawab galat laga?") and d["results"] == []
+    e = bot.ask("this is wrong, check again", previous="top 5 excess value")
+    assert e["answer"].startswith("Sorry about that. I checked the data again")
+
+
+def test_screen_hints_match_whole_words_not_filler():
+    from app.services.assistant_service import AssistantService as A
+    titles = [s["title"] for s in A._suggest("ye h bta")]
+    assert "Employee Master" not in titles and "Issue Register" not in titles
+    assert A._suggest("ye h bta") == A._suggest("")                     # nothing said: the default screens

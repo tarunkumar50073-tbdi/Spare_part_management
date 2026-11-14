@@ -33,4 +33,7 @@ def ask():
     query = data.get("query") if isinstance(data, dict) else None
     if isinstance(query, str) and len(query) > QUERY_MAX:
         raise BadRequestError(f"Ask in fewer words — at most {QUERY_MAX} characters")
-    return success_response(service.ask(query, user=current_user()))
+    # The question asked before: "ye galat hai" alone re-checks it (14 Nov 2026).
+    previous = data.get("previous") if isinstance(data, dict) else None
+    previous = previous[:QUERY_MAX] if isinstance(previous, str) else None
+    return success_response(service.ask(query, user=current_user(), previous=previous))

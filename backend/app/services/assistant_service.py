@@ -118,8 +118,24 @@ _HINGLISH = {
     "saal", "hisaab", "pichhle", "pichle", "isme", "usme", "lagaya", "nikla", "kaise", "kare", "karo", "karna",
     "karu", "hua", "hue", "huye", "gaya", "gaye", "tha", "thi", "raha", "rahe", "rha", "diya", "diye", "liya",
     "fasa", "phasa", "kis", "kisme", "padega", "jo", "jinka", "aur", "upar", "niche", "acha", "achha", "theek",
-    "karne", "nikalna", "banana", "banane",
+    "karne", "nikalna", "banana", "banane", "ye", "yeh", "wo", "woh", "h",
 }
+# "Ye galat hai" (14 Nov 2026: "agar kuch wrong data de to sorry bole and
+# reverify karke sahi data de"): the person says an answer was wrong. The
+# assistant says sorry, reads the stock afresh (no cached copy) and answers
+# again - the question that came with it, else the one asked before.
+_SORRY = re.compile(r"(?<![a-z])(wrong|galat|galt|glt|ghalat|incorrect|mistake|sahi nahi|sahi nhi|sahi nai"
+                    r"|theek nahi|thik nahi|theek nhi|thik nhi|recheck|re-check|reverify|re-verify|dobara check"
+                    r"|phir se check|fir se check|check again|again check|verify kar|check kar)(?![a-z])")
+_SORRY_FILL = {"wrong", "galat", "galt", "glt", "ghalat", "incorrect", "mistake", "sahi", "theek", "thik", "nahi",
+               "nhi", "nai", "recheck", "reverify", "dobara", "phir", "fir", "se", "check", "again", "verify", "kar",
+               "karo", "kr", "ye", "yeh", "h", "hai", "he", "bhai", "data", "answer", "jawab", "dekh", "dekho",
+               "sorry", "please", "pls", "plz", "na", "to", "bata", "batao", "bta", "btao", "de", "do", "dena", "is",
+               "it", "this", "that", "was", "re", "-"}
+# Words that only name the store as a whole: with a value / total / stock
+# word, the question is the store's summary ("spare store ki total value").
+_STORE_WORDS = {"spare", "spares", "store", "stores", "inventory", "total", "kul", "overall", "poora", "pura",
+                "sab", "sabka", "value", "stock", "maal"}
 # Filler dropped before a sentence is matched against part names: the Hinglish
 # above, and the English that only frames a question.
 _FILLER = _HINGLISH | {
@@ -639,7 +655,10 @@ class AssistantService:
 
     # ---- the one entry point ----
 
-    def ask(self, query, user=None):
+    def ask(self, query, user=None, previous=None):
+        said = (query or "").strip().lower()
+        if said and _SORRY.search(said):
+            return self._sorry_answer(query, user, previous)
         if not (query or "").strip():
             return self._reply("Type what you're looking for — a part number, a stock status "
                                "(short, reorder, excess), a report, or a screen name.", [], self._suggest("", user))
@@ -681,14 +700,22 @@ class AssistantService:
             return self._use_answer(a, scope, user)
         if a.compare or len(scope["sections"]) > 1:
             return self._section_answer(a, rows, scope, bucket, sections, user)
+        # The store as a whole ("total stock bta", "spare store ki total value"):
+        # its summary, not a list of every part.
+        if (not bucket and not scope["named"] and not a.ranked and not a.count and not a.thresholds
+                and not a.levels and (a.total or figure_words or {"stock", "maal", "inventory"} & set(a.tokens))
+                and not _has(a.ql, _RATE) and not [w for w in self._words(a.tokens) if w not in _STORE_WORDS]):
+            return self._value_answer(a, rows, "", user)
         if (bucket or scope["named"] or a.ranked or a.count or a.total or figure_words or a.thresholds
                 or a.levels):
             answer = self._list_answer(a, rows, scope, bucket, user)
             if answer:
                 return answer
 
-        # Only "stock" asked about ("stock kitna hai", "how much stock"): the store's summary.
-        if {"stock", "maal", "inventory"} & set(a.tokens) and not self._words(a.tokens):
+        # Only "stock" asked about ("stock kitna hai", "how much stock", "spare
+        # store ki total value"): the store's summary.
+        if ((({"stock", "maal", "inventory", "value"} & set(a.tokens)) or a.total or figure_words)
+                and not [w for w in self._words(a.tokens) if w not in _STORE_WORDS]):
             return self._value_answer(a, rows, "", user)
         # Last: the words as typed, against part names ("short bar", "cutter").
         words = [t for t in a.raw if t not in _FILLER and len(t) > 1 and not _is_place(t) and not t.isdigit()]
@@ -1044,17 +1071,48 @@ class AssistantService:
         valued = [r for r in rows if r.get("stock_value") is not None]
         counted = [r for r in rows if r.get("qty_on_hand") is not None]
         val = round(sum(r["stock_value"] for r in valued), 2)
+        # In stock with no rate: not in the value - said, so the figure is not read as all of it.
+        unrated = sum(1 for r in counted if (r.get("qty_on_hand") or 0) > 0 and not r.get("unit_price"))
         if a.hi:
             answer = (f"Gine hue stock ki kul value{where} {_inr(val)} hai — {len(valued):,} part ki rate ke "
-                      f"saath. {len(rows):,} me se {len(counted):,} part gine ja chuke hain.")
+                      f"saath. {len(rows):,} me se {len(counted):,} part gine ja chuke hain."
+                      + (f" {unrated:,} part stock me hain par unka rate nahi hai, unki value isme nahi judi."
+                         if unrated else ""))
         else:
             answer = (f"Total counted stock value{where} is {_inr(val)} across {len(valued):,} priced parts. "
-                      f"{len(counted):,} of {len(rows):,} parts are counted.")
+                      f"{len(counted):,} of {len(rows):,} parts are counted."
+                      + (f" {unrated:,} parts in stock have no rate, so they are not in this value."
+                         if unrated else ""))
         results = [{
             "title": "Stock value", "subtitle": f"{len(valued):,} parts carry a rate",
             "right": f"₹{val:,.0f}", "route": _STATUS_ROUTE, "kind": "stat",
         }]
         return self._reply(answer, results, self._suggest("stock value", user))
+
+    def _sorry_answer(self, query, user, previous):
+        """The person said an answer was wrong: sorry, the stock read afresh,
+        and the question answered again - what came with the complaint, else
+        the question before it."""
+        from app.services.spare_stock_service import invalidate_stock_cache
+        invalidate_stock_cache()
+        text = (query or "").lower()
+        english = re.search(r"\b(wrong|incorrect|mistake|again)\b", text) and not (
+            set(_tokens(text)) & (_HINGLISH | {"galat", "glt", "galt", "ghalat"}))
+        rest = " ".join(t for t in _tokens(_SORRY.sub(" ", text)) if t not in _SORRY_FILL)
+        prev = (previous or "").strip()
+        again = rest if rest else (prev if prev and not _SORRY.search(prev.lower()) else "")
+        if not again:
+            return self._reply(
+                "Sorry! Which answer was wrong? Ask it again and I will check the data afresh." if english else
+                "Sorry! Kaunsa jawab galat laga? Apna sawaal dobara likho — main data dobara check karke batata hoon.",
+                [], [])
+        # What came with a Hinglish complaint is answered in Hinglish ("batao"
+        # marks it so); the question before keeps its own language.
+        reply = self.ask(again + (" batao" if rest and not english else ""), user)
+        lead = ("Sorry about that. I checked the data again — " if english else
+                "Sorry, galti ho gayi. Maine data dobara check kiya — ")
+        reply["answer"] = lead + (reply.get("answer") or "")
+        return reply
 
     def _howto_answer(self, a, user):
         words = [w for w in self._words(a.raw) if w not in ("kaise", "kare", "karo", "karna")]
@@ -1315,14 +1373,18 @@ class AssistantService:
         """Screens whose title/keywords overlap the query — the "did you mean this
         page?" chips, limited to screens the user may actually open."""
         pool = [s for s in SERVICES if _allowed(s, user)]
-        tokens = [t for t in ql.split() if len(t) > 1]
+        # Whole words only, and not the Hinglish / English that only frames a
+        # question (14 Nov 2026: "ye" was found inside "employee" and
+        # "yesterday", so a stock-value question offered Employee Master).
+        tokens = [t for t in ql.split() if len(t) > 1 and t not in _HINGLISH
+                  and t not in {"the", "an", "is", "are", "was", "of", "me", "to", "in", "on", "at", "please", "pls"}]
         if not tokens:
             picks = [s for s in pool if s["key"] in ("store_stock", "scan_part", "part_master")]
         else:
             scored = []
             for s in pool:
                 hay = (s["title"] + " " + " ".join(s["keywords"])).lower()
-                score = sum(1 for t in tokens if t in hay)
+                score = sum(1 for t in tokens if re.search(rf"(?<![a-z0-9]){re.escape(t)}", hay))
                 # A whole-phrase hit on the title ranks a screen higher.
                 if ql.strip() and ql.strip() in hay:
                     score += 2
