@@ -644,9 +644,11 @@ class SparePacketService:
                     f"{total:g} cannot be packed")
             seq = (db.session.query(func.coalesce(func.max(SparePacket.seq), 0))
                    .filter(SparePacket.batch_id == receipt.id).scalar() or 0)
-            # The code's date: when the material came in — old stock, the day
-            # it is labelled.
-            day = date.today() if receipt.source == "OPENING" else (receipt.received_on or date.today())
+            # The code's date: when the material came in - for old stock, the day
+            # the shelf was counted (its batch's received_on), never the day the
+            # label is printed (14 Nov 2026: CNTR1543's one lot had three codes,
+            # labelled on 5, 6 and 14 Nov), so a lot keeps one code.
+            day = receipt.received_on or date.today()
             codes = self._new_codes(receipt.part, day, len(plan["sizes"]))
             made = []
             for i, size in enumerate(plan["sizes"]):
