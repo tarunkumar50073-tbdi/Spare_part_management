@@ -368,7 +368,7 @@ export default function App() {
           <ConfirmProvider>
             <Toaster position="top-right" toastOptions={{ duration: 3500 }} />
             {/* TEST instance marker — only on the dummy copy. Detected by the
-                test frontend's own port (5174, set in start-test.bat) or the
+                test frontend's own port (5174; the start-test.bat launcher was removed 14 Nov 2026) or the
                 VITE_TEST_MODE flag. A fixed, click-through badge so it is always
                 visible but never blocks the UI; production (5173) never shows it. */}
             {(import.meta.env.VITE_TEST_MODE === "1"
