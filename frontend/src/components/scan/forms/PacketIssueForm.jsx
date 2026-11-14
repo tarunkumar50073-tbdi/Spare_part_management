@@ -243,7 +243,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
               </Field>
             </div>
           )}
-          <PersonPicker value={person} onChange={pickPerson} error={show("person")} />
+          <PersonPicker value={person} onChange={pickPerson} error={show("person")} canAdd />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Issued to (person)">
               {emp ? (

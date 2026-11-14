@@ -171,7 +171,7 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
           { label: "Available qty", value: fmtQty(available, part.uom), strong: true },
         ]} />
       }>
-      <PersonPicker value={person} onChange={pickPerson} error={show("person")} />
+      <PersonPicker value={person} onChange={pickPerson} error={show("person")} canAdd />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Issued to (person)">
           <IssuedTo emp={emp} />

@@ -1,14 +1,18 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, RefreshCw, Search, UserCheck, X } from "lucide-react";
+import { LoaderCircle, RefreshCw, Search, UserCheck, UserPlus, X } from "lucide-react";
 import { employeeService } from "../services/employeeService.js";
+import { departmentsQuery, isStoreDepartment } from "./scan/forms/flow.js";
 
 // "Who is taking the part?" — picked from today's Maintenance and Tool Room
 // rosters by employee code or name (the store, 27 Oct 2026: "jab koi material
 // lene aayega to hum uske code number ya naam se usme search karenge and wo
 // select kar lenge"; "mobile number ki jarurat nhi"). Everyone on duty today is
-// listed with his shift; a person not on the list is added in the Maintenance /
-// Tool Room app, never here.
+// listed with his shift; a Maintenance / Tool Room person not on the list is
+// added in their own app. Anyone else (Fabrication ...) is added right here
+// when he comes for material (14 Nov 2026: "employee master se add ho jaaye
+// but jab material lene aaye tab", `canAdd`): he goes on the Employee master
+// and stays on the list while active, badged "Added at store".
 //
 // The same contract as EmployeeLookup, which it replaced at the counter:
 //   value        { employee, mobile, typed } — what onChange last gave the parent
@@ -61,8 +65,57 @@ function PersonCard({ emp, onClear, disabled }) {
   );
 }
 
+// The quick-add: name, code (optional) and department, on the Employee master.
+function AddPerson({ typed, onAdded, onCancel }) {
+  const qc = useQueryClient();
+  const depts = useQuery(departmentsQuery);
+  const t = (typed || "").trim();
+  const isCode = /^[A-Za-z]?\d+$/.test(t);
+  const [name, setName] = useState(isCode ? "" : t);
+  const [code, setCode] = useState(isCode ? t.toUpperCase() : "");
+  const [dept, setDept] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const shown = (depts.data || []).filter((d) => !isStoreDepartment(d.name));
+  const save = async () => {
+    if (!name.trim() || !dept) { setErr("Name and department are needed"); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await employeeService.create({ name: name.trim(), employee_code: code.trim() || null, department: dept },
+        { silent: true });
+      await qc.invalidateQueries({ queryKey: ["employees", "on-duty"] });
+      onAdded({ ...r.data.data, shift: "Added at store" });
+    } catch (e) {
+      setErr(e?.response?.data?.message || "Could not add the person");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2 rounded-lg border-2 border-sky-200 bg-sky-50/50 p-3 dark:border-sky-500/30 dark:bg-sky-500/5">
+      <p className="text-[13px] font-semibold text-slate-800 dark:text-white">New person — goes on the Employee master</p>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <input className={INPUT} placeholder="Name *" value={name} onChange={(e) => setName(e.target.value)} autoFocus maxLength={80} />
+        <input className={INPUT} placeholder="Employee code" value={code} onChange={(e) => setCode(e.target.value)} maxLength={30} />
+        <select className={INPUT} value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Department">
+          <option value="">Department *</option>
+          {shown.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+        </select>
+      </div>
+      {err && <p className={ERR} role="alert">{err}</p>}
+      <div className="flex justify-end gap-2">
+        <button type="button" className="btn-secondary py-1.5 text-[13px]" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn-primary py-1.5 text-[13px]" onClick={save} disabled={busy}>
+          <UserPlus size={14} aria-hidden="true" /> {busy ? "Adding…" : "Add and pick"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function PersonPicker({
-  value, onChange, disabled = false, required = true, error,
+  value, onChange, disabled = false, required = true, error, canAdd = false,
   label = "Person taking the part — code or name",
 }) {
   const id = useId();
@@ -72,6 +125,7 @@ export default function PersonPicker({
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(-1);
   const [reading, setReading] = useState(false);
+  const [adding, setAdding] = useState(false);
   const inputRef = useRef(null);
   const duty = useQuery(onDutyQuery);
   const rows = duty.data?.rows || [];
@@ -150,11 +204,20 @@ export default function PersonPicker({
             </ul>
           ) : (
             <p id={`${id}-list`} className="absolute inset-x-0 top-full z-30 mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 shadow-lg dark:border-navy-700 dark:bg-navy-900 dark:text-slate-400">
-              {rows.length ? `No one on duty today matches "${typed.trim()}".` : "No one on duty today in the rosters."} A new person is added in the Maintenance / Tool Room app.
+              {rows.length ? `No one on duty today matches "${typed.trim()}".` : "No one on duty today in the rosters."}
+              {canAdd ? " Add him below." : " A new person is added in the Maintenance / Tool Room app."}
             </p>
           )
         )}
       </div>
+      {canAdd && !disabled && (adding ? (
+        <AddPerson typed={typed} onCancel={() => setAdding(false)} onAdded={(p) => { setAdding(false); pick(p); }} />
+      ) : (
+        <button type="button" onClick={() => setAdding(true)}
+          className="inline-flex items-center gap-1 text-[12px] font-semibold text-sky-700 hover:underline dark:text-sky-300">
+          <UserPlus size={13} aria-hidden="true" /> Not in the list? Add new person
+        </button>
+      ))}
       {error && <p className={ERR} role="alert">{error}</p>}
       {(failed.length > 0 || duty.isError) && (
         <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-amber-700 dark:text-amber-300">

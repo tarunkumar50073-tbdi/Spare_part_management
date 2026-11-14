@@ -118,3 +118,28 @@ def test_the_poller_is_off_at_0(app):
     app.config["ROSTER_POLL_SECONDS"] = 0
     RosterService.start_poller(app)
     assert roster_service._poller["started"] is False
+
+
+def test_a_person_added_at_the_store_is_listed_and_takes_parts(rosters):
+    """14 Nov 2026: someone with no roster (Fabrication) is added on the
+    Employee master when he comes for material, and is on the list from then."""
+    from app.services.roster_service import ADDED
+    if not Department.query.filter_by(name="Fabrication").first():
+        db.session.add(Department(name="Fabrication", sort_order=6))
+        db.session.commit()
+    emp = EmployeeService().create({"name": "  Raju   Fab ", "employee_code": "f12", "department": "Fabrication"})
+    rows = RosterService().on_duty()["rows"]
+    got = {r["name"]: r for r in rows}
+    assert got["Raju Fab"]["shift"] == ADDED and got["Raju Fab"]["employee_code"] == "F12"
+    assert [r["name"] for r in RosterService().on_duty(q="f12")["rows"]] == ["Raju Fab"]
+    assert rows.index(got["Raju Fab"]) > rows.index(got["AMAN"])          # after those on duty
+    p = Part(part_no="RF-1", part_name="Bolt", uom="NOS", part_type="OTHER", store_code="MAINTENANCE")
+    db.session.add(p)
+    db.session.commit()
+    SpareStockService().set_quantity(p.id, 5, txn_type="OPENING")
+    out = SpareStockService().issue(p.id, 2, "Fabrication", employee_id=emp["id"], user="t")
+    assert out["issue"]["issued_to"] == "Raju Fab" and out["issue"]["department"] == "Fabrication"
+    # Made inactive on the master: off the list.
+    db.session.get(Employee, emp["id"]).is_active = False
+    db.session.commit()
+    assert "Raju Fab" not in {r["name"] for r in RosterService().on_duty()["rows"]}

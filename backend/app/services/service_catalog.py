@@ -39,7 +39,9 @@ SERVICES = [
                   # 10 Nov 2026: several labels of one part to one person in one issue.
                   "multiple labels", "many labels", "4 qty", "ek saath", "ek sath",
                   # 13 Nov 2026: the issue names the line + machine the part goes to.
-                  "machine", "line", "kis machine", "kis line", "m/c"]},
+                  "machine", "line", "kis machine", "kis line", "m/c",
+                  # 14 Nov 2026: a person not on the list is added at the issue.
+                  "add person", "new person", "naya aadmi", "naam nahi", "fabrication"]},
     # The screens below were in the sidebar but not here, so Store Saathi
     # could not name them: "qr lable print karne h" got Reports and Scan Part
     # (28 Oct 2026). No "stock" / "issue" words — the assistant matches by

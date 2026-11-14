@@ -62,11 +62,16 @@ TOOL_ROOM_DUTY = {"A_SHIFT": "A", "B_SHIFT": "B", "G_SHIFT": "G", "P": "Present"
 NOT_MARKED = "Attendance not marked"
 # A roster that could not be read: its people stay pickable, shift unknown.
 UNKNOWN = "Shift not known"
+# A person added on the Employee master by hand - Fabrication or anyone with
+# no roster (14 Nov 2026: "employee master se add ho jaaye but jab material
+# lene aaye tab"): always listed while active, with this badge.
+ADDED = "Added at store"
 # The list is read again at most this often (seconds); the rosters change a few
 # times a shift, and the issue screen asks on every person search.
 CACHE_SECONDS = 60
 # How the badge sorts: shifts first, the rest after.
-SHIFT_ORDER = {"A": 0, "B": 1, "G": 2, "Present": 3, "Half day": 4, "Gate pass": 5, NOT_MARKED: 9, UNKNOWN: 10}
+SHIFT_ORDER = {"A": 0, "B": 1, "G": 2, "Present": 3, "Half day": 4, "Gate pass": 5, ADDED: 7, NOT_MARKED: 9,
+               UNKNOWN: 10}
 
 _engines = {}
 _lock = threading.Lock()
@@ -265,6 +270,8 @@ class RosterService:
             shift = duty.get((emp.source, emp.external_id)) or (UNKNOWN if emp.source in down else None)
             if shift:
                 rows.append({**emp.to_dict(), "shift": shift})
+        for emp in Employee.query.filter(Employee.source.is_(None), Employee.is_active.is_(True)):
+            rows.append({**emp.to_dict(), "shift": ADDED})
         text_ = (q or "").strip().lower()
         if text_:
             rows = [r for r in rows if text_ in (r["name"] or "").lower()
