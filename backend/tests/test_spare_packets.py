@@ -591,7 +591,7 @@ def _units(n=11):
     return p, svc.old_stock_pack(p.id, n, "UNIT", user="sup")["packets"]
 
 
-def test_four_labels_of_one_part_go_out_in_one_issue_each_its_own_line():
+def test_four_labels_of_one_part_go_out_in_one_issue_on_one_line():
     p, units = _units()
     # Every unit carries the same code: scanning it four times is four pieces, oldest first.
     code = units[0]["code"]
@@ -608,8 +608,10 @@ def test_four_labels_of_one_part_go_out_in_one_issue_each_its_own_line():
     assert all(x["status"] == "ISSUED" and x["department"] == DEPT for x in out["packets"])
     assert _on_hand(p) == 7
     lines = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").all()
-    assert len(lines) == 4 and {x.reference for x in lines} == {code}
-    assert all("line 3 jig" in x.remarks for x in lines)
+    # One issue line for the four (14 Nov 2026), every label pointing at it.
+    assert len(lines) == 1 and float(lines[0].qty_delta) == -4 and lines[0].reference == code
+    assert "line 3 jig" in lines[0].remarks and "4 labels" in lines[0].remarks
+    assert {db.session.get(SparePacket, x["id"]).issue_ledger_id for x in out["packets"]} == {lines[0].id}
     with pytest.raises(BadRequestError, match="already issued"):
         svc.issue_check([str(units[2]["id"]), str(units[3]["id"])])      # those went already
 
@@ -803,3 +805,20 @@ def test_printed_labels_file_lists_only_printed_uncancelled_labels(app):
     pdf = c.get("/api/v1/spare-packets/printed/pdf", query_string={"store_code": STORE, "q": p.part_no})
     assert pdf.status_code == 200 and pdf.data.startswith(b"%PDF")
     assert c.get("/api/v1/spare-packets/printed/csv", query_string={"store_code": STORE}).status_code == 404
+
+
+
+def test_labels_issued_together_come_back_a_whole_packet_at_a_time():
+    from app.services.spare_return_service import SpareReturnService
+    p, units = _units(6)
+    code = units[0]["code"]
+    out = svc.issue_many([code, code, code], DEPT, user="tester", issued_to="Ravi")
+    issue_id = out["issues"][0]["id"]
+    assert out["issues"][0]["qty"] == 3 and _on_hand(p) == 3
+    rs = SpareReturnService()
+    with pytest.raises(BadRequestError, match="only whole"):
+        rs.return_to_store(issue_id, qty=0.5, returned_by="Ravi", user="sup")
+    rs.return_to_store(issue_id, qty=2, returned_by="Ravi", user="sup")
+    back = [x for x in units[:3] if db.session.get(SparePacket, x["id"]).status == "AVAILABLE"]
+    assert len(back) == 2 and _on_hand(p) == 5
+    assert [x for x in units[:3] if db.session.get(SparePacket, x["id"]).status == "ISSUED"]   # one still out

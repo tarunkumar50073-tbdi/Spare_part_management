@@ -39,6 +39,8 @@ return, or pass as good, the same quantity twice.
 """
 from sqlalchemy.orm import joinedload
 
+from decimal import Decimal
+
 from app.extensions import db
 from app.models.base import utcnow
 from app.models.spare_flow import INSPECTION_RESULTS, RETURN_OPEN, RETURN_STATUSES, SpareReturn
@@ -125,19 +127,33 @@ class SpareReturnService:
     # ------------------------------------------------------ return to store
 
     @staticmethod
-    def _packet_of(issue):
-        """The packet (or individual unit) this issue handed out whole, or None."""
+    def _packets_back(issue, qty_back):
+        """The packets (or individual units) of this issue that come back for
+        qty_back, each whole: none for an issue by quantity; else the issue's
+        packets still out, in label order, that add up to exactly qty_back.
+        One issue can hold several labels since 14 Nov 2026 (one issue line
+        for the labels scanned together); a packet never comes back in part."""
         from app.models.spare_packet import SparePacket
-        return SparePacket.query.filter_by(issue_ledger_id=issue.id).first()
-
-    @staticmethod
-    def _whole_packet(packet, qty_back):
-        if packet.status != "ISSUED":
-            raise BadRequestError(f"Packet {packet.code} is not out ({packet.status.lower()}) — it cannot come back")
-        if abs(float(packet.qty) - float(qty_back)) > 1e-9:
-            what = "an individual part" if packet.kind == "UNIT" else "a packet"
-            raise BadRequestError(f"{packet.code} was issued as {what} of {float(packet.qty):g} — it comes back only "
-                                  f"whole ({float(packet.qty):g}), never part of it")
+        mine = (SparePacket.query.filter_by(issue_ledger_id=issue.id)
+                .order_by(SparePacket.seq.desc(), SparePacket.id.desc()).all())
+        if not mine:
+            return []
+        out = [p for p in mine if p.status == "ISSUED"]
+        if not out:
+            raise BadRequestError(f"The labels of this issue are not out ({mine[0].status.lower()}) — "
+                                  "they cannot come back")
+        picked, got = [], Decimal("0")
+        want = Decimal(str(qty_back))
+        for p in out:
+            if got + Decimal(str(p.qty)) <= want:
+                picked.append(p)
+                got += Decimal(str(p.qty))
+            if got == want:
+                return picked
+        sizes = " + ".join(f"{float(p.qty):g}" for p in out)
+        what = "an individual part" if out[0].kind == "UNIT" else "a packet"
+        raise BadRequestError(f"{out[0].code} goes out as {what} at a time ({sizes}) — it comes back only "
+                              "whole packets, never part of one")
 
     def job_work_return(self, issue_id, qty=None, reason=None, note=None, returned_by=None, user=None,
                         scanned_code=None, scan_source=None, identified_by=None):
@@ -153,9 +169,8 @@ class SpareReturnService:
         if len(reason) > REASON_MAX:
             raise BadRequestError(f"Job work reason must be {REASON_MAX} characters or fewer")
         issue, part, qty_back = self._returnable(issue_id, qty)
-        packet = self._packet_of(issue)
-        if packet is not None:
-            self._whole_packet(packet, qty_back)
+        backs = self._packets_back(issue, qty_back)
+        packet = backs[0] if backs else None
         note = _text(note, 255)
         with atomic():
             self.stock._lock(SpareStockLedger, issue.id)
@@ -267,9 +282,8 @@ class SpareReturnService:
         note = _text(note, 255)
         returned_by = _text(returned_by, 80)
         scanned_code, scan_source = _text(scanned_code, 80), _text(scan_source, 20)
-        packet = self._packet_of(issue)
-        if packet is not None:
-            self._whole_packet(packet, qty_back)
+        backs = self._packets_back(issue, qty_back)
+        packet = backs[0] if backs else None
 
         with atomic():
             # Lock first, then re-check against what is committed now, so two
@@ -303,12 +317,13 @@ class SpareReturnService:
                 # receipt (FIFO keeps its place). Once only — a second return of
                 # it finds it AVAILABLE and is refused.
                 from app.models.spare_packet import SparePacket
-                won = (SparePacket.query.filter_by(id=packet.id, status="ISSUED")
-                       .update({"status": "AVAILABLE", "issued_at": None, "issued_by": None, "department": None,
-                                "issued_to": None, "issue_ledger_id": None, "fifo_override_reason": None},
-                               synchronize_session=False))
-                if not won:
-                    raise BadRequestError(f"Packet {packet.code} was just returned from another screen")
+                for back in backs:
+                    won = (SparePacket.query.filter_by(id=back.id, status="ISSUED")
+                           .update({"status": "AVAILABLE", "issued_at": None, "issued_by": None, "department": None,
+                                    "issued_to": None, "issue_ledger_id": None, "fifo_override_reason": None},
+                                   synchronize_session=False))
+                    if not won:
+                        raise BadRequestError(f"Packet {back.code} was just returned from another screen")
             prev_status = issue.status
             new_status = "RETURNED" if qty_back >= outstanding else "PARTIALLY_RETURNED"
             self.stock.ledger_repo.update(issue, status=new_status)
