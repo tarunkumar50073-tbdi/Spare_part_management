@@ -373,7 +373,9 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
       )}
       <Choice value={kind} onChange={setKind} options={[
         ["PACKET", "Small parts packet", "Nuts, bolts, washers … many in one packet, one QR"],
-        ["UNIT", "Individual part", "Each piece its own QR"]]} />
+        part.bulk
+          ? ["UNIT", "One label for the lot", `Measured in ${unit || "metres / kilos"}: one QR for all of it, issued by qty`]
+          : ["UNIT", "Individual part", "Each piece its own QR"]]} />
       <div className="grid gap-3 sm:grid-cols-3">
         {kind === "PACKET" && supplierBoxes && (
           <Field label="Quantity per box" required hint="As the supplier packed it">

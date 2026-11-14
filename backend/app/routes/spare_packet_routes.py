@@ -410,8 +410,10 @@ def issue(code):
         issued_to_mobile=data.get("issued_to_mobile"), issued_to=data.get("issued_to"),
         remarks=data.get("remarks"), override_reason=data.get("override_reason"),
         scan_source=data.get("scan_source"), line_name=data.get("line_name"), machine=data.get("machine"),
+        qty=data.get("lot_qty"),        # a measured part's lot label: part of it (14 Nov 2026)
     )
     publish("stock", {"part_id": p.part_id, "action": "issue"})
     who = out["issue"].get("issued_to")
-    return success_response(out, f"Packet {out['packet']['code']} issued — {out['packet']['qty']:g} "
-                                 f"{out['packet']['uom'] or ''} to {data.get('department')}{(' · ' + who) if who else ''}")
+    left = f" · {out['packet']['qty']:g} left on the label" if out["packet"]["status"] == "AVAILABLE" else ""
+    return success_response(out, f"Packet {out['packet']['code']} issued — {out['issue']['qty']:g} "
+                                 f"{out['packet']['uom'] or ''} to {data.get('department')}{(' · ' + who) if who else ''}{left}")

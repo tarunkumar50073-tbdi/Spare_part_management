@@ -94,6 +94,17 @@ MAX_PER_CALL = 500
 MAX_ISSUE_AT_ONCE = 50                # labels of one part in one issue
 MAX_QTY = Decimal("1000000")
 PAGE_SIZE, MAX_PAGE_SIZE = 25, 100
+# Parts measured, not counted - a length, a weight, a volume (14 Nov 2026: a
+# rack's 30 MTR silicone sleeve would have got 30 labels): labelled as one lot,
+# one QR for all of it, and issued from that label by quantity, a bit at a time.
+# Rolls and sets are counted pieces.
+BULK_UOMS = {"MTR", "MTRS", "MTT", "MT", "M", "METER", "METRE", "KG", "KGS", "LTR", "LTRS", "LIT", "L", "ML",
+             "GM", "GMS", "GRAM"}
+
+
+def is_bulk(part):
+    """Is the part measured (metres, kilos, litres) rather than counted?"""
+    return (getattr(part, "uom", None) or "").strip().upper().rstrip(".") in BULK_UOMS
 # Parts labelled in one go from a rack (14 Nov 2026: "old stock k lable rack
 # wise 1 saath").
 MAX_RACK_PARTS = 300
@@ -581,7 +592,10 @@ class SparePacketService:
         packable = round(min(verified, self._cap(receipt)) - self._packed_of(receipt.id), 2)
         if packable <= 0:
             raise BadRequestError("Everything verified on this receipt is already packed")
-        if kind == "UNIT":
+        if kind == "UNIT" and is_bulk(receipt.part):
+            # One label for the whole lot of a measured part.
+            size = Decimal(str(packable))
+        elif kind == "UNIT":
             size = Decimal("1")
         elif kind == "PACKET" and supplier:
             size = _qty(packet_qty, "Quantity per packet")
@@ -903,7 +917,7 @@ class SparePacketService:
             rows.append({"part": {"id": part.id, "part_no": part.part_no, "part_name": part.part_name,
                                   "uom": part.uom, "location": part.location,
                                   "specification": part.specification,
-                                  "packet_qty": _n(self.standard_qty(part)),
+                                  "packet_qty": _n(self.standard_qty(part)), "bulk": is_bulk(part),
                                   "section": sections.get(part.section_id), "section_id": part.section_id},
                          "rack": r, **row})
         rows.sort(key=lambda x: ((x["part"]["section"] or "~").lower(), _natural(x["rack"]),
@@ -1060,7 +1074,7 @@ class SparePacketService:
         }
 
     def issue(self, code, department, user=None, employee_id=None, issued_to_mobile=None, issued_to=None,
-              remarks=None, override_reason=None, scan_source=None, line_name=None, machine=None):
+              remarks=None, override_reason=None, scan_source=None, line_name=None, machine=None, qty=None):
         """Issue a whole packet (or one individual unit): its full quantity,
         once, to a department + person, through the same issue as Scan Part's
         (ISSUE ledger row, journal). Skipping an older receipt's packets needs
@@ -1085,6 +1099,36 @@ class SparePacketService:
                 "Issue that one, or give a reason to issue this one.",
                 errors={"code": "FIFO", "oldest": self.packet_dict(older)})
         stock = SpareStockService()
+        # A measured part's lot label (14 Nov 2026) gives a part of itself: the
+        # qty asked goes out, the rest stays on the shelf under the same label.
+        take = None
+        if qty not in (None, "") and is_bulk(packet.part):
+            take = _qty(qty, "Issue qty")
+            if take > Decimal(str(packet.qty)):
+                raise BadRequestError(f"Only {_n(packet.qty)} {packet.uom or ''} is left on label {packet.code}")
+            if take == Decimal(str(packet.qty)):
+                take = None                                   # all of it: the whole label goes
+        if take is not None:
+            with atomic():
+                won = (SparePacket.query.filter(SparePacket.id == packet.id, SparePacket.status == "AVAILABLE",
+                                                SparePacket.qty >= take)
+                       .update({"qty": SparePacket.qty - take}, synchronize_session=False))
+                if not won:
+                    raise BadRequestError(f"Label {packet.code} was just issued from another screen")
+                note = f"Part of lot {packet.code} (receipt {packet.batch.receipt_no})"
+                if older is not None:
+                    note += f" — FIFO skipped: {reason}"
+                if remarks:
+                    note += f" · {remarks}"
+                result = stock.issue(
+                    packet.part_id, float(take), department, reference=packet.code, remarks=note[:255],
+                    user=user, issued_to=issued_to, employee_id=employee_id, issued_to_mobile=issued_to_mobile,
+                    scanned_code=packet.code, scan_source=scan_source, from_packet=True,
+                    line_name=line_name, machine=machine,
+                )
+            db.session.refresh(packet)
+            result["packet"] = self.packet_dict(packet)
+            return result
         with atomic():
             won = (SparePacket.query.filter_by(id=packet.id, status="AVAILABLE")
                    .update({"status": "ISSUED", "issued_at": utcnow(), "issued_by": _who(user),
@@ -1428,6 +1472,7 @@ class SparePacketService:
                 "location": part.location, "rework_location": part.rework_location,
                 "specification": part.specification,
                 "packet_qty": _n(SparePacketService.standard_qty(part)),
+                "bulk": is_bulk(part),
                 "section": section.name if section else None}
 
     def receipt_dict(self, r, counted_on=None):

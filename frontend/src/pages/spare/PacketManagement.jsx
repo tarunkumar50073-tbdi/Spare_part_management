@@ -484,6 +484,7 @@ function labelsFor(row, counted) {
   const c = Number(counted);
   if (!(c > 0)) return null;
   const std = Number(row.part.packet_qty) || 0;
+  if (!std && row.part.bulk) return { n: 1, text: `1 label (${num(c)} ${row.part.uom || ""})` };
   if (std) {
     const full = Math.floor(c / std), rest = Math.round((c - full * std) * 100) / 100;
     return { n: full + (rest > 0 ? 1 : 0), text: `${full} × ${num(std)}${rest > 0 ? ` + 1 × ${num(rest)}` : ""}` };
@@ -537,7 +538,7 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[12.5px] text-slate-600 dark:text-slate-300">
-            Count each part on the shelf. Parts with a Pkt Qty go in packets, the rest get a label a piece. A part left blank is not labelled.
+            Count each part on the shelf. Parts with a Pkt Qty go in packets; measured parts (MTR, KG, LTR) get one label for the lot; the rest a label a piece. A part left blank is not labelled.
           </p>
           <button type="button" className="btn-secondary py-1 text-[12px]" onClick={allSame} disabled={!rows.length}>All same as app</button>
         </div>
@@ -558,7 +559,9 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
                         <div className="max-w-[260px] truncate text-[11px] text-slate-400" title={r.part.part_name}>{r.part.part_name}</div></td>
                       <td className="whitespace-nowrap px-3 py-2">{r.part.packet_qty
                         ? <span className="rounded bg-violet-100 px-1.5 py-px text-[10.5px] font-semibold text-violet-800 dark:bg-violet-500/15 dark:text-violet-200">Packet of {num(r.part.packet_qty)}</span>
-                        : <span className="rounded bg-sky-100 px-1.5 py-px text-[10.5px] font-semibold text-sky-800 dark:bg-sky-500/15 dark:text-sky-200">Individual</span>}</td>
+                        : r.part.bulk
+                          ? <span className="rounded bg-amber-100 px-1.5 py-px text-[10.5px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">Lot · 1 label</span>
+                          : <span className="rounded bg-sky-100 px-1.5 py-px text-[10.5px] font-semibold text-sky-800 dark:bg-sky-500/15 dark:text-sky-200">Individual</span>}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular">{num(r.to_label)} {r.part.uom}</td>
                       <td className="px-3 py-2">
                         <span className="flex items-center gap-1.5">
@@ -593,6 +596,9 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
 
 // A label's kind at a glance: a packet (many in one) or an individual piece.
 function KindTag({ p }) {
+  if (p.part?.bulk && p.kind === "UNIT") {
+    return <span className="inline-block rounded bg-amber-100 px-1.5 py-px text-[10.5px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">Lot</span>;
+  }
   const unit = p.kind === "UNIT";
   return (
     <span className={`inline-block rounded px-1.5 py-px text-[10.5px] font-semibold ${unit

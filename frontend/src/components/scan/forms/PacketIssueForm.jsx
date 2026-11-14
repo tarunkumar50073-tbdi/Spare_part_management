@@ -5,7 +5,7 @@ import useGunEnd from "../../../hooks/useGunEnd.js";
 import { packetService } from "../../../services/packetService.js";
 import { fmtDate, fmtStamp } from "../../../lib/format.js";
 import { DepartmentSelect, Facts, Field, FormShell, LineMachinePicker, NO_PLACE, Note, machineText, useMachines } from "./FormKit.jsx";
-import { clean, fmtQty, isStoreDepartment, useActionFlow, useDepartments } from "./flow.js";
+import { clean, fmtQty, isStoreDepartment, qtyError, useActionFlow, useDepartments } from "./flow.js";
 
 // ISSUE of a whole packet or one individual unit — what a packet / unit QR
 // opens on Scan Part (the store's spec of 27 Oct 2026). One scan names one
@@ -52,7 +52,12 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   const many = more.length > 0;
   const fifo = many ? setFifo : packet.fifo;
   const older = fifo && fifo.ok === false ? fifo.oldest : null;
-  const totalQty = all.reduce((sum, p) => sum + Number(p.qty || 0), 0);
+  // A measured part's lot label (MTR / KG / LTR, 14 Nov 2026): one QR for all of
+  // it, so the qty to take is typed - the rest stays on the shelf under it.
+  const lot = Boolean(packet.part?.bulk) && packet.status === "AVAILABLE";
+  const [lotQty, setLotQty] = useState("");
+  const lotErr = lot ? qtyError(lotQty, { max: Number(packet.qty), maxText: `Only ${fmtQty(packet.qty, packet.uom)} on this label` }) : null;
+  const totalQty = lot ? Number(lotQty || 0) : all.reduce((sum, p) => sum + Number(p.qty || 0), 0);
 
   const check = async (codes) => {
     const d = (await packetService.issueCheck(codes, { silent: true })).data.data;
@@ -118,12 +123,13 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
         : depts && !depts.some((d) => d.name === department) ? `${department} is not in the Department master — choose one` : null,
     reason: older && !reason.trim()
       ? `Older stock is waiting — say why ${many ? "these labels go" : "this packet goes"} first` : null,
+    lotQty: lot ? (lotQty === "" ? "Type the qty to issue" : lotErr) : null,
   };
   const valid = available && !Object.values(errors).some(Boolean);
   const show = (k) => (tried ? errors[k] : null);
   const qtyText = fmtQty(totalQty, packet.uom || part.uom);
   const oneText = fmtQty(packet.qty, packet.uom || part.uom);
-  const what = packet.kind === "UNIT" ? "individual part" : "packet";
+  const what = lot ? "lot" : packet.kind === "UNIT" ? "individual part" : "packet";
 
   const review = () => {
     setTried(true);
@@ -133,6 +139,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
       line_name: place.line || undefined, machine: place.machine || undefined,
       override_reason: older ? reason.trim() : undefined,
       scan_source: source || undefined,
+      lot_qty: lot ? Number(lotQty) : undefined,
     };
     const code = emp.employee_code ? ` (${emp.employee_code})` : "";
     const codes = all.map((p) => String(p.id));
@@ -156,7 +163,8 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
         { label: "Remarks", value: payload.remarks },
       ].filter(Boolean),
       note: many ? `All ${all.length} labels of ${part.part_no} — ${qtyText} — go out together.`
-        : `The whole ${what} — ${qtyText} — goes out.`,
+        : lot ? `${qtyText} goes out; ${fmtQty(Math.round((Number(packet.qty) - Number(lotQty || 0)) * 100) / 100, packet.uom || part.uom)} stays on this label.`
+          : `The whole ${what} — ${qtyText} — goes out.`,
       confirmLabel: `Confirm Issue`,
       submit: () => flow.run(
         () => (many ? packetService.issueMany({ ...payload, codes }) : packetService.issue(String(packet.id), payload)),
@@ -175,7 +183,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
           ...(packet.supplier_code ? [{ label: "Supplier label", value: packet.supplier_code }] : []),
           { label: "Part No.", value: part.part_no, strong: true },
           { label: "Item Description", value: part.part_name },
-          { label: packet.kind === "UNIT" ? "Individual part" : "Packet qty (whole)", value: oneText, strong: true },
+          { label: packet.part?.bulk ? "On this label (lot)" : packet.kind === "UNIT" ? "Individual part" : "Packet qty (whole)", value: oneText, strong: true },
           { label: "Received", value: `${fmtDate(packet.receipt.received_on)} · ${packet.receipt.receipt_no}` },
           { label: "Location", value: packet.location || part.location, empty: "Not set" },
         ]} />
@@ -213,13 +221,13 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
                 </li>
               ))}
             </ul>
-            <Field label={`Taking more of ${part.part_no}? Scan the next label`} htmlFor={`${uid}-next`} className="mt-2"
+            {!lot && <Field label={`Taking more of ${part.part_no}? Scan the next label`} htmlFor={`${uid}-next`} className="mt-2"
               error={addMsg} hint={`Only labels of ${part.part_no} — another part is issued on its own, so each part keeps its history.`}>
               <input id={`${uid}-next`} ref={nextRef} value={next} autoFocus autoComplete="off" disabled={adding}
                 onChange={(e) => setNext(e.target.value)}
                 onKeyDown={(e) => { gunEnd(e); if (e.key === "Enter") { e.preventDefault(); addLabel(); } }}
                 className="input-field font-mono" placeholder={adding ? "Checking…" : "Scan the next label of this part"} />
-            </Field>
+            </Field>}
           </div>
           {older && (
             <div className="space-y-2">
@@ -261,11 +269,20 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
             <Field label="Department" required htmlFor={`${uid}-dept`} error={show("department")}>
               <DepartmentSelect id={`${uid}-dept`} value={department} onChange={setDepartment} error={show("department")} noStore />
             </Field>
+            {lot ? (
+              <Field label="Issue qty" required htmlFor={`${uid}-lotqty`} error={show("lotQty")}
+                hint={`Up to ${oneText} on this label — the rest stays on it`}>
+                <input id={`${uid}-lotqty`} type="number" min="0" step="any" inputMode="decimal" value={lotQty}
+                  onChange={(e) => setLotQty(e.target.value)} className="input-field text-lg font-semibold"
+                  placeholder={`e.g. 2 ${packet.uom || part.uom || ""}`} />
+              </Field>
+            ) : (
             <Field label="Issue qty">
               <p className="flex min-h-[42px] items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[15px] font-bold text-slate-800 dark:border-navy-700 dark:bg-navy-800/60 dark:text-white">
                 {qtyText} <span className="ml-2 text-[12px] font-medium text-slate-500">{many ? `${all.length} labels, each whole` : `whole ${what}`}</span>
               </p>
             </Field>
+            )}
             <LineMachinePicker id={`${uid}-place`} department={department} value={place} onChange={setPlace} />
             <Field label="Remarks" htmlFor={`${uid}-rem`}>
               <input id={`${uid}-rem`} value={remarks} maxLength={200} onChange={(e) => setRemarks(e.target.value)}

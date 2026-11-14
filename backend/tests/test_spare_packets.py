@@ -732,3 +732,26 @@ def test_a_rack_is_labelled_in_one_go_packets_or_pieces_by_pkt_qty(app):
         s["user_id"] = _user({"spare_packets": {"view": True}}).id
     assert c.get("/api/v1/spare-packets/old-stock/rack", query_string={"store_code": STORE, "rack": "R9"}).status_code == 200
     assert c.post("/api/v1/spare-packets/old-stock/rack-pack", json={"items": []}).status_code == 403
+
+
+# ---- a measured part (MTR / KG / LTR): one label for the lot, issued by qty (14 Nov 2026) ----------
+
+def test_a_measured_part_gets_one_label_and_goes_out_a_bit_at_a_time():
+    p = _part(30, name="SILICONE SLEEVE 6MM", pkt=None)
+    p.uom = "MTR"
+    db.session.commit()
+    out = svc.rack_pack([{"part_id": p.id, "counted_qty": 30}], user="sup")
+    assert [(x["kind"], x["qty"]) for x in out["packets"]] == [("UNIT", 30)]      # one label, all 30 m
+    code = out["packets"][0]["code"]
+    assert out["packets"][0]["part"]["bulk"] is True
+    first = svc.issue(code, DEPT, issued_to="Ravi", user="t", qty=12.5)
+    assert first["issue"]["qty"] == 12.5 and first["packet"]["status"] == "AVAILABLE" and first["packet"]["qty"] == 17.5
+    assert _on_hand(p) == 17.5 and svc.figures(p.id) == {"on_hand": 17.5, "packed_available": 17.5, "loose": 0}
+    with pytest.raises(BadRequestError, match="Only 17.5"):
+        svc.issue(code, DEPT, issued_to="Ravi", user="t", qty=20)
+    last = svc.issue(code, DEPT, issued_to="Ravi", user="t", qty=17.5)                 # the rest: the label goes
+    assert last["packet"]["status"] == "ISSUED" and _on_hand(p) == 0
+    # A counted part ignores a qty: a packet goes whole.
+    bolts = _part(40, pkt=20)
+    made = svc.old_stock_pack(bolts.id, 40, "PACKET", user="sup")["packets"]
+    assert svc.issue(str(made[0]["id"]), DEPT, issued_to="Ravi", user="t", qty=5)["issue"]["qty"] == 20
