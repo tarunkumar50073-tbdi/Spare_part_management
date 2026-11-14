@@ -755,3 +755,25 @@ def test_a_measured_part_gets_one_label_and_goes_out_a_bit_at_a_time():
     bolts = _part(40, pkt=20)
     made = svc.old_stock_pack(bolts.id, 40, "PACKET", user="sup")["packets"]
     assert svc.issue(str(made[0]["id"]), DEPT, issued_to="Ravi", user="t", qty=5)["issue"]["qty"] == 20
+
+
+# ---- a part on a fresh and a rework shelf: labelled at either (14 Nov 2026) ------------------------
+
+def test_a_rework_shelf_lists_its_parts_and_labels_say_the_rework_location():
+    tag = f"T{_seq['n']}"
+    p = _old_part(10, "R15-S4-B19(1)", tag)
+    p.rework_location = "R16-S5-B25(1)"
+    p.package_standard = None
+    db.session.commit()
+    fresh = svc.old_stock(STORE, rack="R15", q=f"OLDSTK {tag}", everything=True)["rows"]
+    rework = svc.old_stock(STORE, rack="R16", q=f"OLDSTK {tag}", everything=True)
+    assert [(r["bin"], r["part"]["location"]) for r in fresh] == [("FRESH", "R15-S4-B19(1)")]
+    assert [(r["bin"], r["part"]["location"]) for r in rework["rows"]] == [("REWORK", "R16-S5-B25(1)")]
+    assert rework["summary"]["parts"] == 1
+    whole = svc.old_stock(STORE, q=f"OLDSTK {tag}", everything=True)
+    assert whole["summary"]["parts"] == 1 and len(whole["rows"]) == 2      # one part, two shelves
+    out = svc.rack_pack([{"part_id": p.id, "counted_qty": 3, "bin": "REWORK"}], user="sup")
+    assert {x["location"] for x in out["packets"]} == {"R16-S5-B25(1)"} and len(out["packets"]) == 3
+    made = svc.old_stock_pack(p.id, 2, "UNIT", user="sup")["packets"]           # at the fresh shelf
+    assert {x["location"] for x in made} == {"R15-S4-B19(1)"}
+    assert svc.old_figures(p.id)["to_label"] == 5                              # one stock figure: 10 - 3 - 2

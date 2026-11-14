@@ -271,7 +271,7 @@ def old_stock_pack(part_id):
     part = _part(part_id)
     data = _body()
     out = service.old_stock_pack(part.id, data.get("counted_qty"), user=_who(), supplier_codes=_codes(data),
-                                 remarks=data.get("remarks"), **_old_args(data))
+                                 remarks=data.get("remarks"), bin=data.get("bin"), **_old_args(data))
     publish("stock", {"part_id": part.id, "action": "pack"})
     return success_response(out, _made(out), status_code=201)
 

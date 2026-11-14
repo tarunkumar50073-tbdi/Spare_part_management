@@ -635,7 +635,7 @@ class SparePacketService:
         return {"packable": packable, "sizes": sizes, "loose_after": rest}
 
     def pack(self, receipt_id, kind, packet_qty=None, count=None, last_smaller=False, user=None,
-             supplier_codes=None):
+             supplier_codes=None, location=None):
         """Make the receipt's packets (or individual units), each with its own
         QR code. Stock does not change: the packets are part of what is on
         hand, never more than is loose. `supplier_codes`: the boxes came with
@@ -672,7 +672,8 @@ class SparePacketService:
                 seq += 1
                 p = SparePacket(code=codes[i], kind=kind, batch_id=receipt.id, part_id=receipt.part_id,
                                 seq=seq, qty=size, uom=receipt.uom or receipt.part.uom,
-                                location=receipt.part.location, status="QC_PENDING" if before_qc else "AVAILABLE",
+                                location=location or receipt.part.location,
+                                status="QC_PENDING" if before_qc else "AVAILABLE",
                                 created_by=_who(user),
                                 supplier_code=boxes[i] if boxes else None)
                 db.session.add(p)
@@ -895,7 +896,8 @@ class SparePacketService:
         if text:
             like = f"%{text}%"
             query = query.filter(or_(Part.part_no.ilike(like), Part.part_name.ilike(like),
-                                     Part.location.ilike(like), Part.specification.ilike(like)))
+                                     Part.location.ilike(like), Part.rework_location.ilike(like),
+                                     Part.specification.ilike(like)))
         found = query.all()
         figs = self._old_figures(store_code=store_code)
         supplier = {pid for (pid,) in db.session.query(PartBarcode.part_id)
@@ -908,25 +910,34 @@ class SparePacketService:
         for part, on_hand in found:
             packed, ever, waiting = figs.get(part.id, (0.0, 0, 0.0))
             row = self._old_row(float(on_hand or 0), packed, ever, waiting, part.id in supplier)
-            r = rack_of(part.location)
-            tally = racks.setdefault(r, {"rack": r, "parts": 0, "to_do": 0})
-            tally["parts"] += 1
-            tally["to_do"] += row["state"] in OLD_SHOW["todo"]
-            if wanted_rack and r != wanted_rack:
-                continue
-            rows.append({"part": {"id": part.id, "part_no": part.part_no, "part_name": part.part_name,
-                                  "uom": part.uom, "location": part.location,
-                                  "specification": part.specification,
-                                  "packet_qty": _n(self.standard_qty(part)), "bulk": is_bulk(part),
-                                  "section": sections.get(part.section_id), "section_id": part.section_id},
-                         "rack": r, **row})
+            # A part with a rework location sits on two shelves (14 Nov 2026: "rework wale
+            # part k label nhi aa rhe" - R16's rework bins listed nothing): it is listed at
+            # each, Fresh and Rework. One stock figure: what is labelled at one is no longer
+            # without a label at the other.
+            rework = (part.rework_location or "").strip()
+            bins = [("FRESH" if rework else None, part.location)] + ([("REWORK", rework)] if rework else [])
+            for bin_, where in bins:
+                r = rack_of(where)
+                tally = racks.setdefault(r, {"rack": r, "parts": 0, "to_do": 0})
+                tally["parts"] += 1
+                tally["to_do"] += row["state"] in OLD_SHOW["todo"]
+                if wanted_rack and r != wanted_rack:
+                    continue
+                rows.append({"part": {"id": part.id, "part_no": part.part_no, "part_name": part.part_name,
+                                      "uom": part.uom, "location": where,
+                                      "specification": part.specification,
+                                      "packet_qty": _n(self.standard_qty(part)), "bulk": is_bulk(part),
+                                      "section": sections.get(part.section_id), "section_id": part.section_id},
+                             "rack": r, "bin": bin_, **row})
         rows.sort(key=lambda x: ((x["part"]["section"] or "~").lower(), _natural(x["rack"]),
                                  _natural(x["part"]["location"]), x["part"]["part_no"] or ""))
-        summary = {"parts": len(rows),
-                   "to_do": sum(1 for x in rows if x["state"] == OLD_TODO),
-                   "partly": sum(1 for x in rows if x["state"] == OLD_PARTLY),
-                   "done": sum(1 for x in rows if x["state"] in OLD_SHOW["done"]),
-                   "qty_to_label": _n(round(sum(x["to_label"] for x in rows), 2))}
+        # Each part once, though a part with a rework shelf has two rows.
+        once = list({x["part"]["id"]: x for x in rows}.values())
+        summary = {"parts": len(once),
+                   "to_do": sum(1 for x in once if x["state"] == OLD_TODO),
+                   "partly": sum(1 for x in once if x["state"] == OLD_PARTLY),
+                   "done": sum(1 for x in once if x["state"] in OLD_SHOW["done"]),
+                   "qty_to_label": _n(round(sum(x["to_label"] for x in once), 2))}
         if show in OLD_SHOW:
             rows = [x for x in rows if x["state"] in OLD_SHOW[show]]
         size = max(1, len(rows)) if everything else max(1, min(int(page_size or 50), MAX_PAGE_SIZE))
@@ -977,7 +988,7 @@ class SparePacketService:
                 "last_qty": _n(last), "total": _n(sum(sizes)), "loose_after": _n(plan["loose_after"])}
 
     def old_stock_pack(self, part_id, counted_qty, kind, packet_qty=None, last_smaller=False, user=None,
-                       supplier_codes=None, remarks=None):
+                       supplier_codes=None, remarks=None, bin=None):
         """Label old stock: what was counted on the shelf is packed as an
         OPENING batch of exactly what goes into packets (so nothing of it is
         left "to pack" in the Receipts tab); the rest stays loose. No stock
@@ -995,8 +1006,10 @@ class SparePacketService:
                 part.id, sum(sizes), user=user,
                 remarks=f"Old stock on the shelf: counted {_n(counted)}, packed {_n(sum(sizes))}"
                         + (f" — {note}" if note else ""))
+            # Counted at the rework shelf: its labels say the rework location.
+            where = (part.rework_location or "").strip() if (bin or "").upper() == "REWORK" else None
             out = self.pack(opening["id"], kind, packet_qty=sizes[0], count=len(sizes) - smaller,
-                            last_smaller=smaller, user=user, supplier_codes=supplier_codes)
+                            last_smaller=smaller, user=user, supplier_codes=supplier_codes, location=where or None)
         out["counted"] = _n(counted)
         out["figures"] = self.old_figures(part.id)
         return out
@@ -1022,11 +1035,12 @@ class SparePacketService:
             std = self.standard_qty(part)
             try:
                 counted = _qty(raw, "Counted on the shelf")
+                bin_ = x.get("bin")
                 if std is not None:
                     smaller = counted % std != 0
-                    out = self.old_stock_pack(part.id, counted, "PACKET", last_smaller=smaller, user=user)
+                    out = self.old_stock_pack(part.id, counted, "PACKET", last_smaller=smaller, user=user, bin=bin_)
                 else:
-                    out = self.old_stock_pack(part.id, counted, "UNIT", user=user)
+                    out = self.old_stock_pack(part.id, counted, "UNIT", user=user, bin=bin_)
             except (BadRequestError, NotFoundError) as exc:
                 db.session.rollback()
                 errors.append({"part_id": part.id, "part_no": part.part_no,

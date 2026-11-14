@@ -423,8 +423,9 @@ function OldStockTab({ storeCode }) {
                 {(d?.rows || []).map((r) => {
                   const [word, pill] = OLD_STATE[r.state] || [r.state, ""];
                   return (
-                    <tr key={r.part.id} className="align-top text-slate-700 dark:text-slate-200">
-                      <td className="whitespace-nowrap px-3 py-2.5"><div className="font-semibold">{r.part.location || "—"}</div><div className="text-[11px] text-slate-400">Rack {r.rack}</div></td>
+                    <tr key={`${r.part.id}-${r.bin || ""}`} className="align-top text-slate-700 dark:text-slate-200">
+                      <td className="whitespace-nowrap px-3 py-2.5"><div className="font-semibold">{r.part.location || "—"}</div>
+                        <div className="text-[11px] text-slate-400">Rack {r.rack}{r.bin && <BinTag bin={r.bin} />}</div></td>
                       <PartCell part={r.part} />
                       <td className="px-3 py-2.5 text-[12px]">{r.part.section || "—"}</td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">{num(r.on_hand)} {r.part.uom}</td>
@@ -500,19 +501,20 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
   });
   const rows = q.data?.rows || [];
   const [counts, setCounts] = useState({});
+  const keyOf = (r) => `${r.part.id}-${r.bin || ""}`;
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState([]);
   const set = (id, v) => setCounts((c) => ({ ...c, [id]: v }));
-  const allSame = () => setCounts(Object.fromEntries(rows.map((r) => [r.part.id, String(r.to_label)])));
-  const planned = rows.map((r) => labelsFor(r, counts[r.part.id])).filter(Boolean);
+  const allSame = () => setCounts(Object.fromEntries(rows.map((r) => [keyOf(r), String(r.to_label)])));
+  const planned = rows.map((r) => labelsFor(r, counts[keyOf(r)])).filter(Boolean);
   const total = planned.reduce((s, x) => s + x.n, 0);
-  const over = rows.filter((r) => Number(counts[r.part.id]) > Number(r.to_label));
+  const over = rows.filter((r) => Number(counts[keyOf(r)]) > Number(r.to_label));
   const make = async () => {
     setBusy(true);
     setErrors([]);
     try {
-      const items = rows.filter((r) => Number(counts[r.part.id]) > 0)
-        .map((r) => ({ part_id: r.part.id, counted_qty: Number(counts[r.part.id]) }));
+      const items = rows.filter((r) => Number(counts[keyOf(r)]) > 0)
+        .map((r) => ({ part_id: r.part.id, counted_qty: Number(counts[keyOf(r)]), bin: r.bin || undefined }));
       const res = await packetService.rackPack(items);
       const out = res.data.data;
       toast.success(res.data.message);
@@ -550,11 +552,11 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
                 {rows.map((r) => {
-                  const plan = labelsFor(r, counts[r.part.id]);
-                  const tooMany = Number(counts[r.part.id]) > Number(r.to_label);
+                  const plan = labelsFor(r, counts[keyOf(r)]);
+                  const tooMany = Number(counts[keyOf(r)]) > Number(r.to_label);
                   return (
-                    <tr key={r.part.id} className="align-middle">
-                      <td className="whitespace-nowrap px-3 py-2 font-semibold">{r.part.location || "—"}</td>
+                    <tr key={`${r.part.id}-${r.bin || ""}`} className="align-middle">
+                      <td className="whitespace-nowrap px-3 py-2 font-semibold">{r.part.location || "—"}{r.bin && <BinTag bin={r.bin} />}</td>
                       <td className="px-3 py-2"><div className="font-mono text-[12px] font-semibold">{r.part.part_no}</div>
                         <div className="max-w-[260px] truncate text-[11px] text-slate-400" title={r.part.part_name}>{r.part.part_name}</div></td>
                       <td className="whitespace-nowrap px-3 py-2">{r.part.packet_qty
@@ -565,11 +567,11 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular">{num(r.to_label)} {r.part.uom}</td>
                       <td className="px-3 py-2">
                         <span className="flex items-center gap-1.5">
-                          <input type="number" min="0" step="any" inputMode="decimal" value={counts[r.part.id] ?? ""}
-                            onChange={(e) => set(r.part.id, e.target.value)} aria-label={`Counted ${r.part.part_no}`}
+                          <input type="number" min="0" step="any" inputMode="decimal" value={counts[keyOf(r)] ?? ""}
+                            onChange={(e) => set(keyOf(r), e.target.value)} aria-label={`Counted ${r.part.part_no}`}
                             className={`input-field w-24 py-1 text-[13px] ${tooMany ? "border-rose-400" : ""}`} />
                           <button type="button" className="text-[11px] text-sky-700 hover:underline dark:text-sky-300"
-                            onClick={() => set(r.part.id, String(r.to_label))}>Same</button>
+                            onClick={() => set(keyOf(r), String(r.to_label))}>Same</button>
                         </span>
                         {tooMany && <div className="text-[11px] text-rose-600">More than the app has — count again or fix the stock first</div>}
                       </td>
@@ -591,6 +593,18 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
         )}
       </div>
     </Modal>
+  );
+}
+
+// Fresh or rework shelf of a part kept in two places (14 Nov 2026).
+function BinTag({ bin }) {
+  const rework = bin === "REWORK";
+  return (
+    <span className={`ml-1.5 inline-block rounded px-1.5 py-px align-middle text-[10px] font-semibold ${rework
+      ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200"
+      : "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"}`}>
+      {rework ? "Rework" : "Fresh"}
+    </span>
   );
 }
 

@@ -329,7 +329,7 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
     setError(null);
     try {
       const { supplier: _s, ...rest } = args;
-      const body = { ...rest, supplier_codes: supplier ? boxes : undefined };
+      const body = { ...rest, supplier_codes: supplier ? boxes : undefined, bin: old?.bin || undefined };
       const r = await (receipt ? packetService.pack(receipt.id, body) : packetService.oldStockPack(part.id, body));
       toast.success(r.data.message);
       onMade(r.data.data);
