@@ -212,6 +212,38 @@ def old_stock():
     return success_response(out)
 
 
+@bp.route("/old-stock/rack", methods=["GET"])
+@permission_required(RIGHT, "view")
+def old_stock_rack():
+    """Every part of one rack (and section) still to label - the whole-rack
+    labelling list, not paged."""
+    rack = (request.args.get("rack") or "").strip()
+    if not rack:
+        raise BadRequestError("Choose the rack")
+    return success_response(service.old_stock(_store(), section_id=request.args.get("section_id"), rack=rack,
+                                              show="todo", everything=True))
+
+
+@bp.route("/old-stock/rack-pack", methods=["POST"])
+@permission_required(RIGHT, "create")
+def old_stock_rack_pack():
+    """Label a rack's old stock in one go (14 Nov 2026): items = [{part_id, counted_qty}]."""
+    items = _body().get("items")
+    if not isinstance(items, list):
+        raise BadRequestError("items must be a list of parts")
+    for x in items:
+        if isinstance(x, dict):
+            _part(x.get("part_id"))                      # the store's access, part by part
+    out = service.rack_pack(items, user=_who())
+    for pid in {p["part"]["id"] for p in out["packets"]}:
+        publish("stock", {"part_id": pid, "action": "pack"})
+    n = len(out["packets"])
+    msg = f"{n} label{'s' if n != 1 else ''} made for {out['parts']} part{'s' if out['parts'] != 1 else ''}"
+    if out["errors"]:
+        msg += f" — {len(out['errors'])} part{'s' if len(out['errors']) != 1 else ''} not labelled"
+    return success_response(out, msg, status_code=201)
+
+
 @bp.route("/old-stock/<int:part_id>", methods=["GET"])
 @permission_required(RIGHT, "view")
 def old_stock_part(part_id):

@@ -55,7 +55,9 @@ SERVICES = [
                   # 13 Nov 2026: packed only by the part's Pkt Qty.
                   "pkt qty", "packet qty", "pack qty",
                   # 14 Nov 2026: the shelf list tab is "Labels & FIFO".
-                  "labels & fifo", "labels and fifo", "fifo order", "reprint label"]},
+                  "labels & fifo", "labels and fifo", "fifo order", "reprint label",
+                  # 14 Nov 2026: a whole rack's old stock labelled in one go.
+                  "whole rack", "pura rack", "rack wise", "rack ke label", "label whole rack"]},
     {"key": "job_work", "title": "Job Work & RGP", "route": "/job-work",
      "category": "Inventory", "icon": "🛠️", "mod": "scan_part",
      "keywords": ["job work", "jobwork", "rgp", "challan", "coating", "isuzu", "oerlikon", "returnable",

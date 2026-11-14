@@ -397,6 +397,11 @@ function OldStockTab({ storeCode }) {
               <option value="">All racks</option>
               {(d?.racks || []).map((r) => <option key={r.rack} value={r.rack}>{r.rack}{r.to_do ? ` — ${r.to_do} to label` : " — done"}</option>)}
             </select>
+            {canCreate && rack && (
+              <button type="button" className="btn-primary py-1.5 text-[12.5px]" onClick={() => setDialog({ kind: "RACK" })}>
+                <QrCode size={13} aria-hidden="true" /> Label whole rack
+              </button>
+            )}
             <div className="flex flex-wrap gap-1">
               {OLD_SHOW.map((f) => (
                 <button key={f.key} type="button" onClick={() => setShow(f.key)} aria-pressed={show === f.key}
@@ -449,6 +454,15 @@ function OldStockTab({ storeCode }) {
         <Pager data={d} page={page} setPage={setPage} />
         {!canCreate && <p className="border-t border-slate-100 px-4 py-2 text-[12px] text-amber-700 dark:border-navy-800">Labelling needs the Packets &amp; QR Labels create right.</p>}
       </div>
+      {dialog?.kind === "RACK" && (
+        <RackLabelDialog storeCode={storeCode} section={section} rack={rack} onClose={() => setDialog(null)}
+          onMade={(out, partly) => {
+            refresh();
+            const rows = printable(out.packets);
+            if (rows.length) setDialog({ kind: "PRINT", packets: rows });
+            else if (!partly) setDialog(null);
+          }} />
+      )}
       {dialog?.kind === "MAKE" && (
         <MakeLabelsDialog old={dialog.row} onClose={() => setDialog(null)}
           onMade={(out) => { refresh(); const rows = printable(out.packets); setDialog(rows.length ? { kind: "PRINT", packets: rows } : null); }}
@@ -458,6 +472,122 @@ function OldStockTab({ storeCode }) {
         <PrintDialog packets={dialog.packets} onClose={() => setDialog(null)} onDone={refresh} />
       )}
     </div>
+  );
+}
+
+// ---- a whole rack in one go (14 Nov 2026: "old stoke k lable rack wise 1 saath") ----------------
+// Every part of the rack still to label, in location order: count each (or take
+// the app's figure), and all are labelled at once - a part with a Pkt Qty in
+// its packets (a smaller last one for what is left), any other a label a piece -
+// then printed together, rack order.
+function labelsFor(row, counted) {
+  const c = Number(counted);
+  if (!(c > 0)) return null;
+  const std = Number(row.part.packet_qty) || 0;
+  if (std) {
+    const full = Math.floor(c / std), rest = Math.round((c - full * std) * 100) / 100;
+    return { n: full + (rest > 0 ? 1 : 0), text: `${full} × ${num(std)}${rest > 0 ? ` + 1 × ${num(rest)}` : ""}` };
+  }
+  return { n: Math.floor(c), text: `${Math.floor(c)} piece${Math.floor(c) === 1 ? "" : "s"}` };
+}
+
+function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
+  const q = useQuery({
+    queryKey: ["packets", "old-rack", storeCode, section, rack],
+    queryFn: () => packetService.oldStockRack({ store_code: storeCode, section_id: section || undefined, rack })
+      .then((r) => r.data.data),
+  });
+  const rows = q.data?.rows || [];
+  const [counts, setCounts] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState([]);
+  const set = (id, v) => setCounts((c) => ({ ...c, [id]: v }));
+  const allSame = () => setCounts(Object.fromEntries(rows.map((r) => [r.part.id, String(r.to_label)])));
+  const planned = rows.map((r) => labelsFor(r, counts[r.part.id])).filter(Boolean);
+  const total = planned.reduce((s, x) => s + x.n, 0);
+  const over = rows.filter((r) => Number(counts[r.part.id]) > Number(r.to_label));
+  const make = async () => {
+    setBusy(true);
+    setErrors([]);
+    try {
+      const items = rows.filter((r) => Number(counts[r.part.id]) > 0)
+        .map((r) => ({ part_id: r.part.id, counted_qty: Number(counts[r.part.id]) }));
+      const res = await packetService.rackPack(items);
+      const out = res.data.data;
+      toast.success(res.data.message);
+      if (out.errors?.length) setErrors(out.errors);
+      onMade(out, Boolean(out.errors?.length));
+    } catch (e) {
+      toast.error(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal open onClose={onClose} size="xl" title={`Label rack ${rack} — all parts at once`}
+      footer={<div className="flex w-full flex-wrap items-center justify-between gap-2">
+        <span className="text-[12.5px] text-slate-500">{planned.length} of {rows.length} parts counted · {total} labels</span>
+        <span className="flex gap-2">
+          <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
+          <button type="button" className="btn-primary" onClick={make} disabled={busy || !total || over.length > 0}>
+            <QrCode size={15} aria-hidden="true" /> {busy ? "Making…" : `Make ${total} labels & print`}
+          </button>
+        </span>
+      </div>}>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[12.5px] text-slate-600 dark:text-slate-300">
+            Count each part on the shelf. Parts with a Pkt Qty go in packets, the rest get a label a piece. A part left blank is not labelled.
+          </p>
+          <button type="button" className="btn-secondary py-1 text-[12px]" onClick={allSame} disabled={!rows.length}>All same as app</button>
+        </div>
+        {q.isError ? <ErrorState title="The rack did not load" message={errText(q.error)} onRetry={() => q.refetch()} /> : (
+          <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200 dark:border-navy-700">
+            <table className="w-full min-w-[720px] text-left text-[12.5px]">
+              <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-900 dark:text-slate-400">
+                <tr><TH>Location</TH><TH>Part</TH><TH>Type</TH><TH right>Without label</TH><TH>Counted</TH><TH>Labels</TH></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+                {rows.map((r) => {
+                  const plan = labelsFor(r, counts[r.part.id]);
+                  const tooMany = Number(counts[r.part.id]) > Number(r.to_label);
+                  return (
+                    <tr key={r.part.id} className="align-middle">
+                      <td className="whitespace-nowrap px-3 py-2 font-semibold">{r.part.location || "—"}</td>
+                      <td className="px-3 py-2"><div className="font-mono text-[12px] font-semibold">{r.part.part_no}</div>
+                        <div className="max-w-[260px] truncate text-[11px] text-slate-400" title={r.part.part_name}>{r.part.part_name}</div></td>
+                      <td className="whitespace-nowrap px-3 py-2">{r.part.packet_qty
+                        ? <span className="rounded bg-violet-100 px-1.5 py-px text-[10.5px] font-semibold text-violet-800 dark:bg-violet-500/15 dark:text-violet-200">Packet of {num(r.part.packet_qty)}</span>
+                        : <span className="rounded bg-sky-100 px-1.5 py-px text-[10.5px] font-semibold text-sky-800 dark:bg-sky-500/15 dark:text-sky-200">Individual</span>}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular">{num(r.to_label)} {r.part.uom}</td>
+                      <td className="px-3 py-2">
+                        <span className="flex items-center gap-1.5">
+                          <input type="number" min="0" step="any" inputMode="decimal" value={counts[r.part.id] ?? ""}
+                            onChange={(e) => set(r.part.id, e.target.value)} aria-label={`Counted ${r.part.part_no}`}
+                            className={`input-field w-24 py-1 text-[13px] ${tooMany ? "border-rose-400" : ""}`} />
+                          <button type="button" className="text-[11px] text-sky-700 hover:underline dark:text-sky-300"
+                            onClick={() => set(r.part.id, String(r.to_label))}>Same</button>
+                        </span>
+                        {tooMany && <div className="text-[11px] text-rose-600">More than the app has — count again or fix the stock first</div>}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-[12px] text-slate-600 dark:text-slate-300">{plan ? plan.text : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {q.isLoading && <p className="px-3 py-6 text-center text-sm text-slate-400">Loading the rack…</p>}
+            {q.data && !rows.length && <p className="px-3 py-6 text-center text-sm text-slate-400">Nothing left to label on this rack.</p>}
+          </div>
+        )}
+        {errors.length > 0 && (
+          <div role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-[12.5px] text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+            <p className="font-semibold">Not labelled:</p>
+            {errors.map((e) => <p key={e.part_id}>{e.part_no}: {e.message}</p>)}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 

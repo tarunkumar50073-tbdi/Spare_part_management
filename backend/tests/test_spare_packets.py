@@ -706,3 +706,29 @@ def test_supplier_boxes_keep_their_own_qty_and_old_stock_follows_the_pkt_qty():
     assert (plan["count"], plan["packet_qty"], plan["last_qty"]) == (3, 10, 5)
     with pytest.raises(BadRequestError, match="no Pkt Qty"):
         svc.old_stock_plan(_part(5, name="OLDNOPQ", pkt=None).id, 5, "PACKET", packet_qty=5)
+
+
+# ---- a whole rack labelled in one go (14 Nov 2026) --------------------------------------------------
+
+def test_a_rack_is_labelled_in_one_go_packets_or_pieces_by_pkt_qty(app):
+    tag = f"T{_seq['n']}"
+    bolts = _old_part(75, "R9-S1-B2", tag)                 # Pkt Qty 20 (the helper's)
+    cyl = _old_part(3, "R9-S1-B1", tag)
+    cyl.package_standard = None                             # no Pkt Qty: a label a piece
+    over = _old_part(2, "R9-S2-B1", tag)
+    db.session.commit()
+    rack = svc.old_stock(STORE, rack="R9", q=f"OLDSTK {tag}", show="todo", everything=True)["rows"]
+    assert {r["part"]["id"] for r in rack} == {bolts.id, cyl.id, over.id}
+    out = svc.rack_pack([{"part_id": bolts.id, "counted_qty": 75}, {"part_id": cyl.id, "counted_qty": 3},
+                         {"part_id": over.id, "counted_qty": 9},           # more than the app has
+                         {"part_id": over.id, "counted_qty": ""}], user="sup")  # not counted: skipped
+    assert out["parts"] == 2 and [e["part_no"] for e in out["errors"]] == [over.part_no]
+    # Rack order: R9-S1-B1 (3 pieces) first, then R9-S1-B2 (3 x 20 + 15).
+    assert [(p["part"]["id"], p["kind"], p["qty"]) for p in out["packets"]] == (
+        [(cyl.id, "UNIT", 1)] * 3 + [(bolts.id, "PACKET", 20)] * 3 + [(bolts.id, "PACKET", 15)])
+    assert svc.old_figures(bolts.id)["to_label"] == 0 and svc.old_figures(over.id)["to_label"] == 2
+    c = app.test_client()
+    with c.session_transaction() as s:
+        s["user_id"] = _user({"spare_packets": {"view": True}}).id
+    assert c.get("/api/v1/spare-packets/old-stock/rack", query_string={"store_code": STORE, "rack": "R9"}).status_code == 200
+    assert c.post("/api/v1/spare-packets/old-stock/rack-pack", json={"items": []}).status_code == 403

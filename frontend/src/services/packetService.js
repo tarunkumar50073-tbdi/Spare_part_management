@@ -19,6 +19,9 @@ export const packetService = {
   oldStock: (params, config) => api.get("/spare-packets/old-stock", { params, ...config }),
   oldStockPlan: (partId, payload, config) => api.post(`/spare-packets/old-stock/${partId}/plan`, payload, config),
   oldStockPack: (partId, payload) => api.post(`/spare-packets/old-stock/${partId}/pack`, payload),
+  // A whole rack (14 Nov 2026): its parts still to label, then all of them labelled in one go.
+  oldStockRack: (params, config) => api.get("/spare-packets/old-stock/rack", { params, ...config }),
+  rackPack: (items) => api.post("/spare-packets/old-stock/rack-pack", { items }),
   // Can this supplier code be its box's own? { ok, message, same, fields } — nothing written.
   boxCode: (partId, code, config) => api.post(`/spare-packets/parts/${partId}/box-code`, { code }, config),
   // The supplier's code is the same on every box: map it to the part; the stock stays loose.

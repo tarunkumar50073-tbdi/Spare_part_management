@@ -94,6 +94,9 @@ MAX_PER_CALL = 500
 MAX_ISSUE_AT_ONCE = 50                # labels of one part in one issue
 MAX_QTY = Decimal("1000000")
 PAGE_SIZE, MAX_PAGE_SIZE = 25, 100
+# Parts labelled in one go from a rack (14 Nov 2026: "old stock k lable rack
+# wise 1 saath").
+MAX_RACK_PARTS = 300
 # When receipts started being kept (app_settings): the first time the receipts
 # were read. A receipt row from before is old stock on the shelf.
 SINCE_KEY = "spare_packets_receipts_since"
@@ -860,7 +863,8 @@ class SparePacketService:
         supplier = PartBarcode.query.filter_by(part_id=part.id, source="SUPPLIER", is_active=True).first()
         return self._old_row(self._on_hand(part.id), packed, ever, waiting, supplier is not None)
 
-    def old_stock(self, store_code, section_id=None, rack=None, q=None, show="todo", page=1, page_size=50):
+    def old_stock(self, store_code, section_id=None, rack=None, q=None, show="todo", page=1, page_size=50,
+                  everything=False):
         """The Old stock list: every active part with stock on the shelf, rack
         by rack (section, rack, location, Part No.), what of it has no label
         yet (to_label = loose - what waits in a receipt) and its state, with
@@ -911,7 +915,7 @@ class SparePacketService:
                    "qty_to_label": _n(round(sum(x["to_label"] for x in rows), 2))}
         if show in OLD_SHOW:
             rows = [x for x in rows if x["state"] in OLD_SHOW[show]]
-        size = max(1, min(int(page_size or 50), MAX_PAGE_SIZE))
+        size = max(1, len(rows)) if everything else max(1, min(int(page_size or 50), MAX_PAGE_SIZE))
         page = max(1, int(page or 1))
         return {"rows": rows[(page - 1) * size: page * size], "total": len(rows), "page": page,
                 "pages": -(-len(rows) // size), "page_size": size, "summary": summary,
@@ -982,6 +986,42 @@ class SparePacketService:
         out["counted"] = _n(counted)
         out["figures"] = self.old_figures(part.id)
         return out
+
+    def rack_pack(self, items, user=None):
+        """Label a rack's old stock in one go: for each part its counted qty;
+        a part with a Pkt Qty goes in its packets (a smaller last packet for
+        what is left), any other part a label a piece. Each part on its own:
+        one that cannot be labelled (counted more than the app has, nothing
+        counted) is reported and the rest are still made. The labels come
+        back in rack order (location, then part), ready to print."""
+        rows = [x for x in (items or []) if isinstance(x, dict)]
+        if not rows:
+            raise BadRequestError("No parts to label")
+        if len(rows) > MAX_RACK_PARTS:
+            raise BadRequestError(f"At most {MAX_RACK_PARTS} parts in one go")
+        made, errors, done = [], [], 0
+        for x in rows:
+            part = self._part(x.get("part_id"))
+            raw = x.get("counted_qty")
+            if raw in (None, "") or float(raw or 0) <= 0:
+                continue                                   # not counted: left as it is
+            std = self.standard_qty(part)
+            try:
+                counted = _qty(raw, "Counted on the shelf")
+                if std is not None:
+                    smaller = counted % std != 0
+                    out = self.old_stock_pack(part.id, counted, "PACKET", last_smaller=smaller, user=user)
+                else:
+                    out = self.old_stock_pack(part.id, counted, "UNIT", user=user)
+            except (BadRequestError, NotFoundError) as exc:
+                db.session.rollback()
+                errors.append({"part_id": part.id, "part_no": part.part_no,
+                               "message": getattr(exc, "message", None) or str(exc)})
+                continue
+            done += 1
+            made.extend(out["packets"])
+        made.sort(key=lambda p: (_natural(p.get("location") or ""), p["part"]["part_no"], p["seq"], p["id"]))
+        return {"parts": done, "packets": made, "errors": errors}
 
     # ---- FIFO and issue ---------------------------------------------------------------------
 
