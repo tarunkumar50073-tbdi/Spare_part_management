@@ -379,7 +379,7 @@ export default function AssistantWidget() {
           ref={panelRef}
           id={panelId}
           role="dialog"
-          aria-label="Store Saathi"
+          aria-label="Store Bot"
           tabIndex={-1}
           style={placed(panelAt)}
           onKeyDown={(e) => {
@@ -514,8 +514,8 @@ export default function AssistantWidget() {
         onKeyDown={(e) => {
           if (e.key === "Escape" && open) close();
         }}
-        aria-label={open ? "Close Store Saathi" : "Ask Store Saathi"}
-        title={open ? "Close (drag to move)" : "Ask Store Saathi (drag to move)"}
+        aria-label={open ? "Close Store Bot" : "Ask Store Bot"}
+        title={open ? "Close (drag to move)" : "Ask Store Bot (drag to move)"}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
@@ -589,7 +589,7 @@ function Header({ onNew, canReset, onClose, movable, onReset, ...drag }) {
           <MascotFace size={46} />
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[15px] font-bold leading-tight tracking-tight">Store Saathi</h2>
+          <h2 className="truncate text-[15px] font-bold leading-tight tracking-tight">Store Bot</h2>
           <p className="mt-1 flex items-center gap-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.12em] text-cyan-700 dark:text-cyan-200/90">
             <span aria-hidden="true"
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.95)]" />
@@ -704,7 +704,7 @@ function Welcome() {
       <BotAvatar />
       <div className={`min-w-0 flex-1 rounded-2xl rounded-tl-md px-4 py-3 ${GLASS}`}>
         <p className="text-[15px] font-bold tracking-tight text-slate-900 dark:text-white">
-          Namaste! Main aapka Store Saathi hoon.
+          Namaste! Main aapka Store Bot hoon.
         </p>
         <p className="mt-1 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
           Stock, part number ya koi screen — kuch bhi poochiye, jaise “stock khatam”, “kitne ka stock hai”,
