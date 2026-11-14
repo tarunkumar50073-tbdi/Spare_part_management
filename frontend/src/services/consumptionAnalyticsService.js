@@ -43,7 +43,7 @@ export const consumptionAnalyticsService = {
 // say what the view holds.
 export const REPORT = {
   key: "consumption",
-  title: "Issuance Report",
+  title: "Issue Register",   // "Issuance Report" until 14 Nov 2026
   path: "/consumption",
   subtitle: "Every issue from the store and what came back. Pick a period — daily, monthly, yearly or your "
     + "own dates (Custom) — and a view; download as Excel or PDF.",

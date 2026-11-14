@@ -27,7 +27,7 @@ PERMISSION_MODULES = [
     {"key": "inventory_control", "label": "Critical · Reorder · Excess"},
     {"key": "scan_part", "label": "Scan Part — issue / receive / return"},
     {"key": "work_queue", "label": "Work Queue"},
-    {"key": "consumption", "label": "Issuance Report"},
+    {"key": "consumption", "label": "Issue Register"},
     {"key": "receiving", "label": "Receiving & GRN"},
     {"key": "short_rejection", "label": "Short & Rejection"},
     # No "kiosk" right any more: the kiosk part request and its Part Requisition

@@ -61,7 +61,7 @@ const TITLES = {
   "/departments": "Department Emails",
   "/services": "All Services",
   "/inventory-control": "Critical · Reorder · Excess",
-  "/consumption": "Issuance Report",
+  "/consumption": "Issue Register",
   "/receiving": "Receiving & GRN",
   "/challans": "Urgent Challan Register",
   "/erp-control": "ERP Control Center",

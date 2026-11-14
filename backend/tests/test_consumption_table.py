@@ -424,7 +424,7 @@ def test_one_part_across_months_and_years_over_a_long_range(make, plant_at):
     assert _cut(out["rows"], "Part No", "Issues", "Qty Issued", "First Issued", "Last Issued") == [
         (p.part_no, 3, 9, "15.06.2023", "03.03.2025"), ("Total", 3, 9, "15.06.2023", "03.03.2025")]
     assert out["filters"]["part_no"] == p.part_no and out["title"] == (
-        f"Issuance Report Part-wise {p.part_no} 01.01.2022 to 31.12.2025")
+        f"Issue Register Part-wise {p.part_no} 01.01.2022 to 31.12.2025")
     assert q.part_no not in {r["Part No"] for r in out["rows"]}
 
 
@@ -653,7 +653,7 @@ def test_filters_part_section_department_and_type(make, plant_at):
     assert out["filters"] == {"part_id": f.p1_id, "part_no": f.p1, "part_name": f.p1_name,
                               "section_id": f.s.live, "section_name": f.s.live_name,
                               "department": f.group, "type": "Bearing"}
-    assert out["title"] == (f"Issuance Report Date-wise {f.p1} {f.s.live_name} {f.group} Bearing "
+    assert out["title"] == (f"Issue Register Date-wise {f.p1} {f.s.live_name} {f.group} Bearing "
                             "01.03.2026 to 30.04.2026")
 
 
@@ -716,9 +716,9 @@ def test_table_endpoint(client, make, plant_at):
     assert set(body) == {"report", "report_title", "view", "label", "title", "columns", "rows", "window",
                          "unrated_issues", "filters", "basis", "views", "group", "groups", "subtotal_rows",
                          "cancelled_rows", "pack_title", "issues"}
-    assert (body["report"], body["report_title"]) == ("consumption", "Issuance Report")   # no report named
+    assert (body["report"], body["report_title"]) == ("consumption", "Issue Register")   # no report named
     assert (body["view"], body["label"], body["title"]) == (
-        "month", "Month-wise", "Issuance Report Month-wise 01.03.2026 to 30.04.2026")
+        "month", "Month-wise", "Issue Register Month-wise 01.03.2026 to 30.04.2026")
     assert body["columns"] == ["Month", *FIGURES]
     # The floor's ledger starts with its first issue, 10 March: the range is counted in part.
     assert body["window"] == {"from": "2026-03-01", "to": "2026-04-30", "days": 61, "clamped_to_today": False,
@@ -732,7 +732,7 @@ def test_table_endpoint(client, make, plant_at):
     assert set(body["basis"]) == {"consumption", "returns", "value", "period", "list", "person", "issued_to"}
     assert (body["group"], body["subtotal_rows"], body["cancelled_rows"]) == (None, [], [])
     assert [g["key"] for g in body["groups"]] == ["day", "month", "year", "fy"]
-    assert body["pack_title"] == "Issuance Report Full pack 01.03.2026 to 30.04.2026"
+    assert body["pack_title"] == "Issue Register Full pack 01.03.2026 to 30.04.2026"
     # A link from the two-report days (report=issuance) opens the same report.
     issuance = c.get(f"{URL}?store_code={f.s.code}&report=issuance&view=month&from=2026-03-01&to=2026-04-30"
                      ).get_json()["data"]
@@ -763,7 +763,7 @@ def test_table_endpoint(client, make, plant_at):
         }).get_json()["data"]
         assert body["columns"] == expected, view
         assert body["rows"][-1][expected[0]] == "Total" and body["rows"][-1]["Qty Issued"] == 5, view
-        assert body["title"].startswith(f"Issuance Report {body['label']} {f.p1} "), view
+        assert body["title"].startswith(f"Issue Register {body['label']} {f.p1} "), view
     assert list(columns) == VIEWS
 
 
@@ -842,7 +842,7 @@ def test_export_excel_reads_back_as_shown(client, make, plant_at):
         assert resp.status_code == 200, (view, resp.get_json() if resp.is_json else None)
         assert resp.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         label = shown["label"].replace(" / ", " ")                         # "/" cannot be in a file name
-        assert _filename(resp) == f"Issuance Report {label} 01.03.2026 to 30.04.2026.xlsx", view
+        assert _filename(resp) == f"Issue Register {label} 01.03.2026 to 30.04.2026.xlsx", view
         table, ws = _sheet(resp)
         end = len(shown["rows"]) + 1
         assert list(table[0]) == shown["columns"], view
@@ -857,13 +857,13 @@ def test_export_excel_reads_back_as_shown(client, make, plant_at):
 
     one = c.get(f"{URL}/export?store_code={f.s.code}&view=month&from=2026-03-01&to=2026-04-30"
                 f"&part_id={f.p1_id}&format=excel")
-    assert _filename(one) == f"Issuance Report Month-wise {f.p1} 01.03.2026 to 30.04.2026.xlsx"
+    assert _filename(one) == f"Issue Register Month-wise {f.p1} 01.03.2026 to 30.04.2026.xlsx"
     rows, _ = _sheet(one)
     assert rows[0][:4] == ("Month", "Issues", "Parts", "Qty Issued")
     assert [(r[0], r[3]) for r in rows[1:]] == [
         ("Mar 2026", 2), ("Apr 2026", 3), ("Total", 5), (None, None), (LEDGER_NOTE, None)]   # p1 has a rate: one note
     single = c.get(f"{URL}/export?store_code={f.s.code}&view=day&from=2026-04-01&to=2026-04-01&format=excel")
-    assert _filename(single) == "Issuance Report Date-wise 01.04.2026.xlsx"
+    assert _filename(single) == "Issue Register Date-wise 01.04.2026.xlsx"
 
 
 def test_export_pdf_titled_and_fitted(client, make, plant_at, monkeypatch):
@@ -885,7 +885,7 @@ def test_export_pdf_titled_and_fitted(client, make, plant_at, monkeypatch):
         doc, story = drawn[-1]
         # The title is markup: an "&" (a part name can hold one) is written "&amp;" and prints "&".
         assert story[0].text == escape(shown["title"]) == escape(
-            f"Issuance Report {shown['label']} {f.p1} 01.03.2026 to 30.04.2026"), view
+            f"Issue Register {shown['label']} {f.p1} 01.03.2026 to 30.04.2026"), view
         # Under the title, ahead of the figures: p1 has a rate, so only the ledger's start.
         assert [p.text for p in story[1:-2]] == [LEDGER_NOTE], view
         table = story[-1]
@@ -1176,7 +1176,7 @@ def test_issue_list_on_the_floor(make, plant_at):
     out = _table(f.s, "list", *SPRING)
     assert out["columns"] == list(LIST_COLUMNS)
     assert (out["title"], out["group"], out["label"]) == (
-        "Issuance Report Issue list 01.03.2026 to 30.04.2026", "day", "Issue list")
+        "Issue Register Issue list 01.03.2026 to 30.04.2026", "day", "Issue list")
     rows = out["rows"]
     assert _cut(rows, "Date", "Time", "Issue No", "Part No", "Section", "Department", *LIST_FIGURES) == [
         ("10.03.2026", "09:00", f.i1, f.p1, f.s.live_name, f.group, 2, 1, 1, 10, 20, 10),   # 1 back on 5 Apr
@@ -1363,7 +1363,7 @@ def test_old_links_open_the_one_report(client, make, plant_at):
         bodies = [c.get(f"{URL}?store_code={f.s.code}&view={view}{r}&{span}").get_json()["data"]
                   for r in ("", "&report=issuance", "&report=consumption")]
         assert bodies[0] == bodies[1] == bodies[2] and bodies[0]["report"] == "consumption", view
-        assert bodies[0]["title"].startswith("Issuance Report "), view
+        assert bodies[0]["title"].startswith("Issue Register "), view
 
     def issues(out):
         skip = set(out["subtotal_rows"]) | {len(out["rows"]) - 1}
@@ -1372,17 +1372,17 @@ def test_old_links_open_the_one_report(client, make, plant_at):
     old = c.get(URL, query_string={"store_code": f.s.code, "report": "issuance", "view": "list", "department": f.zed,
                                    "from": "2026-03-01", "to": "2026-04-30"}).get_json()["data"]
     assert issues(old) == [(f.i3, f.zed)] and old["rows"][-1]["Issue No"] == "1 issue"
-    assert old["title"] == f"Issuance Report Issue list {f.zed} 01.03.2026 to 30.04.2026"
+    assert old["title"] == f"Issue Register Issue list {f.zed} 01.03.2026 to 30.04.2026"
     old_file = c.get(f"{URL}/export", query_string={"store_code": f.s.code, "view": "list", "format": "excel",
                                                     "department": f.zed, "from": "2026-03-01", "to": "2026-04-30"})
-    assert _filename(old_file) == f"Issuance Report Issue list {f.zed} 01.03.2026 to 30.04.2026.xlsx"
+    assert _filename(old_file) == f"Issue Register Issue list {f.zed} 01.03.2026 to 30.04.2026.xlsx"
     rows, _ = _sheet(old_file)
     assert [r[2] for r in rows[1:4]] == [f.i3, "1 issue", "1 issue"]   # the issue, its day's subtotal, the Total
     monthly = c.get(f"{URL}?store_code={f.s.code}&view=list&group=month&{span}").get_json()["data"]
     assert [monthly["rows"][i]["Date"] for i in monthly["subtotal_rows"]] == ["Subtotal Mar 2026", "Subtotal Apr 2026"]
     for report in ("", "&report=issuance"):
         resp, wb = _pack(c, f"store_code={f.s.code}{report}&{span}")
-        assert _filename(resp) == "Issuance Report Full pack 01.03.2026 to 30.04.2026.xlsx"
+        assert _filename(resp) == "Issue Register Full pack 01.03.2026 to 30.04.2026.xlsx"
         assert wb.sheetnames == PACK_SHEETS
 
 
@@ -1423,7 +1423,7 @@ def test_issue_list_excel_and_pdf(client, make, plant_at, monkeypatch):
     for group in ("day", "month", "year", "fy"):
         query = f"store_code={f.s.code}&view=list&group={group}&from=2026-03-01&to=2026-04-30"
         shown = c.get(f"{URL}?{query}").get_json()["data"]
-        assert shown["title"] == "Issuance Report Issue list 01.03.2026 to 30.04.2026", group
+        assert shown["title"] == "Issue Register Issue list 01.03.2026 to 30.04.2026", group
         n = len(shown["rows"])
         strong = {*shown["subtotal_rows"], n - 1}
 
@@ -1490,7 +1490,7 @@ def test_full_pack(client, make, plant_at):
     c = _as(client, make.user(role="ADMIN", stores=()))
     span = "from=2026-03-01&to=2026-04-30"
     resp, wb = _pack(c, f"store_code={f.s.code}&{span}")
-    assert _filename(resp) == "Issuance Report Full pack 01.03.2026 to 30.04.2026.xlsx"
+    assert _filename(resp) == "Issue Register Full pack 01.03.2026 to 30.04.2026.xlsx"
     assert wb.sheetnames == PACK_SHEETS
     _pack_sheets_as_shown(c, wb, f, (
         ("Issue list", "list"), ("Date-wise", "day"), ("Month-wise", "month"), ("Year-wise", "fy"),
@@ -1511,7 +1511,7 @@ def test_full_pack(client, make, plant_at):
     assert {k: items[k] for k in ("Store", "Report", "From", "To", "Days", "Part", "Section",
                                   "Consuming department", "Category", "Year-wise sheet",
                                   "Issue list subtotals")} == {
-        "Store": f"Consumption Store {f.s.code} ({f.s.code})", "Report": "Issuance Report", "From": "01.03.2026",
+        "Store": f"Consumption Store {f.s.code} ({f.s.code})", "Report": "Issue Register", "From": "01.03.2026",
         "To": "30.04.2026", "Days": 61, "Part": "All parts", "Section": "All sections",
         "Consuming department": "All departments", "Category": "All categories",
         "Year-wise sheet": "Financial years, 1 April to 31 March", "Issue list subtotals": "By day"}
@@ -1531,7 +1531,7 @@ def test_full_pack_filtered_and_its_years(client, make, plant_at):
     c = _as(client, make.user(role="ADMIN", stores=()))
     for report in ("consumption", "issuance"):
         resp, wb = _pack(c, f"store_code={f.s.code}&report={report}&from=2026-03-01&to=2026-03-31&part_id={f.p1_id}")
-        assert _filename(resp) == f"Issuance Report Full pack {f.p1} 01.03.2026 to 31.03.2026.xlsx"
+        assert _filename(resp) == f"Issue Register Full pack {f.p1} 01.03.2026 to 31.03.2026.xlsx"
         year = list(wb["Year-wise"].iter_rows(values_only=True))
         assert year[0][:2] == ("Year", "Issues") and year[1][:2] == ("2026", 1) and year[2][0] == "Total"
         summary = {k: v for k, v in wb["Summary"].iter_rows(values_only=True) if v is not None}
@@ -1545,7 +1545,7 @@ def test_full_pack_filtered_and_its_years(client, make, plant_at):
         assert [r[0] for r in wb["Part-wise"].iter_rows(min_row=2, max_row=3, values_only=True)] == [f.p1, "Total"]
 
     resp, wb = _pack(c, f"store_code={f.s.code}&from=2025-04-01&to=2026-03-31")
-    assert _filename(resp) == "Issuance Report Full pack 01.04.2025 to 31.03.2026.xlsx"
+    assert _filename(resp) == "Issue Register Full pack 01.04.2025 to 31.03.2026.xlsx"
     assert [r[:3] for r in wb["Year-wise"].iter_rows(values_only=True)][:3] == [
         ("Financial Year", "Issues", "Parts"), ("FY 2025-26", 2, 2), ("Total", 2, 2)]
     # A whole financial year (365 days): the Issue list by month.

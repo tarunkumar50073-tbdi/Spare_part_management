@@ -22,7 +22,7 @@ const NAV = [
   { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },
   { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data model no item description qr list qr pdf pkt qty packet qty" },
   { label: "Critical · Reorder · Excess", to: "/inventory-control", mod: "inventory_control", keywords: "short critical zero reorder excess aging order qty" },
-  { label: "Issuance Report", to: "/consumption", mod: "consumption", keywords: "issuance issue list issued issue report who took taken by issued to person kisko diya kitna diya consumption consumed usage net returned trend top parts department category yesterday last month financial year fy full pack excel pdf charts" },
+  { label: "Issue Register", to: "/consumption", mod: "consumption", keywords: "issue register issuance report issuance issue list issued issue report who took taken by issued to person kisko diya kitna diya consumption consumed usage net returned trend top parts department category yesterday last month financial year fy full pack excel pdf charts" },
   { label: "Gate Entry", to: "/gate-entry", mod: "gate_entry", keywords: "gate entry receiving arrival inward vehicle" },
   { label: "Vehicle In / Out", to: "/vehicle-in-out", mod: "vehicle_in_out", keywords: "vehicle in out gate truck gaadi" },
   { label: "Receiving & GRN", to: "/receiving", mod: "receiving", keywords: "grn srv receipt receiving inward aging under inspection quality pending qc pending grn department dept wise check with erp take back" },

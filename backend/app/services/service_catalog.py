@@ -113,9 +113,9 @@ SERVICES = [
     # One report since 18 Oct 2026 ("issuance and consumption report same dikh
     # rhi h ... ye kaam merge me bhi ho sakta h"): what left the store, to whom,
     # and what each department really used.
-    {"key": "consumption", "title": "Issuance Report", "route": "/consumption",
+    {"key": "consumption", "title": "Issue Register", "route": "/consumption",
      "category": "Inventory", "icon": "📈", "mod": "spare_store",
-     "keywords": ["issuance", "issue list", "issued", "issue report", "kisko diya", "kitna diya",
+     "keywords": ["issue register", "issuance report", "issuance", "issue list", "issued", "issue report", "kisko diya", "kitna diya",
                   "issued to", "person", "consumption", "usage", "consumed", "net", "returned", "trend",
                   "top parts", "department", "category", "yesterday", "last month",
                   "financial year", "full pack"]},

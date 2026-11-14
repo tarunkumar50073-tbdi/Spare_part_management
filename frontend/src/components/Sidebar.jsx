@@ -130,7 +130,7 @@ const NAV_BY_STORE = {
         // One report again since 18 Oct 2026 ("issuance and consumption report
         // same dikh rhi h ... ye kaam merge me bhi ho sakta h" — the store): what
         // left the store, what came back and what was really used.
-        { to: "/consumption", label: "Issuance Report", short: "Issuance", icon: TrendingUp, mod: "consumption" },
+        { to: "/consumption", label: "Issue Register", short: "Issue Reg.", icon: TrendingUp, mod: "consumption" },
         { to: "/spare-part-history", label: "Part Ledger", short: "Ledger", icon: ScrollText, mod: "part_ledger" },
       ],
     },
