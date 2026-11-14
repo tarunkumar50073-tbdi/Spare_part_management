@@ -1,4 +1,5 @@
 import api from "./api";
+import { downloadFile } from "../utils/download.js";
 
 // Packets & QR Labels (/api/v1/spare-packets) — receipt batches, physical
 // verification, packets / individual units with their own QR codes, FIFO and
@@ -29,6 +30,9 @@ export const packetService = {
   parts: (storeCode, q, config) => api.get("/spare-packets/parts", { params: { store_code: storeCode, q }, ...config }),
   fifo: (partId, config) => api.get(`/spare-packets/parts/${partId}/fifo`, config),
   packets: (params, config) => api.get("/spare-packets/packets", { params, ...config }),
+  // The labels printed and put on the shelf, as a file (14 Nov 2026): fmt excel | pdf.
+  printedFile: (params, fmt) => downloadFile(`/spare-packets/printed/${fmt}`,
+    `Printed QR Labels ${new Date().toLocaleDateString("en-GB").replace(/\//g, ".")}.${fmt === "pdf" ? "pdf" : "xlsx"}`, params),
   issued: (params, config) => api.get("/spare-packets/issued", { params, ...config }),
   get: (code, config) => api.get(`/spare-packets/packets/${encodeURIComponent(code)}`, config),
   // After the labels came out of the printer (the browser can't know).

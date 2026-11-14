@@ -1425,6 +1425,49 @@ class SparePacketService:
                     out[r.id] = count_day
         return out
 
+    # The labels printed and put on the shelf, as a file (14 Nov 2026: "jo lable
+    # print karke lga diye unki excel/pdf download ho jaaye").
+    PRINTED_COLUMNS = [
+        ("QR Label", "code"), ("Part No", "part_no"), ("Item Description", "item_description"), ("Type", "type"),
+        ("Qty", "qty"), ("UOM", "uom"), ("Location", "location"), ("Received", "received"),
+        ("Receipt No", "receipt_no"), ("Status", "status"), ("Times Printed", "printed"),
+        ("Last Printed", "last_printed"), ("Issued On", "issued_on"), ("Issued To", "issued_to"),
+        ("Department", "department"),
+    ]
+
+    def printed_labels(self, store_code, q=None):
+        """Every label of the store printed at least once and not cancelled,
+        shelf order (location, part, label), with where each one stands."""
+        query = (SparePacket.query.join(SpareBatch, SpareBatch.id == SparePacket.batch_id)
+                 .join(Part, Part.id == SparePacket.part_id)
+                 .filter(Part.store_code == store_code, SparePacket.print_count > 0,
+                         SparePacket.status != "CANCELLED"))
+        text = (q or "").strip()
+        if text:
+            like = f"%{text}%"
+            query = query.filter(or_(SparePacket.code.ilike(like), Part.part_no.ilike(like),
+                                     Part.part_name.ilike(like), SparePacket.location.ilike(like)))
+        word = {"AVAILABLE": "On the shelf", "QC_PENDING": "Waiting for QC", "ISSUED": "Issued"}
+
+        def when(ts):
+            return ts.astimezone().strftime("%d.%m.%Y %H:%M") if ts else ""
+        rows = []
+        for p in query.all():
+            kind = "Lot" if (p.kind == "UNIT" and is_bulk(p.part)) else ("Individual" if p.kind == "UNIT" else "Packet")
+            rows.append({
+                "code": p.code, "part_no": p.part.part_no, "item_description": p.part.part_name, "type": kind,
+                "qty": _n(p.qty), "uom": p.uom or p.part.uom or "", "location": p.location or "",
+                "received": p.batch.received_on.strftime("%d.%m.%Y") if p.batch.received_on else "",
+                "receipt_no": p.batch.receipt_no or "", "status": word.get(p.status, p.status),
+                "printed": p.print_count or 0, "last_printed": when(p.last_printed_at),
+                "issued_on": when(p.issued_at) if p.status == "ISSUED" else "",
+                "issued_to": (p.issued_to or "") if p.status == "ISSUED" else "",
+                "department": (p.department or "") if p.status == "ISSUED" else "",
+                "_order": (_natural(p.location or ""), p.part.part_no, p.code, p.seq, p.id),
+            })
+        rows.sort(key=lambda r: r.pop("_order"))
+        return rows
+
     def packets(self, store_code, status=None, q=None, page=1, page_size=PAGE_SIZE, issued=False,
                 date_from=None, date_to=None):
         """Packets of the store: AVAILABLE in FIFO order, or (issued=True) the

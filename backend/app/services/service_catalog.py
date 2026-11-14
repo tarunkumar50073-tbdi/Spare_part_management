@@ -57,7 +57,9 @@ SERVICES = [
                   # 14 Nov 2026: the shelf list tab is "Labels & FIFO".
                   "labels & fifo", "labels and fifo", "fifo order", "reprint label",
                   # 14 Nov 2026: a whole rack's old stock labelled in one go.
-                  "whole rack", "pura rack", "rack wise", "rack ke label", "label whole rack"]},
+                  "whole rack", "pura rack", "rack wise", "rack ke label", "label whole rack",
+                  # 14 Nov 2026: the printed labels as a file.
+                  "printed labels", "label excel", "label pdf", "label list", "lage hue label"]},
     {"key": "job_work", "title": "Job Work & RGP", "route": "/job-work",
      "category": "Inventory", "icon": "🛠️", "mod": "scan_part",
      "keywords": ["job work", "jobwork", "rgp", "challan", "coating", "isuzu", "oerlikon", "returnable",

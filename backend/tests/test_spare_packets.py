@@ -777,3 +777,29 @@ def test_a_rework_shelf_lists_its_parts_and_labels_say_the_rework_location():
     made = svc.old_stock_pack(p.id, 2, "UNIT", user="sup")["packets"]           # at the fresh shelf
     assert {x["location"] for x in made} == {"R15-S4-B19(1)"}
     assert svc.old_figures(p.id)["to_label"] == 5                              # one stock figure: 10 - 3 - 2
+
+
+# ---- the printed labels as Excel / PDF (14 Nov 2026) -----------------------------------------------
+
+def test_printed_labels_file_lists_only_printed_uncancelled_labels(app):
+    import io
+    from openpyxl import load_workbook
+    p, a, b, pa, pb = _bolts()
+    svc.record_print([str(pa[0]["id"]), str(pa[1]["id"])], user="sup")
+    _issue(str(pa[0]["id"]))
+    svc.record_print([str(pa[2]["id"])], user="sup")
+    svc.cancel(str(pa[2]["id"]), "wrong", user="sup")                    # printed but cancelled: left out
+    rows = svc.printed_labels(STORE, q=p.part_no)
+    assert [(r["code"], r["status"], r["printed"]) for r in rows] == [(pa[0]["code"], "Issued", 1),
+                                                                     (pa[1]["code"], "On the shelf", 1)]
+    assert rows[0]["issued_to"] == "Ravi" and rows[0]["type"] == "Packet" and rows[1]["issued_on"] == ""
+    c = app.test_client()
+    with c.session_transaction() as s:
+        s["user_id"] = _user({"spare_packets": {"view": True}}).id
+    x = c.get("/api/v1/spare-packets/printed/excel", query_string={"store_code": STORE, "q": p.part_no})
+    assert x.status_code == 200
+    ws = load_workbook(io.BytesIO(x.data)).active
+    assert [c.value for c in ws[1]][:4] == ["QR Label", "Part No", "Item Description", "Type"] and ws.max_row == 3
+    pdf = c.get("/api/v1/spare-packets/printed/pdf", query_string={"store_code": STORE, "q": p.part_no})
+    assert pdf.status_code == 200 and pdf.data.startswith(b"%PDF")
+    assert c.get("/api/v1/spare-packets/printed/csv", query_string={"store_code": STORE}).status_code == 404

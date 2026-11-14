@@ -315,6 +315,27 @@ def fifo(part_id):
     return success_response(service.fifo(part_id))
 
 
+@bp.route("/printed/<fmt>", methods=["GET"])
+@permission_required(RIGHT, "view")
+def printed_file(fmt):
+    """The labels printed and put on the shelf, as Excel or PDF (14 Nov 2026)."""
+    from datetime import date as _date
+    from flask import send_file
+    from app.utils import pdf_io
+    from app.utils.excel_io import build_export
+    store = _store()
+    rows = service.printed_labels(store, q=request.args.get("q"))
+    cols = SparePacketService.PRINTED_COLUMNS
+    name = f"Printed QR Labels {_date.today():%d.%m.%Y}"
+    if fmt == "excel":
+        return send_file(build_export(cols, rows), as_attachment=True, download_name=f"{name}.xlsx",
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    if fmt == "pdf":
+        return send_file(pdf_io.build_pdf_table(f"{name} — {len(rows)} labels", cols, rows), as_attachment=True,
+                         download_name=f"{name}.pdf", mimetype="application/pdf")
+    raise NotFoundError(f"Unknown format '{fmt}' — excel or pdf")
+
+
 @bp.route("/packets", methods=["GET"])
 @permission_required(RIGHT, "view")
 def packets():

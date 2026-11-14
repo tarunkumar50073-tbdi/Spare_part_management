@@ -623,6 +623,32 @@ function KindTag({ p }) {
   );
 }
 
+// The labels printed and put on the shelf, as Excel / PDF (14 Nov 2026).
+function PrintedFiles({ storeCode, q }) {
+  const [busy, setBusy] = useState(null);
+  const get = async (fmt) => {
+    setBusy(fmt);
+    try {
+      await packetService.printedFile({ store_code: storeCode, q: q || undefined }, fmt);
+    } catch (e) {
+      toast.error(errText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <span className="flex items-center gap-1 text-[12px] text-slate-500 dark:text-slate-400">
+      Printed labels:
+      {["excel", "pdf"].map((f) => (
+        <button key={f} type="button" disabled={Boolean(busy)} onClick={() => get(f)}
+          className="btn-secondary px-2 py-1 text-[12px]">
+          {busy === f ? "…" : f === "excel" ? "Excel" : "PDF"}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 // ---- Labels & FIFO --------------------------------------------------------------------------------
 
 function PacketsTab({ storeCode }) {
@@ -655,7 +681,10 @@ function PacketsTab({ storeCode }) {
             </button>
           ))}
         </div>
-        <SearchBox value={typed} onChange={setTyped} placeholder="Part, packet / supplier code, receipt…" />
+        <span className="flex flex-wrap items-center gap-2">
+          <PrintedFiles storeCode={storeCode} q={q} />
+          <SearchBox value={typed} onChange={setTyped} placeholder="Part, packet / supplier code, receipt…" />
+        </span>
       </div>
       {list.isError ? <div className="p-4"><ErrorState title="Packets did not load" message={errText(list.error)} onRetry={() => list.refetch()} /></div> : (
         <div className="overflow-x-auto">
