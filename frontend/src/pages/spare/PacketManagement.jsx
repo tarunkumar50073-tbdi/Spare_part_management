@@ -28,7 +28,7 @@ import {
 //   Old stock     the stock already on the shelf with no label, rack by rack
 //                 (27 Oct 2026: "jo store me old stock pada h uske qr code bhi
 //                 niklenge"): count it, pack it, print.
-//   Packets & FIFO the packets on the shelf, oldest receipt first — which to
+//   Labels & FIFO  the packets on the shelf, oldest receipt first — which to
 //                 issue next; reprint a label, cancel one made by mistake.
 //   Issued        the packets that went out: when, to whom, by whom, and any
 //                 FIFO exception's reason.
@@ -40,7 +40,8 @@ import {
 const TABS = [
   { key: "receipts", label: "Receipts", icon: Package },
   { key: "old", label: "Old stock", icon: Archive },
-  { key: "packets", label: "Packets & FIFO", icon: ListOrdered },
+  // "Labels & FIFO" (14 Nov 2026): every labelled packet and individual piece, not only packets.
+  { key: "packets", label: "Labels & FIFO", icon: ListOrdered },
   { key: "issued", label: "Issued", icon: Undo2 },
 ];
 const RECEIPT_FILTERS = [
@@ -174,13 +175,13 @@ function ReceiptsTab({ storeCode }) {
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["packets"] });
   // The receipt's labels not printed yet; a printed one is reprinted from
-  // Packets & FIFO, with a reason.
+  // Labels & FIFO, with a reason.
   const printNew = async (r) => {
     try {
       const res = await packetService.packets({ store_code: storeCode, q: r.receipt_no, page_size: 100 });
       const rows = printable(res.data.data.rows.filter((p) => p.receipt.id === r.id && LABELLED.has(p.status) && !p.print_count));
       if (rows.length) setDialog({ kind: "PRINT", packets: rows });
-      else toast("Every label of this receipt is printed (or on the supplier's label) — reprint one from Packets & FIFO");
+      else toast("Every label of this receipt is printed (or on the supplier's label) — reprint one from Labels & FIFO");
     } catch (e) {
       toast.error(errText(e));
     }
@@ -460,7 +461,19 @@ function OldStockTab({ storeCode }) {
   );
 }
 
-// ---- Packets & FIFO ------------------------------------------------------------------------------
+// A label's kind at a glance: a packet (many in one) or an individual piece.
+function KindTag({ p }) {
+  const unit = p.kind === "UNIT";
+  return (
+    <span className={`inline-block rounded px-1.5 py-px text-[10.5px] font-semibold ${unit
+      ? "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-200"
+      : "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-200"}`}>
+      {unit ? "Individual" : "Packet"}
+    </span>
+  );
+}
+
+// ---- Labels & FIFO --------------------------------------------------------------------------------
 
 function PacketsTab({ storeCode }) {
   const canReprint = useCan("spare_packets", "update");
@@ -498,14 +511,14 @@ function PacketsTab({ storeCode }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[960px] text-left text-[12.5px]">
             <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
-              <tr><TH>Part</TH><TH>Packet</TH><TH right>Qty</TH><TH>Received</TH><TH>Location</TH><TH>Status</TH><TH right>Labels</TH><TH /></tr>
+              <tr><TH>Part</TH><TH>QR label</TH><TH right>Qty</TH><TH>Received</TH><TH>Location</TH><TH>Status</TH><TH right>Labels</TH><TH /></tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
               {(list.data?.rows || []).map((p) => (
                 <tr key={p.id} className="align-top text-slate-700 dark:text-slate-200">
                   <PartCell part={p.part} />
                   <td className="px-3 py-2.5"><div className="font-mono text-[12px] font-semibold">{p.code}</div>
-                    <div className="text-[11px] text-slate-400">{p.kind === "UNIT" ? "Individual" : "Packet"} #{p.seq}</div>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400"><KindTag p={p} /><span>#{p.seq}</span></div>
                     {p.supplier_code && <div className="max-w-[200px] truncate font-mono text-[11px] text-sky-700 dark:text-sky-300" title={p.supplier_code}>Supplier label: {p.supplier_code}</div>}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{num(p.qty)} {p.uom}</td>
                   <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(p.receipt.received_on)}</div><div className="text-[11px] text-slate-400">{p.receipt.receipt_no}</div></td>
@@ -617,14 +630,14 @@ function IssuedTab({ storeCode }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[960px] text-left text-[12.5px]">
             <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
-              <tr><TH>Issued</TH><TH>Part</TH><TH>Packet</TH><TH right>Qty</TH><TH>Department · Issued to</TH><TH>Received</TH><TH>FIFO</TH></tr>
+              <tr><TH>Issued</TH><TH>Part</TH><TH>QR label</TH><TH right>Qty</TH><TH>Department · Issued to</TH><TH>Received</TH><TH>FIFO</TH></tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
               {(list.data?.rows || []).map((p) => (
                 <tr key={p.id} className="align-top text-slate-700 dark:text-slate-200">
                   <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtStamp(p.issued_at)}</div><div className="text-[11px] text-slate-400">by {p.issued_by}</div></td>
                   <PartCell part={p.part} />
-                  <td className="px-3 py-2.5 font-mono text-[12px]">{p.code}</td>
+                  <td className="px-3 py-2.5"><div className="font-mono text-[12px]">{p.code}</div><div className="mt-0.5"><KindTag p={p} /></div></td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{num(p.qty)} {p.uom}</td>
                   <td className="px-3 py-2.5"><div>{p.department}</div><div className="text-[11px] text-slate-400">{p.issued_to}</div></td>
                   <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(p.receipt.received_on)}</div><div className="text-[11px] text-slate-400">{p.receipt.receipt_no}</div></td>
