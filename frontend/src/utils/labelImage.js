@@ -27,7 +27,9 @@ const PT = 0.3528;                     // mm per point
 const TUNE_KEY = "dx_label_tune_v1";
 const BASE_TUNE = { dx: 0, dy: 0, mod: null, text: 100 };
 // Sizes tuned on the store's own printer, by "w x h".
-const TUNED = { "25x15": { dx: -1.5, dy: -0.2, text: 84 } };
+// 20 x 20 polyester roll (14 Nov 2026 test print: everything sat ~1.5 mm left
+// and the code's first "T" was cut): 1.5 mm right, the code a size smaller.
+const TUNED = { "25x15": { dx: -1.5, dy: -0.2, text: 84 }, "20x20": { dx: 1.5, text: 85 } };
 
 const sizeKey = (size) => `${Number(size.w)}x${Number(size.h)}`;
 
@@ -124,7 +126,8 @@ function pickDots(n, autoMm, roomMm, tune) {
 function tinyFit(p, w, h, tune) {
   const pad = TINY.pad;
   const code = String(p.code || "");
-  const autoPt = Math.min(codePtMax(labelTier(h, w)), ((w - 2 * pad) / (Math.max(code.length, 8) * 0.6)) / PT);
+  // The code keeps a margin each side: at most 88% of the label's width.
+  const autoPt = Math.min(codePtMax(labelTier(h, w)), ((w - 2 * pad) * 0.88 / (Math.max(code.length, 8) * 0.6)) / PT);
   const codePt = autoPt * (tune.text / 100);
   const codeMm = codePt * PT * 1.1;
   const rows = qrRows(tinyQr(p));

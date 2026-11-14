@@ -118,7 +118,8 @@ export function qrDots(n, maxMm) {
 function tinyHtml(packets, w, h, zoom, maxPt = TINY.maxCodePt) {
   const pad = TINY.pad;
   const longest = Math.max(...packets.map((p) => String(p.code || "").length), 8);
-  const codePt = Math.min(maxPt, ((w - 2 * pad) / (longest * 0.6)) / 0.3528);
+  // A margin each side of the code (14 Nov 2026: its first letter was cut).
+  const codePt = Math.min(maxPt, ((w - 2 * pad) * 0.88 / (longest * 0.6)) / 0.3528);
   const codeMm = codePt * 0.3528 * 1.1;
   const room = Math.max(8, Math.min(w - 2 * pad, h - 2 * pad - codeMm - 0.3));
   const qrOf = (p) => {
