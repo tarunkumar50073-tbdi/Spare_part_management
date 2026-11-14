@@ -299,11 +299,12 @@ def test_sections_side_by_side(bot):
     assert [c["title"] for c in d["results"]] == ["Maintenance", "Tool Room"]
 
 
-def test_devanagari_reads_as_hinglish(bot):
-    assert bot.ask("क्या खत्म है")["answer"] == "Stock khatam: 2 part. Sabse zyada kam wale 2:"
+def test_devanagari_is_read_and_answered_in_hindi(bot):
+    # Read as Hinglish, answered in Devanagari since 14 Nov 2026.
+    assert bot.ask("क्या खत्म है")["answer"] == "स्टॉक खत्म: 2 पार्ट। सबसे ज़्यादा कम वाले 2:"
     assert _titles(bot.ask("टॉप 10 एक्सेस वैल्यू"))[0] == "CNMM0026"
-    assert bot.ask("स्टॉक कितना है")["answer"].startswith("Gine hue stock ki kul value ₹7,21,412 hai")
-    assert bot.ask("maintenance का excess")["answer"].startswith("Excess (max se zyada) — Maintenance: 2 part")
+    assert bot.ask("स्टॉक कितना है")["answer"].startswith("गिने हुए स्टॉक की कुल वैल्यू ₹7,21,412 है")
+    assert bot.ask("maintenance का excess")["answer"].startswith("एक्सेस (मैक्स से ज़्यादा) — मेंटेनेंस: 2 पार्ट")
 
 
 def test_small_talk_never_hides_a_question(bot):
@@ -463,3 +464,16 @@ def test_screen_hints_match_whole_words_not_filler():
     titles = [s["title"] for s in A._suggest("ye h bta")]
     assert "Employee Master" not in titles and "Issue Register" not in titles
     assert A._suggest("ye h bta") == A._suggest("")                     # nothing said: the default screens
+
+
+# ---- the answer in the question's language: English, Hinglish, Hindi (14 Nov 2026) ----------------
+
+def test_hindi_question_gets_a_hindi_answer(bot):
+    d = bot.ask("स्टॉक की कुल वैल्यू बताओ")
+    assert d["answer"].startswith("गिने हुए स्टॉक की कुल वैल्यू ₹7,21,412 है — 6 पार्ट की रेट के साथ।"), d["answer"]
+    assert bot.ask("stock value batao")["answer"].startswith("Gine hue stock ki kul value")          # Hinglish
+    assert bot.ask("total stock value")["answer"].startswith("Total counted stock value")            # English
+    part = bot.ask("CNTR3200 कितना है")["answer"]
+    assert "CNTR3200" in part and "है" in part                                                     # the code kept
+    sorry = bot.ask("ये गलत है", previous="stock value batao")["answer"]
+    assert sorry.startswith("सॉरी, गलती हो गयी।") or sorry.startswith("सॉरी"), sorry

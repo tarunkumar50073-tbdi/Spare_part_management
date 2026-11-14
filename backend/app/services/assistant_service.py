@@ -124,7 +124,7 @@ _HINGLISH = {
 # reverify karke sahi data de"): the person says an answer was wrong. The
 # assistant says sorry, reads the stock afresh (no cached copy) and answers
 # again - the question that came with it, else the one asked before.
-_SORRY = re.compile(r"(?<![a-z])(wrong|galat|galt|glt|ghalat|incorrect|mistake|sahi nahi|sahi nhi|sahi nai"
+_SORRY = re.compile(r"(?<![a-z])(wrong|galat|galt|glt|ghalat|गलत|ग़लत|सही नहीं|दोबारा चेक|incorrect|mistake|sahi nahi|sahi nhi|sahi nai"
                     r"|theek nahi|thik nahi|theek nhi|thik nhi|recheck|re-check|reverify|re-verify|dobara check"
                     r"|phir se check|fir se check|check again|again check|verify kar|check kar)(?![a-z])")
 _SORRY_FILL = {"wrong", "galat", "galt", "glt", "ghalat", "incorrect", "mistake", "sahi", "theek", "thik", "nahi",
@@ -132,6 +132,55 @@ _SORRY_FILL = {"wrong", "galat", "galt", "glt", "ghalat", "incorrect", "mistake"
                "karo", "kr", "ye", "yeh", "h", "hai", "he", "bhai", "data", "answer", "jawab", "dekh", "dekho",
                "sorry", "please", "pls", "plz", "na", "to", "bata", "batao", "bta", "btao", "de", "do", "dena", "is",
                "it", "this", "that", "was", "re", "-"}
+# Asked in Hindi (Devanagari), answered in Hindi (14 Nov 2026: "jis language me
+# puche ... usi language me reply kare"): the Hinglish answer, word by word, in
+# Devanagari. Part numbers, codes, figures and names stay as they are; a word
+# not in the list stays in Roman letters.
+_TO_HINDI = {
+    "aa": "आ", "aayegi": "आएगी", "ab": "अब", "abhi": "अभी", "aise": "ऐसे", "aur": "और", "baare": "बारे",
+    "baat": "बात", "bacha": "बचा", "bache": "बचे", "banana": "बनाना", "banane": "बनाने", "batata": "बताता",
+    "batao": "बताओ", "bhari": "भरी", "bhi": "भी", "bina": "बिना", "bot": "बॉट", "check": "चेक", "chuke": "चुके",
+    "count": "काउंट", "critical": "क्रिटिकल", "data": "डेटा", "dekho": "देखो", "discontinued": "डिस्कंटिन्यूड",
+    "dobara": "दोबारा", "excess": "एक्सेस", "galat": "गलत", "galti": "गलती", "gaya": "गया", "gaye": "गए",
+    "gayi": "गई", "gina": "गिना", "gine": "गिने", "hai": "है", "hain": "हैं", "hisaab": "हिसाब", "ho": "हो",
+    "hone": "होने", "hoon": "हूँ", "hua": "हुआ", "hue": "हुए", "hui": "हुई", "is": "इस", "isliye": "इसलिए",
+    "isme": "इसमें", "issue": "इश्यू", "ja": "जा", "jaaye": "जाए", "jaroorat": "ज़रूरत", "jawab": "जवाब", "jo": "जो",
+    "judi": "जुड़ी", "ka": "का", "kaam": "काम", "kahan": "कहाँ", "kam": "कम", "kar": "कर", "karke": "करके",
+    "karna": "करना", "karne": "करने", "kaun": "कौन", "kaunsa": "कौनसा", "ke": "के", "khatam": "खत्म", "ki": "की",
+    "kimat": "कीमत", "kis": "किस", "kisi": "किसी", "kitna": "कितना", "kitne": "कितने", "kiya": "किया", "ko": "को",
+    "koi": "कोई", "kuch": "कुछ", "kul": "कुल", "kya": "क्या", "label": "लेबल", "laga": "लगा", "lakh": "लाख",
+    "level": "लेवल", "likho": "लिखो", "line": "लाइन", "location": "लोकेशन", "mahine": "महीने", "main": "मैं",
+    "maine": "मैंने", "maintenance": "मेंटेनेंस", "mangana": "मंगाना", "max": "मैक्स", "maximum": "मैक्सिमम",
+    "me": "में", "mehenga": "महंगा", "mehenge": "महंगे", "mila": "मिला", "mile": "मिले", "mili": "मिली",
+    "milte": "मिलते", "min": "मिन", "minimum": "मिनिमम", "naam": "नाम", "nahi": "नहीं", "namaste": "नमस्ते",
+    "ne": "ने", "neeche": "नीचे", "niche": "नीचे", "number": "नंबर", "order": "ऑर्डर", "par": "पर", "part": "पार्ट",
+    "parts": "पार्ट्स", "pehle": "पहले", "phir": "फिर", "puchna": "पूछना", "pucho": "पूछो", "qty": "मात्रा",
+    "rate": "रेट", "reorder": "रीऑर्डर", "rupaye": "रुपये", "saath": "साथ", "sab": "सब", "sabse": "सबसे",
+    "sahi": "सही", "sakti": "सकती", "sasta": "सस्ता", "saste": "सस्ते", "sawaal": "सवाल", "screen": "स्क्रीन",
+    "se": "से", "section": "सेक्शन", "sidebar": "साइडबार", "sorry": "सॉरी", "spare": "स्पेयर", "status": "स्टेटस",
+    "stock": "स्टॉक", "store": "स्टोर", "tak": "तक", "theek": "ठीक", "to": "तो", "top": "टॉप", "total": "टोटल",
+    "unka": "उनका", "unki": "उनकी", "upar": "ऊपर", "urgency": "अर्जेंसी", "use": "यूज़", "value": "वैल्यू",
+    "wala": "वाला", "wale": "वाले", "wise": "वाइज़", "ya": "या", "ye": "ये", "zarurat": "ज़रूरत", "zero": "ज़ीरो",
+    "zyada": "ज़्यादा", "mehnge": "महंगे",
+}
+_WORD = re.compile(r"[A-Za-z]+")
+
+
+def _to_hindi(text):
+    """A Hinglish answer in Devanagari: every word in _TO_HINDI (a capital
+    letter only at a sentence's start counts), anything else as it is."""
+    if not text:
+        return text
+
+    def one(m):
+        w = m.group(0)
+        if w.isupper() and len(w) > 1:                    # a code / an abbreviation
+            return w
+        return _TO_HINDI.get(w.lower(), w)
+    out = _WORD.sub(one, text)
+    # A sentence that ends on a Hindi word ends with the danda.
+    return re.sub(r"(?<=[\u0900-\u097F])\.(\s|$)", r"।\1", out)
+
 # Words that only name the store as a whole: with a value / total / stock
 # word, the question is the store's summary ("spare store ki total value").
 _STORE_WORDS = {"spare", "spares", "store", "stores", "inventory", "total", "kul", "overall", "poora", "pura",
@@ -656,6 +705,14 @@ class AssistantService:
     # ---- the one entry point ----
 
     def ask(self, query, user=None, previous=None):
+        """The answer, in the language of the question: English, Hinglish, or
+        Hindi in Devanagari (the Hinglish answer in Devanagari)."""
+        reply = self._answer(query, user, previous)
+        if re.search(r"[\u0900-\u097F]", query or ""):
+            reply["answer"] = _to_hindi(reply.get("answer"))
+        return reply
+
+    def _answer(self, query, user=None, previous=None):
         said = (query or "").strip().lower()
         if said and _SORRY.search(said):
             return self._sorry_answer(query, user, previous)
@@ -1108,7 +1165,7 @@ class AssistantService:
                 [], [])
         # What came with a Hinglish complaint is answered in Hinglish ("batao"
         # marks it so); the question before keeps its own language.
-        reply = self.ask(again + (" batao" if rest and not english else ""), user)
+        reply = self._answer(again + (" batao" if rest and not english else ""), user)
         lead = ("Sorry about that. I checked the data again — " if english else
                 "Sorry, galti ho gayi. Maine data dobara check kiya — ")
         reply["answer"] = lead + (reply.get("answer") or "")
