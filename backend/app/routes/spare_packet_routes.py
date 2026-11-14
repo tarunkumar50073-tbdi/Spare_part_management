@@ -81,9 +81,11 @@ def _receipt(receipt_id):
 
 
 def _packet(code):
-    p = SparePacket.query.filter_by(code=normalize_code(code)).first()
+    """The packet a code (scanned / typed) or a packet id names - see
+    SparePacketService.find; only for the store's access check here."""
+    p = SparePacketService.find(code)
     if p is None:
-        raise NotFoundError(f"No packet {normalize_code(code)}")
+        raise NotFoundError(f"No packet {normalize_code(str(code or ''))}")
     require_store_access(p.part.store_code)
     return p
 

@@ -66,7 +66,9 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     setAddMsg(null);
     setAdding(true);
     try {
-      const d = await check([...all.map((p) => p.code), text]);
+      // The packets held are sent by id; the new scan's code takes the next
+      // packet of it on the shelf (one code a part a day since 14 Nov 2026).
+      const d = await check([...all.map((p) => String(p.id)), text]);
       if (d.count === all.length) setAddMsg("This label is already in the list");
     } catch (e) {
       setAddMsg(e?.response?.data?.message || "Could not add the label — check the network and scan again");
@@ -78,9 +80,9 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   };
   // A scanner that sends no Enter adds the label when its burst goes quiet.
   const gunEnd = useGunEnd(() => addLabel());
-  const removeLabel = async (code) => {
+  const removeLabel = async (id) => {
     setAddMsg(null);
-    const rest = all.map((p) => p.code).filter((c) => c !== code);
+    const rest = all.filter((p) => p.id !== id).map((p) => String(p.id));
     if (rest.length === 1) {
       setMore([]);
       setSetFifo(null);
@@ -133,7 +135,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
       scan_source: source || undefined,
     };
     const code = emp.employee_code ? ` (${emp.employee_code})` : "";
-    const codes = all.map((p) => p.code);
+    const codes = all.map((p) => String(p.id));
     const days = [...new Set(all.map((p) => fmtDate(p.receipt.received_on)))].join(", ");
     flow.open({
       title: many ? `Issue ${all.length} labels` : `Issue ${what}`, icon: ArrowUpFromLine, part, qty: totalQty,
@@ -157,7 +159,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
         : `The whole ${what} — ${qtyText} — goes out.`,
       confirmLabel: `Confirm Issue`,
       submit: () => flow.run(
-        () => (many ? packetService.issueMany({ ...payload, codes }) : packetService.issue(packet.code, payload)),
+        () => (many ? packetService.issueMany({ ...payload, codes }) : packetService.issue(String(packet.id), payload)),
         many ? `Issued ${all.length} labels of ${part.part_no} — ${qtyText} to ${emp.name}${code} · ${department}`
           : `Issued ${what} ${packet.code} — ${qtyText} to ${emp.name}${code} · ${department}`,
       ),
@@ -197,13 +199,13 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
             </div>
             <ul className="mt-1.5 divide-y divide-slate-100 dark:divide-navy-700">
               {all.map((p, i) => (
-                <li key={p.code} className="flex items-center gap-2 py-1.5 text-[13px]">
+                <li key={p.id} className="flex items-center gap-2 py-1.5 text-[13px]">
                   <span className="min-w-0 flex-1 truncate font-mono font-semibold text-slate-800 dark:text-white">{p.code}</span>
                   <span className="shrink-0 text-slate-500">
                     {fmtQty(p.qty, p.uom || part.uom)} · {fmtDate(p.receipt.received_on)}{p.location ? ` · ${p.location}` : ""}
                   </span>
                   {i > 0 ? (
-                    <button type="button" onClick={() => removeLabel(p.code)} aria-label={`Remove ${p.code}`}
+                    <button type="button" onClick={() => removeLabel(p.id)} aria-label={`Remove ${p.code}`}
                       className="shrink-0 rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10">
                       <X size={14} aria-hidden="true" />
                     </button>

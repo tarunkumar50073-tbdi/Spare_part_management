@@ -40,7 +40,11 @@ export default function ReturnForm({ scan, target, source, onDone, onCancel }) {
     () => (scan.open_issues || []).filter((i) => qtyOf(i.outstanding_qty) > 0),
     [scan.open_issues]);
   // A packet's QR names its own issue: that one is picked.
-  const packetIssue = scan.packet ? issues.find((i) => i.packet?.code === scan.packet.code)?.id : undefined;
+  // The packet scanned, or (one code a part a day since 14 Nov 2026) another
+  // issued packet with its code.
+  const packetIssue = scan.packet
+    ? (issues.find((i) => i.packet?.id === scan.packet.id) || issues.find((i) => i.packet?.code === scan.packet.code))?.id
+    : undefined;
   const pick = useDocChoice(issues, target ?? packetIssue);
   const issue = pick.doc;
   const packet = issue?.packet || null;

@@ -193,7 +193,7 @@ class BarcodeService:
         # one on the shelf, else the last one issued (so a second scan says so).
         boxed = self._boxed_packet(code)
         if boxed is not None:
-            return self._resolve_packet(store_code, boxed.code, scan_source, scan_mode, user, scanned=code)
+            return self._resolve_packet(store_code, str(boxed.id), scan_source, scan_mode, user, scanned=code)
 
         # A bin sheet QR ends in " | description" since 17 Oct 2026 (the store: a
         # scan should say what the part is); only the text before it names the
@@ -289,7 +289,9 @@ class BarcodeService:
         it must never be offered "Map to Part"."""
         from app.models.spare_packet import SparePacket
         from app.services.spare_packet_service import SparePacketService
-        packet = SparePacket.query.filter_by(code=code).first()
+        # A code names every packet of its part and day (14 Nov 2026): the scan
+        # opens the oldest on the shelf, or the latest issued if none is.
+        packet = SparePacketService.find(code)
         if scanned is not None:
             code = scanned[:SCAN_CODE_MAX]          # the audit keeps what was read, at its width
         if packet is None:
@@ -314,7 +316,7 @@ class BarcodeService:
         payload["scan_mode"] = scan_mode
         payload["scan_id"] = audit.id
         payload.update(self._data_status(part))
-        payload["packet"] = SparePacketService().get(packet.code)
+        payload["packet"] = SparePacketService().get(str(packet.id))
         return payload
 
     def _field_match(self, code):

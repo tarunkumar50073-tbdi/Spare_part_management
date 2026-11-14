@@ -29,15 +29,18 @@ def _part(qty=10, spec="HSS TAP 1/2'' BSP"):
     return p
 
 
-def test_old_stock_labels_are_tb_today_part_and_number():
+def test_old_stock_labels_are_tb_today_and_part_no_without_a_number():
+    """14 Nov 2026: "dono me number hata de" - every label of a part on a day
+    carries the same code; the packets are told apart by id and seq."""
     p = _part(10)
     today = f"{date.today():%Y%m%d}"
     made = svc.old_stock_pack(p.id, 3, "UNIT", user="sup")["packets"]
-    assert [m["code"] for m in made] == [f"TB{today}{p.part_no}-0{i}" for i in (1, 2, 3)]
-    more = svc.old_stock_pack(p.id, 2, "UNIT", user="sup")["packets"]           # the same day: numbers carry on
-    assert [m["code"] for m in more] == [f"TB{today}{p.part_no}-04", f"TB{today}{p.part_no}-05"]
+    assert [m["code"] for m in made] == [f"TB{today}{p.part_no}"] * 3
+    assert len({m["id"] for m in made}) == 3 and [m["seq"] for m in made] == [1, 2, 3]
+    more = svc.old_stock_pack(p.id, 2, "UNIT", user="sup")["packets"]           # the same day: the same code
+    assert [m["code"] for m in more] == [f"TB{today}{p.part_no}"] * 2
     other = _part(5)
-    assert svc.old_stock_pack(other.id, 1, "UNIT", user="sup")["packets"][0]["code"] == f"TB{today}{other.part_no}-01"
+    assert svc.old_stock_pack(other.id, 1, "UNIT", user="sup")["packets"][0]["code"] == f"TB{today}{other.part_no}"
 
 
 def test_a_receipts_labels_carry_the_date_the_material_came_in():
@@ -49,7 +52,7 @@ def test_a_receipts_labels_carry_the_date_the_material_came_in():
     SpareStockService().set_quantity(p.id, 4, txn_type="ADJUSTMENT")
     svc.verify(r.id, 4, user="sup")
     made = svc.pack(r.id, "UNIT", user="sup")["packets"]
-    assert made[0]["code"] == f"TB20261027{p.part_no}-01" and made[-1]["code"] == f"TB20261027{p.part_no}-04"
+    assert {m["code"] for m in made} == {f"TB20261027{p.part_no}"} and len(made) == 4
 
 
 def test_the_qr_carries_code_spec_and_location_and_a_scan_finds_the_packet():
@@ -124,4 +127,21 @@ def test_ddmmyyyy_labels_made_before_10_nov_keep_working():
     scan = BarcodeService().resolve(STORE, f"{old} | HSS TAP 1/2'' BSP | {p.location}", user="tester")
     assert scan["packet"]["code"] == old
     new = svc.old_stock_pack(p.id, 1, "UNIT", user="sup")["packets"][0]["code"]
-    assert new == f"TB{date.today():%Y%m%d}{p.part_no}-01" and new != old
+    assert new == f"TB{date.today():%Y%m%d}{p.part_no}" and new != old
+
+
+
+def test_a_code_scanned_again_takes_the_next_packet_and_old_numbered_labels_still_scan():
+    p = _part(10)
+    made = svc.old_stock_pack(p.id, 3, "UNIT", user="sup")["packets"]
+    code = made[0]["code"]
+    assert normalize_code(f"{code} HSS TAP") == code and is_packet_code(code)
+    # Each scan of the code: the oldest on the shelf.
+    first = BarcodeService().resolve(STORE, code, user="tester")["packet"]
+    assert first["id"] == made[0]["id"]
+    svc.issue(code, "Maintenance", issued_to="Ravi", user="t")
+    assert BarcodeService().resolve(STORE, code, user="tester")["packet"]["id"] == made[1]["id"]
+    # A label printed with the old "-NN" finds the same packets.
+    assert BarcodeService().resolve(STORE, f"{code}-03", user="tester")["packet"]["id"] == made[1]["id"]
+    out = svc.issue_check([code, code])
+    assert [x["id"] for x in out["packets"]] == [made[1]["id"], made[2]["id"]]

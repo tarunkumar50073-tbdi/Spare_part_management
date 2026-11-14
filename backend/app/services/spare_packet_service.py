@@ -74,8 +74,15 @@ CODE_PREFIX = "SPK-"
 # DDMMYYYY ones and SPK-XXXXXXXX — keep working: a packet is found by its
 # stored code, and both date orders are 8 digits. They never collide either:
 # no YYYYMMDD reads as a valid DDMMYYYY date (month 13+), nor the other way.
+# Since 14 Nov 2026 the code has no label number ("dono me number hata de,
+# saare change kar de old bhi"): TB + date + Part No. - every packet (or
+# individual piece) of a part made with one date carries the same code, and the
+# packets themselves are told apart by their id and seq. A scan of the code
+# takes the oldest available packet of it; scanning it again takes the next.
+# An old label with "-NN" still scans: the number is dropped (lot_code).
 TB_PREFIX = "TB"
-TB_CODE = re.compile(r"TB\d{8}[A-Z0-9]+-\d{2,3}")
+TB_CODE = re.compile(r"TB\d{8}[A-Z0-9]+(?:-\d{2,3})?")
+_LABEL_NO = re.compile(r"-\d{2,3}$")
 CODE_MAX = 24                      # spare_packets.code
 # What the QR carries besides the code, for any scanner to read ("naye date
 # wala and spec and location"): CODE | spec | location. The app reads the code
@@ -177,6 +184,12 @@ def normalize_code(code):
     if found:
         return found.group(0)
     return _CODE_END.split(text, 1)[0].strip()
+
+
+def lot_code(code):
+    """The code a label carries: a TB code without any old "-NN"."""
+    c = normalize_code(code)
+    return _LABEL_NO.sub("", c) if c.startswith(TB_PREFIX) else c
 
 
 def is_packet_code(code):
@@ -537,19 +550,11 @@ class SparePacketService:
 
     @staticmethod
     def _new_codes(part, day, n):
-        """n new codes for a part on a date: TB + YYYYMMDD + Part No. + "-NN",
-        numbered on from that part's last label of that date. Called with the
-        part's stock row locked (pack), so two packs of one part take turns."""
+        """The code of n new packets of a part on a date: TB + YYYYMMDD + Part
+        No., the same for all of them (14 Nov 2026 - no label number)."""
         no = re.sub(r"[^A-Z0-9]", "", (part.part_no or "").upper())
-        width = 2
         stem = f"{TB_PREFIX}{day:%Y%m%d}"
-        no = no[:max(1, CODE_MAX - len(stem) - 1 - 3)] if len(stem) + len(no) + 1 + width > CODE_MAX else no
-        prefix = f"{stem}{no}-"
-        last = max((int(c[len(prefix):]) for (c,) in db.session.query(SparePacket.code)
-                    .filter(SparePacket.code.like(prefix + "%")) if c[len(prefix):].isdigit()), default=0)
-        if last + n > 99:
-            width = 3
-        return [f"{prefix}{last + i:0{width}d}" for i in range(1, n + 1)]
+        return [f"{stem}{no[:max(1, CODE_MAX - len(stem))]}"] * n
 
     @staticmethod
     def standard_qty(part):
@@ -1072,17 +1077,31 @@ class SparePacketService:
     # ISSUE line (its code the reference), oldest first.
 
     def _issue_set(self, codes):
-        """The labels of one issue: each once (as scanned), all of ONE part, all available."""
-        ordered = []
-        for c in codes or []:
-            n = normalize_code(c)
-            if n and n not in ordered:
-                ordered.append(n)
-        if not ordered:
+        """The packets of one issue, all of ONE part, all available. A label's
+        code names every packet of its part and day (14 Nov 2026), so each scan
+        of it takes the next one on the shelf, oldest first; a packet id (the
+        list the screen already holds) names that packet."""
+        refs = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+        if not refs:
             raise BadRequestError("No labels to issue")
-        if len(ordered) > MAX_ISSUE_AT_ONCE:
+        if len(refs) > MAX_ISSUE_AT_ONCE:
             raise BadRequestError(f"At most {MAX_ISSUE_AT_ONCE} labels in one issue")
-        packets = [self._packet(c) for c in ordered]
+        packets, taken = [], set()
+        for ref in sorted(refs, key=lambda r: not r.isdigit()):      # the ones the screen holds first
+            if ref.isdigit() and int(ref) in taken:
+                continue
+            p = self.find(ref, exclude=taken)
+            if p is None:
+                lot = lot_code(ref)
+                if any(q.code == lot for q in packets):
+                    raise BadRequestError(f"No more packets of {lot} on the shelf — all of them are in this issue",
+                                          errors={"code": "NO_MORE"})
+                raise NotFoundError(f"No packet {lot or ref}")
+            if p.status != "AVAILABLE" and not ref.isdigit() and any(q.code == p.code for q in packets):
+                raise BadRequestError(f"No more packets of {p.code} on the shelf — all of them are in this issue",
+                                      errors={"code": "NO_MORE"})
+            taken.add(p.id)
+            packets.append(p)
         first = packets[0]
         for p in packets[1:]:
             if p.part_id != first.part_id:
@@ -1142,7 +1161,7 @@ class SparePacketService:
         with atomic():
             for p in packets:
                 results.append(self.issue(
-                    p.code, department, user=user, employee_id=employee_id, issued_to_mobile=issued_to_mobile,
+                    str(p.id), department, user=user, employee_id=employee_id, issued_to_mobile=issued_to_mobile,
                     issued_to=issued_to, remarks=remarks, override_reason=reason, scan_source=scan_source,
                     line_name=line_name, machine=machine))
         return {
@@ -1158,19 +1177,20 @@ class SparePacketService:
         """The labels came out of the printer: one print-audit row per packet
         (Part, the code printed, the location printed, the receipt), and the
         packet's print count. A reprint needs a reason. Never touches stock."""
-        codes = [normalize_code(c) for c in (codes or []) if normalize_code(c)]
-        if not codes:
+        refs = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+        if not refs:
             raise BadRequestError("No labels to record")
-        if len(codes) > MAX_PER_CALL:
+        if len(refs) > MAX_PER_CALL:
             raise BadRequestError(f"At most {MAX_PER_CALL} labels at a time")
         reason = _text(reason, 255, "Reason")
         if reprint and not reason:
             raise BadRequestError("Say why the label is printed again (torn, lost, faded …)")
-        packets = SparePacket.query.filter(SparePacket.code.in_(codes)).all()
-        found = {p.code for p in packets}
-        missing = [c for c in codes if c not in found]
-        if missing:
-            raise NotFoundError(f"No packet {missing[0]}")
+        # Each label by its packet's id (a code is shared by the packets of one day).
+        packets, seen = [], set()
+        for ref in refs:
+            p = self._packet(ref, prefer=LABELLED, exclude=seen)
+            seen.add(p.id)
+            packets.append(p)
         not_available = [p.code for p in packets if p.status not in LABELLED]
         if not_available:
             raise BadRequestError(f"Packet {not_available[0]} is not available — its label is not printed")
@@ -1436,10 +1456,38 @@ class SparePacketService:
         return part
 
     @staticmethod
-    def _packet(code):
-        p = SparePacket.query.filter_by(code=normalize_code(code)).first()
+    def find(ref, prefer=("AVAILABLE", "QC_PENDING", "ISSUED", "CANCELLED"), exclude=()):
+        """The packet a reference names, or None. A number is the packet's id
+        (the screens' lists); a code - scanned or typed, with or without an old
+        "-NN" - names every packet of its part and day, of which the first in
+        `prefer`'s status order is taken: the oldest on the shelf (FIFO, seq),
+        the latest issued. Packets in `exclude` (ids) are passed over, so a code
+        scanned three times gives three packets."""
+        text = str(ref if ref is not None else "").strip()
+        if text.isdigit():
+            p = db.session.get(SparePacket, int(text))
+            return p if p is not None and p.id not in exclude else None
+        code = normalize_code(text)
+        if not code:
+            return None
+        names = {code, lot_code(code)}
+        rows = (SparePacket.query.join(SpareBatch, SpareBatch.id == SparePacket.batch_id)
+                .filter(SparePacket.code.in_(names)).all())
+        rank = {s: i for i, s in enumerate(prefer)}
+        rows = [p for p in rows if p.id not in exclude and p.status in rank]
+        if not rows:
+            return None
+
+        def order(p):
+            issued = -(p.issued_at.timestamp() if p.issued_at else 0) if p.status == "ISSUED" else 0
+            return (rank[p.status], issued, p.batch.received_on, p.batch_id, p.seq, p.id)
+        return min(rows, key=order)
+
+    @classmethod
+    def _packet(cls, code, prefer=("AVAILABLE", "QC_PENDING", "ISSUED", "CANCELLED"), exclude=()):
+        p = cls.find(code, prefer, exclude)
         if p is None:
-            raise NotFoundError(f"No packet {normalize_code(code) or '(blank)'}")
+            raise NotFoundError(f"No packet {normalize_code(str(code or '')) or '(blank)'}")
         return p
 
     @staticmethod

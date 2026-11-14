@@ -311,13 +311,13 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
   // me preview ka option bhi hona chahiye"): a sample code — each real label
   // gets its own — at the size picked here, which the print step keeps.
   const ls = useLabelSize();
-  // The first label's code as it will be made: TB + YYYYMMDD + Part No. + -01 — the
-  // receipt's date, or today for old stock (the real numbers carry on from any
-  // label of the part made that day).
+  // The labels' code as it will be made: TB + YYYYMMDD + Part No. — the
+  // receipt's date, or today for old stock; every label of it the same (no
+  // label number since 14 Nov 2026).
   const sampleCode = useMemo(() => {
     const d = receipt?.received_on ? new Date(`${receipt.received_on}T00:00:00`) : new Date();
     const dd = String(d.getDate()).padStart(2, "0"), mm = String(d.getMonth() + 1).padStart(2, "0");
-    return `TB${d.getFullYear()}${mm}${dd}${String(part.part_no || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}-01`;
+    return `TB${d.getFullYear()}${mm}${dd}${String(part.part_no || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}`;
   }, [receipt, part.part_no]);
   const sample = useMemo(() => packetLabelsHtml([{
     code: sampleCode, kind, uom: unit, location: part.location, part,
@@ -621,7 +621,7 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
   const record = async () => {
     setBusy(true);
     try {
-      await packetService.recordPrint(packets.map((p) => p.code), { reprint, reason: reason.trim() || undefined });
+      await packetService.recordPrint(packets.map((p) => String(p.id)), { reprint, reason: reason.trim() || undefined });
       toast.success(`${packets.length} label${packets.length === 1 ? "" : "s"} recorded`);
       onDone?.();
       onClose();
@@ -742,7 +742,7 @@ export function CancelDialog({ packet, onClose, onDone }) {
     setBusy(true);
     setError(null);
     try {
-      const r = await packetService.cancel(packet.code, reason.trim());
+      const r = await packetService.cancel(String(packet.id), reason.trim());
       toast.success(r.data.message);
       onDone?.();
       onClose();

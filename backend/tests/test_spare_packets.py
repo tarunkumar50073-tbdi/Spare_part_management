@@ -95,10 +95,11 @@ def test_1_2_3_two_receipts_make_fifteen_unique_packets_with_their_dates():
     assert (len(pa), len(pb)) == (5, 10)
     codes = [x["code"] for x in pa + pb]
     # TB + the receipt's date + Part No. + that part's label no. that day (28 Oct 2026)
-    assert len(set(codes)) == 15
-    assert [x["code"] for x in pa] == [f"TB20261025{p.part_no.replace('-', '')}-0{i}" for i in range(1, 6)]
-    assert [x["code"] for x in pb][0] == f"TB20261027{p.part_no.replace('-', '')}-01"
-    assert [x["code"] for x in pb][-1] == f"TB20261027{p.part_no.replace('-', '')}-10"
+    # No label number since 14 Nov 2026: one code a part a day; each packet its own id.
+    assert len({x["id"] for x in pa + pb}) == 15
+    assert set(codes) == {f"TB20261025{p.part_no.replace('-', '')}", f"TB20261027{p.part_no.replace('-', '')}"}
+    assert {x["code"] for x in pa} == {f"TB20261025{p.part_no.replace('-', '')}"}
+    assert [x["seq"] for x in pb] == list(range(1, 11))
     assert {x["receipt"]["received_on"] for x in pa} == {"2026-10-25"}
     assert {x["receipt"]["received_on"] for x in pb} == {"2026-10-27"}
     assert all(x["qty"] == 20 and x["status"] == "AVAILABLE" and x["kind"] == "PACKET" for x in pa + pb)
@@ -113,7 +114,7 @@ def test_1_2_3_two_receipts_make_fifteen_unique_packets_with_their_dates():
 def test_4_5_10_three_oldest_packets_go_whole_and_the_oldest_keeps_priority():
     p, a, b, pa, pb = _bolts()
     for x in pa[:3]:
-        out = _issue(x["code"])
+        out = _issue(str(x["id"]))
         assert out["packet"]["status"] == "ISSUED" and out["issue"]["qty"] == 20     # the whole packet
     assert _on_hand(p) == 240                                                      # 60 deducted
     issues = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").all()
@@ -123,9 +124,9 @@ def test_4_5_10_three_oldest_packets_go_whole_and_the_oldest_keeps_priority():
     assert fifo["packets"][0]["issue_first"] and not fifo["packets"][2]["issue_first"]
     # A newer packet while 25 Oct still has two: refused, then allowed with a reason.
     with pytest.raises(BadRequestError, match="Older stock first") as exc:
-        _issue(pb[0]["code"])
+        _issue(str(pb[0]["id"]))
     assert exc.value.errors["code"] == "FIFO" and exc.value.errors["oldest"]["code"] == pa[3]["code"]
-    out = _issue(pb[0]["code"], override_reason="Older packets damaged in transit")
+    out = _issue(str(pb[0]["id"]), override_reason="Older packets damaged in transit")
     assert out["packet"]["fifo_override_reason"] == "Older packets damaged in transit"
     assert "FIFO skipped" in SpareStockLedger.query.get(out["issue"]["id"]).remarks
     assert _on_hand(p) == 220
@@ -144,7 +145,7 @@ def test_one_person_takes_four_of_the_same_part_at_once():
     for u in taken:
         scan = BarcodeService().resolve(STORE, f"{u['code']} SPEC", user="tester")["packet"]
         assert scan["fifo"]["ok"] is True                         # the same day: no FIFO warning
-        out = _issue(u["code"])                                   # no reason asked
+        out = _issue(str(u["id"]))                                   # no reason asked
         assert out["packet"]["status"] == "ISSUED" and out["issue"]["qty"] == 1
     assert _on_hand(p) == 7                                       # 11 - 4
     lines = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").all()
@@ -153,7 +154,7 @@ def test_one_person_takes_four_of_the_same_part_at_once():
     assert sorted(float(x.balance_after) for x in lines) == [7, 8, 9, 10]   # 11 → 7, one at a time
     assert svc.figures(p.id)["packed_available"] == 7
     with pytest.raises(BadRequestError, match="already issued"):
-        _issue(taken[0]["code"])                                  # the same label scanned again
+        _issue(str(taken[0]["id"]))                                  # the same label scanned again
     assert _on_hand(p) == 7
 
 
@@ -174,12 +175,12 @@ def test_packets_that_came_in_the_same_day_are_the_same_age():
     p3 = svc.pack(later.id, "PACKET", packet_qty=20, user="sup")["packets"]
     scan = BarcodeService().resolve(STORE, p2[0]["code"], user="tester")["packet"]
     assert scan["fifo"]["ok"] is True                                   # no warning on the same day
-    out = _issue(p2[0]["code"])                                         # and no reason asked
+    out = _issue(str(p2[0]["id"]))                                         # and no reason asked
     assert out["packet"]["status"] == "ISSUED" and not out["packet"]["fifo_override_reason"]
     fifo = svc.fifo(p.id)["packets"]
     assert [x["issue_first"] for x in fifo] == [True, True, True, False]  # both 25 Oct receipts first
     with pytest.raises(BadRequestError, match="Older stock first"):
-        _issue(p3[0]["code"])                                          # 27 Oct while 25 Oct waits
+        _issue(str(p3[0]["id"]))                                          # 27 Oct while 25 Oct waits
     assert {x["code"] for x in fifo[:3]} == {p1[0]["code"], p1[1]["code"], p2[1]["code"]}
 
 
@@ -187,20 +188,20 @@ def test_packets_that_came_in_the_same_day_are_the_same_age():
 
 def test_6_the_same_packet_cannot_be_issued_twice(monkeypatch):
     p, a, b, pa, pb = _bolts()
-    _issue(pa[0]["code"])
+    _issue(str(pa[0]["id"]))
     with pytest.raises(BadRequestError, match="already issued"):
-        _issue(pa[0]["code"])
+        _issue(str(pa[0]["id"]))
     # Two terminals: this one read the packet as available a moment before the other issued it.
-    stale = SparePacket.query.filter_by(code=pa[1]["code"]).one()
+    stale = db.session.get(SparePacket, pa[1]["id"])
     _ = (stale.batch.receipt_no, stale.part.part_no)            # loaded, as the other screen had it
     db.session.expunge(stale)
     SparePacket.query.filter_by(id=stale.id).update({"status": "ISSUED"}, synchronize_session=False)
     db.session.commit()
     stale.status = "AVAILABLE"                                 # what this screen still believes
-    monkeypatch.setattr(SparePacketService, "_packet", staticmethod(lambda code: stale))
+    monkeypatch.setattr(SparePacketService, "_packet", staticmethod(lambda code, *a, **k: stale))
     monkeypatch.setattr(SparePacketService, "fifo_check", lambda self, packet: None)
     with pytest.raises(BadRequestError, match="just issued from another screen"):
-        _issue(pa[1]["code"])
+        _issue(str(pa[1]["id"]))
     assert _on_hand(p) == 280                                  # only the first issue took stock
 
 
@@ -230,18 +231,18 @@ def test_7_packing_more_than_verified_or_before_verifying_is_refused():
 
 def test_8_printing_and_reprinting_never_add_stock():
     p, a, b, pa, pb = _bolts()
-    code = pa[0]["code"]
-    svc.record_print([code], user="sup")
+    code, pid = pa[0]["code"], str(pa[0]["id"])
+    svc.record_print([pid], user="sup")
     with pytest.raises(BadRequestError, match="printed already — reprint it"):
-        svc.record_print([code], user="sup")                   # a second "first print" is a reprint
+        svc.record_print([pid], user="sup")                    # a second "first print" is a reprint
     with pytest.raises(BadRequestError, match="Say why"):
-        svc.record_print([code], reprint=True)
-    svc.record_print([code], reprint=True, reason="Label torn", user="sup")
+        svc.record_print([pid], reprint=True)
+    svc.record_print([pid], reprint=True, reason="Label torn", user="sup")
     rows = LabelPrintAudit.query.filter_by(barcode_value=code).order_by(LabelPrintAudit.id).all()
     assert [(r.source, r.is_reprint, r.reason) for r in rows] == [("PACKET", False, None),
                                                                  ("PACKET", True, "Label torn")]
     assert rows[0].reference == a.receipt_no
-    assert SparePacket.query.filter_by(code=code).one().print_count == 2
+    assert db.session.get(SparePacket, pa[0]["id"]).print_count == 2
     assert _on_hand(p) == 300 and SparePacket.query.filter_by(part_id=p.id).count() == 15
 
 
@@ -262,8 +263,8 @@ def test_9_the_same_grn_read_again_makes_no_second_receipt_or_stock():
 def test_11_stock_reconciles_with_receipts_packets_and_issues():
     p, a, b, pa, pb = _bolts()
     for x in pa[:3]:
-        _issue(x["code"])
-    svc.cancel(pb[-1]["code"], "Packed by mistake")            # 20 loose again
+        _issue(str(x["id"]))
+    svc.cancel(str(pb[-1]["id"]), "Packed by mistake")            # 20 loose again
     figs = svc.figures(p.id)
     received = sum(float(r.qty) for r in SpareBatch.query.filter_by(part_id=p.id))
     issued = -sum(float(l.qty_delta) for l in SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE"))
@@ -285,13 +286,13 @@ def test_loose_quantity_issues_and_counts_never_eat_packed_stock():
         stock.issue(p.id, 5, DEPT, issued_to="Ravi")
     with pytest.raises(BadRequestError, match="stock cannot go below"):
         stock.set_quantity(p.id, 250, txn_type="ADJUSTMENT")
-    svc.cancel(pa[0]["code"], "Re-pack")                        # 20 loose
+    svc.cancel(str(pa[0]["id"]), "Re-pack")                        # 20 loose
     stock.issue(p.id, 5, DEPT, issued_to="Ravi")                # by quantity: loose only
     with pytest.raises(BadRequestError, match="Loose on the shelf: 15"):
         stock.issue(p.id, 16, DEPT, issued_to="Ravi")
     assert _on_hand(p) == 295
     with pytest.raises(BadRequestError, match="only an available one"):
-        svc.cancel(pa[0]["code"], "again")
+        svc.cancel(str(pa[0]["id"]), "again")
 
 
 def test_stock_already_on_the_shelf_can_be_made_a_batch_and_packed():
@@ -309,7 +310,7 @@ def test_stock_already_on_the_shelf_can_be_made_a_batch_and_packed():
     assert [x["qty"] for x in newer] == [1, 1] and all(x["kind"] == "UNIT" for x in newer)
     assert svc.fifo(p.id)["packets"][0]["receipt"]["source"] == "OPENING"
     with pytest.raises(BadRequestError, match="Older stock first"):
-        _issue(newer[0]["code"])
+        _issue(str(newer[0]["id"]))
 
 
 def test_a_packet_qr_scan_names_the_packet_and_an_unknown_one_is_not_mappable():
@@ -363,9 +364,11 @@ def test_api_rights_and_a_packet_issue_takes_no_quantity(app):
     r = c.post(f"/api/v1/spare-packets/packets/{pa[0]['code']}/issue",
                json={"department": DEPT, "issued_to": "Ravi", "qty": 1})          # a qty sent is ignored
     assert r.status_code == 200 and r.get_json()["data"]["issue"]["qty"] == 20
+    assert c.post(f"/api/v1/spare-packets/packets/{r.get_json()['data']['packet']['id']}/issue",
+                  json={"department": DEPT, "issued_to": "Ravi"}).status_code == 400      # that packet again
     assert c.post(f"/api/v1/spare-packets/packets/{pa[0]['code']}/issue",
-                  json={"department": DEPT, "issued_to": "Ravi"}).status_code == 400
-    assert _on_hand(p) == 280
+                  json={"department": DEPT, "issued_to": "Ravi"}).status_code == 200      # the code: the next one
+    assert _on_hand(p) == 260
 
 
 # ---- old stock on the shelf, rack by rack (27 Oct 2026) ---------------------------------------------
@@ -460,7 +463,7 @@ def test_boxes_with_their_own_supplier_codes_are_packets_that_scan_as_themselves
     assert out["resolved_by"] == "PACKET" and out["packet"]["code"] == made[1]["code"]
     assert out["scanned_code"] == boxes[1]
     assert svc.check_box_code(p.id, boxes[1])["ok"] is False                   # on a box on the shelf already
-    _issue(made[0]["code"])
+    _issue(str(made[0]["id"]))
     again = BarcodeService().resolve(STORE, boxes[0], user="tester")["packet"]
     assert again["status"] == "ISSUED"                                         # a second scan says so
     assert _on_hand(p) == 40
@@ -554,7 +557,7 @@ def test_no_undo_while_a_label_of_it_is_live_but_after_cancelling_it():
     with pytest.raises(BadRequestError, match="cancel them first"):
         svc.unverify(r.id, "testing", user="boss")
     for m in made:
-        svc.cancel(m["code"], "testing", user="boss")
+        svc.cancel(str(m["id"]), "testing", user="boss")
     assert svc.unverify(r.id, "testing", user="boss")["verify_status"] == "PENDING"
 
 
@@ -590,19 +593,25 @@ def _units(n=11):
 
 def test_four_labels_of_one_part_go_out_in_one_issue_each_its_own_line():
     p, units = _units()
-    codes = [units[3]["code"], units[0]["code"] + " PCIMR6-12-1.0", units[7]["code"], units[1]["code"]]
-    check = svc.issue_check(codes + [units[0]["code"]])                 # the same label twice counts once
+    # Every unit carries the same code: scanning it four times is four pieces, oldest first.
+    code = units[0]["code"]
+    codes = [code, code + " PCIMR6-12-1.0", code, code]
+    check = svc.issue_check(codes)
     assert check["count"] == 4 and check["qty"] == 4 and check["fifo"]["ok"] is True
+    assert [x["id"] for x in check["packets"]] == [units[i]["id"] for i in range(4)]
+    # The screen sends back the ids it holds, plus a new scan: the same four, then the next.
+    again = svc.issue_check([str(x["id"]) for x in check["packets"]] + [code])
+    assert [x["id"] for x in again["packets"]] == [units[i]["id"] for i in range(5)]
     out = svc.issue_many(codes, DEPT, user="tester", issued_to="Ravi", remarks="line 3 jig")
     assert out["count"] == 4 and out["qty"] == 4 and out["part_no"] == p.part_no
-    assert [x["code"] for x in out["packets"]] == sorted(x["code"] for x in out["packets"])   # oldest first
+    assert [x["seq"] for x in out["packets"]] == [1, 2, 3, 4]                                # oldest first
     assert all(x["status"] == "ISSUED" and x["department"] == DEPT for x in out["packets"])
     assert _on_hand(p) == 7
     lines = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").all()
-    assert len(lines) == 4 and {x.reference for x in lines} == {units[i]["code"] for i in (0, 1, 3, 7)}
+    assert len(lines) == 4 and {x.reference for x in lines} == {code}
     assert all("line 3 jig" in x.remarks for x in lines)
     with pytest.raises(BadRequestError, match="already issued"):
-        svc.issue_check([units[2]["code"], units[3]["code"]])            # one of them went already
+        svc.issue_check([str(units[2]["id"]), str(units[3]["id"])])      # those went already
 
 
 def test_a_different_part_or_a_used_label_stops_the_whole_issue():
@@ -611,11 +620,14 @@ def test_a_different_part_or_a_used_label_stops_the_whole_issue():
     with pytest.raises(BadRequestError, match="different part is issued separately") as exc:
         svc.issue_many([units[0]["code"], others[0]["code"]], DEPT, user="tester", issued_to="Ravi")
     assert exc.value.errors["code"] == "OTHER_PART"
-    svc.issue(units[2]["code"], DEPT, user="tester", issued_to="Ravi")
+    svc.issue(str(units[2]["id"]), DEPT, user="tester", issued_to="Ravi")
     with pytest.raises(BadRequestError, match="already issued"):
-        svc.issue_many([units[0]["code"], units[1]["code"], units[2]["code"]], DEPT, user="tester")
+        svc.issue_many([str(units[0]["id"]), str(units[1]["id"]), str(units[2]["id"])], DEPT, user="tester")
+    # Six units, one gone: a seventh scan of the code finds no more on the shelf.
+    with pytest.raises(BadRequestError, match="No more packets"):
+        svc.issue_check([units[0]["code"]] * 6)
     assert _on_hand(p) == 5 and _on_hand(other) == 3                   # nothing of either went out
-    assert SparePacket.query.filter_by(code=units[0]["code"]).one().status == "AVAILABLE"
+    assert db.session.get(SparePacket, units[0]["id"]).status == "AVAILABLE"
     with pytest.raises(NotFoundError):
         svc.issue_many([units[0]["code"], "TB20261110NOPART-01"], DEPT, user="tester")
     with pytest.raises(BadRequestError, match="No labels"):

@@ -81,7 +81,9 @@ class SparePacket(BaseModel):
     __tablename__ = "spare_packets"
 
     # What the QR carries ("SPK-" + 8 characters, made by the app — never typed).
-    code = db.Column(db.String(24), nullable=False, unique=True, index=True)
+    # TB + date + Part No.: shared by every packet of a part made with one date
+    # since 14 Nov 2026 (no label number) - not unique; a packet is its id.
+    code = db.Column(db.String(24), nullable=False, index=True)
     kind = db.Column(db.String(8), nullable=False)                    # PACKET | UNIT
     batch_id = db.Column(db.Integer, db.ForeignKey("spare_batches.id"), nullable=False, index=True)
     part_id = db.Column(db.Integer, db.ForeignKey("part_master.id"), nullable=False, index=True)
