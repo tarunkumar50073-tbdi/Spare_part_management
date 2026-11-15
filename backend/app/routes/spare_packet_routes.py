@@ -321,7 +321,6 @@ def printed_file(fmt):
     """The labels printed and put on the shelf, as Excel or PDF (14 Nov 2026)."""
     from datetime import date as _date
     from flask import send_file
-    from app.utils import pdf_io
     from app.utils.excel_io import build_export
     store = _store()
     issued_only = request.args.get("issued") in ("1", "true", "yes")
@@ -333,8 +332,24 @@ def printed_file(fmt):
         return send_file(build_export(cols, rows), as_attachment=True, download_name=f"{name}.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     if fmt == "pdf":
-        return send_file(pdf_io.build_pdf_table(f"{name} — {len(rows)} labels", cols, rows), as_attachment=True,
-                         download_name=f"{name}.pdf", mimetype="application/pdf")
+        # One card per label with its QR (15 Nov 2026: "jisme qr code dikhe"),
+        # the way the Part Master's QR List is drawn.
+        import io
+        from types import SimpleNamespace
+        from app.services import part_qr_list
+        cards = []
+        for r in rows:
+            out = r["status"] == "Issued"
+            facts = [("Part No", r["part_no"]), ("Qty", f"{r['qty']} {r['uom']} · {r['type']}"),
+                     ("Location", r["location"]), ("Received", r["received"])]
+            facts += ([("Issued", r["issued_on"]), ("To", " · ".join(x for x in (r["issued_to"], r["department"]) if x))]
+                      if out else [("Status", r["status"])])
+            cards.append(SimpleNamespace(barcode=r["code"], part_no=r["code"], part_name=r["item_description"],
+                                         specification=None, location=None, facts=facts))
+        what = "Issued QR Labels" if issued_only else "Printed QR Labels"
+        pdf = part_qr_list.build(cards, what, request.args.get("q") and f"Search \"{request.args.get('q')}\"" or "",
+                                 unit="labels")
+        return send_file(io.BytesIO(pdf), as_attachment=True, download_name=f"{name}.pdf", mimetype="application/pdf")
     raise NotFoundError(f"Unknown format '{fmt}' — excel or pdf")
 
 

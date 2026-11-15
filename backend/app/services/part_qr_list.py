@@ -76,9 +76,10 @@ def _qr(c, value, x, y, size):
     c.restoreState()
 
 
-def build(parts, title, subtitle=""):
+def build(parts, title, subtitle="", unit="parts"):
     """The PDF's bytes. `parts` are Part rows (or anything with part_no,
-    part_name, specification, location, barcode)."""
+    part_name, specification, location, barcode; an optional `facts` list of
+    (label, text) replaces Model No + Location — the QR label cards use it)."""
     buf = io.BytesIO()
     page_w, page_h = A4
     c = canvas.Canvas(buf, pagesize=A4)
@@ -92,7 +93,7 @@ def build(parts, title, subtitle=""):
         c.setFont("Helvetica-Bold", 12)
         c.drawString(MARGIN, page_h - MARGIN - 5 * mm, title)
         c.setFont("Helvetica", 8)
-        c.drawRightString(page_w - MARGIN, page_h - MARGIN - 5 * mm, f"{len(parts)} parts · {stamp}")
+        c.drawRightString(page_w - MARGIN, page_h - MARGIN - 5 * mm, f"{len(parts)} {unit} · {stamp}")
         if subtitle:
             c.drawString(MARGIN, page_h - MARGIN - 9.5 * mm, subtitle)
         c.drawRightString(page_w - MARGIN, MARGIN - 5 * mm, f"Page {page + 1} of {pages}")
@@ -109,8 +110,12 @@ def build(parts, title, subtitle=""):
             tw = cell_w - (tx - x) - 3 * mm
             ty = y + cell_h - 6.5 * mm
             c.setFillGray(0)
-            c.setFont("Helvetica-Bold", 10)
-            c.drawString(tx, ty, (p.part_no or "")[:24])
+            head = (p.part_no or "")[:24]
+            size = 10                                # a long label code shrinks to fit the card
+            while size > 6 and stringWidth(head, "Helvetica-Bold", size) > tw:
+                size -= 0.5
+            c.setFont("Helvetica-Bold", size)
+            c.drawString(tx, ty, head)
             ty -= 4.2 * mm
             c.setFont("Helvetica", 7)
             for line in _wrap(p.part_name, "Helvetica", 7, tw, 3):
@@ -118,7 +123,8 @@ def build(parts, title, subtitle=""):
                 ty -= 3.2 * mm
             c.setFont("Helvetica", 6.5)
             c.setFillGray(0.3)
-            for label, text in (("Model No", p.specification), ("Location", p.location)):
+            facts = getattr(p, "facts", None) or (("Model No", p.specification), ("Location", p.location))
+            for label, text in facts:
                 if text and ty > y + 3 * mm:
                     c.drawString(tx, ty, _wrap(f"{label}: {text}", "Helvetica", 6.5, tw, 1)[0])
                     ty -= 3 * mm

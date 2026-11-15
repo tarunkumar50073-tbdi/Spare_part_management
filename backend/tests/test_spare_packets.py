@@ -825,6 +825,9 @@ def test_issued_only_labels_file(app):
     x = c.get("/api/v1/spare-packets/printed/excel", query_string={"store_code": STORE, "q": p.part_no, "issued": 1})
     assert x.status_code == 200 and "Issued QR Labels" in x.headers["Content-Disposition"]
     assert load_workbook(io.BytesIO(x.data)).active.max_row == 3
+    pdf = c.get("/api/v1/spare-packets/printed/pdf", query_string={"store_code": STORE, "q": p.part_no, "issued": 1})
+    assert pdf.status_code == 200 and pdf.data.startswith(b"%PDF")
+    assert b"Issued QR Labels" in pdf.data and len(pdf.data) > 2000   # QR cards drawn
 
 
 
