@@ -146,14 +146,31 @@ function QuarterTab({ storeCode, fy, qtr, onOpen }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm text-slate-600 dark:text-slate-300">
-          <b>{qtr} · FY {fy}</b> — {d ? `${d.completed_sections} of ${d.sections} sections approved · ${d.status}` : "…"}
+          <b>{qtr} · FY {fy}</b> — {d ? `${d.status}${d.sections > 1 ? ` · ${d.completed_sections} of ${d.sections} approved` : ""}` : "…"}
         </div>
         {canPlan && <button type="button" className="btn-primary inline-flex items-center gap-1.5" onClick={() => setPlanning(true)}><Plus size={15} /> Plan inventory</button>}
       </div>
+      {(d?.sessions || []).length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {d.sessions.map((s) => (
+            <button key={s.session_id} type="button" onClick={() => onOpen(s.session_id)}
+              className="card inline-flex items-center gap-2 px-4 py-2.5 text-left hover:ring-1 hover:ring-toyotared/40">
+              <ClipboardCheck size={16} className="text-toyotared" aria-hidden="true" />
+              <span className="text-sm font-semibold text-slate-800 dark:text-white">{s.whole_store ? "Whole Spare Store" : s.name}</span>
+              <span className={`badge ${STATUS_PILL[s.status]}`}>{s.status_label}</span>
+              <span className="text-[12px] font-semibold text-toyotared">Open →</span>
+            </button>
+          ))}
+        </div>
+      )}
       {d && <SummaryTiles s={d.summary} />}
-      <div className="card p-0">
-        <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 dark:border-navy-800 dark:text-slate-200">By section</div>
-        <div className="overflow-x-auto">
+      {d && !d.by_section.length && <div className="card p-8 text-center text-sm text-slate-400">No inventory planned for {qtr} {fy} yet — plan one for the whole Spare Store.</div>}
+      {d?.by_category?.length > 0 && <CategoryTable rows={d.by_category} />}
+      {/* The store as one figure first (15 Nov 2026: "spare store me sabhi parts h
+          total parts or unki inventory gap etc deptwise nhi"); sections only on asking. */}
+      <details className="card p-0" hidden={!d?.by_section.length}>
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Section-wise breakdown</summary>
+        <div className="overflow-x-auto border-t border-slate-100 dark:border-navy-800">
           <table className="w-full min-w-[820px] text-left text-[12.5px]">
             <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
               <tr><th className="px-3 py-2">Section</th><th className="px-3 py-2">Status</th><th className="px-3 py-2 text-right">Parts</th><th className="px-3 py-2 text-right">Counted</th>
@@ -175,16 +192,14 @@ function QuarterTab({ storeCode, fy, qtr, onOpen }) {
               ))}
             </tbody>
           </table>
-          {d && !d.by_section.length && <p className="px-4 py-8 text-center text-sm text-slate-400">No inventory planned for {qtr} {fy} yet.</p>}
         </div>
-      </div>
+      </details>
       {older.length > 0 && (
         <p className="text-[12px] text-slate-500">Earlier attempts: {older.map((s) => (
           <button key={s.id} type="button" className="mr-2 font-semibold text-navy-800 underline dark:text-slate-200" onClick={() => onOpen(s.id)}>
             {s.section} #{s.attempt} ({s.status_label})
           </button>))}</p>
       )}
-      {d?.by_category?.length > 0 && <CategoryTable rows={d.by_category} />}
       {planning && <PlanDialog storeCode={storeCode} fy={fy} qtr={qtr} onClose={() => setPlanning(false)} onDone={(s) => { setPlanning(false); onOpen(s.id); }} />}
     </div>
   );
@@ -231,7 +246,7 @@ function PlanDialog({ storeCode, fy, qtr, onClose, onDone }) {
   const save = async () => {
     setBusy(true);
     try {
-      const r = await inv.plan({ store_code: storeCode, fiscal_year: fy, quarter: qtr, ...f, section_id: Number(f.section_id) });
+      const r = await inv.plan({ store_code: storeCode, fiscal_year: fy, quarter: qtr, ...f, section_id: f.section_id ? Number(f.section_id) : null });
       toast.success("Inventory planned");
       qc.invalidateQueries({ queryKey: ["inventory"] });
       onDone(r.data.data);
@@ -245,11 +260,11 @@ function PlanDialog({ storeCode, fy, qtr, onClose, onDone }) {
   return (
     <Modal open onClose={onClose} title={`Plan inventory · ${qtr} FY ${fy}`}
       footer={<><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn-primary" disabled={busy || !f.section_id} onClick={save}>{busy ? "Saving…" : "Plan"}</button></>}>
+        <button type="button" className="btn-primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Plan"}</button></>}>
       <div className="space-y-3 text-sm">
-        <label className="block">Section
+        <label className="block">What to count
           <select className="input-field mt-1 w-full" value={f.section_id} onChange={(e) => setF({ ...f, section_id: e.target.value })}>
-            <option value="">Select section…</option>
+            <option value="">All sections — whole Spare Store</option>
             {(sections.data || []).filter((s) => s.is_active !== false).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </label>
@@ -545,7 +560,7 @@ function PartsTable({ data, status, setStatus, q, setQ, s, storeCode, onChange, 
       <div className="max-h-[60vh] overflow-auto">
         <table className="w-full min-w-[980px] text-left text-[12.5px]">
           <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950 dark:text-slate-400">
-            <tr><th className="px-3 py-2">Part No</th><th className="px-3 py-2">Item Description</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">Location</th>
+            <tr><th className="px-3 py-2">Part No</th><th className="px-3 py-2">Item Description</th><th className="px-3 py-2">Section</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">Location</th>
               <th className="px-3 py-2 text-right">ERP Qty</th><th className="px-3 py-2 text-right">Physical Qty</th><th className="px-3 py-2 text-right">Difference</th><th className="px-3 py-2 text-right">Diff ₹</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Counted by</th><th /></tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
@@ -553,6 +568,7 @@ function PartsTable({ data, status, setStatus, q, setQ, s, storeCode, onChange, 
               <tr key={r.part_id} className="text-slate-700 dark:text-slate-200">
                 <td className="px-3 py-2 font-mono font-semibold">{r.part_no}</td>
                 <td className="max-w-[260px] truncate px-3 py-2" title={r.item_description}>{r.item_description}</td>
+                <td className="px-3 py-2">{r.section || "—"}</td>
                 <td className="px-3 py-2">{r.category || "—"}</td>
                 <td className="px-3 py-2">{r.location || "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{num(r.erp_qty)}</td>

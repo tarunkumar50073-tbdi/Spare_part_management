@@ -204,7 +204,8 @@ def export(sid, fmt):
                 ("Excess Qty", "excess_qty"), ("Accuracy %", "accuracy_pct")]
         name += " by Category"
     else:
-        cols = [("Part No", "part_no"), ("Item Description", "item_description"), ("Category", "category"),
+        cols = [("Part No", "part_no"), ("Item Description", "item_description"), ("Section", "section"),
+                ("Category", "category"),
                 ("Location", "location"), ("UOM", "uom"), ("ERP Qty", "erp_qty"), ("Physical Qty", "physical_qty"),
                 ("Difference", "variance_qty"), ("Rate", "rate"), ("Difference Value", "variance_value"),
                 ("Status", "status"), ("Counted By", "counted_by"), ("Remarks", "remarks")]

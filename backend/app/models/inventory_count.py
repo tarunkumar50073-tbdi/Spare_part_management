@@ -33,7 +33,10 @@ class InventorySession(BaseModel):
     store_code = db.Column(db.String(30), db.ForeignKey("stores.code"), nullable=False, index=True)
     fiscal_year = db.Column(db.String(10), nullable=False)          # "2026-27"
     quarter = db.Column(db.String(2), nullable=False)               # Q1..Q4
-    section_id = db.Column(db.Integer, db.ForeignKey("sections.id"), nullable=False, index=True)
+    # NULL = the whole store, every section at once (15 Nov 2026: "quaterly
+    # inventory to spare store ki honi chahiye") — the usual case; a section
+    # can still be counted on its own.
+    section_id = db.Column(db.Integer, db.ForeignKey("sections.id"), nullable=True, index=True)
     # A second session of the same section + FY + quarter only with a reason
     # (spec 3: "unless explicitly authorized"); the first is attempt 1.
     attempt = db.Column(db.Integer, nullable=False, default=1)
@@ -128,6 +131,7 @@ class InventoryResult(BaseModel):
     part_no = db.Column(db.String(50), nullable=False)
     item_description = db.Column(db.String(150), nullable=True)
     uom = db.Column(db.String(10), nullable=True)
+    section_name = db.Column(db.String(60), nullable=True)
     category = db.Column(db.String(50), nullable=True)
     location = db.Column(db.String(60), nullable=True)
     erp_qty = db.Column(db.Numeric(14, 3), nullable=True)

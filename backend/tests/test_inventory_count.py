@@ -250,3 +250,31 @@ def test_api_three_rights(app):
     assert pdf.status_code == 200 and pdf.data.startswith(b"%PDF")
     assert mgr.get("/api/v1/inventory/board", query_string={"store_code": STORE}).get_json()["data"]["has_data"]
     assert mgr.get("/api/v1/inventory/history", query_string={"store_code": STORE}).status_code == 200
+
+
+def test_whole_store_inventory_covers_every_section_and_splits_by_section():
+    store = Store.query.filter_by(code=STORE).one()
+    for sess in svc.sessions(STORE, "2025-26", "Q4"):
+        raise AssertionError("clean quarter expected")
+    sec_a, sec_b = _section(), _section()
+    a, b = _part(sec_a, 4), _part(sec_b, 2)
+    s = svc.plan(STORE, "2025-26", "Q4", None, "2026-03-25", "2026-03-31", "sup")
+    assert s["whole_store"] and s["section"] == "All sections"
+    with pytest.raises(BadRequestError, match="needs a reason"):
+        svc.plan(STORE, "2025-26", "Q4", sec_a.id, "2026-03-25", "2026-03-31", "sup")
+    s = svc.start(s["id"], STORE, "sup")
+    lines = {l.part_id: l for l in InventorySnapshotLine.query.filter_by(session_id=s["id"]).all()}
+    assert a.id in lines and b.id in lines and lines[a.id].section_name == sec_a.name
+    total_active = Part.query.filter_by(store_code=STORE, is_active=True).count()
+    assert len(lines) == total_active
+    svc.count(s["id"], STORE, a.id, 4, "ravi")
+    svc.count(s["id"], STORE, b.id, 1, "ravi")
+    assert svc.line(s["id"], STORE, part_id=b.id)["other_section"] is False
+    svc.submit(s["id"], STORE, "sup")
+    svc.approve(s["id"], STORE, "mgr")
+    q = svc.quarter(STORE, "2025-26", "Q4", verified_only=True)
+    by = {x["name"]: x for x in q["by_section"]}
+    assert by[sec_a.name]["accuracy_pct"] == 100.0 and by[sec_b.name]["shortage_qty"] == 1
+    assert q["sessions"][0]["whole_store"] and q["audit_completion_pct"] == 100.0
+    rows = {r["part_id"]: r for r in svc.detail(s["id"], STORE)["rows"]}
+    assert rows[b.id]["section"] == sec_b.name

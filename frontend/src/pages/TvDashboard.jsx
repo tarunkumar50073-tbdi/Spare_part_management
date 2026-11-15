@@ -2889,7 +2889,7 @@ function InventoryBoardCard({ className = "", onOpen }) {
                 <div className="grid grid-cols-2 gap-[0.5vh] h-full">
                   {[
                     { label: "Accuracy", value: invPct(acc), sub: `${fmtInt(s.matched_parts)} matched of ${fmtInt(s.counted_parts)} counted`, color: accColor },
-                    { label: "Audit Completion", value: invPct(d.audit_completion_pct), sub: `${d.completed_sections} of ${d.sections} sections approved`, color: C.cyan },
+                    { label: "Audit Completion", value: invPct(d.audit_completion_pct), sub: `${d.completed_sections} of ${d.sections} inventories approved`, color: C.cyan },
                     { label: "Shortage / Excess", value: `${fmtInt(s.shortage_qty)} / ${fmtInt(s.excess_qty)}`, sub: `${fmtInt(s.variance_parts)} variance parts`, color: STATUS.out },
                     { label: "ERP / Physical", value: `${fmtInt(s.erp_qty)} / ${fmtInt(s.physical_qty)}`, sub: "qty, approved sections", color: C.blue },
                   ].map((t) => (
@@ -2938,7 +2938,7 @@ function InventoryDrillView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-[1vh]">
         {[
           ["Accuracy", invPct(s.accuracy_pct), delta == null ? "matched ÷ counted" : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)} pts vs ${prev.quarter} ${prev.fiscal_year}`],
-          ["Audit Completion", invPct(d.audit_completion_pct), `${d.completed_sections} of ${d.sections} sections`],
+          ["Audit Completion", invPct(d.audit_completion_pct), `${d.completed_sections} of ${d.sections} approved`],
           ["ERP Qty", fmtInt(s.erp_qty), "snapshot"], ["Physical Qty", fmtInt(s.physical_qty), "counted"],
           ["Net Difference", fmtInt(s.net_difference_qty), "physical − ERP"], ["Shortage Qty", fmtInt(s.shortage_qty), `${fmtInt(s.shortage_parts)} parts`],
           ["Excess Qty", fmtInt(s.excess_qty), `${fmtInt(s.excess_parts)} parts`], ["Not Counted", fmtInt(s.not_counted_parts), "parts"],

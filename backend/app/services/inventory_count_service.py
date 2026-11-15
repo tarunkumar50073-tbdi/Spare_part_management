@@ -71,6 +71,14 @@ def _text(value, limit):
     return t[:limit] or None
 
 
+WHOLE_STORE = "All sections"
+
+
+def scope_name(s):
+    """What a session counts: its section, or the whole store."""
+    return s.section.name if s.section else WHOLE_STORE
+
+
 def _who(user):
     return (str(user) if user else "SYSTEM")[:60]
 
@@ -133,7 +141,7 @@ class InventoryCountService:
     def session_dict(self, s, with_summary=True):
         out = {
             "id": s.id, "store_code": s.store_code, "fiscal_year": s.fiscal_year, "quarter": s.quarter,
-            "section_id": s.section_id, "section": s.section.name if s.section else None,
+            "section_id": s.section_id, "section": scope_name(s), "whole_store": s.section_id is None,
             "attempt": s.attempt, "duplicate_reason": s.duplicate_reason,
             "start_date": s.start_date.isoformat(), "close_date": s.close_date.isoformat(),
             "status": s.status, "status_label": STATUS_WORD[s.status], "remarks": s.remarks,
@@ -167,22 +175,27 @@ class InventoryCountService:
             raise BadRequestError("Financial year must look like 2026-27")
         if quarter not in QUARTERS:
             raise BadRequestError("Quarter must be Q1, Q2, Q3 or Q4")
-        section = db.session.get(Section, int(section_id)) if str(section_id or "").isdigit() else None
-        if section is None or section.store.code != store_code:
-            raise BadRequestError("Pick a section of this store")
+        section = None
+        if str(section_id or "").strip() not in ("", "0", "None", "null"):
+            section = db.session.get(Section, int(section_id)) if str(section_id).isdigit() else None
+            if section is None or section.store.code != store_code:
+                raise BadRequestError("Pick a section of this store, or the whole store")
         start, close = _date(start_date, "Start date"), _date(close_date, "Closing date")
         if close < start:
             raise BadRequestError("Closing date cannot be before the start date")
-        earlier = (InventorySession.query.filter_by(store_code=store_code, fiscal_year=fy, quarter=quarter,
-                                                    section_id=section.id)
-                   .order_by(InventorySession.attempt.desc()).first())
+        # The whole store overlaps every section, and a section overlaps the whole store.
+        q = InventorySession.query.filter_by(store_code=store_code, fiscal_year=fy, quarter=quarter)
+        if section is not None:
+            q = q.filter((InventorySession.section_id == section.id) | InventorySession.section_id.is_(None))
+        earlier = q.order_by(InventorySession.attempt.desc()).first()
         reason = _text(duplicate_reason, 255)
         if earlier is not None and not reason:
             raise BadRequestError(
-                f"{section.name} already has a {quarter} {fy} inventory ({STATUS_WORD[earlier.status]}) — "
-                "a second one needs a reason")
+                f"{quarter} {fy} already has an inventory covering this ({scope_name(earlier)}, "
+                f"{STATUS_WORD[earlier.status]}) — a second one needs a reason")
         with atomic():
-            s = InventorySession(store_code=store_code, fiscal_year=fy, quarter=quarter, section_id=section.id,
+            s = InventorySession(store_code=store_code, fiscal_year=fy, quarter=quarter,
+                                 section_id=section.id if section else None,
                                  attempt=(earlier.attempt + 1) if earlier else 1,
                                  duplicate_reason=reason if earlier else None,
                                  start_date=start, close_date=close, status="PLANNED",
@@ -226,14 +239,15 @@ class InventoryCountService:
 
     # ---- ERP snapshot ------------------------------------------------------------------------------
     def _section_parts(self, s):
-        return (Part.query.filter(Part.store_code == s.store_code, Part.section_id == s.section_id,
-                                  Part.is_active.is_(True))
-                .order_by(Part.part_no).all())
+        q = Part.query.filter(Part.store_code == s.store_code, Part.is_active.is_(True))
+        if s.section_id is not None:
+            q = q.filter(Part.section_id == s.section_id)
+        return q.order_by(Part.part_no).all()
 
     def _line(self, s, part, erp_qty):
         return InventorySnapshotLine(
             session_id=s.id, part_id=part.id, part_no=part.part_no, item_description=part.part_name,
-            uom=part.uom, section_name=s.section.name if s.section else None,
+            uom=part.uom, section_name=part.section.name if part.section else None,
             category=part.sub_category, location=part.location, erp_qty=erp_qty, rate=part.unit_price)
 
     def start(self, session_id, store_code, user):
@@ -244,7 +258,7 @@ class InventoryCountService:
             raise BadRequestError("This inventory has already started")
         parts = self._section_parts(s)
         if not parts:
-            raise BadRequestError(f"{s.section.name} has no active parts in the Part Master")
+            raise BadRequestError(f"{scope_name(s)}: no active parts in the Part Master")
         erp = {r.part_id: r for r in ERPStock.query.filter(ERPStock.part_id.in_([p.id for p in parts])).all()}
         if not erp:
             raise BadRequestError("ERP stock has not been read for this section — upload ERP's stock Excel instead")
@@ -307,7 +321,7 @@ class InventoryCountService:
                 bad += 1
         parts = self._section_parts(s)
         if not parts:
-            raise BadRequestError(f"{s.section.name} has no active parts in the Part Master")
+            raise BadRequestError(f"{scope_name(s)}: no active parts in the Part Master")
         with atomic():
             hit = 0
             for p in parts:
@@ -362,7 +376,7 @@ class InventoryCountService:
             "part_id": part.id, "part_no": part.part_no, "item_description": part.part_name, "uom": part.uom,
             "location": (latest.location if latest else None) or (snap.location if snap else part.location),
             "in_snapshot": snap is not None,
-            "other_section": snap is None and part.section_id != s.section_id,
+            "other_section": snap is None and s.section_id is not None and part.section_id != s.section_id,
             "erp_qty": _n(snap.erp_qty) if snap else None,
             "count": self._count_dict(latest) if latest else None,
             "can_count": s.status == "IN_PROGRESS" and (latest is None or bool(latest.recount_ok_by)),
@@ -508,6 +522,7 @@ class InventoryCountService:
             db.session.add(InventoryResult(
                 session_id=s.id, revision=revision, part_id=r["part_id"], part_no=r["part_no"],
                 item_description=r["item_description"], uom=r["uom"], category=r["category"],
+                section_name=r["section"],
                 location=r["location"], erp_qty=r["_erp"], physical_qty=r["_phy"],
                 variance_qty=(r["_phy"] - (r["_erp"] or 0)) if r["_phy"] is not None else None,
                 rate=r["_rate"], status=r["status"]))
@@ -566,6 +581,7 @@ class InventoryCountService:
                 "part_id": pid, "part_no": l.part_no if l else p.part_no,
                 "item_description": l.item_description if l else p.part_name, "uom": l.uom if l else p.uom,
                 "category": l.category if l else p.sub_category,
+                "section": l.section_name if l else (p.section.name if p.section else None),
                 "location": (c.location if c and c.location else None) or (l.location if l else p.location),
                 "_erp": erp, "_phy": phy, "_rate": rate, "status": status_of(erp, phy),
                 "in_snapshot": l is not None,
@@ -586,7 +602,7 @@ class InventoryCountService:
             for c in InventoryCount.query.filter_by(session_id=s.id).order_by(InventoryCount.seq).all():
                 last[c.part_id] = c
             rows = [{"part_id": r.part_id, "part_no": r.part_no, "item_description": r.item_description,
-                     "uom": r.uom, "category": r.category, "location": r.location,
+                     "uom": r.uom, "category": r.category, "location": r.location, "section": r.section_name,
                      "_erp": r.erp_qty, "_phy": r.physical_qty, "_rate": r.rate, "status": r.status,
                      "in_snapshot": True,
                      "counted_by": last[r.part_id].counted_by if r.part_id in last else None,
@@ -604,7 +620,6 @@ class InventoryCountService:
             r["rate"] = float(rate) if rate is not None else None
             r["variance_value"] = (round(r["variance_qty"] * r["rate"], 2)
                                    if r["variance_qty"] is not None and r["rate"] is not None else None)
-            r["section"] = s.section.name if s.section else None
             out.append(r)
         out.sort(key=lambda r: r["part_no"])
         return out
@@ -648,7 +663,8 @@ class InventoryCountService:
 
     # ---- quarter level -------------------------------------------------------------------------------
     def _quarter_sessions(self, store_code, fiscal_year, quarter):
-        """The sessions of a quarter that count: per section, its latest attempt."""
+        """The sessions of a quarter that count: per scope (a section, or the
+        whole store), its latest attempt."""
         latest = {}
         for s in (InventorySession.query.filter_by(store_code=store_code, fiscal_year=fiscal_year, quarter=quarter)
                   .order_by(InventorySession.attempt).all()):
@@ -656,18 +672,25 @@ class InventoryCountService:
         return list(latest.values())
 
     def quarter(self, store_code, fiscal_year, quarter, verified_only=False):
-        """A quarter across sections: overview, by section, by category."""
+        """A quarter: overview, by section (a whole-store inventory split by
+        each part's section), by category; `sessions` lists the inventories."""
         sessions = self._quarter_sessions(store_code, fiscal_year, quarter)
-        rows, by_section = [], []
+        rows, by_section, listed = [], [], []
         for s in sessions:
+            listed.append({"session_id": s.id, "name": scope_name(s), "status": s.status,
+                           "status_label": STATUS_WORD[s.status], "whole_store": s.section_id is None})
             if s.status == "PLANNED" or (verified_only and s.status != "COMPLETED"):
-                by_section.append({"session_id": s.id, "name": s.section.name, "status": s.status,
+                by_section.append({"session_id": s.id, "name": scope_name(s), "status": s.status,
                                    "status_label": STATUS_WORD[s.status], **summarize([])})
                 continue
             r = self.reconcile(s)
             rows += r
-            by_section.append({"session_id": s.id, "name": s.section.name, "status": s.status,
-                               "status_label": STATUS_WORD[s.status], **summarize(r)})
+            groups = defaultdict(list)
+            for x in r:
+                groups[x.get("section") or "No section"].append(x)
+            for name, part_rows in groups.items():
+                by_section.append({"session_id": s.id, "name": name, "status": s.status,
+                                   "status_label": STATUS_WORD[s.status], **summarize(part_rows)})
         done = sum(1 for s in sessions if s.status == "COMPLETED")
         return {
             "fiscal_year": fiscal_year, "quarter": quarter, "sections": len(sessions), "completed_sections": done,
@@ -677,6 +700,7 @@ class InventoryCountService:
                        "Reconciliation Pending" if any(s.status == "RECON_PENDING" for s in sessions) else
                        "In Progress" if any(s.status != "PLANNED" for s in sessions) else "Planned"),
             "summary": summarize(rows), "by_section": sorted(by_section, key=lambda x: x["name"]),
+            "sessions": listed,
             "by_category": self._grouped(rows, "category"),
         }
 
