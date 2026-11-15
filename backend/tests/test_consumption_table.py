@@ -741,7 +741,7 @@ def test_table_endpoint(client, make, plant_at):
     columns = {
         "list": ["Date", "Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Department",
                  "Issued to Dept", "Issued To", "Line", "Machine", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
-                 "Status"],
+                 "Status", "Remarks"],
         "day": ["Date", "Day", *FIGURES],
         "week": ["Week", *FIGURES],
         "month": ["Month", *FIGURES],
@@ -1049,7 +1049,7 @@ def test_reports_page_no_longer_offers_consumption(client, make):
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Department",
                 "Issued to Dept", "Issued To", "Line", "Machine", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
-                "Status")
+                "Status", "Remarks")
 LIST_FIGURES = ("Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value")
 ISSUED = ("Issues", "Parts", "Qty Issued", "Value")
 TOTAL_FIGURES = ("Qty Issued", "Value", "Qty Returned", "Net Qty", "Net Value")
@@ -1602,3 +1602,12 @@ def test_live_board_issue_month_reads_the_report(make, plant_at):
     # A section group is read as its department.
     grouped = SpareDashboardService._issue_month(f.s.code, None, [f.s.live], *SPRING)
     assert [d["name"] for d in grouped["departments"]] == [f.group] and grouped["total"]["qty"] == 11
+
+
+def test_issue_remark_shows_what_the_store_wrote():
+    from app.services.consumption_table_service import _issue_remark
+    assert _issue_remark("Packet TB20261018CNMM5114 (unit, receipt RCP-27Q9JJ) · PWM-34") == "PWM-34"
+    assert _issue_remark("2 labels of TB20261018CNMM5114 (RCP-A, RCP-B) · PWM-34") == "PWM-34"
+    assert _issue_remark("1 label of TB1 (RCP-A) — FIFO skipped: rusty · on PWM-34") == "FIFO skipped: rusty · on PWM-34"
+    assert _issue_remark("Packet TB1 (unit, receipt RCP-A)") is None
+    assert _issue_remark("for breakdown") == "for breakdown" and _issue_remark(None) is None

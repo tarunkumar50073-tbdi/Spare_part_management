@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { spareStockService } from "../../../services/spareStockService.js";
 import { ArrowRight, CircleAlert, Info, Lock, TriangleAlert } from "lucide-react";
@@ -319,7 +319,7 @@ export function LineMachinePicker({ id, department, value, onChange }) {
           </p>
         )}
       </Field>
-      <Field label="Machine" htmlFor={`${id}-mc`} hint={value.line ? `${line?.machines.length || 0} on this line` : "Pick the line first"}>
+      <Field label="Machine" htmlFor={`${id}-mc`} hint={value.line ? `${line?.machines.length || 0} on this line` : "Pick the line, or find it by number below"}>
         <select id={`${id}-mc`} value={value.machine} disabled={!line}
           onChange={(e) => onChange({ ...value, machine: e.target.value })} className={inputCls(false, "text-base")}>
           <option value="">Select machine (optional)…</option>
@@ -327,8 +327,41 @@ export function LineMachinePicker({ id, department, value, onChange }) {
             <option key={m.code} value={m.code}>{m.name ? `${m.code} — ${m.name}` : m.code}</option>
           ))}
         </select>
+        <MachineFinder id={id} lines={lines} disabled={off || failed} onPick={onChange} />
       </Field>
     </>
+  );
+}
+
+// Find a machine by its number on any line (15 Nov 2026: PWM-34 sits on
+// SA_4W_YNC, not SA_PWM, so it was written in Remarks): type "PWM-34" or
+// "pwm 34", pick it, and the line + machine fill themselves.
+function MachineFinder({ id, lines, disabled, onPick }) {
+  const [text, setText] = useState("");
+  const all = [];
+  for (const l of lines) for (const m of l.machines) all.push({ line: l.line, code: m.code, name: m.name });
+  const key = (v) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const want = key(text);
+  const hits = want.length < 2 ? [] : all.filter((m) => key(m.code).includes(want) || key(m.name).includes(want)).slice(0, 8);
+  return (
+    <div className="mt-1.5">
+      <input id={`${id}-mcfind`} type="search" value={text} disabled={disabled} onChange={(e) => setText(e.target.value)}
+        placeholder="Find machine by no. (e.g. PWM-34)" aria-label="Find machine by number" className={inputCls(false, "text-sm")} />
+      {hits.length > 0 && (
+        <ul className="mt-1 max-h-48 overflow-auto rounded-lg border border-slate-200 bg-white text-sm shadow-sm dark:border-navy-700 dark:bg-navy-900">
+          {hits.map((m) => (
+            <li key={`${m.line}|${m.code}`}>
+              <button type="button" className="w-full px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-navy-800"
+                onClick={() => { onPick({ line: m.line, machine: m.code }); setText(""); }}>
+                <span className="font-mono font-semibold">{m.code}</span>
+                <span className="text-slate-500"> · {m.line.replace(/_/g, " ")}{m.name ? ` · ${m.name.replace(/_/g, " ")}` : ""}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {want.length >= 2 && hits.length === 0 && <p className="mt-1 text-xs text-slate-400">No machine matches “{text}”.</p>}
+    </div>
   );
 }
 

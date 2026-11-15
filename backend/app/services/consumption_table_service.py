@@ -68,6 +68,7 @@ Links from before the merge name report=issuance, or no report at all: they
 get this report (_report()).
 """
 import io
+import re
 from collections import namedtuple
 from datetime import date, datetime, time, timedelta
 from xml.sax.saxutils import escape
@@ -108,7 +109,7 @@ Use = namedtuple("Use", "issue part dept section day qty back cancelled")
 # the Issue Register's words.
 _L = SpareStockLedger
 ISSUE_COLUMNS = (_L.id, _L.part_id, _L.qty_delta, _L.created_at, _L.status, _L.actual_qty, _L.reference, _L.department, _L.issued_to, _L.issued_to_mobile,
-                 _L.issued_to_code, _L.employee_id, _L.line_name, _L.machine)
+                 _L.issued_to_code, _L.employee_id, _L.line_name, _L.machine, _L.remarks)
 # The screen's filters: the Part and Section rows picked, the consuming
 # department and the part type typed (None = all).
 Filters = namedtuple("Filters", "part section department type")
@@ -163,7 +164,27 @@ BY_DEPT_PART_COLUMNS = ("Issued to Dept", "Part No", "Item Description", "UOM", 
 # Line + Machine: where the part went, as picked on the issue (13 Nov 2026), blank before.
 LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Department",
                 "Issued to Dept", "Issued To", "Line", "Machine", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
-                "Status")
+                "Status", "Remarks")
+
+# Remarks (15 Nov 2026: "m/c no. sayaad remarks me daali thi wo nhi dikha rha"):
+# what the store wrote on the issue. A label issue starts with the app's own
+# note ("Packet TB… (unit, receipt …)" / "2 labels of TB… (…)") — that part is
+# the Reference already, so only what follows " · " and a FIFO skip are shown.
+_LABEL_NOTE = re.compile(r"^(?:Packet TB\S+ \([^)]*\)|\d+ labels? of .*? \([^)]*\))")
+
+
+def _issue_remark(text):
+    text = (text or "").strip()
+    m = _LABEL_NOTE.match(text)
+    if not m:
+        return text or None
+    rest = text[m.end():].strip()
+    skip, _, mine = rest.partition(" · ")
+    if not skip.startswith("—"):
+        skip, mine = "", rest.lstrip("· ").strip()
+    parts = [x for x in (skip.lstrip("— ").strip(), mine.strip()) if x]
+    return " · ".join(parts) or None
+
 
 UNCATEGORISED = "Uncategorised"
 # An issue with no person written on it.
@@ -966,7 +987,7 @@ class ConsumptionTableService:
             "Item Description": part.part_name, "Section": u.section, "Department": u.dept,
             "Issued to Dept": _dept_taken(i), "Issued To": _issued_to(i), "Rate": part.unit_price or None,   # a rate of 0 is a missing rate
             "Line": i.line_name, "Machine": i.machine,
-            "Status": _issue_status(i),
+            "Status": _issue_status(i), "Remarks": _issue_remark(i.remarks),
         }
         if u.cancelled:
             return {column: cells.get(column) for column in columns} | {"Qty Issued": u.qty}

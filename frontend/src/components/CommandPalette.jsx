@@ -11,7 +11,7 @@ import { can, seesSpareStock } from "../utils/permissions.js";
 // Quick-jump destinations. `mod`/`admin` gate an entry to who may open it.
 const NAV = [
   { label: "Dashboard", to: "/", keywords: "home overview store status" },
-  { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "barcode qr code issue receive return rgp supplier barcode supplier qr code mapping label put away putaway bin location check multiple labels many labels ek saath machine line kis machine m/c add person new person fabrication" },
+  { label: "Scan Part", to: "/scan-part", mod: "scan_part", keywords: "machine no machine number find machine machine dhundo barcode qr code issue receive return rgp supplier barcode supplier qr code mapping label put away putaway bin location check multiple labels many labels ek saath machine line kis machine m/c add person new person fabrication" },
   { label: "Packets & QR Labels", to: "/spare-packets", mod: "spare_packets", keywords: "qr label lable print sticker tag packet packing fifo box label supplier label gate entry qr receipt old stock verify undo verify qc pending receipt to verify label printer godex printer setup direct print label helper print helper pkt qty packet qty labels fifo fifo order reprint label whole rack pura rack rack wise printed labels label excel label pdf issued labels issued qr issue hue qr issue hue label" },
   { label: "Job Work & RGP", to: "/job-work", mod: "scan_part", keywords: "job work rgp challan coating isuzu oerlikon returnable foc repair vendor rgp pending rgp status rgp close industrial tooling issue slip" },
   { label: "Kiosk", to: "/part-search", mod: "part_kiosk", keywords: "part search kiosk find part photo kahan rakha location" },
@@ -22,7 +22,7 @@ const NAV = [
   { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },
   { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data model no item description qr list qr pdf pkt qty packet qty" },
   { label: "Critical · Reorder · Excess", to: "/inventory-control", mod: "inventory_control", keywords: "short critical zero reorder excess aging order qty" },
-  { label: "Issue Register", to: "/consumption", mod: "consumption", keywords: "issue register issuance report issuance issue list issued issue report who took taken by issued to person kisko diya kitna diya consumption consumed usage net returned trend top parts department category yesterday last month financial year fy full pack excel pdf charts" },
+  { label: "Issue Register", to: "/consumption", mod: "consumption", keywords: "issue register issue remarks remarks issuance report issuance issue list issued issue report who took taken by issued to person kisko diya kitna diya consumption consumed usage net returned trend top parts department category yesterday last month financial year fy full pack excel pdf charts" },
   { label: "Gate Entry", to: "/gate-entry", mod: "gate_entry", keywords: "gate entry receiving arrival inward vehicle" },
   { label: "Vehicle In / Out", to: "/vehicle-in-out", mod: "vehicle_in_out", keywords: "vehicle in out gate truck gaadi" },
   { label: "Receiving & GRN", to: "/receiving", mod: "receiving", keywords: "grn srv receipt receiving inward aging under inspection quality pending qc pending grn department dept wise check with erp take back" },
