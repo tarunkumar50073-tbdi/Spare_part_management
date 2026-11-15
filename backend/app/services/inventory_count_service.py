@@ -507,6 +507,38 @@ class InventoryCountService:
                 (skipped if "already counted" in str(e) else errors).append(f"Row {n}: {e}")
         return {"counted": done, "skipped": skipped[:200], "errors": errors[:200]}
 
+    # ---- one-step Excel upload (15 Nov 2026: "excel sheet upload ka option bhi hona chahiye") ------
+    TEMPLATE_COLUMNS = [("Part No", "part_no"), ("Item Description", "item_description"), ("Section", "section"),
+                        ("Location", "location"), ("UOM", "uom"), ("ERP Qty", "erp_qty"),
+                        ("Physical Qty", "physical_qty"), ("Remarks", "remarks")]
+
+    def template_rows(self, store_code, section_id=None):
+        """The upload format: every active part of the store (or a section),
+        ERP Qty and Physical Qty left blank to be filled."""
+        q = Part.query.filter(Part.store_code == store_code, Part.is_active.is_(True))
+        if section_id:
+            q = q.filter(Part.section_id == int(section_id))
+        return [{"part_no": p.part_no, "item_description": p.part_name,
+                 "section": p.section.name if p.section else "", "location": p.location or "",
+                 "uom": p.uom or "", "erp_qty": None, "physical_qty": None, "remarks": None}
+                for p in q.order_by(Part.part_no).all()]
+
+    def import_quarter(self, store_code, fiscal_year, quarter, section_id, start_date, close_date, data,
+                       filename, user, duplicate_reason=None, remarks=None):
+        """A quarter's inventory from one Excel (an old quarter's sheet, or the
+        format filled in): plan it, take ERP's figure from the file's ERP
+        column, the count from its Physical Qty column. It stays In Progress
+        for the supervisor to send for approval and the manager to approve."""
+        s = self.plan(store_code, fiscal_year, quarter, section_id, start_date, close_date, user,
+                      remarks=remarks or f"Uploaded from {filename}", duplicate_reason=duplicate_reason)
+        try:
+            self.start_from_excel(s["id"], store_code, io.BytesIO(data), filename, user)
+        except Exception:
+            self.delete_planned(s["id"], store_code, user)
+            raise
+        counts = self.import_counts(s["id"], store_code, io.BytesIO(data), user)
+        return {"session": self.session_dict(self._session(s["id"], store_code)), **counts}
+
     # ---- workflow ------------------------------------------------------------------------------------
     def submit(self, session_id, store_code, user, remarks=None):
         s = self._session(session_id, store_code)

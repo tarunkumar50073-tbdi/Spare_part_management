@@ -129,6 +129,7 @@ export default function QuarterlyInventory() {
 function QuarterTab({ storeCode, fy, qtr, onOpen }) {
   const canPlan = useCan("inventory_review", "create");
   const [planning, setPlanning] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const data = useQuery({
     queryKey: ["inventory", "quarter", storeCode, fy, qtr],
     queryFn: () => inv.quarter({ store_code: storeCode, fiscal_year: fy, quarter: qtr }).then((r) => r.data.data),
@@ -148,7 +149,12 @@ function QuarterTab({ storeCode, fy, qtr, onOpen }) {
         <div className="text-sm text-slate-600 dark:text-slate-300">
           <b>{qtr} · FY {fy}</b> — {d ? `${d.status}${d.sections > 1 ? ` · ${d.completed_sections} of ${d.sections} approved` : ""}` : "…"}
         </div>
-        {canPlan && <button type="button" className="btn-primary inline-flex items-center gap-1.5" onClick={() => setPlanning(true)}><Plus size={15} /> Plan inventory</button>}
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn-secondary inline-flex items-center gap-1.5"
+            onClick={() => inv.template(storeCode).catch((e) => toast.error(errText(e)))}><FileSpreadsheet size={15} /> Download format</button>
+          {canPlan && <button type="button" className="btn-secondary inline-flex items-center gap-1.5" onClick={() => setUploading(true)}><Upload size={15} /> Upload Excel</button>}
+          {canPlan && <button type="button" className="btn-primary inline-flex items-center gap-1.5" onClick={() => setPlanning(true)}><Plus size={15} /> Plan inventory</button>}
+        </div>
       </div>
       {(d?.sessions || []).length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -201,6 +207,7 @@ function QuarterTab({ storeCode, fy, qtr, onOpen }) {
           </button>))}</p>
       )}
       {planning && <PlanDialog storeCode={storeCode} fy={fy} qtr={qtr} onClose={() => setPlanning(false)} onDone={(s) => { setPlanning(false); onOpen(s.id); }} />}
+      {uploading && <PlanDialog upload storeCode={storeCode} fy={fy} qtr={qtr} onClose={() => setUploading(false)} onDone={(s) => { setUploading(false); onOpen(s.id); }} />}
     </div>
   );
 }
@@ -236,16 +243,29 @@ function CategoryTable({ rows }) {
   );
 }
 
-function PlanDialog({ storeCode, fy, qtr, onClose, onDone }) {
+// Plan a count, or (upload) make the quarter's inventory from one Excel: ERP
+// qty and physical qty come from the file (an old quarter's sheet, or the
+// downloaded format filled in).
+function PlanDialog({ storeCode, fy, qtr, onClose, onDone, upload = false }) {
   const qc = useQueryClient();
   const sections = useQuery({ queryKey: ["sections", storeCode], queryFn: () => storeService.sections(storeCode).then((r) => r.data.data) });
   const today = new Date().toISOString().slice(0, 10);
   const [f, setF] = useState({ section_id: "", start_date: today, close_date: today, remarks: "", duplicate_reason: "" });
   const [needReason, setNeedReason] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [file, setFile] = useState(null);
+  const [report, setReport] = useState(null);
   const save = async () => {
     setBusy(true);
     try {
+      if (upload) {
+        const r = (await inv.importQuarter({ store_code: storeCode, fiscal_year: fy, quarter: qtr, ...f }, file)).data.data;
+        qc.invalidateQueries({ queryKey: ["inventory"] });
+        toast.success(`${r.counted} parts counted from the file`);
+        if (r.errors.length || r.skipped.length) { setReport(r); return; }
+        onDone(r.session);
+        return;
+      }
       const r = await inv.plan({ store_code: storeCode, fiscal_year: fy, quarter: qtr, ...f, section_id: f.section_id ? Number(f.section_id) : null });
       toast.success("Inventory planned");
       qc.invalidateQueries({ queryKey: ["inventory"] });
@@ -258,10 +278,24 @@ function PlanDialog({ storeCode, fy, qtr, onClose, onDone }) {
     }
   };
   return (
-    <Modal open onClose={onClose} title={`Plan inventory · ${qtr} FY ${fy}`}
-      footer={<><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn-primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Plan"}</button></>}>
+    <Modal open onClose={onClose} title={`${upload ? "Upload Excel" : "Plan inventory"} · ${qtr} FY ${fy}`}
+      footer={report
+        ? <button type="button" className="btn-primary" onClick={() => onDone(report.session)}>Open the inventory</button>
+        : <><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn-primary" disabled={busy || (upload && !file)} onClick={save}>{busy ? "Saving…" : upload ? "Upload" : "Plan"}</button></>}>
+      {report ? (
+        <div className="space-y-2 text-sm">
+          <p><b>{report.counted}</b> parts counted from the file. These rows were not taken:</p>
+          <ul className="max-h-72 list-disc space-y-1 overflow-auto pl-5 text-[12.5px]">{[...report.skipped, ...report.errors].map((t) => <li key={t}>{t}</li>)}</ul>
+        </div>
+      ) : (
       <div className="space-y-3 text-sm">
+        {upload && (
+          <div className="rounded-lg bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600 dark:bg-navy-950/40 dark:text-slate-300">
+            One Excel with <b>Part No</b>, the <b>ERP stock</b> column (ERP Qty / Closing Stock / &quot;ERP Stock 21 JUNE 26&quot;) and
+            <b> Physical Qty</b> (or Total Physical Qty). The heading may be in any of the top 15 rows. Use <b>Download format</b> for a blank one.
+          </div>
+        )}
         <label className="block">What to count
           <select className="input-field mt-1 w-full" value={f.section_id} onChange={(e) => setF({ ...f, section_id: e.target.value })}>
             <option value="">All sections — whole Spare Store</option>
@@ -273,12 +307,18 @@ function PlanDialog({ storeCode, fy, qtr, onClose, onDone }) {
           <label className="block">Closing date<input type="date" className="input-field mt-1 w-full" value={f.close_date} min={f.start_date} onChange={(e) => setF({ ...f, close_date: e.target.value })} /></label>
         </div>
         <label className="block">Remarks<input className="input-field mt-1 w-full" value={f.remarks} onChange={(e) => setF({ ...f, remarks: e.target.value })} placeholder="Optional" /></label>
+        {upload && (
+          <label className="block">Excel file (.xlsx)
+            <input type="file" accept=".xlsx" className="input-field mt-1 w-full" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+          </label>
+        )}
         {needReason && (
-          <label className="block text-amber-700">This section already has an inventory this quarter — reason for a second one
+          <label className="block text-amber-700">This quarter already has an inventory covering this — reason for a second one
             <input className="input-field mt-1 w-full" value={f.duplicate_reason} onChange={(e) => setF({ ...f, duplicate_reason: e.target.value })} />
           </label>
         )}
       </div>
+      )}
     </Modal>
   );
 }

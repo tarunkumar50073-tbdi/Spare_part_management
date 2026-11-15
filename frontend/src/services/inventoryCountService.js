@@ -30,6 +30,13 @@ export const inventoryCountService = {
   approve: (id, body) => api.post(`/inventory/sessions/${id}/approve`, body),
   reject: (id, body) => api.post(`/inventory/sessions/${id}/reject`, body),
   revise: (id, body) => api.post(`/inventory/sessions/${id}/revise`, body),
+  template: (storeCode) => downloadFile("/inventory/template", "Quarterly Inventory Upload Format.xlsx", { store_code: storeCode }),
+  importQuarter: (fields, file) => {
+    const fd = new FormData();
+    Object.entries(fields).forEach(([k, v]) => { if (v != null && v !== "") fd.append(k, v); });
+    fd.append("file", file);
+    return api.post("/inventory/sessions/import", fd);
+  },
   quarter: (params, config) => api.get("/inventory/quarter", { params, ...config }),
   history: (storeCode) => api.get("/inventory/history", { params: { store_code: storeCode } }),
   board: (storeCode, config) => api.get("/inventory/board", { params: { store_code: storeCode }, ...config }),

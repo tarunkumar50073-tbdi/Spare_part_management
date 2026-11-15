@@ -297,3 +297,33 @@ def test_count_sheet_heading_below_a_title_and_total_physical_qty():
     out = svc.import_counts(s["id"], STORE, buf, "ravi")
     assert out["counted"] == 1 and not out["errors"]
     assert svc.line(s["id"], STORE, part_id=a.id)["count"]["counted_qty"] == 8
+
+
+def test_one_excel_makes_an_old_quarter_and_the_format_downloads(app):
+    sec = _section()
+    a, b = _part(sec), _part(sec)
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Inventory Q1"])
+    ws.append(["Part No", "Description", "ERP Stock 21 JUNE 26", "Total Physical Qty"])
+    ws.append([a.part_no, "x", 10, 10])
+    ws.append([b.part_no, "y", 5, 4])
+    buf = io.BytesIO()
+    wb.save(buf)
+    out = svc.import_quarter(STORE, "2024-25", "Q1", sec.id, "2024-06-21", "2024-06-25", buf.getvalue(), "q1.xlsx", "sup")
+    assert out["counted"] == 2 and out["session"]["status"] == "IN_PROGRESS"
+    assert out["session"]["snapshot_source"] == "EXCEL"
+    rows = {r["part_id"]: r for r in svc.detail(out["session"]["id"], STORE)["rows"]}
+    assert rows[a.id]["status"] == "MATCH" and rows[b.id]["status"] == "SHORT" and rows[b.id]["erp_qty"] == 5
+    bad = Workbook()
+    bad.active.append(["Part No", "Physical Qty"])
+    bb = io.BytesIO()
+    bad.save(bb)
+    with pytest.raises(BadRequestError, match="stock columns"):
+        svc.import_quarter(STORE, "2024-25", "Q2", sec.id, "2024-09-21", "2024-09-25", bb.getvalue(), "bad.xlsx", "sup")
+    assert svc.sessions(STORE, "2024-25", "Q2") == []          # the plan is not left behind
+    c = app.test_client()
+    with c.session_transaction() as sess:
+        sess["user_id"] = _user({"inventory_count": {"view": True}}).id
+    t = c.get("/api/v1/inventory/template", query_string={"store_code": STORE})
+    assert t.status_code == 200 and t.data[:2] == b"PK"

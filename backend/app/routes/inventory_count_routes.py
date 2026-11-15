@@ -60,6 +60,32 @@ def plan():
         "Inventory planned", 201)
 
 
+@bp.route("/template", methods=["GET"])
+@permission_required(READ)
+def template():
+    """The Excel upload format: the store's parts, ERP Qty and Physical Qty blank."""
+    from app.utils.excel_io import build_export
+    rows = service.template_rows(_store(), request.args.get("section_id") or None)
+    return send_file(build_export(service.TEMPLATE_COLUMNS, rows), as_attachment=True,
+                     download_name="Quarterly Inventory Upload Format.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@bp.route("/sessions/import", methods=["POST"])
+@permission_required("inventory_review", "create")
+def import_quarter():
+    """One Excel = a quarter's inventory: ERP qty and physical qty from the file."""
+    f = request.files.get("file")
+    if f is None:
+        raise BadRequestError("Attach the inventory Excel (.xlsx)")
+    form = request.form
+    out = service.import_quarter(
+        _store(form.get("store_code")), form.get("fiscal_year"), form.get("quarter"), form.get("section_id") or None,
+        form.get("start_date"), form.get("close_date"), f.read(), f.filename, _who(),
+        duplicate_reason=form.get("duplicate_reason"), remarks=form.get("remarks"))
+    return success_response(out, "Inventory uploaded", 201)
+
+
 @bp.route("/sessions/<int:sid>", methods=["GET"])
 @permission_required(READ)
 def detail(sid):
