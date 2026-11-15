@@ -96,7 +96,7 @@ export default function QuarterlyInventory() {
             <CalendarRange size={20} aria-hidden="true" /> Quarterly Inventory
           </h2>
           <p className="mt-0.5 text-xs text-slate-400">
-            Physical count of each section against ERP&apos;s stock snapshot — count, reconcile, approve, lock. The app&apos;s own stock is not changed.
+            Physical count of the whole Spare Store against ERP&apos;s stock snapshot — count, reconcile, approve, lock. The app&apos;s own stock is not changed.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
