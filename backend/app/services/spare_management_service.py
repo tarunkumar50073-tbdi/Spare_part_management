@@ -766,50 +766,69 @@ class SpareManagementService:
                              .filter(Part.store_code == store_code, *scope).one())
         return {"months": months, "since": _plant_date(first_row), "issues": bool(issues)}
 
-    # Date / Month / Year for the Receipt · Issue · Consumption graph (15 Nov
-    # 2026: "month wise dropdown ... year bhi ... date bhi"): the last 30 days,
-    # 12 months, 5 years. Receipt = ERP GRN (receipt qty), Issue = the app's
-    # issues, Consumption = issue less what came back — all at today's rate.
-    SERIES_VIEWS = {"day": ("%Y-%m-%d", 30), "month": ("%Y-%m", 12), "year": ("%Y", 5)}
-
-    def _series(self, store_code, section_id, section_ids, as_of, offset, view):
-        fmt, count = self.SERIES_VIEWS[view]
-        if view == "day":
-            keys = [as_of - timedelta(days=n) for n in range(count - 1, -1, -1)]
-            first = keys[0]
+    # The Receipt · Issue · Consumption graph for any From–To range (15 Nov
+    # 2026: "customer calendar type kar de usme sab kuch aa jaayega date month
+    # year"): up to 62 days a bar a day, up to ~3 years a bar a month, longer a
+    # bar a year. Receipt = ERP GRN (receipt qty), Issue = the app's issues,
+    # Consumption = issue less what came back — all at today's rate.
+    def movement_range(self, store_code, date_from, date_to, section_id=None, section_ids=None):
+        try:
+            first = date.fromisoformat(str(date_from)[:10])
+            last = date.fromisoformat(str(date_to)[:10])
+        except ValueError:
+            raise BadRequestError("from and to must be dates (YYYY-MM-DD)")
+        if last < first:
+            raise BadRequestError("The To date is before the From date")
+        if (last - first).days > 3700:
+            raise BadRequestError("Pick at most 10 years")
+        days = (last - first).days + 1
+        if days <= 62:
+            gran, fmt = "day", "%Y-%m-%d"
+            keys = [first + timedelta(days=n) for n in range(days)]
             label = lambda d: f"{d:%d %b}"
-        elif view == "month":
-            keys = _month_starts(as_of, count)
-            first = keys[0]
+        elif days <= 1100:
+            gran, fmt = "month", "%Y-%m"
+            keys, d = [], first.replace(day=1)
+            while d <= last:
+                keys.append(d)
+                d = date(d.year + (d.month == 12), d.month % 12 + 1, 1)
             label = lambda d: f"{d:%b %y}"
         else:
-            keys = [date(as_of.year - n, 1, 1) for n in range(count - 1, -1, -1)]
-            first = keys[0]
+            gran, fmt = "year", "%Y"
+            keys = [date(y, 1, 1) for y in range(first.year, last.year + 1)]
             label = lambda d: f"{d:%Y}"
+        offset = _local_offset()
         scope = _sec_tuple(section_id, section_ids)
         R, L = ReceivingRegister, SpareStockLedger
         rated = Part.unit_price.isnot(None)
         k_in = func.strftime(fmt, R.grn_date)
         grn = dict(db.session.query(k_in, func.sum(case((rated, R.receipt_qty * Part.unit_price), else_=0)))
                    .select_from(Part).join(R, R.item_cd == Part.part_no)
-                   .filter(Part.store_code == store_code, R.grn_date >= first, *scope).group_by(k_in).all())
+                   .filter(Part.store_code == store_code, R.grn_date >= first, R.grn_date <= last, *scope)
+                   .group_by(k_in).all())
         k_led = func.strftime(fmt, L.created_at, f"{int(offset.total_seconds() // 60):+d} minutes")
         is_out, is_ret = L.txn_type == "ISSUE", L.txn_type == "RETURN"
+        start = datetime.combine(first, datetime.min.time()) - offset
+        end = datetime.combine(last + timedelta(days=1), datetime.min.time()) - offset
         led = {k: (float(o or 0), abs(float(r or 0))) for k, o, r in db.session.query(
                    k_led,
                    func.sum(case((and_(is_out, rated), -L.qty_delta * Part.unit_price), else_=0)),
                    func.sum(case((and_(is_ret, rated), L.qty_delta * Part.unit_price), else_=0)))
                .join(Part, Part.id == L.part_id)
                .filter(Part.store_code == store_code, L.txn_type.in_(("ISSUE", "RETURN")),
-                       L.created_at >= datetime.combine(first, datetime.min.time()) - offset, *scope)
+                       L.created_at >= start, L.created_at < end, *scope)
                .group_by(k_led).all()}
-        out = []
+        points, tin, tout, tuse = [], 0.0, 0.0, 0.0
         for d in keys:
             key = d.strftime(fmt)
             o, r = led.get(key, (0.0, 0.0))
-            out.append({"key": key, "label": label(d), "in_value": _money(float(grn.get(key) or 0)),
-                        "out_value": _money(o), "use_value": _money(max(o - r, 0))})
-        return out
+            i = float(grn.get(key) or 0)
+            u = max(o - r, 0)
+            tin, tout, tuse = tin + i, tout + o, tuse + u
+            points.append({"key": key, "label": label(d), "in_value": _money(i), "out_value": _money(o),
+                           "use_value": _money(u)})
+        return {"from": first.isoformat(), "to": last.isoformat(), "granularity": gran, "points": points,
+                "total": {"in_value": _money(tin), "out_value": _money(tout), "use_value": _money(tuse)}}
 
     def _movement(self, store_code, section_id, section_ids, as_of, offset, erp, unrated_parts):
         """Monthly IN against OUT in rupees for the last six plant months. IN is
@@ -873,9 +892,6 @@ class SpareManagementService:
                            "out_value": this["out_value"], "use_value": this["use_value"],
                            "net_value": _money(this["in_value"] - this["out_value"]) if both else None},
             "unrated_parts": unrated_parts,
-            "series": {view: _safe(f"the {view}-wise movement",
-                                   lambda view=view: self._series(store_code, section_id, section_ids, as_of, offset, view))
-                       for view in ("day", "year")},
         }
 
     # -------------------------------------------------------------------- scan

@@ -18,6 +18,8 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
+from app.utils.exceptions import BadRequestError
+
 from app.extensions import db
 from app.models.app_setting import AppSetting
 from app.models.base import utcnow
@@ -529,8 +531,16 @@ def test_movement_months_in_and_out():
                                 "net_value": 50.0}
     # Consumption = issue less returns (15 Nov 2026), and the Date / Year views.
     assert col("use_value") == [None, None, None, 0.0, 100.0, 0.0]
-    assert len(mv["series"]["day"]) == 30 and len(mv["series"]["year"]) == 5
-    assert mv["series"]["year"][-1]["in_value"] >= 50.0 and mv["series"]["day"][-1]["key"] == f"{today:%Y-%m-%d}"
+    # Any From–To range: days, months or years by its length.
+    svc = SpareManagementService()
+    days = svc.movement_range(STORE, today - timedelta(days=29), today)
+    assert days["granularity"] == "day" and len(days["points"]) == 30 and days["points"][-1]["key"] == f"{today:%Y-%m-%d}"
+    mon = svc.movement_range(STORE, today - timedelta(days=200), today)
+    assert mon["granularity"] == "month" and mon["total"]["in_value"] >= 50.0
+    years = svc.movement_range(STORE, today.replace(year=today.year - 4), today)
+    assert years["granularity"] == "year" and len(years["points"]) == 5
+    with pytest.raises(BadRequestError):
+        svc.movement_range(STORE, today, today - timedelta(days=1))
     assert mv["unrated_parts"] == 1
     assert set(mv["erp"]) == {"synced_at", "newest_grn_date", "coverage_from"}
     assert mv["erp"]["coverage_from"] <= (months[0] - timedelta(days=1)).isoformat()

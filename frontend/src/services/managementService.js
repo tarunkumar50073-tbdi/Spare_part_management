@@ -11,6 +11,9 @@ const csvIds = (ids) => (ids && ids.length ? ids.join(",") : undefined);
 export const managementService = {
   get: (storeCode, sectionId, sectionIds, opts = {}) =>
     api.get("/dashboard/spare/management", { params: { store_code: storeCode, section_id: sectionId ?? undefined, section_ids: csvIds(sectionIds) }, ...opts }),
+  // Receipt · Issue · Consumption for a From–To range: { granularity, points, total }.
+  movement: (storeCode, from, to, sectionId, opts = {}) =>
+    api.get("/dashboard/spare/movement", { params: { store_code: storeCode, from, to, section_id: sectionId ?? undefined }, ...opts }),
   saveTrackerItem: (storeCode, key, payload) =>
     api.put(`/dashboard/spare/action-tracker/${key}`, { store_code: storeCode, ...payload }),
   // The rows behind one Live Board figure, read by that figure's own rule:

@@ -1050,18 +1050,24 @@ export default function TvDashboard() {
     [movement],
   );
   const moveHasData = moveData.some((m) => m.in || m.out);
-  // Date / Month / Year wise (15 Nov 2026: "month wise dropdown ... year bhi
-  // ... date bhi"). Month = the six months above (their bars open the lists);
-  // Date = the last 30 days, Year = the last 5 years, from movement.series.
-  const [moveView, setMoveView] = useState("month");
-  const moveMonthly = moveView === "month" || !movement?.series?.[moveView];
+  // A From–To calendar (15 Nov 2026: "customer calendar type kar de usme sab
+  // kuch aa jaayega date month year"). No range = the six months above, whose
+  // bars open their lists; a range is read from the server, a bar a day, month
+  // or year by its length.
+  const [moveRange, setMoveRange] = useState(null);
+  const moveSec = sectionId === ALL_SECTIONS || sectionId == null ? undefined : sectionId;
+  const moveQ = useQuery({
+    queryKey: ["board-movement", moveRange?.from, moveRange?.to, moveSec],
+    queryFn: () => managementService.movement(STORE, moveRange.from, moveRange.to, moveSec, { silent: true }).then((r) => r.data.data),
+    enabled: Boolean(moveRange),
+  });
+  const moveMonthly = !moveRange || !moveQ.data;
   const moveChart = useMemo(() => (moveMonthly ? moveData
-    : movement.series[moveView].map((p, i) => ({ name: p.label, in: p.in_value, out: p.out_value, use: p.use_value, i }))),
-  [moveMonthly, moveData, movement, moveView]);
+    : moveQ.data.points.map((p, i) => ({ name: p.label, in: p.in_value, out: p.out_value, use: p.use_value, i }))),
+  [moveMonthly, moveData, moveQ.data]);
   const moveIdx = moveChart.length - 1;
-  const moveSel = moveMonthly ? movement?.months?.[moveIdx]
-    : (() => { const p = movement?.series?.[moveView]?.[moveIdx]; return p && { in_value: p.in_value, out_value: p.out_value, use_value: p.use_value }; })();
-  const moveNow = { day: "Today", month: "This month", year: "This year" }[moveMonthly ? "month" : moveView];
+  const moveSel = moveMonthly ? movement?.months?.[moveIdx] : moveQ.data.total;
+  const moveNow = moveMonthly ? "This month" : `${fmtIsoDay(moveQ.data.from)} – ${fmtIsoDay(moveQ.data.to)}`;
   // Worst first, as the server tags them (a clear line is "ok", so it sinks);
   // the wall shows the first six, landscape eight.
   const trackerRows = useMemo(
@@ -1797,19 +1803,13 @@ export default function TvDashboard() {
                     <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.out }} />Issue</span>
                     <span className="flex items-center gap-[0.4vh]" title="Consumption = issue less what came back"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: C.purple }} />Consumption</span>
                   </span>
-                  <select value={moveView} onChange={(e) => setMoveView(e.target.value)} onClick={(e) => e.stopPropagation()}
-                    aria-label="Show by" title="Show the graph date / month / year wise · ₹ lakh"
-                    className="shrink-0 rounded-md border border-[var(--dx-border)] bg-[var(--dx-track)] font-semibold text-[var(--dx-t1)] cursor-pointer px-[0.5vh] py-[0.1vh] text-[1.1vh] landscape:text-[1.2vh] focus:outline-none focus:ring-1 focus:ring-blue-400">
-                    {[["day", "Date wise"], ["month", "Month wise"], ["year", "Year wise"]].map(([k, label]) => (
-                      <option key={k} value={k} style={{ color: "#0f172a", background: "#fff" }}>{label}</option>
-                    ))}
-                  </select>
+                  <MoveCalendar range={moveRange} onChange={setMoveRange} busy={moveQ.isFetching} />
                 </div>
                 <div className="h-[5.9vh] landscape:h-[10.5vh]">
                   <ResponsiveContainer width="100%" height="100%">
                     {/* A bar opens that month's In (ERP GRN lines) or Out (issues);
                         the month itself — its band or its label — opens both. */}
-                    <BarChart data={moveChart} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} barGap={moveView === "day" ? 0 : 2}>
+                    <BarChart data={moveChart} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} barGap={moveQ.data?.granularity === "day" ? 0 : 2}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
                       {/* An invisible band per month, under the bars: a tap anywhere
                           in the month's column opens it, with or without a hover first
@@ -1821,7 +1821,7 @@ export default function TvDashboard() {
                       {moveMonthly
                         ? <XAxis dataKey="name" interval={0} axisLine={{ stroke: gridColor }} tickLine={false} height={Math.round(tickPx * 1.7)}
                             tick={(p) => <MonthTick {...p} fill={axisColor} fontSize={tickPx} onOpen={openMonthNamed} />} />
-                        : <XAxis dataKey="name" interval={moveView === "day" ? 6 : 0} axisLine={{ stroke: gridColor }} tickLine={false}
+                        : <XAxis dataKey="name" interval="preserveStartEnd" minTickGap={8} axisLine={{ stroke: gridColor }} tickLine={false}
                             height={Math.round(tickPx * 1.7)} tick={{ fontSize: tickPx, fill: axisColor }} />}
                       <YAxis tick={{ fontSize: tickPx, fill: axisColor }} axisLine={false} tickLine={false} width={Math.round(tickPx * 2.2)}
                         tickFormatter={(v) => (v >= 1e5 ? `${Math.round(v / 1e5)}L` : v >= 1e3 ? `${Math.round(v / 1e3)}k` : Math.round(v))} />
@@ -2998,5 +2998,135 @@ function InventoryDrillView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
         </Card>
       </div>
     </div>
+  );
+}
+
+// The movement graph's calendar, like the Windows one the store showed (15 Nov
+// 2026): days of a month; its title opens the months, then the years. Two days
+// = that range (one day twice = that day); a month = that month, day-wise; a
+// year = that year, month-wise. Reset = the board's six months.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function MoveCalendar({ range, onChange, busy }) {
+  const now = new Date();
+  const today = isoDay(now);
+  const [open, setOpen] = useState(false);
+  const [level, setLevel] = useState("day");          // day | month | year
+  const [cur, setCur] = useState({ y: now.getFullYear(), m: now.getMonth() });
+  const [start, setStart] = useState(null);           // first click of a day range
+  // Years as calendar years or as financial years, April–March ("fy basis par bhi ho").
+  const [fy, setFy] = useState(false);
+  // Kept on screen: the card sits at the wall's left edge on the portrait TV.
+  const popRef = useRef(null);
+  const [shift, setShift] = useState(0);
+  useEffect(() => {
+    if (!open || !popRef.current) { setShift(0); return; }
+    const r = popRef.current.getBoundingClientRect();
+    const w = document.documentElement.clientWidth;
+    setShift((s) => { const left = r.left - s; return left < 6 ? 6 - left : left + r.width > w - 6 ? (w - 6) - (left + r.width) : 0; });
+  }, [open, level]);
+  const iso = (y, m, d) => isoDay(new Date(y, m, d));
+  const last = (y, m) => new Date(y, m + 1, 0).getDate();
+  const pick = (f, t) => { onChange({ from: f, to: t > today ? today : t }); setOpen(false); setStart(null); };
+  const step = (dir) => setCur(({ y, m }) => (level === "day"
+    ? { y: m + dir < 0 ? y - 1 : m + dir > 11 ? y + 1 : y, m: (m + dir + 12) % 12 }
+    : { y: y + dir * (level === "month" ? 1 : 12), m }));
+  const fmt = (v) => fmtIsoDay(v);
+  const cell = "flex items-center justify-center rounded-full text-[1.3vh] font-semibold cursor-pointer select-none";
+  const lead = new Date(cur.y, cur.m, 1).getDay();
+  const days = [...Array(lead).fill(null), ...Array.from({ length: last(cur.y, cur.m) }, (_, i) => i + 1)];
+  const y0 = cur.y - (cur.y % 12);
+  const inRange = (v) => range && v >= range.from && v <= range.to;
+  return (
+    <span className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+      <button type="button" onClick={() => { setOpen((o) => !o); setLevel("day"); setStart(null); }} title="Pick the dates (day, month, year)"
+        className="rounded-md border border-[var(--dx-border)] bg-[var(--dx-track)] font-semibold text-[var(--dx-t1)] px-[0.6vh] py-[0.1vh] text-[1.1vh] landscape:text-[1.2vh] whitespace-nowrap">
+        📅 {range ? (range.from === range.to ? fmt(range.from) : `${fmt(range.from)} – ${fmt(range.to)}`) : "Last 6 months"}{busy ? " …" : ""} ▾
+      </button>
+      {open && (
+        <div ref={popRef} className="absolute bottom-full right-0 z-30 mb-[0.4vh] w-[34vh] min-w-[260px] rounded-xl border border-[var(--dx-border)] p-[1vh] shadow-xl"
+          style={{ background: "var(--dx-card, #fff)", transform: shift ? `translateX(${shift}px)` : undefined }}>
+          <div className="flex items-center justify-between pb-[0.6vh]">
+            <button type="button" className="rounded-md px-[0.6vh] py-[0.2vh] text-[1.6vh] font-bold text-[var(--dx-t1)] hover:bg-[var(--dx-track)]"
+              onClick={() => setLevel(level === "day" ? "month" : "year")} title={level === "year" ? "" : "Show the months / years"}>
+              {level === "day" ? `${new Date(cur.y, cur.m, 1).toLocaleString("en-GB", { month: "long" })}, ${cur.y}`
+                : level === "month" ? cur.y : `${y0} – ${y0 + 11}`}
+            </button>
+            <span className="flex gap-[0.4vh] text-[var(--dx-t3)]">
+              <button type="button" className="px-[0.6vh] text-[1.5vh]" onClick={() => step(-1)} aria-label="Earlier">▲</button>
+              <button type="button" className="px-[0.6vh] text-[1.5vh]" onClick={() => step(1)} aria-label="Later">▼</button>
+            </span>
+          </div>
+          {level === "day" && (
+            <>
+              <div className="grid grid-cols-7 text-center text-[1.15vh] font-bold text-[var(--dx-t3)]">
+                {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => <span key={d} className="py-[0.3vh]">{d}</span>)}
+              </div>
+              <div className="grid grid-cols-7 gap-y-[0.2vh]">
+                {days.map((d, i) => {
+                  if (!d) return <span key={`b${i}`} />;
+                  const v = iso(cur.y, cur.m, d);
+                  const sel = v === start || (!start && inRange(v));
+                  const future = v > today;
+                  return (
+                    <span key={v} role="button" tabIndex={0} aria-disabled={future}
+                      onClick={() => { if (future) return; if (!start) setStart(v); else pick(start < v ? start : v, start < v ? v : start); }}
+                      className={`${cell} h-[3.2vh] ${future ? "opacity-30 cursor-default" : "hover:bg-[var(--dx-track)]"}`}
+                      style={sel ? { background: "#0067c0", color: "#fff" } : v === today ? { boxShadow: "inset 0 0 0 1.5px #0067c0" } : { color: "var(--dx-t1)" }}>
+                      {d}
+                    </span>
+                  );
+                })}
+              </div>
+              <p className="pt-[0.4vh] text-[1.1vh] text-[var(--dx-t4)]">{start ? `From ${fmt(start)} — now pick the last day` : "Pick the first day, then the last (same day twice = one day)"}</p>
+            </>
+          )}
+          {level === "month" && (
+            <div className="grid grid-cols-4 gap-[0.5vh]">
+              {MONTHS.map((name, m) => {
+                const f = iso(cur.y, m, 1);
+                return (
+                  <span key={name} role="button" tabIndex={0} onClick={() => { if (f <= today) pick(f, iso(cur.y, m, last(cur.y, m))); }}
+                    className={`${cell} h-[4.5vh] ${f > today ? "opacity-30 cursor-default" : "hover:bg-[var(--dx-track)]"}`}
+                    style={cur.y === now.getFullYear() && m === now.getMonth() ? { boxShadow: "inset 0 0 0 1.5px #0067c0", color: "var(--dx-t1)" } : { color: "var(--dx-t1)" }}>
+                    {name}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {level === "year" && (
+            <>
+              <div className="mb-[0.6vh] inline-flex rounded-lg p-[0.2vh]" style={{ background: "var(--dx-track)" }}>
+                {[[false, "Calendar year"], [true, "FY (Apr–Mar)"]].map(([v, label]) => (
+                  <button key={label} type="button" onClick={() => setFy(v)}
+                    className="rounded-md px-[0.9vh] py-[0.2vh] text-[1.15vh] font-semibold"
+                    style={fy === v ? { background: "#0067c0", color: "#fff" } : { color: "var(--dx-t2)" }}>{label}</button>
+                ))}
+              </div>
+              <div className="grid grid-cols-4 gap-[0.5vh]">
+                {Array.from({ length: 12 }, (_, i) => y0 + i).map((y) => {
+                  const f = fy ? `${y}-04-01` : `${y}-01-01`;
+                  const t = fy ? `${y + 1}-03-31` : `${y}-12-31`;
+                  const curY = fy ? (now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1) : now.getFullYear();
+                  return (
+                    <span key={y} role="button" tabIndex={0} onClick={() => { if (f <= today) pick(f, t); }}
+                      className={`${cell} h-[4.5vh] ${f > today ? "opacity-30 cursor-default" : "hover:bg-[var(--dx-track)]"} ${fy ? "text-[1.15vh]" : ""}`}
+                      style={y === curY ? { boxShadow: "inset 0 0 0 1.5px #0067c0", color: "var(--dx-t1)" } : { color: "var(--dx-t1)" }}>
+                      {fy ? `FY ${y}-${String((y + 1) % 100).padStart(2, "0")}` : y}
+                    </span>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          <div className="mt-[0.8vh] flex items-center justify-between border-t border-[var(--dx-border)] pt-[0.6vh]">
+            <button type="button" onClick={() => { onChange(null); setOpen(false); setStart(null); setLevel("day"); }}
+              className="rounded-md px-[0.9vh] py-[0.3vh] text-[1.2vh] font-semibold text-[var(--dx-t3)]">Reset (6 months)</button>
+            {level !== "day" && <button type="button" onClick={() => setLevel(level === "year" ? "month" : "day")}
+              className="rounded-md px-[0.9vh] py-[0.3vh] text-[1.2vh] font-semibold text-[var(--dx-t3)]">Back</button>}
+          </div>
+        </div>
+      )}
+    </span>
   );
 }

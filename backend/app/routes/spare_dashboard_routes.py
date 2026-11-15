@@ -66,6 +66,19 @@ def management():
         user=current_user()))
 
 
+@bp.route("/movement", methods=["GET"])
+@permission_required(("spare_store", "live_dashboard", "action_tracker"), "view")
+def movement_range():
+    """Receipt · Issue · Consumption for a From–To range (the Live Board's calendar)."""
+    code = request.args.get("store_code")
+    if not code:
+        raise BadRequestError("store_code is required")
+    require_store_access(code)
+    return success_response(management_service.movement_range(
+        code, request.args.get("from"), request.args.get("to"),
+        section_id=_section_id(), section_ids=_section_ids()))
+
+
 @bp.route("/management/list", methods=["GET"])
 # The Live Board's drill behind a figure — read by the wallboard login too.
 @permission_required(("spare_store", "live_dashboard", "action_tracker"), "view")
