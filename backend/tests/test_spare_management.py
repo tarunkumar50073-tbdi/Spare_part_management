@@ -525,7 +525,12 @@ def test_movement_months_in_and_out():
 
     assert mv["issues_recorded"] is True
     assert mv["issue_tracking_since"] == (months[3] + timedelta(days=14)).isoformat()
-    assert mv["this_month"] == {"period": f"{today:%Y-%m}", "in_value": 50.0, "out_value": 0.0, "net_value": 50.0}
+    assert mv["this_month"] == {"period": f"{today:%Y-%m}", "in_value": 50.0, "out_value": 0.0, "use_value": 0.0,
+                                "net_value": 50.0}
+    # Consumption = issue less returns (15 Nov 2026), and the Date / Year views.
+    assert col("use_value") == [None, None, None, 0.0, 100.0, 0.0]
+    assert len(mv["series"]["day"]) == 30 and len(mv["series"]["year"]) == 5
+    assert mv["series"]["year"][-1]["in_value"] >= 50.0 and mv["series"]["day"][-1]["key"] == f"{today:%Y-%m-%d}"
     assert mv["unrated_parts"] == 1
     assert set(mv["erp"]) == {"synced_at", "newest_grn_date", "coverage_from"}
     assert mv["erp"]["coverage_from"] <= (months[0] - timedelta(days=1)).isoformat()

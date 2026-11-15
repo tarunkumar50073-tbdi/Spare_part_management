@@ -734,13 +734,14 @@ class SpareManagementService:
 
     @staticmethod
     def _ledger_movement(store_code, section_id, section_ids, first, offset):
-        """The app's own ledger for the scope: RECEIPT and ISSUE per plant
-        month, valued at today's rate — {"YYYY-MM": (in qty, in value, out qty,
-        out value, issue lines)} — plus the plant date of the scope's first
-        ledger row of any kind and whether it has ever recorded an issue."""
+        """The app's own ledger for the scope: RECEIPT, ISSUE and RETURN per
+        plant month, valued at today's rate — {"YYYY-MM": (in qty, in value,
+        out qty, out value, issue lines, returned value)} — plus the plant date
+        of the scope's first ledger row of any kind and whether it has ever
+        recorded an issue."""
         L = SpareStockLedger
         scope = _sec_tuple(section_id, section_ids)
-        is_in, is_out = L.txn_type == "RECEIPT", L.txn_type == "ISSUE"
+        is_in, is_out, is_ret = L.txn_type == "RECEIPT", L.txn_type == "ISSUE", L.txn_type == "RETURN"
         rated = Part.unit_price.isnot(None)
         # created_at is UTC: shift it onto the plant clock before cutting
         # months, and take the window's first plant midnight back to UTC.
@@ -751,18 +752,64 @@ class SpareManagementService:
                 func.sum(case((and_(is_in, rated), L.qty_delta * Part.unit_price), else_=0)),
                 func.sum(case((is_out, -L.qty_delta), else_=0)),
                 func.sum(case((and_(is_out, rated), -L.qty_delta * Part.unit_price), else_=0)),
-                _count(is_out))
+                _count(is_out),
+                func.sum(case((and_(is_ret, rated), L.qty_delta * Part.unit_price), else_=0)))
              .join(Part, Part.id == L.part_id)
-             .filter(Part.store_code == store_code, L.txn_type.in_(("RECEIPT", "ISSUE")),
+             .filter(Part.store_code == store_code, L.txn_type.in_(("RECEIPT", "ISSUE", "RETURN")),
                      L.created_at >= datetime.combine(first, datetime.min.time()) - offset, *scope)
              .group_by(month))
         months = {period: (float(in_qty or 0), float(in_value or 0), float(out_qty or 0),
-                           float(out_value or 0), int(out_lines))
-                  for period, in_qty, in_value, out_qty, out_value, out_lines in q}
+                           float(out_value or 0), int(out_lines), abs(float(ret_value or 0)))
+                  for period, in_qty, in_value, out_qty, out_value, out_lines, ret_value in q}
         first_row, issues = (db.session.query(func.min(L.created_at), _count(is_out))
                              .join(Part, Part.id == L.part_id)
                              .filter(Part.store_code == store_code, *scope).one())
         return {"months": months, "since": _plant_date(first_row), "issues": bool(issues)}
+
+    # Date / Month / Year for the Receipt · Issue · Consumption graph (15 Nov
+    # 2026: "month wise dropdown ... year bhi ... date bhi"): the last 30 days,
+    # 12 months, 5 years. Receipt = ERP GRN (receipt qty), Issue = the app's
+    # issues, Consumption = issue less what came back — all at today's rate.
+    SERIES_VIEWS = {"day": ("%Y-%m-%d", 30), "month": ("%Y-%m", 12), "year": ("%Y", 5)}
+
+    def _series(self, store_code, section_id, section_ids, as_of, offset, view):
+        fmt, count = self.SERIES_VIEWS[view]
+        if view == "day":
+            keys = [as_of - timedelta(days=n) for n in range(count - 1, -1, -1)]
+            first = keys[0]
+            label = lambda d: f"{d:%d %b}"
+        elif view == "month":
+            keys = _month_starts(as_of, count)
+            first = keys[0]
+            label = lambda d: f"{d:%b %y}"
+        else:
+            keys = [date(as_of.year - n, 1, 1) for n in range(count - 1, -1, -1)]
+            first = keys[0]
+            label = lambda d: f"{d:%Y}"
+        scope = _sec_tuple(section_id, section_ids)
+        R, L = ReceivingRegister, SpareStockLedger
+        rated = Part.unit_price.isnot(None)
+        k_in = func.strftime(fmt, R.grn_date)
+        grn = dict(db.session.query(k_in, func.sum(case((rated, R.receipt_qty * Part.unit_price), else_=0)))
+                   .select_from(Part).join(R, R.item_cd == Part.part_no)
+                   .filter(Part.store_code == store_code, R.grn_date >= first, *scope).group_by(k_in).all())
+        k_led = func.strftime(fmt, L.created_at, f"{int(offset.total_seconds() // 60):+d} minutes")
+        is_out, is_ret = L.txn_type == "ISSUE", L.txn_type == "RETURN"
+        led = {k: (float(o or 0), abs(float(r or 0))) for k, o, r in db.session.query(
+                   k_led,
+                   func.sum(case((and_(is_out, rated), -L.qty_delta * Part.unit_price), else_=0)),
+                   func.sum(case((and_(is_ret, rated), L.qty_delta * Part.unit_price), else_=0)))
+               .join(Part, Part.id == L.part_id)
+               .filter(Part.store_code == store_code, L.txn_type.in_(("ISSUE", "RETURN")),
+                       L.created_at >= datetime.combine(first, datetime.min.time()) - offset, *scope)
+               .group_by(k_led).all()}
+        out = []
+        for d in keys:
+            key = d.strftime(fmt)
+            o, r = led.get(key, (0.0, 0.0))
+            out.append({"key": key, "label": label(d), "in_value": _money(float(grn.get(key) or 0)),
+                        "out_value": _money(o), "use_value": _money(max(o - r, 0))})
+        return out
 
     def _movement(self, store_code, section_id, section_ids, as_of, offset, erp, unrated_parts):
         """Monthly IN against OUT in rupees for the last six plant months. IN is
@@ -796,17 +843,21 @@ class SpareManagementService:
                    "in_value": None, "in_qty": None, "in_lines": 0,
                    "accepted_value": None, "pending_lines": 0,
                    "out_value": None, "out_qty": None, "out_lines": 0,
+                   # Consumption = issued less what came back to the store that
+                   # month (15 Nov 2026: receipt, issue and consumption in one graph).
+                   "returned_value": None, "use_value": None,
                    "app_in_value": None, "app_in_qty": None}
             if covered(month):
                 lines, qty, value, accepted, pending = by_grn_month.get(period, (0, 0.0, 0.0, 0.0, 0))
                 row.update(in_value=_money(value), in_qty=round(qty, 2), in_lines=lines,
                            accepted_value=_money(accepted), pending_lines=pending)
             if ledger is not None:
-                in_qty, in_value, out_qty, out_value, out_lines = ledger["months"].get(
-                    period, (0.0, 0.0, 0.0, 0.0, 0))
+                in_qty, in_value, out_qty, out_value, out_lines, ret_value = ledger["months"].get(
+                    period, (0.0, 0.0, 0.0, 0.0, 0, 0.0))
                 row.update(app_in_value=_money(in_value), app_in_qty=round(in_qty, 2))
                 if tracked_from and month >= tracked_from:
-                    row.update(out_value=_money(out_value), out_qty=round(out_qty, 2), out_lines=out_lines)
+                    row.update(out_value=_money(out_value), out_qty=round(out_qty, 2), out_lines=out_lines,
+                               returned_value=_money(ret_value), use_value=_money(max(out_value - ret_value, 0)))
             out.append(row)
 
         this = out[-1]
@@ -819,9 +870,12 @@ class SpareManagementService:
             "issues_recorded": ledger["issues"] if ledger else None,
             "issue_tracking_since": ledger["since"].isoformat() if ledger and ledger["since"] else None,
             "this_month": {"period": this["period"], "in_value": this["in_value"],
-                           "out_value": this["out_value"],
+                           "out_value": this["out_value"], "use_value": this["use_value"],
                            "net_value": _money(this["in_value"] - this["out_value"]) if both else None},
             "unrated_parts": unrated_parts,
+            "series": {view: _safe(f"the {view}-wise movement",
+                                   lambda view=view: self._series(store_code, section_id, section_ids, as_of, offset, view))
+                       for view in ("day", "year")},
         }
 
     # -------------------------------------------------------------------- scan

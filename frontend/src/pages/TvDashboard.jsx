@@ -701,10 +701,6 @@ export default function TvDashboard() {
   const [isFs, setIsFs] = useState(false);
   const [stack, setStack] = useState([]); // Explore-Data drill frames (in-board)
   const [trendView, setTrendView] = useState("month"); // the value trend's Day / Week / Month / Year
-  // Receipt vs Issue and Issue & Consumption share one card since 15 Nov 2026
-  // (the store: "receipt and issue and consumption ... 1 me merge"), to make
-  // room for the Quarterly Inventory card.
-  const [moveTab, setMoveTab] = useState("receipt");
   const [lastUpdated, setLastUpdated] = useState(null); // when the board figures last refreshed (header "Updated" stamp)
   // Sticky day/night: seeded from localStorage so a choice survives leaving the
   // board (e.g. to the Spare Store) and coming back, and reloads — it stays until
@@ -1050,10 +1046,22 @@ export default function TvDashboard() {
   // does not cover stays null — no bar — rather than a zero that reads as "nothing moved".
   const moveData = useMemo(
     // `i` = the month's place in movement.months, for the bars' drill.
-    () => (movement?.months || []).map((m, i) => ({ name: m.label || monthLabel(m.period), in: m.in_value ?? null, out: m.out_value ?? null, i })),
+    () => (movement?.months || []).map((m, i) => ({ name: m.label || monthLabel(m.period), in: m.in_value ?? null, out: m.out_value ?? null, use: m.use_value ?? null, i })),
     [movement],
   );
   const moveHasData = moveData.some((m) => m.in || m.out);
+  // Date / Month / Year wise (15 Nov 2026: "month wise dropdown ... year bhi
+  // ... date bhi"). Month = the six months above (their bars open the lists);
+  // Date = the last 30 days, Year = the last 5 years, from movement.series.
+  const [moveView, setMoveView] = useState("month");
+  const moveMonthly = moveView === "month" || !movement?.series?.[moveView];
+  const moveChart = useMemo(() => (moveMonthly ? moveData
+    : movement.series[moveView].map((p, i) => ({ name: p.label, in: p.in_value, out: p.out_value, use: p.use_value, i }))),
+  [moveMonthly, moveData, movement, moveView]);
+  const moveIdx = moveChart.length - 1;
+  const moveSel = moveMonthly ? movement?.months?.[moveIdx]
+    : (() => { const p = movement?.series?.[moveView]?.[moveIdx]; return p && { in_value: p.in_value, out_value: p.out_value, use_value: p.use_value }; })();
+  const moveNow = { day: "Today", month: "This month", year: "This year" }[moveMonthly ? "month" : moveView];
   // Worst first, as the server tags them (a clear line is "ok", so it sinks);
   // the wall shows the first six, landscape eight.
   const trackerRows = useMemo(
@@ -1607,7 +1615,7 @@ export default function TvDashboard() {
           in-vs-out card opens the full list). */}
       <div className="grid grid-cols-2 gap-[0.6vh] landscape:grid-cols-4 landscape:flex-1 landscape:grid-rows-[auto_auto_auto_auto_auto_1fr]">
       <SectionBar className="landscape:order-1" title="Stock Overview" hint="Stock health · value by section · part mix · excess & discontinued" tone="var(--pill-blue)" />
-      <SectionBar className="landscape:order-6" title="Movement & Control" hint="Receipt / issue & consumption · quarterly inventory · stock value trend · ERP vs app" tone="var(--pill-green)" />
+      <SectionBar className="landscape:order-6" title="Movement & Control" hint="Receipt · issue · consumption · quarterly inventory · stock value trend · ERP vs app" tone="var(--pill-green)" />
       <SectionBar className="landscape:order-11" title="Management Action" hint="What is wrong · how much money · who must act · latest movements" tone="var(--pill-red)" />
 
       {/* ---------- stock health ---------- */}
@@ -1773,65 +1781,72 @@ export default function TvDashboard() {
           app's issue ledger issued — both at the part's current rate. A month a
           source does not cover has no bar (it is unknown, not zero). */}
       <Card className="min-w-0 p-[0.7vh] order-4 landscape:order-7">
-        <PanelHead tight icon={moveTab === "receipt" ? ArrowLeftRight : FileBarChart} color={moveTab === "receipt" ? C.green : C.purple}
-          title={moveTab === "receipt" ? "Receipt vs Issue · ₹" : "Issue & Consumption · This Month"}
-          short={moveTab === "receipt" ? "Receipt vs Issue · ₹" : "Issue & Consumption"}
-          action={moveTab === "receipt" ? "Movements" : undefined} onAction={moveTab === "receipt" ? openMovements : undefined} />
-        <div className="flex gap-[0.4vh] pb-[0.3vh]" role="tablist" aria-label="Receipt or issue view">
-          {[["receipt", "Receipt vs Issue"], ["issue", "Issue & Consumption"]].map(([k, label]) => (
-            <button key={k} type="button" role="tab" aria-selected={moveTab === k} onClick={() => setMoveTab(k)}
-              className="rounded-full px-[0.9vh] py-[0.15vh] text-[1.05vh] landscape:text-[1.15vh] font-semibold leading-tight"
-              style={moveTab === k ? { background: k === "receipt" ? C.green : C.purple, color: "#fff" } : { background: "var(--dx-track)", color: "var(--dx-t3)" }}>
-              {label}
-            </button>
-          ))}
-        </div>
-        {moveTab === "issue" ? <IssueMonthBody deptState={deptState} reload={reload} issueMonth={issueMonth} deptData={deptData} openDept={openDept} />
-          : mgState !== "ok" || !movement ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.8vh" />
+        {/* Receipt, Issue and Consumption in one graph since 15 Nov 2026 (the
+            store: "receipt, issue, consumption 1 hi graph me"): the month's
+            Issue & Consumption card made room for the Quarterly Inventory. */}
+        <PanelHead tight icon={ArrowLeftRight} color={C.green} title="Receipt · Issue · Consumption · ₹"
+          short="Receipt · Issue · Use ₹" action="Movements" onAction={openMovements} />
+        {mgState !== "ok" || !movement ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.8vh" />
           : !moveHasData ? <PanelState h="8.8vh" empty="No receipt or issue on record yet" />
             : (
               <>
                 <div className="flex items-center gap-[1.2vh] text-[1.05vh] landscape:text-[1.2vh] leading-tight text-[var(--dx-t2)] px-[0.4vh] pb-[0.2vh] whitespace-nowrap overflow-hidden">
                   <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.healthy }} />Receipt<span className="hidden landscape:inline"> · ERP GRN</span></span>
                   <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.out }} />Issue<span className="hidden landscape:inline"> · app</span></span>
-                  <span className="ml-auto text-[var(--dx-t4)]">₹ lakh / month</span>
+                  <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: C.purple }} />Consumption<span className="hidden landscape:inline"> · issue − return</span></span>
+                  <span className="ml-auto flex items-center gap-[0.5vh] text-[var(--dx-t4)]">
+                    <span className="hidden landscape:inline">₹ lakh</span>
+                    <select value={moveView} onChange={(e) => setMoveView(e.target.value)} onClick={(e) => e.stopPropagation()}
+                      aria-label="Show by" title="Show the graph date / month / year wise"
+                      className="rounded-md border border-[var(--dx-border)] bg-[var(--dx-track)] font-semibold text-[var(--dx-t1)] cursor-pointer px-[0.5vh] py-[0.1vh] text-[1.1vh] landscape:text-[1.2vh] focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      {[["day", "Date wise"], ["month", "Month wise"], ["year", "Year wise"]].map(([k, label]) => (
+                        <option key={k} value={k} style={{ color: "#0f172a", background: "#fff" }}>{label}</option>
+                      ))}
+                    </select>
+                  </span>
                 </div>
                 <div className="h-[5.9vh] landscape:h-[10.5vh]">
                   <ResponsiveContainer width="100%" height="100%">
                     {/* A bar opens that month's In (ERP GRN lines) or Out (issues);
                         the month itself — its band or its label — opens both. */}
-                    <BarChart data={moveData} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} barGap={2}>
+                    <BarChart data={moveChart} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} barGap={moveView === "day" ? 0 : 2}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
                       {/* An invisible band per month, under the bars: a tap anywhere
                           in the month's column opens it, with or without a hover first
                           (the chart's own click knows the month only after a hover). */}
-                      {moveData.map((m) => (
+                      {moveMonthly && moveData.map((m) => (
                         <ReferenceArea key={m.i} x1={m.name} x2={m.name} fill={axisColor} fillOpacity={0} stroke="none"
                           cursor="pointer" onClick={() => openMonth(m.i, "both")} />
                       ))}
-                      <XAxis dataKey="name" interval={0} axisLine={{ stroke: gridColor }} tickLine={false} height={Math.round(tickPx * 1.7)}
-                        tick={(p) => <MonthTick {...p} fill={axisColor} fontSize={tickPx} onOpen={openMonthNamed} />} />
+                      {moveMonthly
+                        ? <XAxis dataKey="name" interval={0} axisLine={{ stroke: gridColor }} tickLine={false} height={Math.round(tickPx * 1.7)}
+                            tick={(p) => <MonthTick {...p} fill={axisColor} fontSize={tickPx} onOpen={openMonthNamed} />} />
+                        : <XAxis dataKey="name" interval={moveView === "day" ? 6 : 0} axisLine={{ stroke: gridColor }} tickLine={false}
+                            height={Math.round(tickPx * 1.7)} tick={{ fontSize: tickPx, fill: axisColor }} />}
                       <YAxis tick={{ fontSize: tickPx, fill: axisColor }} axisLine={false} tickLine={false} width={Math.round(tickPx * 2.2)}
                         tickFormatter={(v) => Math.round(v / 1e5)} />
                       <Tooltip content={<BoardTip fmt={fmtMoney} />} cursor={{ fill: "var(--dx-track)" }} />
                       <Bar dataKey="in" name="Receipt (ERP GRN)" fill={STATUS.healthy} radius={[4, 4, 0, 0]} maxBarSize={tickPx * 2} isAnimationActive={false}
-                        cursor="pointer" onClick={onMoveBar("in")} activeBar={{ fillOpacity: 0.8, stroke: axisColor, strokeWidth: 1 }} minPointSize={tapSliver} />
+                        cursor={moveMonthly ? "pointer" : undefined} onClick={moveMonthly ? onMoveBar("in") : undefined} activeBar={{ fillOpacity: 0.8, stroke: axisColor, strokeWidth: 1 }} minPointSize={tapSliver} />
                       <Bar dataKey="out" name="Issue" fill={STATUS.out} radius={[4, 4, 0, 0]} maxBarSize={tickPx * 2} isAnimationActive={false}
-                        cursor="pointer" onClick={onMoveBar("out")} activeBar={{ fillOpacity: 0.8, stroke: axisColor, strokeWidth: 1 }} minPointSize={tapSliver} />
+                        cursor={moveMonthly ? "pointer" : undefined} onClick={moveMonthly ? onMoveBar("out") : undefined} activeBar={{ fillOpacity: 0.8, stroke: axisColor, strokeWidth: 1 }} minPointSize={tapSliver} />
+                      <Bar dataKey="use" name="Consumption (issue − return)" fill={C.purple} radius={[4, 4, 0, 0]} maxBarSize={tickPx * 2} isAnimationActive={false}
+                        cursor={moveMonthly ? "pointer" : undefined} onClick={moveMonthly ? onMoveBar("out") : undefined} activeBar={{ fillOpacity: 0.8, stroke: axisColor, strokeWidth: 1 }} minPointSize={tapSliver} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
                 <div className="mt-[0.2vh] text-[1.05vh] landscape:text-[1.15vh] leading-tight truncate" style={{ color: movement.issues_recorded ? "var(--dx-t3)" : "var(--pill-amber)" }}>
                   {movement.issues_recorded ? (
                     <>
-                      This month:{" "}
-                      {movement.this_month?.in_value != null
-                        ? <Tap className="inline rounded-sm px-[0.2vh]" onOpen={() => openMonth(moveData.length - 1, "in")} label="This month's Receipt (ERP GRN lines). Open the list">receipt {fmtMoney(movement.this_month.in_value)}</Tap>
-                        : <>receipt {fmtMoney(movement.this_month?.in_value)}</>}
+                      {moveNow}:{" "}
+                      {moveMonthly && moveSel?.in_value != null
+                        ? <Tap className="inline rounded-sm px-[0.2vh]" onOpen={() => openMonth(moveIdx, "in")} label="The month's Receipt (ERP GRN lines). Open the list">receipt {fmtMoney(moveSel.in_value)}</Tap>
+                        : <>receipt {fmtMoney(moveSel?.in_value)}</>}
                       {" · "}
-                      {movement.this_month?.out_value != null
-                        ? <Tap className="inline rounded-sm px-[0.2vh]" onOpen={() => openMonth(moveData.length - 1, "out")} label="This month's Issue. Open the list">issue {fmtMoney(movement.this_month.out_value)}</Tap>
-                        : <>issue {fmtMoney(movement.this_month?.out_value)}</>}
+                      {moveMonthly && moveSel?.out_value != null
+                        ? <Tap className="inline rounded-sm px-[0.2vh]" onOpen={() => openMonth(moveIdx, "out")} label="The month's Issue. Open the list">issue {fmtMoney(moveSel.out_value)}</Tap>
+                        : <>issue {fmtMoney(moveSel?.out_value)}</>}
+                      {" · "}consumption {fmtMoney(moveSel?.use_value)}
                     </>
                   ) : "No issue recorded in the app yet"}
                 </div>
@@ -2803,62 +2818,6 @@ function PieChartMini(props) {
 }
 function HeartMini(props) {
   return <svg viewBox="0 0 24 24" width={props.size || 20} height={props.size || 20} fill="none" stroke={props.style?.color || "currentColor"} strokeWidth="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>;
-}
-
-// ---- Issue & Consumption (one card with Receipt vs Issue since 15 Nov 2026) --
-// The month: how much went out and where it was used ("kitna issue hua and
-// kahan consume hua wo data mile", 22 Oct 2026). On the portrait wall its body
-// keeps the chart's height, so the 9:16 board stays one screen.
-function IssueMonthBody({ deptState, reload, issueMonth, deptData, openDept }) {
-  return (
-    <div className="portrait:h-[8.8vh] portrait:overflow-hidden">
-          {deptState !== "ok" ? <PanelState state={deptState} onRetry={reload} h="8vh" /> : (
-            <div className="space-y-[0.5vh] landscape:space-y-[0.8vh] landscape:pt-[0.3vh]">
-              {issueMonth && issueMonth.total?.issues > 0 && (
-                <div className="grid grid-cols-3 gap-[0.5vh]">
-                  {[
-                    { label: "Issued", value: fmtInt(issueMonth.total.qty), sub: `${fmtInt(issueMonth.total.issues)} issues · ${fmtMoney(issueMonth.total.value)}`, color: STATUS.out },
-                    { label: "Returned", value: fmtInt(issueMonth.total.returned), sub: "came back", color: C.muted },
-                    { label: "Consumed", value: fmtInt(issueMonth.total.net_qty), sub: fmtMoney(issueMonth.total.net_value), color: C.purple },
-                  ].map((t) => (
-                    <div key={t.label} className="min-w-0 rounded-xl px-[0.8vh] py-[0.25vh] landscape:py-[0.4vh]" style={{ background: "var(--dx-track)" }}>
-                      <div className="text-[1.05vh] landscape:text-[1.2vh] leading-none landscape:leading-tight text-[var(--dx-t3)] truncate">{t.label}</div>
-                      <div className="text-[1.7vh] landscape:text-[2.1vh] font-extrabold leading-none tabular-nums" style={{ color: t.color }}>{t.value}</div>
-                      <div className="hidden landscape:block mt-[0.2vh] text-[1.05vh] leading-tight text-[var(--dx-t4)] truncate">{t.sub}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* Each consuming department, the most issued first; each opens its
-                  issues this month. A row each in landscape; two to a line on the
-                  portrait wall (DeptCell). */}
-              {deptData.length ? (
-                <>
-                  <div className="hidden landscape:block space-y-[0.8vh]">
-                    {deptData.slice(0, 4).map((d) => (
-                      <Tap key={d.name} className="rounded-md px-[0.3vh] -mx-[0.3vh]" onOpen={() => openDept(d)}
-                        label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
-                        <DeptBar {...d} />
-                      </Tap>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-[1.2vh] gap-y-[0.5vh] landscape:hidden">
-                    {deptData.slice(0, 4).map((d) => (
-                      <Tap key={d.name} className="min-w-0 rounded-md px-[0.2vh] -mx-[0.2vh]" onOpen={() => openDept(d)}
-                        label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
-                        <DeptCell {...d} />
-                      </Tap>
-                    ))}
-                  </div>
-                </>
-              )
-                : <div className="text-[1.4vh] text-[var(--dx-t4)] py-[2.2vh] text-center">No issue recorded this month</div>}
-              {/* No "Used at" line / machine list since 28 Oct 2026: nothing
-                  records one since Confirm Installation went. */}
-            </div>
-          )}
-    </div>
-  );
 }
 
 // ---- Quarterly Inventory card + drill (15 Nov 2026 spec) -------------------
