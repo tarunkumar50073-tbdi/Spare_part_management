@@ -278,3 +278,22 @@ def test_whole_store_inventory_covers_every_section_and_splits_by_section():
     assert q["sessions"][0]["whole_store"] and q["audit_completion_pct"] == 100.0
     rows = {r["part_id"]: r for r in svc.detail(s["id"], STORE)["rows"]}
     assert rows[b.id]["section"] == sec_b.name
+
+
+def test_count_sheet_heading_below_a_title_and_total_physical_qty():
+    sec = _section()
+    a = _part(sec, 9)
+    s = svc.plan(STORE, "2026-27", "Q1", sec.id, "2026-06-21", "2026-06-25", "sup")
+    s = svc.start(s["id"], STORE, "sup")
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Toyota Boshoku — Inventory June 2026"])
+    ws.append([])
+    ws.append(["Sr", "Part No", "Description", "ERP Stock 21 JUNE 26", "Rack A Qty", "Total Physical Qty"])
+    ws.append([1, a.part_no, "x", 9, 3, 8])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    out = svc.import_counts(s["id"], STORE, buf, "ravi")
+    assert out["counted"] == 1 and not out["errors"]
+    assert svc.line(s["id"], STORE, part_id=a.id)["count"]["counted_qty"] == 8

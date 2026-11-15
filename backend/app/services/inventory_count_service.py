@@ -466,16 +466,30 @@ class InventoryCountService:
             raise BadRequestError("The file is not an Excel workbook (.xlsx)")
         norm = lambda v: re.sub(r"[^a-z0-9]", "", str(v or "").lower())
         rows = ws.iter_rows(values_only=True)
-        head = [norm(h) for h in next(rows, [])]
-        pn_i = next((i for i, n in enumerate(head) if n in ("partno", "partnumber", "itemcode")), None)
-        q_i = next((i for i, n in enumerate(head) if n in ("physicalqty", "countedqty", "totalphysicalqty",
-                                                            "physicalquantity", "countqty")), None)
+        # The heading may sit below a title (the plant's inventory sheet): the
+        # first of the top 15 rows with a Part No and a counted-qty column.
+        # "Total Physical Qty" is the counted total when the sheet also has
+        # per-location columns beside it.
+        pn_i = q_i = None
+        line = 0
+        for line, raw in enumerate(rows, 1):
+            head = [norm(h) for h in raw]
+            pn_i = next((i for i, n in enumerate(head) if n in ("partno", "partnumber", "itemcode", "itemcd")), None)
+            q_i = next((i for i, n in enumerate(head) if n == "totalphysicalqty"), None)
+            if q_i is None:
+                q_i = next((i for i, n in enumerate(head) if n in ("physicalqty", "countedqty", "physicalquantity",
+                                                                    "countqty", "physicalstock")), None)
+            if pn_i is not None and q_i is not None:
+                break
+            if line >= 15:
+                break
+        if pn_i is None or q_i is None:
+            raise BadRequestError("Could not find 'Part No' and 'Physical Qty' (or 'Total Physical Qty' / "
+                                  "'Counted Qty') headings in the first 15 rows")
         loc_i = next((i for i, n in enumerate(head) if n in ("location", "storagelocation", "rack")), None)
         rm_i = next((i for i, n in enumerate(head) if n == "remarks"), None)
-        if pn_i is None or q_i is None:
-            raise BadRequestError("The first row must have 'Part No' and 'Physical Qty' (or 'Counted Qty')")
         done, skipped, errors = 0, [], []
-        for n, r in enumerate(rows, 2):
+        for n, r in enumerate(rows, line + 1):
             pn = str(r[pn_i] or "").strip() if len(r) > pn_i else ""
             qv = r[q_i] if len(r) > q_i else None
             if not pn or qv in (None, ""):
