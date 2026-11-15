@@ -1790,20 +1790,20 @@ export default function TvDashboard() {
           : !moveHasData ? <PanelState h="8.8vh" empty="No receipt or issue on record yet" />
             : (
               <>
-                <div className="flex items-center gap-[1.2vh] text-[1.05vh] landscape:text-[1.2vh] leading-tight text-[var(--dx-t2)] px-[0.4vh] pb-[0.2vh] whitespace-nowrap overflow-hidden">
-                  <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.healthy }} />Receipt<span className="hidden landscape:inline"> · ERP GRN</span></span>
-                  <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.out }} />Issue<span className="hidden landscape:inline"> · app</span></span>
-                  <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: C.purple }} />Consumption<span className="hidden landscape:inline"> · issue − return</span></span>
-                  <span className="ml-auto flex items-center gap-[0.5vh] text-[var(--dx-t4)]">
-                    <span className="hidden landscape:inline">₹ lakh</span>
-                    <select value={moveView} onChange={(e) => setMoveView(e.target.value)} onClick={(e) => e.stopPropagation()}
-                      aria-label="Show by" title="Show the graph date / month / year wise"
-                      className="rounded-md border border-[var(--dx-border)] bg-[var(--dx-track)] font-semibold text-[var(--dx-t1)] cursor-pointer px-[0.5vh] py-[0.1vh] text-[1.1vh] landscape:text-[1.2vh] focus:outline-none focus:ring-1 focus:ring-blue-400">
-                      {[["day", "Date wise"], ["month", "Month wise"], ["year", "Year wise"]].map(([k, label]) => (
-                        <option key={k} value={k} style={{ color: "#0f172a", background: "#fff" }}>{label}</option>
-                      ))}
-                    </select>
+                <div className="flex items-center gap-[0.8vh] text-[1.05vh] landscape:text-[1.2vh] leading-tight text-[var(--dx-t2)] px-[0.4vh] pb-[0.2vh] whitespace-nowrap">
+                  {/* The legend gives way; the Date / Month / Year dropdown always shows. */}
+                  <span className="flex min-w-0 flex-1 items-center gap-[1vh] overflow-hidden">
+                    <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.healthy }} />Receipt</span>
+                    <span className="flex items-center gap-[0.4vh]"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: STATUS.out }} />Issue</span>
+                    <span className="flex items-center gap-[0.4vh]" title="Consumption = issue less what came back"><span className="w-[1.1vh] h-[1.1vh] rounded-sm shrink-0" style={{ background: C.purple }} />Consumption</span>
                   </span>
+                  <select value={moveView} onChange={(e) => setMoveView(e.target.value)} onClick={(e) => e.stopPropagation()}
+                    aria-label="Show by" title="Show the graph date / month / year wise · ₹ lakh"
+                    className="shrink-0 rounded-md border border-[var(--dx-border)] bg-[var(--dx-track)] font-semibold text-[var(--dx-t1)] cursor-pointer px-[0.5vh] py-[0.1vh] text-[1.1vh] landscape:text-[1.2vh] focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    {[["day", "Date wise"], ["month", "Month wise"], ["year", "Year wise"]].map(([k, label]) => (
+                      <option key={k} value={k} style={{ color: "#0f172a", background: "#fff" }}>{label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="h-[5.9vh] landscape:h-[10.5vh]">
                   <ResponsiveContainer width="100%" height="100%">
@@ -1824,7 +1824,7 @@ export default function TvDashboard() {
                         : <XAxis dataKey="name" interval={moveView === "day" ? 6 : 0} axisLine={{ stroke: gridColor }} tickLine={false}
                             height={Math.round(tickPx * 1.7)} tick={{ fontSize: tickPx, fill: axisColor }} />}
                       <YAxis tick={{ fontSize: tickPx, fill: axisColor }} axisLine={false} tickLine={false} width={Math.round(tickPx * 2.2)}
-                        tickFormatter={(v) => Math.round(v / 1e5)} />
+                        tickFormatter={(v) => (v >= 1e5 ? `${Math.round(v / 1e5)}L` : v >= 1e3 ? `${Math.round(v / 1e3)}k` : Math.round(v))} />
                       <Tooltip content={<BoardTip fmt={fmtMoney} />} cursor={{ fill: "var(--dx-track)" }} />
                       <Bar dataKey="in" name="Receipt (ERP GRN)" fill={STATUS.healthy} radius={[4, 4, 0, 0]} maxBarSize={tickPx * 2} isAnimationActive={false}
                         cursor={moveMonthly ? "pointer" : undefined} onClick={moveMonthly ? onMoveBar("in") : undefined} activeBar={{ fillOpacity: 0.8, stroke: axisColor, strokeWidth: 1 }} minPointSize={tapSliver} />
