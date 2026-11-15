@@ -7,8 +7,10 @@ import {
   Database, AlertTriangle, Boxes, ClipboardList,
   FileBarChart, PackagePlus, Sun, Moon, ArrowLeft, RefreshCw, RotateCw,
   Maximize, Minimize, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight,
-  Hourglass, ListChecks, TrendingUp,
+  Hourglass, ListChecks, TrendingUp, CalendarRange,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { inventoryCountService } from "../services/inventoryCountService.js";
 import { useNavigate } from "react-router-dom";
 import { spareStockService } from "../services/spareStockService.js";
 import { spareFlowService } from "../services/spareFlowService.js";
@@ -699,6 +701,10 @@ export default function TvDashboard() {
   const [isFs, setIsFs] = useState(false);
   const [stack, setStack] = useState([]); // Explore-Data drill frames (in-board)
   const [trendView, setTrendView] = useState("month"); // the value trend's Day / Week / Month / Year
+  // Receipt vs Issue and Issue & Consumption share one card since 15 Nov 2026
+  // (the store: "receipt and issue and consumption ... 1 me merge"), to make
+  // room for the Quarterly Inventory card.
+  const [moveTab, setMoveTab] = useState("receipt");
   const [lastUpdated, setLastUpdated] = useState(null); // when the board figures last refreshed (header "Updated" stamp)
   // Sticky day/night: seeded from localStorage so a choice survives leaving the
   // board (e.g. to the Spare Store) and coming back, and reloads — it stays until
@@ -1273,7 +1279,7 @@ export default function TvDashboard() {
   const erpOpen = {
     "ERP Stock": () => openErpSlice("ERP vs Physical — ERP stock", erpInBoth(),
       `${fmtInt(erpSum.reconciled)} parts have both an ERP figure and a count: ERP ${fmtInt(Math.round(erpSum.erp_units))} units against ${fmtInt(Math.round(erpSum.physical_units))} counted.`),
-    "Physical Stock": () => openErpSlice("ERP vs Physical — physical stock", erpInBoth(),
+    "App Stock": () => openErpSlice("ERP vs App — app stock", erpInBoth(),
       `${fmtInt(erpSum.reconciled)} parts have both an ERP figure and a count: ${fmtInt(Math.round(erpSum.physical_units))} units counted against ERP ${fmtInt(Math.round(erpSum.erp_units))}.`),
     "Match Accuracy": () => openErpSlice("ERP vs Physical — match accuracy", erpInBoth(),
       `${fmtInt(erpSum.matched)} of ${fmtInt(erpSum.reconciled)} parts in both match${erpSum.accuracy_pct != null ? ` (${erpSum.accuracy_pct}%)` : ""}.`),
@@ -1601,7 +1607,7 @@ export default function TvDashboard() {
           in-vs-out card opens the full list). */}
       <div className="grid grid-cols-2 gap-[0.6vh] landscape:grid-cols-4 landscape:flex-1 landscape:grid-rows-[auto_auto_auto_auto_auto_1fr]">
       <SectionBar className="landscape:order-1" title="Stock Overview" hint="Stock health · value by section · part mix · excess & discontinued" tone="var(--pill-blue)" />
-      <SectionBar className="landscape:order-6" title="Movement & Control" hint="Receipt vs issue · issue & consumption · stock value trend · ERP vs physical" tone="var(--pill-green)" />
+      <SectionBar className="landscape:order-6" title="Movement & Control" hint="Receipt / issue & consumption · quarterly inventory · stock value trend · ERP vs app" tone="var(--pill-green)" />
       <SectionBar className="landscape:order-11" title="Management Action" hint="What is wrong · how much money · who must act · latest movements" tone="var(--pill-red)" />
 
       {/* ---------- stock health ---------- */}
@@ -1767,9 +1773,21 @@ export default function TvDashboard() {
           app's issue ledger issued — both at the part's current rate. A month a
           source does not cover has no bar (it is unknown, not zero). */}
       <Card className="min-w-0 p-[0.7vh] order-4 landscape:order-7">
-        <PanelHead tight icon={ArrowLeftRight} color={C.green} title="Receipt vs Issue · ₹"
-          action="Movements" onAction={openMovements} />
-        {mgState !== "ok" || !movement ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.8vh" />
+        <PanelHead tight icon={moveTab === "receipt" ? ArrowLeftRight : FileBarChart} color={moveTab === "receipt" ? C.green : C.purple}
+          title={moveTab === "receipt" ? "Receipt vs Issue · ₹" : "Issue & Consumption · This Month"}
+          short={moveTab === "receipt" ? "Receipt vs Issue · ₹" : "Issue & Consumption"}
+          action={moveTab === "receipt" ? "Movements" : undefined} onAction={moveTab === "receipt" ? openMovements : undefined} />
+        <div className="flex gap-[0.4vh] pb-[0.3vh]" role="tablist" aria-label="Receipt or issue view">
+          {[["receipt", "Receipt vs Issue"], ["issue", "Issue & Consumption"]].map(([k, label]) => (
+            <button key={k} type="button" role="tab" aria-selected={moveTab === k} onClick={() => setMoveTab(k)}
+              className="rounded-full px-[0.9vh] py-[0.15vh] text-[1.05vh] landscape:text-[1.15vh] font-semibold leading-tight"
+              style={moveTab === k ? { background: k === "receipt" ? C.green : C.purple, color: "#fff" } : { background: "var(--dx-track)", color: "var(--dx-t3)" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {moveTab === "issue" ? <IssueMonthBody deptState={deptState} reload={reload} issueMonth={issueMonth} deptData={deptData} openDept={openDept} />
+          : mgState !== "ok" || !movement ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="8.8vh" />
           : !moveHasData ? <PanelState h="8.8vh" empty="No receipt or issue on record yet" />
             : (
               <>
@@ -1821,65 +1839,12 @@ export default function TvDashboard() {
             )}
       </Card>
 
-      {/* ---------- department-wise issue ---------- */}
-        <Card className="relative min-w-0 p-[0.7vh] order-5 landscape:order-8">
-          {/* This shift's issues have their own tile (Issued Today). Here, the
-              month: how much went out and where it was used (the store, 22 Oct
-              2026: "kitna issue hua and kahan consume hua wo data mile"). */}
-          {/* On the portrait wall the card takes the height of the Receipt vs
-              Issue card beside it and never more (its content is laid over the
-              card, not stacked in it), so however many departments issue, the
-              9:16 board stays one screen (it ran ~75 px past it on 24 Oct, and
-              105 px with four departments). */}
-          <div className="portrait:absolute portrait:inset-[0.7vh] portrait:overflow-hidden">
-          <PanelHead icon={FileBarChart} color={C.purple} title="Issue & Consumption · This Month" short="Issue & Consumption · Month" />
-          {deptState !== "ok" ? <PanelState state={deptState} onRetry={reload} h="8vh" /> : (
-            <div className="space-y-[0.5vh] landscape:space-y-[0.8vh] landscape:pt-[0.3vh]">
-              {issueMonth && issueMonth.total?.issues > 0 && (
-                <div className="grid grid-cols-3 gap-[0.5vh]">
-                  {[
-                    { label: "Issued", value: fmtInt(issueMonth.total.qty), sub: `${fmtInt(issueMonth.total.issues)} issues · ${fmtMoney(issueMonth.total.value)}`, color: STATUS.out },
-                    { label: "Returned", value: fmtInt(issueMonth.total.returned), sub: "came back", color: C.muted },
-                    { label: "Consumed", value: fmtInt(issueMonth.total.net_qty), sub: fmtMoney(issueMonth.total.net_value), color: C.purple },
-                  ].map((t) => (
-                    <div key={t.label} className="min-w-0 rounded-xl px-[0.8vh] py-[0.25vh] landscape:py-[0.4vh]" style={{ background: "var(--dx-track)" }}>
-                      <div className="text-[1.05vh] landscape:text-[1.2vh] leading-none landscape:leading-tight text-[var(--dx-t3)] truncate">{t.label}</div>
-                      <div className="text-[1.7vh] landscape:text-[2.1vh] font-extrabold leading-none tabular-nums" style={{ color: t.color }}>{t.value}</div>
-                      <div className="hidden landscape:block mt-[0.2vh] text-[1.05vh] leading-tight text-[var(--dx-t4)] truncate">{t.sub}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* Each consuming department, the most issued first; each opens its
-                  issues this month. A row each in landscape; two to a line on the
-                  portrait wall (DeptCell). */}
-              {deptData.length ? (
-                <>
-                  <div className="hidden landscape:block space-y-[0.8vh]">
-                    {deptData.slice(0, 4).map((d) => (
-                      <Tap key={d.name} className="rounded-md px-[0.3vh] -mx-[0.3vh]" onOpen={() => openDept(d)}
-                        label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
-                        <DeptBar {...d} />
-                      </Tap>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-[1.2vh] gap-y-[0.5vh] landscape:hidden">
-                    {deptData.slice(0, 4).map((d) => (
-                      <Tap key={d.name} className="min-w-0 rounded-md px-[0.2vh] -mx-[0.2vh]" onOpen={() => openDept(d)}
-                        label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
-                        <DeptCell {...d} />
-                      </Tap>
-                    ))}
-                  </div>
-                </>
-              )
-                : <div className="text-[1.4vh] text-[var(--dx-t4)] py-[2.2vh] text-center">No issue recorded this month</div>}
-              {/* No "Used at" line / machine list since 28 Oct 2026: nothing
-                  records one since Confirm Installation went. */}
-            </div>
-          )}
-          </div>
-        </Card>
+      {/* ---------- quarterly inventory ---------- */}
+      {/* The latest quarter's physical inventory, approved figures only (15 Nov
+          2026 spec): accuracy, shortage / excess, how far the audit has got.
+          Opens its drill-down. */}
+      <InventoryBoardCard className="order-5 landscape:order-8" onOpen={(card) => openStack({
+        kind: "inventory", title: `Quarterly Inventory — ${card.quarter} FY ${card.fiscal_year}`, card })} />
 
       {/* ---------- stock value trend ---------- */}
       {/* What the stock was worth, day by day up to year by year (the store,
@@ -1915,7 +1880,7 @@ export default function TvDashboard() {
 
       {/* ---------- ERP current stock ---------- */}
       <Card className="min-w-0 p-[0.7vh] order-8 landscape:order-10 flex flex-col">
-        <PanelHead tight icon={Database} color={C.cyan} title={`ERP vs Physical${secView ? " (store)" : ""}`}
+        <PanelHead tight icon={Database} color={C.cyan} title={`ERP vs App${secView ? " (store)" : ""}`}
           action="View Details" onAction={openErpGap} />
         {erpState !== "ok" ? <PanelState state={erpState} onRetry={reload} h="9vh" /> : (
           <>
@@ -1926,7 +1891,7 @@ export default function TvDashboard() {
             <div className="grid grid-cols-2 gap-[0.5vh] landscape:flex-1">
               {[
                 { label: "ERP Stock", value: erpSum.reconciled ? fmtInt(Math.round(erpSum.erp_units)) : "—", sub: `units · ${snapDay ? `${snapDay} snapshot` : "no snapshot"}`, color: C.cyan },
-                { label: "Physical Stock", value: erpSum.reconciled ? fmtInt(Math.round(erpSum.physical_units)) : "—", sub: "units · store count, same parts", color: C.blue },
+                { label: "App Stock", value: erpSum.reconciled ? fmtInt(Math.round(erpSum.physical_units)) : "—", sub: "units · app stock, same parts", color: C.blue },
                 { label: "Match Accuracy", value: erpSum.accuracy_pct != null ? `${erpSum.accuracy_pct}%` : "—", sub: `of ${fmtInt(erpSum.reconciled)} parts in both`, color: C.green },
                 { label: "With Gap", value: erpSum.reconciled ? fmtInt(erpGapCount) : "—", sub: "short / excess vs snapshot", color: C.amber },
               ].map((s) => (
@@ -2046,6 +2011,8 @@ export default function TvDashboard() {
                         ? <ErpGapView frame={f} onOpen={openHistory} axis={axisColor} grid={gridColor} />
                         : f.kind === "srvList"
                           ? <SrvListView frame={f} />
+                          : f.kind === "inventory"
+                          ? <InventoryDrillView frame={f} axis={axisColor} grid={gridColor} />
                           : <PartListView frame={f} onOpen={openHistory} axis={axisColor} grid={gridColor} />}
                 </div>
               );
@@ -2836,4 +2803,241 @@ function PieChartMini(props) {
 }
 function HeartMini(props) {
   return <svg viewBox="0 0 24 24" width={props.size || 20} height={props.size || 20} fill="none" stroke={props.style?.color || "currentColor"} strokeWidth="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>;
+}
+
+// ---- Issue & Consumption (one card with Receipt vs Issue since 15 Nov 2026) --
+// The month: how much went out and where it was used ("kitna issue hua and
+// kahan consume hua wo data mile", 22 Oct 2026). On the portrait wall its body
+// keeps the chart's height, so the 9:16 board stays one screen.
+function IssueMonthBody({ deptState, reload, issueMonth, deptData, openDept }) {
+  return (
+    <div className="portrait:h-[8.8vh] portrait:overflow-hidden">
+          {deptState !== "ok" ? <PanelState state={deptState} onRetry={reload} h="8vh" /> : (
+            <div className="space-y-[0.5vh] landscape:space-y-[0.8vh] landscape:pt-[0.3vh]">
+              {issueMonth && issueMonth.total?.issues > 0 && (
+                <div className="grid grid-cols-3 gap-[0.5vh]">
+                  {[
+                    { label: "Issued", value: fmtInt(issueMonth.total.qty), sub: `${fmtInt(issueMonth.total.issues)} issues · ${fmtMoney(issueMonth.total.value)}`, color: STATUS.out },
+                    { label: "Returned", value: fmtInt(issueMonth.total.returned), sub: "came back", color: C.muted },
+                    { label: "Consumed", value: fmtInt(issueMonth.total.net_qty), sub: fmtMoney(issueMonth.total.net_value), color: C.purple },
+                  ].map((t) => (
+                    <div key={t.label} className="min-w-0 rounded-xl px-[0.8vh] py-[0.25vh] landscape:py-[0.4vh]" style={{ background: "var(--dx-track)" }}>
+                      <div className="text-[1.05vh] landscape:text-[1.2vh] leading-none landscape:leading-tight text-[var(--dx-t3)] truncate">{t.label}</div>
+                      <div className="text-[1.7vh] landscape:text-[2.1vh] font-extrabold leading-none tabular-nums" style={{ color: t.color }}>{t.value}</div>
+                      <div className="hidden landscape:block mt-[0.2vh] text-[1.05vh] leading-tight text-[var(--dx-t4)] truncate">{t.sub}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Each consuming department, the most issued first; each opens its
+                  issues this month. A row each in landscape; two to a line on the
+                  portrait wall (DeptCell). */}
+              {deptData.length ? (
+                <>
+                  <div className="hidden landscape:block space-y-[0.8vh]">
+                    {deptData.slice(0, 4).map((d) => (
+                      <Tap key={d.name} className="rounded-md px-[0.3vh] -mx-[0.3vh]" onOpen={() => openDept(d)}
+                        label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
+                        <DeptBar {...d} />
+                      </Tap>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-[1.2vh] gap-y-[0.5vh] landscape:hidden">
+                    {deptData.slice(0, 4).map((d) => (
+                      <Tap key={d.name} className="min-w-0 rounded-md px-[0.2vh] -mx-[0.2vh]" onOpen={() => openDept(d)}
+                        label={`${d.name}: ${fmtInt(d.value)} issued this month. Open the list`}>
+                        <DeptCell {...d} />
+                      </Tap>
+                    ))}
+                  </div>
+                </>
+              )
+                : <div className="text-[1.4vh] text-[var(--dx-t4)] py-[2.2vh] text-center">No issue recorded this month</div>}
+              {/* No "Used at" line / machine list since 28 Oct 2026: nothing
+                  records one since Confirm Installation went. */}
+            </div>
+          )}
+    </div>
+  );
+}
+
+// ---- Quarterly Inventory card + drill (15 Nov 2026 spec) -------------------
+// Approved (verified) figures only; the audit's progress is how many sections
+// of the quarter are approved. The board's own store.
+const invPct = (v) => (v == null ? "—" : `${v}%`);
+
+function InventoryBoardCard({ className = "", onOpen }) {
+  const q = useQuery({
+    queryKey: ["inventory", "board", STORE],
+    queryFn: () => inventoryCountService.board(STORE, { silent: true }).then((r) => r.data.data),
+    refetchInterval: 60000,
+  });
+  const d = q.data;
+  const s = d?.summary || {};
+  const acc = s.accuracy_pct;
+  const accColor = acc == null ? C.muted : acc >= 95 ? STATUS.healthy : acc >= 85 ? C.amber : STATUS.out;
+  return (
+    <Card className={`min-w-0 p-[0.7vh] flex flex-col ${className}`}>
+      <PanelHead tight icon={CalendarRange} color={C.cyan} title="Quarterly Inventory" short="Qtr Inventory"
+        action={d?.has_data ? "View Details" : undefined} onAction={d?.has_data ? () => onOpen(d) : undefined}
+        note={d?.has_data ? `${d.quarter} FY ${d.fiscal_year} · ${d.status}` : undefined} />
+      {q.isError ? <PanelState state="error" onRetry={() => q.refetch()} h="8.8vh" />
+        : !d ? <PanelState state="loading" h="8.8vh" />
+          : !d.has_data ? <PanelState h="8.8vh" empty="No quarterly inventory planned yet" />
+            : (
+              <Tap onOpen={() => onOpen(d)} label="Quarterly inventory. Open the details" className="rounded-xl landscape:flex-1">
+                <div className="grid grid-cols-2 gap-[0.5vh] h-full">
+                  {[
+                    { label: "Accuracy", value: invPct(acc), sub: `${fmtInt(s.matched_parts)} matched of ${fmtInt(s.counted_parts)} counted`, color: accColor },
+                    { label: "Audit Completion", value: invPct(d.audit_completion_pct), sub: `${d.completed_sections} of ${d.sections} sections approved`, color: C.cyan },
+                    { label: "Shortage / Excess", value: `${fmtInt(s.shortage_qty)} / ${fmtInt(s.excess_qty)}`, sub: `${fmtInt(s.variance_parts)} variance parts`, color: STATUS.out },
+                    { label: "ERP / Physical", value: `${fmtInt(s.erp_qty)} / ${fmtInt(s.physical_qty)}`, sub: "qty, approved sections", color: C.blue },
+                  ].map((t) => (
+                    <div key={t.label} className="min-w-0 rounded-xl px-[0.9vh] py-[0.3vh] landscape:px-[1.3vh] flex flex-col justify-center" style={{ background: "var(--dx-track)" }}>
+                      <div className="text-[1.05vh] landscape:text-[1.25vh] leading-tight text-[var(--dx-t3)] truncate">{t.label}</div>
+                      <div className="mt-[0.2vh] text-[1.6vh] landscape:text-[2.1vh] font-extrabold leading-none tabular-nums truncate" style={{ color: t.color }}>{t.value}</div>
+                      <div className="hidden landscape:block mt-[0.25vh] text-[1.1vh] leading-tight text-[var(--dx-t4)] truncate">{t.sub}</div>
+                    </div>
+                  ))}
+                </div>
+              </Tap>
+            )}
+    </Card>
+  );
+}
+
+function InventoryDrillView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
+  const card = frame.card;
+  const quarter = useQuery({
+    queryKey: ["inventory", "board-quarter", card.fiscal_year, card.quarter],
+    queryFn: () => inventoryCountService.quarter({ store_code: STORE, fiscal_year: card.fiscal_year, quarter: card.quarter, verified: 1 }, { silent: true })
+      .then((r) => r.data.data),
+  });
+  const hist = useQuery({
+    queryKey: ["inventory", "board-history"],
+    queryFn: () => inventoryCountService.history(STORE).then((r) => r.data.data),
+  });
+  const d = quarter.data || card;
+  const s = d.summary || {};
+  const sections = (d.by_section || []).filter((x) => x.status === "COMPLETED");
+  const secBars = sections.map((x) => ({ name: x.name, ERP: x.erp_qty || 0, Physical: x.physical_qty || 0 }));
+  const mix = [
+    { name: "Matched", value: s.matched_parts || 0, color: STATUS.healthy },
+    { name: "Shortage", value: s.shortage_parts || 0, color: STATUS.out },
+    { name: "Excess", value: s.excess_parts || 0, color: C.amber },
+    { name: "Not counted", value: s.not_counted_parts || 0, color: C.muted },
+  ];
+  const trend = (hist.data || []).filter((h) => h.completed_sections).slice().reverse()
+    .map((h) => ({ name: `${h.quarter} ${h.fiscal_year.slice(2)}`, Accuracy: h.summary.accuracy_pct, Shortage: h.summary.shortage_qty, Excess: h.summary.excess_qty }));
+  const prev = card.previous;
+  const delta = prev && s.accuracy_pct != null && prev.accuracy_pct != null ? Math.round((s.accuracy_pct - prev.accuracy_pct) * 10) / 10 : null;
+  const th = "px-[1vh] py-[0.6vh] text-left text-[1.2vh] uppercase tracking-wide text-[var(--dx-t3)]";
+  const td = "px-[1vh] py-[0.6vh] text-[1.45vh] text-[var(--dx-t1)] tabular-nums";
+  return (
+    <div className="space-y-[1.4vh]">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-[1vh]">
+        {[
+          ["Accuracy", invPct(s.accuracy_pct), delta == null ? "matched ÷ counted" : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)} pts vs ${prev.quarter} ${prev.fiscal_year}`],
+          ["Audit Completion", invPct(d.audit_completion_pct), `${d.completed_sections} of ${d.sections} sections`],
+          ["ERP Qty", fmtInt(s.erp_qty), "snapshot"], ["Physical Qty", fmtInt(s.physical_qty), "counted"],
+          ["Net Difference", fmtInt(s.net_difference_qty), "physical − ERP"], ["Shortage Qty", fmtInt(s.shortage_qty), `${fmtInt(s.shortage_parts)} parts`],
+          ["Excess Qty", fmtInt(s.excess_qty), `${fmtInt(s.excess_parts)} parts`], ["Not Counted", fmtInt(s.not_counted_parts), "parts"],
+        ].map(([label, value, sub]) => (
+          <Card key={label} className="p-[1.2vh]">
+            <div className="text-[1.25vh] text-[var(--dx-t3)]">{label}</div>
+            <div className="text-[2.6vh] font-extrabold tabular-nums text-[var(--dx-t1)]">{value}</div>
+            <div className="text-[1.15vh] text-[var(--dx-t4)] truncate">{sub}</div>
+          </Card>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-[1.4vh]">
+        <Card className="p-[1.6vh]">
+          <h3 className="mb-[1vh] text-[1.7vh] font-bold text-[var(--dx-t1)]">ERP vs Physical by section</h3>
+          <div className="h-[28vh]">
+            {secBars.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={secBars} margin={{ left: 0, right: 8, top: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: axis }} interval={0} />
+                  <YAxis tick={{ fontSize: 11, fill: axis }} />
+                  <Tooltip content={<BoardTip />} cursor={{ fill: "var(--dx-track)" }} />
+                  <Bar dataKey="ERP" fill={C.cyan} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Physical" fill={C.blue} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="flex h-full items-center justify-center text-[1.5vh] text-[var(--dx-t4)]">No section approved yet</div>}
+          </div>
+        </Card>
+        <Card className="p-[1.6vh]">
+          <h3 className="mb-[1vh] text-[1.7vh] font-bold text-[var(--dx-t1)]">Matched vs variance parts</h3>
+          <div className="h-[24vh]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={mix} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="85%" paddingAngle={2} isAnimationActive={false}>
+                  {mix.map((m) => <Cell key={m.name} fill={m.color} />)}
+                </Pie>
+                <Tooltip content={<BoardTip />} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex flex-wrap gap-[1vh] text-[1.25vh] text-[var(--dx-t2)]">
+            {mix.map((m) => <span key={m.name} className="flex items-center gap-[0.4vh]"><span className="h-[1.1vh] w-[1.1vh] rounded-sm" style={{ background: m.color }} />{m.name} {fmtInt(m.value)}</span>)}
+          </div>
+        </Card>
+        <Card className="p-[1.6vh]">
+          <h3 className="mb-[1vh] text-[1.7vh] font-bold text-[var(--dx-t1)]">Q1–Q4 trend (approved)</h3>
+          <div className="h-[28vh]">
+            {trend.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={trend} margin={{ left: 0, right: 8, top: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: axis }} />
+                  <YAxis yAxisId="q" tick={{ fontSize: 11, fill: axis }} />
+                  <YAxis yAxisId="p" orientation="right" domain={[0, 100]} tick={{ fontSize: 11, fill: axis }} />
+                  <Tooltip content={<BoardTip />} />
+                  <Bar yAxisId="q" dataKey="Shortage" fill={STATUS.out} radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="q" dataKey="Excess" fill={C.amber} radius={[4, 4, 0, 0]} />
+                  <Line yAxisId="p" dataKey="Accuracy" stroke={STATUS.healthy} strokeWidth={2} dot />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : <div className="flex h-full items-center justify-center text-[1.5vh] text-[var(--dx-t4)]">No approved quarter yet</div>}
+          </div>
+        </Card>
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh]">
+        <Card className="p-[1.2vh] overflow-auto">
+          <h3 className="mb-[0.6vh] text-[1.7vh] font-bold text-[var(--dx-t1)]">Section-wise accuracy</h3>
+          <table className="w-full">
+            <thead><tr><th className={th}>Section</th><th className={th}>Status</th><th className={th}>Accuracy</th><th className={th}>Shortage</th><th className={th}>Excess</th><th className={th}>Not counted</th></tr></thead>
+            <tbody>
+              {(d.by_section || []).map((x) => (
+                <tr key={x.session_id} className="border-t border-[var(--dx-track)]">
+                  <td className={td}>{x.name}</td><td className={td}>{x.status_label}</td>
+                  <td className={td}>{x.status === "COMPLETED" ? invPct(x.accuracy_pct) : "—"}</td>
+                  <td className={td}>{x.status === "COMPLETED" ? fmtInt(x.shortage_qty) : "—"}</td>
+                  <td className={td}>{x.status === "COMPLETED" ? fmtInt(x.excess_qty) : "—"}</td>
+                  <td className={td}>{x.status === "COMPLETED" ? fmtInt(x.not_counted_parts) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+        <Card className="p-[1.2vh] overflow-auto">
+          <h3 className="mb-[0.6vh] text-[1.7vh] font-bold text-[var(--dx-t1)]">Category-wise variance</h3>
+          <table className="w-full">
+            <thead><tr><th className={th}>Category</th><th className={th}>Counted</th><th className={th}>Accuracy</th><th className={th}>Shortage</th><th className={th}>Excess</th></tr></thead>
+            <tbody>
+              {(quarter.data?.by_category || []).map((c) => (
+                <tr key={c.name} className="border-t border-[var(--dx-track)]">
+                  <td className={td}>{c.name}</td><td className={td}>{fmtInt(c.counted_parts)} / {fmtInt(c.total_parts)}</td>
+                  <td className={td}>{invPct(c.accuracy_pct)}</td><td className={td}>{fmtInt(c.shortage_qty)}</td><td className={td}>{fmtInt(c.excess_qty)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {quarter.data && !quarter.data.by_category?.length && <p className="py-[2vh] text-center text-[1.4vh] text-[var(--dx-t4)]">No approved section yet</p>}
+        </Card>
+      </div>
+    </div>
+  );
 }

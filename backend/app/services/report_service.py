@@ -1,8 +1,9 @@
 """Reports module — the Reports page's downloads, per store.
 
-The Child Parts Store keeps its thirteen reports (SRV, Verification, Pending
-RQC, Put Away, Rack Stock, Live Stock, Supplier and the quarterly inventory
-ones), built here exactly as before. Every other store is a spare store: its
+The Child Parts Store keeps its reports (SRV, Verification, Pending RQC, Put
+Away, Rack Stock, Live Stock, Supplier, Top 10 oldest excess), built here as
+before; its old quarterly inventory reports went with the old one-table
+upload on 15 Nov 2026 (the new Quarterly Inventory has its own exports). Every other store is a spare store: its
 reports come from SpareReportService. Either way one (columns, rows) pair is
 exported as Excel (excel_io.build_export), CSV (build_csv) or PDF
 (utils/pdf_io.build_pdf_table), named "<Report> <DD.MM.YYYY>[ to <DD.MM.YYYY>]".
@@ -19,7 +20,6 @@ from app.repositories.srv_repository import SRVRepository
 from app.repositories.rack_bin_repository import RackBinRepository
 from app.repositories.supplier_repository import SupplierRepository
 from app.services.store_stock_service import StoreStockService
-from app.services.quarterly_inventory_service import QuarterlyInventoryService
 from app.services.live_stock_service import LiveStockService
 from app.services.reorder_mail_service import _file_safe, xlsx_table
 from app.services.spare_report_service import SpareReportService, plant_today
@@ -40,11 +40,6 @@ DESCRIPTIONS = {
     "rack_stock": "Rack and bin allocation of every part.",
     "live_stock": "Live on-hand quantity of every child part.",
     "supplier": "Suppliers with the number of SRVs each.",
-    "inventory_summary": "Quarterly inventory totals, accuracy and gap value per period.",
-    "inventory_variance": "Parts whose physical count differed from ERP, per quarter.",
-    "inventory_accuracy": "Inventory accuracy per quarter.",
-    "fy_comparison": "Inventory accuracy and gap value, fiscal year against fiscal year.",
-    "quarter_comparison": "Inventory accuracy and gap value, quarter against quarter.",
     "top_oldest_excess": "The 10 parts that have been in excess the longest.",
 }
 
@@ -70,7 +65,6 @@ class ReportService:
         self.rack_bin_repo = RackBinRepository()
         self.supplier_repo = SupplierRepository()
         self.store_stock_service = StoreStockService()
-        self.qty_inv_service = QuarterlyInventoryService()
         self.live_stock_service = LiveStockService()
         self.spare = SpareReportService()
 
@@ -134,58 +128,6 @@ class ReportService:
             "total_srvs": counts.get(s.vendor_code, 0),
         } for s in self.supplier_repo.get_all().all()]
 
-    def _all_periods(self):
-        """Every (fiscal_year, quarter) combo that has Quarterly Inventory data."""
-        periods = []
-        for fy in self.qty_inv_service.repo.list_fiscal_years():
-            for q in self.qty_inv_service.repo.list_quarters(fy):
-                periods.append((fy, q))
-        return periods
-
-    def _inventory_summary_rows(self):
-        rows = []
-        for fy, q in self._all_periods():
-            s = self.qty_inv_service.get_summary(fy, q)
-            rows.append({
-                "fiscal_year": fy, "quarter": q, "total_parts_counted": s["total_parts_counted"],
-                "matched_parts": s["matched_parts"], "variance_parts": s["variance_parts"],
-                "short_count": s["short_count"], "excess_count": s["excess_count"],
-                "inventory_accuracy_pct": s["inventory_accuracy_pct"],
-                "physical_inventory_value": s["physical_inventory_value"],
-                "erp_value": s["erp_value"], "gap_value": s["gap_value"],
-            })
-        return rows
-
-    def _inventory_variance_rows(self):
-        rows = []
-        for fy, q in self._all_periods():
-            for r in self.qty_inv_service.list_detail(fy, q):
-                if r["status"] == "MATCH":
-                    continue
-                rows.append(r)
-        return rows
-
-    def _inventory_accuracy_rows(self):
-        rows = []
-        for fy, q in self._all_periods():
-            s = self.qty_inv_service.get_summary(fy, q)
-            rows.append({
-                "fiscal_year": fy, "quarter": q,
-                "total_parts_counted": s["total_parts_counted"], "matched_parts": s["matched_parts"],
-                "inventory_accuracy_pct": s["inventory_accuracy_pct"],
-            })
-        return rows
-
-    def _fy_comparison_rows(self):
-        return self.qty_inv_service.get_fy_comparison()
-
-    def _quarter_comparison_rows(self):
-        rows = []
-        for fy in self.qty_inv_service.repo.list_fiscal_years():
-            for r in self.qty_inv_service.get_quarter_comparison(fy):
-                rows.append({"fiscal_year": fy, **r})
-        return rows
-
     def _top_oldest_excess_rows(self):
         return self.live_stock_service.top_oldest_excess(10)
 
@@ -219,30 +161,6 @@ class ReportService:
         "supplier": ("Supplier Report", _supplier_rows, [
             ("Vendor Code", "vendor_code"), ("Supplier Name", "supplier_name"), ("Status", "status"),
             ("Total SRVs", "total_srvs"),
-        ]),
-        "inventory_summary": ("Inventory Summary", _inventory_summary_rows, [
-            ("Fiscal Year", "fiscal_year"), ("Quarter", "quarter"), ("Total Parts Counted", "total_parts_counted"),
-            ("Matched Parts", "matched_parts"), ("Variance Parts", "variance_parts"),
-            ("Short Count", "short_count"), ("Excess Count", "excess_count"),
-            ("Inventory Accuracy %", "inventory_accuracy_pct"), ("Physical Inventory Value", "physical_inventory_value"),
-            ("ERP Value", "erp_value"), ("Gap Value", "gap_value"),
-        ]),
-        "inventory_variance": ("Inventory Variance Report", _inventory_variance_rows, [
-            ("Fiscal Year", "fiscal_year"), ("Quarter", "quarter"), ("Part No", "part_no"), ("Item Description", "part_name"),
-            ("Category", "category"), ("ERP Quantity", "erp_quantity"), ("Physical Quantity", "physical_quantity"),
-            ("Gap Quantity", "gap_quantity"), ("Gap Value", "gap_value"), ("Status", "status"),
-        ]),
-        "inventory_accuracy": ("Inventory Accuracy Report", _inventory_accuracy_rows, [
-            ("Fiscal Year", "fiscal_year"), ("Quarter", "quarter"), ("Total Parts Counted", "total_parts_counted"),
-            ("Matched Parts", "matched_parts"), ("Inventory Accuracy %", "inventory_accuracy_pct"),
-        ]),
-        "fy_comparison": ("FY Comparison Report", _fy_comparison_rows, [
-            ("Fiscal Year", "fiscal_year"), ("Total Parts", "total_parts"), ("Variance Parts", "variance_parts"),
-            ("Inventory Accuracy %", "inventory_accuracy_pct"), ("Gap Value", "gap_value"),
-        ]),
-        "quarter_comparison": ("Quarter Comparison Report", _quarter_comparison_rows, [
-            ("Fiscal Year", "fiscal_year"), ("Quarter", "quarter"), ("Total Parts", "total_parts"),
-            ("Variance Parts", "variance_parts"), ("Inventory Accuracy %", "inventory_accuracy_pct"), ("Gap Value", "gap_value"),
         ]),
         "top_oldest_excess": ("Top 10 Oldest Excess Parts", _top_oldest_excess_rows, [
             ("Part No", "part_no"), ("Item Description", "part_name"), ("Category", "category"),

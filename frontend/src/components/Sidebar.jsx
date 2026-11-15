@@ -76,7 +76,6 @@ const NAV_BY_STORE = {
         { to: "/short-parts", label: "Short Parts", short: "Short", icon: Siren },
         { to: "/excess-parts", label: "Excess Parts", short: "Excess", icon: TrendingUp },
         { to: "/store-stock", label: "Store Stock", icon: Store },
-        { to: "/quarterly-inventory", label: "Quarterly Inventory", icon: CalendarRange },
         { to: "/erp-gap", label: "ERP vs Physical Gap", short: "ERP Gap", icon: Scale },
         { to: "/erp-ledger-import", label: "ERP Ledger Import", icon: BookOpen },
         { to: "/current-stock", label: "Current Stock (ERP)", icon: Warehouse },
@@ -132,6 +131,9 @@ const NAV_BY_STORE = {
         // left the store, what came back and what was really used.
         { to: "/consumption", label: "Issue Register", short: "Issue Reg.", icon: TrendingUp, mod: "consumption" },
         { to: "/spare-part-history", label: "Part Ledger", short: "Ledger", icon: ScrollText, mod: "part_ledger" },
+        // Quarterly physical inventory (15 Nov 2026): count, reconcile, approve.
+        { to: "/quarterly-inventory", label: "Quarterly Inventory", short: "Qtr Inventory", icon: CalendarRange,
+          mod: ["inventory_count", "inventory_review", "inventory_approve"] },
       ],
     },
     {

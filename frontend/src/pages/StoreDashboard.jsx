@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   AlertTriangle, TrendingUp, Boxes, Clock,
-  Package, Layers, Globe, ArrowRight, ClipboardCheck, History, FileSpreadsheet, Wrench,
+  Package, Layers, Globe, ArrowRight, History, FileSpreadsheet, Wrench,
   Activity, ArrowDownToLine, ArrowUpFromLine, Bolt, ChartColumn, CircleCheck, ClipboardList,
   IndianRupee, Siren, Truck, Zap,
 } from "lucide-react";
@@ -44,7 +44,6 @@ const QUICK_ACCESS_DEFS = [
   { to: "/live-stock", label: "Live Stock", icon: Boxes, accent: "navy" },
   { to: "/short-parts", label: "Short Parts", icon: AlertTriangle, accent: "red" },
   { to: "/excess-parts", label: "Excess Parts", icon: TrendingUp, accent: "amber" },
-  { to: "/quarterly-inventory", label: "Quarterly Inventory", icon: ClipboardCheck, accent: "navy" },
   { to: "/reports", label: "Reports", icon: FileSpreadsheet, accent: "navy" },
   { to: "/audit-trail", label: "Audit Trail", icon: History, accent: "navy" },
 ];

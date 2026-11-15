@@ -90,6 +90,12 @@ SERVICES = [
     {"key": "erp_gap", "title": "ERP vs Physical Gap", "route": "/spare-erp-gap",
      "category": "Inventory", "icon": "⚖️", "mod": "erp_gap",
      "keywords": ["erp", "gap", "physical", "reconcile", "difference", "variance", "antar"]},
+    # 15 Nov 2026: quarterly physical inventory — plan, ERP snapshot, count, approve.
+    {"key": "quarterly_inventory", "title": "Quarterly Inventory", "route": "/quarterly-inventory",
+     "category": "Inventory", "icon": "🗓️", "mod": ["inventory_count", "inventory_review", "inventory_approve"],
+     "keywords": ["quarterly inventory", "quarterly", "quarter", "physical inventory", "inventory count",
+                  "stock taking", "stocktaking", "physical verification", "count sheet", "q1", "q2", "q3", "q4",
+                  "inventory accuracy", "recount", "ginti", "stock ginti", "inventory approval"]},
 
     # --- Masters ---
     {"key": "part_master", "title": "Part Master", "route": "/parts",

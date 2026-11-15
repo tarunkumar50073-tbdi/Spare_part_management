@@ -39,7 +39,7 @@ const RackBinMaster = React.lazy(() => import("./pages/RackBinMaster.jsx"));
 const LiveStock = React.lazy(() => import("./pages/LiveStock.jsx"));
 const ShortParts = React.lazy(() => import("./pages/ShortParts.jsx"));
 const ExcessParts = React.lazy(() => import("./pages/ExcessParts.jsx"));
-const QuarterlyInventory = React.lazy(() => import("./pages/QuarterlyInventory.jsx"));
+const QuarterlyInventory = React.lazy(() => import("./pages/spare/QuarterlyInventory.jsx"));
 const ERPGap = React.lazy(() => import("./pages/ERPGap.jsx"));
 const SpareErpGap = React.lazy(() => import("./pages/SpareErpGap.jsx"));
 const ERPLedgerImport = React.lazy(() => import("./pages/ERPLedgerImport.jsx"));
@@ -263,7 +263,7 @@ function AuthenticatedApp() {
           <Route path="/live-stock" element={<StoreRoute store="CHILD_PART"><LiveStock /></StoreRoute>} />
           <Route path="/short-parts" element={<StoreRoute store="CHILD_PART"><ShortParts /></StoreRoute>} />
           <Route path="/excess-parts" element={<StoreRoute store="CHILD_PART"><ExcessParts /></StoreRoute>} />
-          <Route path="/quarterly-inventory" element={<StoreRoute store="CHILD_PART"><QuarterlyInventory /></StoreRoute>} />
+          <Route path="/quarterly-inventory" element={<RequirePermission mod={["inventory_count", "inventory_review", "inventory_approve"]}><QuarterlyInventory /></RequirePermission>} />
           <Route path="/erp-gap" element={<StoreRoute store="CHILD_PART"><ERPGap /></StoreRoute>} />
           <Route path="/erp-ledger-import" element={<StoreRoute store="CHILD_PART"><ERPLedgerImport /></StoreRoute>} />
           <Route path="/inventory-overview" element={<StoreRoute store="CHILD_PART"><InventoryOverview /></StoreRoute>} />

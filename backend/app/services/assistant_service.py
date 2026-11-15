@@ -466,7 +466,8 @@ def _allowed(service, user):
     if service.get("admin") and not (user and user.is_admin):
         return False
     mod = service.get("mod")
-    if mod and not (user and user.can(mod)):
+    mods = mod if isinstance(mod, (list, tuple)) else ([mod] if mod else [])
+    if mods and not (user and any(user.can(m) for m in mods)):
         return False
     return True
 

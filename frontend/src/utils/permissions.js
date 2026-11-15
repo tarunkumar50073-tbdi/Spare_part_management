@@ -23,6 +23,9 @@ export const seesSpareStock = (user) => SPARE_STOCK_VIEW.some((m) => can(user, m
 
 export function can(user, mod, action = "view") {
   if (Array.isArray(action)) return action.every((a) => can(user, mod, a));
+  // An array of modules = any one of them (a screen several rights open:
+  // Quarterly Inventory's Count / Supervisor / Manager, 15 Nov 2026).
+  if (Array.isArray(mod)) return mod.some((m) => can(user, m, action));
   if (!user) return false;
   if (user.is_admin) return true;
   if (!mod) return true;

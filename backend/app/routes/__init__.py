@@ -18,7 +18,7 @@ def register_routes(app):
     from app.routes.notification_routes import bp as notification_bp
     from app.routes.audit_routes import bp as audit_bp
     from app.routes.live_stock_routes import bp as live_stock_bp
-    from app.routes.quarterly_inventory_routes import bp as quarterly_inventory_bp
+    from app.routes.inventory_count_routes import bp as inventory_count_bp
     from app.routes.inventory_overview_routes import bp as inventory_overview_bp
     from app.routes.supplier_vehicle_routes import bp as supplier_vehicle_bp
     from app.routes.supplier_window_schedule_routes import bp as supplier_window_schedule_bp
@@ -77,7 +77,7 @@ def register_routes(app):
     app.register_blueprint(notification_bp)
     app.register_blueprint(audit_bp)
     app.register_blueprint(live_stock_bp)
-    app.register_blueprint(quarterly_inventory_bp)
+    app.register_blueprint(inventory_count_bp)
     app.register_blueprint(inventory_overview_bp)
     app.register_blueprint(supplier_vehicle_bp)
     app.register_blueprint(supplier_window_schedule_bp)

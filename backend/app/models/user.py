@@ -42,6 +42,11 @@ PERMISSION_MODULES = [
     # time a login's rights are saved, as the kiosk right's did.
     {"key": "part_ledger", "label": "Part Ledger"},
     {"key": "erp_gap", "label": "ERP vs Physical Gap"},
+    # Quarterly physical inventory (15 Nov 2026): three rights, as the spec's
+    # Counter / Supervisor / Manager ("3 rights alag").
+    {"key": "inventory_count", "label": "Quarterly Inventory — Count"},
+    {"key": "inventory_review", "label": "Quarterly Inventory — Supervisor (plan, recount, submit)"},
+    {"key": "inventory_approve", "label": "Quarterly Inventory — Final approval (manager)"},
     {"key": "erp_control", "label": "ERP Control Center"},
     {"key": "part_master", "label": "Part Master"},
     {"key": "data_quality", "label": "Data Quality"},
@@ -107,6 +112,9 @@ MODULE_ACTIONS = {
     "receiving": _RC,             # C post ERP GRN lines to stock
     "short_rejection": _R,
     "part_ledger": _R, "erp_gap": _R,
+    "inventory_count": _RCU,      # C count a part, count-sheet upload · E correct own count
+    "inventory_review": _RCUD,    # C plan a section's inventory · E start (ERP snapshot), recount OK, submit · D remove a plan
+    "inventory_approve": _RU,     # E final approve + lock, send back, revision after the lock
     "erp_control": _RU,           # E sync with ERP
     "part_master": _RCUD,         # C new part / import · E edit, photo · D delete
     "data_quality": _RU,          # E fill a part's missing field

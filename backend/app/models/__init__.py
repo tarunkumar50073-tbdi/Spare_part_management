@@ -16,7 +16,8 @@ from app.models.bom import BOM
 from app.models.forecast import CustomerForecast
 from app.models.stock_count import DailyStockCount
 from app.models.physical_stock import PhysicalStock
-from app.models.quarterly_inventory import QuarterlyInventory
+from app.models.inventory_count import (InventoryAudit, InventoryCount, InventoryResult, InventorySession,
+                                        InventorySnapshotLine)
 from app.models.dashboard_snapshot import DashboardSnapshot
 from app.models.supplier_vehicle_window import SupplierVehicleWindow
 from app.models.supplier_window_schedule import SupplierWindowSchedule
@@ -55,7 +56,8 @@ from app.models.erp_line_rejection import ErpLineRejection
 __all__ = [
     "Supplier", "Part", "PartSupplier", "RackBin", "SRV", "SRVScanEvent", "PartStock", "StockLedger", "ERPStock",
     "HoldingEntry", "Notification", "AuditLog", "LoginAttempt",
-    "FinishedGood", "BOM", "CustomerForecast", "DailyStockCount", "PhysicalStock", "QuarterlyInventory", "DashboardSnapshot",
+    "FinishedGood", "BOM", "CustomerForecast", "DailyStockCount", "PhysicalStock", "InventorySession", "InventorySnapshotLine", "InventoryCount",
+    "InventoryResult", "InventoryAudit", "DashboardSnapshot",
     "SupplierVehicleWindow", "SupplierWindowSchedule", "MilkrunGroup", "SupplierMilkrunMapping",
     "User", "UserStoreAccess", "Store", "Section", "Department", "DepartmentRecipient", "RGP",
     "ReceivingRegister", "GateEntry", "GateExit",
