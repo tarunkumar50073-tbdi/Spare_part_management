@@ -474,6 +474,19 @@ class SparePacketService:
                 db.session.rollback()       # made by a concurrent request a moment ago
         return made
 
+    @staticmethod
+    def last_grn_date(part, upto):
+        """The newest GRN date of the part in ERP's register on or before
+        `upto` (a GRN accepted as nothing - all rejected - left out), or None."""
+        no = (part.part_no or "").strip().upper()
+        if not no:
+            return None
+        return (db.session.query(func.max(ReceivingRegister.grn_date))
+                .filter(func.upper(func.trim(ReceivingRegister.item_cd)) == no,
+                        ReceivingRegister.grn_date <= upto,
+                        or_(ReceivingRegister.accept_qty.is_(None), ReceivingRegister.accept_qty != 0))
+                .scalar())
+
     def opening_receipt(self, part_id, qty, user=None, remarks=None):
         """A batch of the stock already on the shelf, so it can be packed — the
         store's "loose rahe, chaho to packet bana sako". It is counted by the
@@ -491,7 +504,12 @@ class SparePacketService:
                 raise BadRequestError(f"Only {figs['loose']:g} {part.uom or ''} of {part.part_no} is loose "
                                       f"(on hand {figs['on_hand']:g}, in packets {figs['packed_available']:g})")
             row = SpareStock.query.filter_by(part_id=part.id).first()
-            when = (_plant_date(row.last_counted_at) or _plant_date(row.created_at)) if row else None
+            counted = (_plant_date(row.last_counted_at) or _plant_date(row.created_at)) if row else None
+            # The date the material came in, not the day it is counted or labelled
+            # (14 Nov 2026: "printing lable par receving date aani chahiye"): the
+            # part's newest GRN in ERP's register up to the count; the count day
+            # only when ERP has no GRN of it.
+            when = self.last_grn_date(part, counted or date.today()) or counted
             now = utcnow()
             receipt = SpareBatch(
                 receipt_no=self._new_receipt_no(), store_code=part.store_code, part_id=part.id, source="OPENING",

@@ -822,3 +822,19 @@ def test_labels_issued_together_come_back_a_whole_packet_at_a_time():
     back = [x for x in units[:3] if db.session.get(SparePacket, x["id"]).status == "AVAILABLE"]
     assert len(back) == 2 and _on_hand(p) == 5
     assert [x for x in units[:3] if db.session.get(SparePacket, x["id"]).status == "ISSUED"]   # one still out
+
+
+# ---- old stock labels carry the receiving (GRN) date, not the count / print day (14 Nov 2026) ------
+
+def test_old_stock_label_date_is_the_parts_last_grn():
+    p = _part(10)                                             # counted 1 Sep 2026
+    for no, day, acc in (("GRN-OLD-A", date(2026, 8, 12), 10), ("GRN-OLD-B", date(2026, 8, 20), 0),
+                         ("GRN-LATER", date(2026, 9, 15), 5)):
+        db.session.add(ReceivingRegister(store_code="CHILD_PART", grn_no=no, grn_date=day, ven_cd="V1",
+                                         ven_name="S", item_cd=p.part_no, receipt_qty=10, accept_qty=acc))
+    db.session.commit()
+    made = svc.old_stock_pack(p.id, 2, "UNIT", user="sup")["packets"]
+    # 20 Aug was all rejected, 15 Sep is after the count: 12 Aug.
+    assert made[0]["code"].startswith("TB20260812") and made[0]["receipt"]["received_on"] == "2026-08-12"
+    q = _part(4)                                              # no GRN of it at all: the count day
+    assert svc.old_stock_pack(q.id, 1, "UNIT", user="sup")["packets"][0]["code"].startswith("TB20260901")
