@@ -87,9 +87,10 @@ SERVICES = [
      "category": "Inventory", "icon": "📜", "mod": "part_ledger",
      "keywords": ["ledger", "history", "timeline", "movements", "transactions", "traceability",
                   "kab issue", "kisko diya"]},
-    {"key": "erp_gap", "title": "ERP vs Physical Gap", "route": "/spare-erp-gap",
+    {"key": "erp_gap", "title": "ERP vs App", "route": "/spare-erp-gap",
      "category": "Inventory", "icon": "⚖️", "mod": "erp_gap",
-     "keywords": ["erp", "gap", "physical", "reconcile", "difference", "variance", "antar"]},
+     "keywords": ["erp vs app", "erp", "gap", "app stock", "reconcile", "difference", "variance", "antar",
+                  "daily", "sync", "mismatch"]},
     # 15 Nov 2026: quarterly physical inventory — plan, ERP snapshot, count, approve.
     {"key": "quarterly_inventory", "title": "Quarterly Inventory", "route": "/quarterly-inventory",
      "category": "Inventory", "icon": "🗓️", "mod": ["inventory_count", "inventory_review", "inventory_approve"],

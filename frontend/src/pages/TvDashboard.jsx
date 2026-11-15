@@ -1142,7 +1142,7 @@ export default function TvDashboard() {
     },
   );
   const openErpGap = () => openStack({
-    kind: "erpGap", title: "Current Stock — ERP vs Physical", rows: erpRows, summary: erpSum, error: erpState === "error",
+    kind: "erpGap", title: "Current Stock — ERP vs App", rows: erpRows, summary: erpSum, error: erpState === "error",
     note: snapWord
       ? `Physical is the store's own count in this app; ERP is the ${snapWord} — not a live feed.`
       : "No ERP stock snapshot has been received, so there is nothing to compare against.",
@@ -1277,13 +1277,13 @@ export default function TvDashboard() {
   };
   const erpInBoth = () => erpRows.filter((r) => r.gap_qty != null);
   const erpOpen = {
-    "ERP Stock": () => openErpSlice("ERP vs Physical — ERP stock", erpInBoth(),
+    "ERP Stock": () => openErpSlice("ERP vs App — ERP stock", erpInBoth(),
       `${fmtInt(erpSum.reconciled)} parts have both an ERP figure and a count: ERP ${fmtInt(Math.round(erpSum.erp_units))} units against ${fmtInt(Math.round(erpSum.physical_units))} counted.`),
     "App Stock": () => openErpSlice("ERP vs App — app stock", erpInBoth(),
       `${fmtInt(erpSum.reconciled)} parts have both an ERP figure and a count: ${fmtInt(Math.round(erpSum.physical_units))} units counted against ERP ${fmtInt(Math.round(erpSum.erp_units))}.`),
-    "Match Accuracy": () => openErpSlice("ERP vs Physical — match accuracy", erpInBoth(),
+    "Match Accuracy": () => openErpSlice("ERP vs App — match accuracy", erpInBoth(),
       `${fmtInt(erpSum.matched)} of ${fmtInt(erpSum.reconciled)} parts in both match${erpSum.accuracy_pct != null ? ` (${erpSum.accuracy_pct}%)` : ""}.`),
-    "With Gap": () => openErpSlice("ERP vs Physical — with gap", erpRows.filter((r) => r.status === "SHORT" || r.status === "EXCESS"),
+    "With Gap": () => openErpSlice("ERP vs App — with gap", erpRows.filter((r) => r.status === "SHORT" || r.status === "EXCESS"),
       `${fmtInt(erpGapCount)} parts differ from ERP: ${fmtInt(erpSum.short)} short, ${fmtInt(erpSum.excess)} excess.`),
   };
   // A tracker line opens the same drill as its tile / alert, where the board has one.
@@ -1326,7 +1326,7 @@ export default function TvDashboard() {
   // the store's count against ERP's, which way each part is off, and that the
   // ERP side is a dated figure, not live.
   if (erpGapCount) liveAlerts.push({ color: C.cyan, onClick: openErpGap,
-    text: `ERP vs Physical mismatch: ${plural(erpGapCount, "part")} (${fmtInt(erpSum.short)} short, ${fmtInt(erpSum.excess)} excess)${snapDay ? ` · as on ${snapDay}` : ""}` });
+    text: `ERP vs App mismatch: ${plural(erpGapCount, "part")} (${fmtInt(erpSum.short)} short, ${fmtInt(erpSum.excess)} excess)${snapDay ? ` · as on ${snapDay}` : ""}` });
   if (pendingErp) liveAlerts.push({ color: C.purple, text: `${plural(pendingErp, "movement")} queued for ERP (write-back ${erp?.write?.active ? "on" : "off"})`,
     onClick: () => openTxns("Pending ERP", {
       fetch: () => spareStockService.erpPendingList(STORE).then((r) => r.data.data?.rows || []),
@@ -2640,7 +2640,7 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1.4vh] h-full">
       <Card className="p-[1.6vh] flex flex-col">
-        <h3 className="dx-radiant mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">Biggest ERP vs Physical gaps</h3>
+        <h3 className="dx-radiant mb-[1vh] text-[1.8vh] font-bold text-[var(--dx-t1)]">Biggest ERP vs App gaps</h3>
         {frame.note && <p className="mb-[1vh] text-[1.4vh] text-[var(--dx-t3)]">{frame.note}</p>}
         <div className="min-h-[30vh] flex-1">
           {top.length ? (

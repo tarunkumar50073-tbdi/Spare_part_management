@@ -76,7 +76,7 @@ TRACKER_ITEMS = (
     {"key": "erp_gap", "label": "ERP vs physical gap", "severity": "warning",
      # The store reconciles ("RECONSILE STORE karega" — 22 Oct 2026).
      "action": "Reconcile stock with ERP", "owner": "Store",
-     "link": {"label": "Open ERP vs Physical", "to": "/spare-erp-gap"}, "store_only": True},
+     "link": {"label": "Open ERP vs App", "to": "/spare-erp-gap"}, "store_only": True},
     # No "kiosk part requests open" line: the kiosk and its Part Requisition
     # queue were taken out on 17 Oct 2026 ("management k according manual detail
     # fill karke issuance karna time waste h" — the store). Parts are issued on

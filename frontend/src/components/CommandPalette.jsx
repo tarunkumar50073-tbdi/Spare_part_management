@@ -19,7 +19,7 @@ const NAV = [
   { label: "Employee Master", to: "/employees", mod: "employees", keywords: "employee person mobile phone issued to code department" },
   { label: "Store Stock", to: "/store-stock-spare", mod: "store_stock", keywords: "inventory on hand count upload opening stock erp waiting for qc" },
   { label: "Part Ledger — Stock Ledger", to: "/spare-part-history", mod: "part_ledger", keywords: "valuation history opening closing movement" },
-  { label: "ERP vs Physical Gap", to: "/spare-erp-gap", mod: "erp_gap", keywords: "gap variance difference" },
+  { label: "ERP vs App", to: "/spare-erp-gap", mod: "erp_gap", keywords: "erp vs app gap variance difference daily erp stock app stock sync mismatch" },
   { label: "Quarterly Inventory", to: "/quarterly-inventory", mod: ["inventory_count", "inventory_review", "inventory_approve"], keywords: "quarterly inventory quarter physical inventory count stock taking physical verification count sheet q1 q2 q3 q4 inventory accuracy recount ginti approval" },
   { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data model no item description qr list qr pdf pkt qty packet qty" },
   { label: "Critical · Reorder · Excess", to: "/inventory-control", mod: "inventory_control", keywords: "short critical zero reorder excess aging order qty" },

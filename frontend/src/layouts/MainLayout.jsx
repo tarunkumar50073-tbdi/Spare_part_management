@@ -57,7 +57,7 @@ const TITLES = {
   "/rights-matrix": "Rights Matrix",
   "/settings": "Settings",
   "/store-stock-spare": "Store Stock",
-  "/spare-erp-gap": "ERP vs Physical Gap",
+  "/spare-erp-gap": "ERP vs App",
   "/departments": "Department Emails",
   "/services": "All Services",
   "/inventory-control": "Critical · Reorder · Excess",

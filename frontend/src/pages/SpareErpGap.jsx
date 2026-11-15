@@ -93,7 +93,7 @@ export default function SpareErpGap() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="font-semibold text-slate-800 dark:text-white flex items-center gap-2">
-            <Scale size={18} className="text-toyotared" /> ERP vs Physical
+            <Scale size={18} className="text-toyotared" /> ERP vs App
           </h2>
           <p className="text-xs text-slate-400 mt-0.5 max-w-2xl">
             ERP stock against this store&apos;s physical count. The physical column comes from your Store Stock counts;

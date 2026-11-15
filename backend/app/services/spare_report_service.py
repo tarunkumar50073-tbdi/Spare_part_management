@@ -352,7 +352,7 @@ class SpareReportService:
         Report("receipt_register", "Receipts (ERP GRN)",
                "Stock received in the period on ERP GRNs, with the supplier and the value at today's rate.",
                True, RECEIPT_COLUMNS, _receipt_register),
-        Report("erp_vs_physical", "ERP vs Physical",
+        Report("erp_vs_physical", "ERP vs App",
                "ERP stock against the physical count of every part, largest gap first.",
                False, ERP_COLUMNS, _erp_vs_physical),
     )

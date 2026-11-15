@@ -41,7 +41,7 @@ PERMISSION_MODULES = [
     # hata de" — the store's work ends at the issue). Old keys drop off the next
     # time a login's rights are saved, as the kiosk right's did.
     {"key": "part_ledger", "label": "Part Ledger"},
-    {"key": "erp_gap", "label": "ERP vs Physical Gap"},
+    {"key": "erp_gap", "label": "ERP vs App (daily)"},
     # Quarterly physical inventory (15 Nov 2026): three rights, as the spec's
     # Counter / Supervisor / Manager ("3 rights alag").
     {"key": "inventory_count", "label": "Quarterly Inventory — Count"},

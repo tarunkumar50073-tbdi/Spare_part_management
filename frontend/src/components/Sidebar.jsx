@@ -154,7 +154,7 @@ const NAV_BY_STORE = {
       label: "ERP",
       items: [
         { to: "/erp-control", label: "ERP Control Center", icon: ServerCog, mod: "erp_control" },
-        { to: "/spare-erp-gap", label: "ERP vs Physical", icon: Scale, mod: "erp_gap" },
+        { to: "/spare-erp-gap", label: "ERP vs App", icon: Scale, mod: "erp_gap" },
       ],
     },
     {
