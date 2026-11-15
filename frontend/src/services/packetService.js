@@ -31,8 +31,9 @@ export const packetService = {
   fifo: (partId, config) => api.get(`/spare-packets/parts/${partId}/fifo`, config),
   packets: (params, config) => api.get("/spare-packets/packets", { params, ...config }),
   // The labels printed and put on the shelf, as a file (14 Nov 2026): fmt excel | pdf.
+  // params.issued = 1: only the labels that went out (15 Nov 2026).
   printedFile: (params, fmt) => downloadFile(`/spare-packets/printed/${fmt}`,
-    `Printed QR Labels ${new Date().toLocaleDateString("en-GB").replace(/\//g, ".")}.${fmt === "pdf" ? "pdf" : "xlsx"}`, params),
+    `${params.issued ? "Issued" : "Printed"} QR Labels ${new Date().toLocaleDateString("en-GB").replace(/\//g, ".")}.${fmt === "pdf" ? "pdf" : "xlsx"}`, params),
   issued: (params, config) => api.get("/spare-packets/issued", { params, ...config }),
   get: (code, config) => api.get(`/spare-packets/packets/${encodeURIComponent(code)}`, config),
   // After the labels came out of the printer (the browser can't know).

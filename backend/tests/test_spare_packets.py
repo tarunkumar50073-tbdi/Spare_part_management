@@ -807,6 +807,26 @@ def test_printed_labels_file_lists_only_printed_uncancelled_labels(app):
     assert c.get("/api/v1/spare-packets/printed/csv", query_string={"store_code": STORE}).status_code == 404
 
 
+def test_issued_only_labels_file(app):
+    import io
+    from openpyxl import load_workbook
+    p, a, b, pa, pb = _bolts()
+    svc.record_print([str(pa[0]["id"]), str(pa[1]["id"])], user="sup")
+    _issue(str(pa[0]["id"]))
+    _issue(str(pa[2]["id"]))                                             # never printed here, still went out
+    rows = svc.printed_labels(STORE, q=p.part_no, issued_only=True)
+    assert {r["status"] for r in rows} == {"Issued"} and len(rows) == 2
+    today = date.today().isoformat()
+    assert len(svc.printed_labels(STORE, q=p.part_no, issued_only=True, date_from=today, date_to=today)) == 2
+    assert svc.printed_labels(STORE, q=p.part_no, issued_only=True, date_to="2000-01-01") == []
+    c = app.test_client()
+    with c.session_transaction() as s:
+        s["user_id"] = _user({"spare_packets": {"view": True}}).id
+    x = c.get("/api/v1/spare-packets/printed/excel", query_string={"store_code": STORE, "q": p.part_no, "issued": 1})
+    assert x.status_code == 200 and "Issued QR Labels" in x.headers["Content-Disposition"]
+    assert load_workbook(io.BytesIO(x.data)).active.max_row == 3
+
+
 
 def test_labels_issued_together_come_back_a_whole_packet_at_a_time():
     from app.services.spare_return_service import SpareReturnService

@@ -624,12 +624,17 @@ function KindTag({ p }) {
 }
 
 // The labels printed and put on the shelf, as Excel / PDF (14 Nov 2026).
-function PrintedFiles({ storeCode, q }) {
+// "Issued only" (15 Nov 2026): just the labels that went out; the Issued tab
+// passes its dates too.
+function PrintedFiles({ storeCode, q, issuedOnly = false, fixed = false, from, to }) {
   const [busy, setBusy] = useState(null);
+  const [onlyIssued, setOnlyIssued] = useState(issuedOnly);
+  const issued = fixed ? issuedOnly : onlyIssued;
   const get = async (fmt) => {
     setBusy(fmt);
     try {
-      await packetService.printedFile({ store_code: storeCode, q: q || undefined }, fmt);
+      await packetService.printedFile({ store_code: storeCode, q: q || undefined, issued: issued ? 1 : undefined,
+        from: (issued && from) || undefined, to: (issued && to) || undefined }, fmt);
     } catch (e) {
       toast.error(errText(e));
     } finally {
@@ -638,7 +643,15 @@ function PrintedFiles({ storeCode, q }) {
   };
   return (
     <span className="flex items-center gap-1 text-[12px] text-slate-500 dark:text-slate-400">
-      Printed labels:
+      {fixed ? (issuedOnly ? "Issued labels:" : "Printed labels:") : (
+        <>
+          Printed labels:
+          <label className="mr-1 inline-flex cursor-pointer items-center gap-1">
+            <input type="checkbox" checked={onlyIssued} onChange={(e) => setOnlyIssued(e.target.checked)} />
+            Issued only
+          </label>
+        </>
+      )}
       {["excel", "pdf"].map((f) => (
         <button key={f} type="button" disabled={Boolean(busy)} onClick={() => get(f)}
           className="btn-secondary px-2 py-1 text-[12px]">
@@ -803,7 +816,10 @@ function IssuedTab({ storeCode }) {
           <span>to</span>
           <input type="date" className="input-field py-1.5 text-[12.5px]" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To date" />
         </div>
-        <SearchBox value={typed} onChange={setTyped} placeholder="Part, packet, department, person…" />
+        <span className="flex flex-wrap items-center gap-2">
+          <PrintedFiles storeCode={storeCode} q={q} issuedOnly fixed from={from} to={to} />
+          <SearchBox value={typed} onChange={setTyped} placeholder="Part, packet, department, person…" />
+        </span>
       </div>
       {list.isError ? <div className="p-4"><ErrorState title="The history did not load" message={errText(list.error)} onRetry={() => list.refetch()} /></div> : (
         <div className="overflow-x-auto">

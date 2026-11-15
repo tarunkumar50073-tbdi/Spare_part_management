@@ -59,7 +59,9 @@ SERVICES = [
                   # 14 Nov 2026: a whole rack's old stock labelled in one go.
                   "whole rack", "pura rack", "rack wise", "rack ke label", "label whole rack",
                   # 14 Nov 2026: the printed labels as a file.
-                  "printed labels", "label excel", "label pdf", "label list", "lage hue label"]},
+                  "printed labels", "label excel", "label pdf", "label list", "lage hue label",
+                  # 15 Nov 2026: only the issued labels as a file.
+                  "issued labels", "issued qr", "issue hue qr", "issue hue label", "issued label excel"]},
     {"key": "job_work", "title": "Job Work & RGP", "route": "/job-work",
      "category": "Inventory", "icon": "🛠️", "mod": "scan_part",
      "keywords": ["job work", "jobwork", "rgp", "challan", "coating", "isuzu", "oerlikon", "returnable",

@@ -1479,13 +1479,24 @@ class SparePacketService:
         ("Department", "department"),
     ]
 
-    def printed_labels(self, store_code, q=None):
+    def printed_labels(self, store_code, q=None, issued_only=False, date_from=None, date_to=None):
         """Every label of the store printed at least once and not cancelled,
-        shelf order (location, part, label), with where each one stands."""
+        shelf order (location, part, label), with where each one stands.
+        issued_only (15 Nov 2026: "issued only filter bana de"): only the labels
+        that went out, printed here or the supplier's, newest issue first,
+        optionally issued between date_from and date_to (YYYY-MM-DD)."""
         query = (SparePacket.query.join(SpareBatch, SpareBatch.id == SparePacket.batch_id)
-                 .join(Part, Part.id == SparePacket.part_id)
-                 .filter(Part.store_code == store_code, SparePacket.print_count > 0,
-                         SparePacket.status != "CANCELLED"))
+                 .join(Part, Part.id == SparePacket.part_id).filter(Part.store_code == store_code))
+        if issued_only:
+            query = query.filter(SparePacket.status == "ISSUED")
+            if date_from:
+                query = query.filter(SparePacket.issued_at >= datetime.combine(
+                    date.fromisoformat(date_from), datetime.min.time()).astimezone())
+            if date_to:
+                query = query.filter(SparePacket.issued_at < datetime.combine(
+                    date.fromordinal(date.fromisoformat(date_to).toordinal() + 1), datetime.min.time()).astimezone())
+        else:
+            query = query.filter(SparePacket.print_count > 0, SparePacket.status != "CANCELLED")
         text = (q or "").strip()
         if text:
             like = f"%{text}%"
@@ -1508,8 +1519,15 @@ class SparePacketService:
                 "issued_to": (p.issued_to or "") if p.status == "ISSUED" else "",
                 "department": (p.department or "") if p.status == "ISSUED" else "",
                 "_order": (_natural(p.location or ""), p.part.part_no, p.code, p.seq, p.id),
+                "_issued": (p.issued_at.timestamp() if p.issued_at else 0, p.id),
             })
-        rows.sort(key=lambda r: r.pop("_order"))
+        if issued_only:
+            rows.sort(key=lambda r: r["_issued"], reverse=True)
+        else:
+            rows.sort(key=lambda r: r["_order"])
+        for r in rows:
+            r.pop("_order")
+            r.pop("_issued")
         return rows
 
     def packets(self, store_code, status=None, q=None, page=1, page_size=PAGE_SIZE, issued=False,

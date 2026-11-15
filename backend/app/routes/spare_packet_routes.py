@@ -324,9 +324,11 @@ def printed_file(fmt):
     from app.utils import pdf_io
     from app.utils.excel_io import build_export
     store = _store()
-    rows = service.printed_labels(store, q=request.args.get("q"))
+    issued_only = request.args.get("issued") in ("1", "true", "yes")
+    rows = service.printed_labels(store, q=request.args.get("q"), issued_only=issued_only,
+                                  date_from=request.args.get("from") or None, date_to=request.args.get("to") or None)
     cols = SparePacketService.PRINTED_COLUMNS
-    name = f"Printed QR Labels {_date.today():%d.%m.%Y}"
+    name = f"{'Issued' if issued_only else 'Printed'} QR Labels {_date.today():%d.%m.%Y}"
     if fmt == "excel":
         return send_file(build_export(cols, rows), as_attachment=True, download_name=f"{name}.xlsx",
                          mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
