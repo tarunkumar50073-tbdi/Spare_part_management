@@ -581,10 +581,18 @@ class InventoryCountService:
         the current revision."""
         if s.status == "COMPLETED":
             res = InventoryResult.query.filter_by(session_id=s.id, revision=s.revision).all()
+            # Who counted each part: its latest count (the frozen result keeps the figures).
+            last = {}
+            for c in InventoryCount.query.filter_by(session_id=s.id).order_by(InventoryCount.seq).all():
+                last[c.part_id] = c
             rows = [{"part_id": r.part_id, "part_no": r.part_no, "item_description": r.item_description,
                      "uom": r.uom, "category": r.category, "location": r.location,
                      "_erp": r.erp_qty, "_phy": r.physical_qty, "_rate": r.rate, "status": r.status,
-                     "in_snapshot": True} for r in res]
+                     "in_snapshot": True,
+                     "counted_by": last[r.part_id].counted_by if r.part_id in last else None,
+                     "counted_at": last[r.part_id].counted_at.isoformat() if r.part_id in last else None,
+                     "count_kind": last[r.part_id].kind if r.part_id in last else None,
+                     "remarks": last[r.part_id].remarks if r.part_id in last else None} for r in res]
         else:
             rows = self._live_rows(s)
         out = []

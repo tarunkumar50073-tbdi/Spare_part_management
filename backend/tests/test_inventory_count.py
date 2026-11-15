@@ -148,6 +148,8 @@ def test_approve_locks_and_a_revision_keeps_the_original():
     svc.count(s["id"], STORE, c.id, 0, "ravi")
     svc.submit(s["id"], STORE, "sup")
     done = svc.approve(s["id"], STORE, "mgr")
+    rows = {r["part_id"]: r for r in svc.detail(s["id"], STORE)["rows"]}
+    assert rows[a.id]["counted_by"] == "ravi" and rows[a.id]["count_kind"] == "COUNT"
     assert done["status"] == "COMPLETED" and done["locked"] and done["summary"]["accuracy_pct"] == round(2 / 3 * 100, 1)
     with pytest.raises(BadRequestError):
         svc.allow_recount(s["id"], STORE, b.id, "sup", "x")
