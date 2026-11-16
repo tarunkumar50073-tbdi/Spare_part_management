@@ -191,7 +191,7 @@ class SparePartOverviewService:
         if st == "Out of Stock":
             add("critical", "Zero stock", "Counted and found empty — nothing to issue")
         elif st == "Below Minimum":
-            add("critical", "Below minimum", f"{row['qty_on_hand']:g} on hand against a minimum of {row['min_stock_level']:g}")
+            add("critical", "Below minimum", f"{row['qty_on_hand']:g} in stock against a minimum of {row['min_stock_level']:g}")
         elif st == "Reorder":
             add("warning", "At reorder level", "At or below the reorder point — raise the indent (Purchase makes the PO)")
         elif st == "Above Maximum":

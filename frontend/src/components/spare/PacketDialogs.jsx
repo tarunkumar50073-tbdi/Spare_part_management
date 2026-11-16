@@ -126,7 +126,7 @@ function OldFacts({ row }) {
     <div className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 dark:bg-navy-950/40 sm:grid-cols-4">
       <Fact label="Part">{row.part.part_no}</Fact>
       <Fact label="Location">{row.part.location || "—"}</Fact>
-      <Fact label="On hand">{num(row.on_hand)} {row.part.uom}</Fact>
+      <Fact label="In Stock">{num(row.on_hand)} {row.part.uom}</Fact>
       <Fact label="Without a label">{num(row.to_label)} {row.part.uom}</Fact>
       <p className="col-span-full -mt-1 truncate text-[12px] text-slate-500" title={row.part.part_name}>{row.part.part_name}</p>
     </div>

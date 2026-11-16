@@ -502,7 +502,7 @@ class SparePacketService:
             figs = self.figures(part.id)
             if float(q) > figs["loose"]:
                 raise BadRequestError(f"Only {figs['loose']:g} {part.uom or ''} of {part.part_no} is without a label "
-                                      f"(on hand {figs['on_hand']:g}, in packets {figs['packed_available']:g})")
+                                      f"(in stock {figs['on_hand']:g}, in packets {figs['packed_available']:g})")
             row = SpareStock.query.filter_by(part_id=part.id).first()
             counted = (_plant_date(row.last_counted_at) or _plant_date(row.created_at)) if row else None
             # The date the material came in, not the day it is counted or labelled
@@ -675,7 +675,7 @@ class SparePacketService:
             if not before_qc and total > figs["loose"] + 1e-9:
                 raise BadRequestError(
                     f"Only {figs['loose']:g} of {receipt.part.part_no} is without a label on the shelf "
-                    f"(on hand {figs['on_hand']:g}, in packets {figs['packed_available']:g}) — "
+                    f"(in stock {figs['on_hand']:g}, in packets {figs['packed_available']:g}) — "
                     f"{total:g} cannot be packed")
             seq = (db.session.query(func.coalesce(func.max(SparePacket.seq), 0))
                    .filter(SparePacket.batch_id == receipt.id).scalar() or 0)
@@ -982,7 +982,7 @@ class SparePacketService:
             wait = figs["waiting_in_receipts"]
             raise BadRequestError(
                 f"Counted {_n(counted)} but the app has {figs['to_label']:g} {part.uom or ''} of {part.part_no} "
-                f"without a label (on hand {figs['on_hand']:g}, in packets {figs['packed_available']:g}"
+                f"without a label (in stock {figs['on_hand']:g}, in packets {figs['packed_available']:g}"
                 + (f", waiting in receipts {wait:g}" if wait else "")
                 + ") — put the extra stock right first (stock count), then label it")
         draft = SpareBatch(verify_status="VERIFIED", verified_qty=counted, qty=counted, part_id=part.id)

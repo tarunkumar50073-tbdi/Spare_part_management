@@ -845,7 +845,7 @@ function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick, sectio
               emptyMessage="No valued part has a gate entry yet — suppliers appear here once the ERP gate feed covers them"
               onBarClick={(d) => drillOf(
                 d.name,
-                `${money(d.value)} on hand · the last supplier of each of these parts`,
+                `${money(d.value)} in stock · the last supplier of each of these parts`,
                 d.part_ids,
                 `spares_value_${(d.ven_cd || d.name).replace(/[^\w-]+/g, "_").toLowerCase()}`,
               )}
@@ -883,7 +883,7 @@ function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick, sectio
                 <button type="button" disabled={!none.parts}
                   onClick={() => drillOf(
                     "No gate entry",
-                    `${money(none.value)} on hand · never seen at the gate — opening stock or pre-ERP arrivals`,
+                    `${money(none.value)} in stock · never seen at the gate — opening stock or pre-ERP arrivals`,
                     none.part_ids,
                     "spares_value_no_gate_entry",
                   )}

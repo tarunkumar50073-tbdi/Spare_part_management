@@ -589,7 +589,7 @@ class SpareStockService:
             db.session.refresh(row)
             on_hand = float(row.qty_on_hand or 0)
             if qty > on_hand:
-                raise BadRequestError(f"Cannot issue {qty:g}: only {on_hand:g} on hand")
+                raise BadRequestError(f"Cannot issue {qty:g}: only {on_hand:g} in stock")
             # By quantity only the loose stock: what is in packets goes out a
             # whole packet at a time, by its QR (from_packet — the packet
             # issue, which has already taken its packet off the available ones).
@@ -1513,7 +1513,7 @@ class SpareStockService:
             "gauges": {
                 "stock_utilisation": {
                     "pct": self._pct(on_hand, capacity),
-                    "caption": f"{round(on_hand)} on hand · max limit {round(capacity)}",
+                    "caption": f"{round(on_hand)} in stock · max limit {round(capacity)}",
                     "basis": len(planned_counted),
                 },
                 "inventory_health": {

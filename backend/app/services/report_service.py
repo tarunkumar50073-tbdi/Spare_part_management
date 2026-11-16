@@ -156,7 +156,7 @@ class ReportService:
         ]),
         "live_stock": ("Live Stock Report", _live_stock_rows, [
             ("Part No", "part_no"), ("Item Description", "part_name"), ("UOM", "uom"),
-            ("Qty On Hand", "qty_on_hand"), ("Source", "source"),
+            ("In Stock", "qty_on_hand"), ("Source", "source"),
         ]),
         "supplier": ("Supplier Report", _supplier_rows, [
             ("Vendor Code", "vendor_code"), ("Supplier Name", "supplier_name"), ("Status", "status"),
