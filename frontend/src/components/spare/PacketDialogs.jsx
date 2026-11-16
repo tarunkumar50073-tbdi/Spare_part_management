@@ -413,7 +413,7 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
         <Fact label={receipt ? "Left to pack" : "Counted"}>{p ? `${num(p.packable)} ${unit}` : receipt ? `${num(receipt.to_pack)} ${unit}` : "—"}</Fact>
         <Fact label={kind === "PACKET" ? "Packets" : "Labels"}>{p ? `${p.count}${p.last_qty ? ` (last of ${num(p.last_qty)})` : ""}` : "—"}</Fact>
         <Fact label="Packed now">{p ? `${num(p.total)} ${unit}` : "—"}</Fact>
-        <Fact label="Stays loose">{p ? `${num(p.loose_after)} ${unit}` : "—"}</Fact>
+        <Fact label="Stays without label">{p ? `${num(p.loose_after)} ${unit}` : "—"}</Fact>
       </div>
       <Choice value={labels} onChange={(v) => { setLabels(v); setSame(null); }} options={[
         ["OURS", "Print our QR labels", "One label per packet, printed next"],
@@ -761,7 +761,7 @@ export function CancelDialog({ packet, onClose, onDone }) {
         <button type="button" className="btn-danger" onClick={cancel} disabled={!reason.trim() || busy}>{busy ? "Cancelling…" : "Cancel packet"}</button>
       </>}>
       <p className="text-[13px] text-slate-600 dark:text-slate-300">
-        {packet.part?.part_no} · {num(packet.qty)} {packet.uom || ""} — its quantity becomes loose again and its label no longer
+        {packet.part?.part_no} · {num(packet.qty)} {packet.uom || ""} — its quantity is without a label again and its label no longer
         scans as available. Remove the label from the packet. The code is never used again.
       </p>
       <Field label="Why" required hint="Packed by mistake, wrong quantity …">

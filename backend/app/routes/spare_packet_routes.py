@@ -397,7 +397,7 @@ def cancel(code):
     p = _packet(code)
     out = service.cancel(code, _body().get("reason"), user=_who())
     publish("stock", {"part_id": p.part_id, "action": "pack"})
-    return success_response(out, f"Packet {out['code']} cancelled — its quantity is loose again")
+    return success_response(out, f"Packet {out['code']} cancelled — its quantity is without a label again")
 
 
 def _issue_codes(data):

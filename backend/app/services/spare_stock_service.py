@@ -600,7 +600,7 @@ class SpareStockService:
                 if packed > 0 and qty > loose + 1e-9:
                     raise BadRequestError(
                         f"{packed:g} {part.uom or ''} of {part.part_no} is in packets — scan a packet's QR to issue "
-                        f"a whole packet." + (f" Loose on the shelf: {loose:g}." if loose > 0 else ""))
+                        f"a whole packet." + (f" Without a label on the shelf: {loose:g}." if loose > 0 else ""))
             row, _, ledger = self._write(
                 part.id, round(on_hand - qty, 2), "ISSUE",
                 reference=reference, remarks=remarks, user=user,

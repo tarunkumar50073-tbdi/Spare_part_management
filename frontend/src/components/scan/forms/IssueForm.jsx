@@ -193,7 +193,7 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
       {packed > 0 && (
         <Note tone="warn">
           {fmtQty(packed, part.uom)} of this part is in QR-labelled packets — scan a packet&apos;s QR to issue a whole packet.
-          {available > 0 ? ` By quantity, only the loose ${fmtQty(available, part.uom)}.` : " Nothing is loose."}
+          {available > 0 ? ` By quantity, only the ${fmtQty(available, part.uom)} without a label.` : " Nothing is without a label."}
         </Note>
       )}
     </FormShell>

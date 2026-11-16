@@ -221,7 +221,7 @@ function ReceiptsTab({ storeCode }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-left text-[12.5px]">
             <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
-              <tr><TH>Received</TH><TH>Part</TH><TH>GRN / Gate entry</TH><TH right>Received qty</TH><TH>Verification</TH><TH right>In packets</TH><TH right>To pack</TH><TH /></tr>
+              <tr><TH>Received</TH><TH>Part</TH><TH>GRN / Gate entry</TH><TH right>Received qty</TH><TH>Verification</TH><TH right>Labelled</TH><TH right>To pack</TH><TH /></tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
               {(list.data?.rows || []).map((r) => (
@@ -417,7 +417,7 @@ function OldStockTab({ storeCode }) {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[940px] text-left text-[12.5px]">
               <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
-                <tr><TH>Location</TH><TH>Part</TH><TH>Section</TH><TH right>On hand</TH><TH right>In packets</TH><TH right>Without label</TH><TH>State</TH><TH /></tr>
+                <tr><TH>Location</TH><TH>Part</TH><TH>Section</TH><TH right>On hand</TH><TH right>With label</TH><TH right>Without label</TH><TH>State</TH><TH /></tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
                 {(d?.rows || []).map((r) => {
@@ -764,7 +764,7 @@ function FifoDialog({ partId, onClose }) {
       {!d ? <p className="text-sm text-slate-400">{fifo.isError ? errText(fifo.error) : "Loading…"}</p> : (
         <div className="space-y-3">
           <div className="grid grid-cols-3 gap-3 rounded-lg bg-slate-50 p-3 text-center dark:bg-navy-950/40">
-            {[["On hand", d.on_hand], ["In packets", d.packed_available], ["Loose", d.loose]].map(([l, v]) => (
+            {[["On hand", d.on_hand], ["With label", d.packed_available], ["Without label", d.loose]].map(([l, v]) => (
               <div key={l}><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{l}</p>
                 <p className="text-lg font-bold tabular text-slate-800 dark:text-white">{num(v)} <span className="text-[12px] font-medium text-slate-400">{d.part.uom}</span></p></div>
             ))}

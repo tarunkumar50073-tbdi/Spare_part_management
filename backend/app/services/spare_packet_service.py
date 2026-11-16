@@ -501,7 +501,7 @@ class SparePacketService:
             self._lock_stock(part.id)
             figs = self.figures(part.id)
             if float(q) > figs["loose"]:
-                raise BadRequestError(f"Only {figs['loose']:g} {part.uom or ''} of {part.part_no} is loose "
+                raise BadRequestError(f"Only {figs['loose']:g} {part.uom or ''} of {part.part_no} is without a label "
                                       f"(on hand {figs['on_hand']:g}, in packets {figs['packed_available']:g})")
             row = SpareStock.query.filter_by(part_id=part.id).first()
             counted = (_plant_date(row.last_counted_at) or _plant_date(row.created_at)) if row else None
@@ -674,7 +674,7 @@ class SparePacketService:
             before_qc = receipt.source == "GATE" and not receipt.grn_no
             if not before_qc and total > figs["loose"] + 1e-9:
                 raise BadRequestError(
-                    f"Only {figs['loose']:g} of {receipt.part.part_no} is loose on the shelf "
+                    f"Only {figs['loose']:g} of {receipt.part.part_no} is without a label on the shelf "
                     f"(on hand {figs['on_hand']:g}, in packets {figs['packed_available']:g}) — "
                     f"{total:g} cannot be packed")
             seq = (db.session.query(func.coalesce(func.max(SparePacket.seq), 0))

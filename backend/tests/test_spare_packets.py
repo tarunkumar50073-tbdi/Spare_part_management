@@ -288,7 +288,7 @@ def test_loose_quantity_issues_and_counts_never_eat_packed_stock():
         stock.set_quantity(p.id, 250, txn_type="ADJUSTMENT")
     svc.cancel(str(pa[0]["id"]), "Re-pack")                        # 20 loose
     stock.issue(p.id, 5, DEPT, issued_to="Ravi")                # by quantity: loose only
-    with pytest.raises(BadRequestError, match="Loose on the shelf: 15"):
+    with pytest.raises(BadRequestError, match="Without a label on the shelf: 15"):
         stock.issue(p.id, 16, DEPT, issued_to="Ravi")
     assert _on_hand(p) == 295
     with pytest.raises(BadRequestError, match="only an available one"):
