@@ -38,7 +38,7 @@ DESCRIPTIONS = {
     "pending_rqc": "SRVs waiting for RQC inspection.",
     "put_away": "Put-away status and rack of every SRV.",
     "rack_stock": "Rack and bin allocation of every part.",
-    "live_stock": "Live on-hand quantity of every child part.",
+    "live_stock": "Live in-stock quantity of every child part.",
     "supplier": "Suppliers with the number of SRVs each.",
     "top_oldest_excess": "The 10 parts that have been in excess the longest.",
 }

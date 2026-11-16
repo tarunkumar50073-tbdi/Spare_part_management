@@ -860,7 +860,7 @@ function SupplierValueCard({ sectionId, stockRows, onDrill, onStockClick, sectio
 
           <div className="rounded-xl bg-slate-50 dark:bg-navy-800/60 p-4 space-y-3 min-w-0 lg:self-start">
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-slate-400">Total on-hand value</p>
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">Total in-stock value</p>
               <p className="text-xl font-semibold tabular text-slate-800 dark:text-white" title={money(data.total)}>
                 {compactMoney(data.total)}
               </p>
