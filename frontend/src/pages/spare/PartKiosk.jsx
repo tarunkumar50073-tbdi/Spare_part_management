@@ -244,12 +244,19 @@ export default function PartKiosk({ linkKey = null }) {
       {open ? (
         <PartScreen key={open.id} part={open} onBack={() => setOpen(null)} />
       ) : (
-      <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6">
+      <main className={`w-full ${q.length < 2 ? "flex flex-1 flex-col bg-[#05080c]" : "mx-auto max-w-7xl px-4 py-5 sm:px-6"}`}>
         {q.length < 2 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-            <Search size={56} aria-hidden="true" className="text-slate-300 dark:text-slate-600" />
-            <p className="text-lg font-semibold text-slate-500 dark:text-slate-400">Type at least 2 letters of a Part No. or name</p>
-            <p className="text-sm text-slate-400">e.g. CNTR1234 · bearing 6204 · cylinder</p>
+          // Nothing searched yet: the "Innovation at Toyota Boshoku" banner
+          // fills the screen instead of an empty grey page (17 Nov 2026: "pic
+          // 2nd khali khali lag rha h usme background me 1st pic lag sakti h").
+          <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-8 text-center">
+            <img src="/kiosk-banner.png" alt="Innovation at Toyota Boshoku" draggable={false}
+              className="w-full max-w-6xl rounded-2xl object-contain shadow-2xl ring-1 ring-white/10" />
+            <div className="flex flex-col items-center gap-2">
+              <Search size={44} aria-hidden="true" className="text-teal-300/80" />
+              <p className="text-xl font-semibold text-white/90">Type at least 2 letters of a Part No. or name</p>
+              <p className="text-sm text-white/50">e.g. CNTR1234 · bearing 6204 · cylinder</p>
+            </div>
           </div>
         ) : search.isError ? (
           <div className="py-20 text-center">
