@@ -126,6 +126,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
       ? `Older stock is waiting — say why ${many ? "these labels go" : "this packet goes"} first` : null,
     lotQty: lot ? (lotQty === "" ? "Type the qty to issue" : lotErr) : null,
     ...placeErrors(department, place, machines),
+    remarks: remarks.trim() ? null : "Write the remarks (why / for what)",
   };
   const valid = available && !Object.values(errors).some(Boolean);
   const show = (k) => (tried ? errors[k] : null);
@@ -289,9 +290,9 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
             )}
             <LineMachinePicker id={`${uid}-place`} department={department} value={place} onChange={setPlace}
           lineError={show("line")} machineError={show("machine")} />
-            <Field label="Remarks" htmlFor={`${uid}-rem`}>
+            <Field label="Remarks" required error={show("remarks")} htmlFor={`${uid}-rem`}>
               <input id={`${uid}-rem`} value={remarks} maxLength={200} onChange={(e) => setRemarks(e.target.value)}
-                className="input-field" placeholder="Optional" />
+                className="input-field" placeholder="Why / for what — e.g. breakdown, PM, spare change" />
             </Field>
           </div>
         </>

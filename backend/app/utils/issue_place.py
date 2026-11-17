@@ -7,6 +7,9 @@ from app.utils.exceptions import BadRequestError
 
 
 def require_place(data):
+    # Remarks too (17 Nov 2026: "remarks bhi zaroori kar de").
+    if not str(data.get("remarks") or "").strip():
+        raise BadRequestError("Write the remarks for this issue")
     if data.get("place_unavailable"):
         return
     if not str(data.get("line_name") or "").strip():

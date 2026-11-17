@@ -220,6 +220,55 @@ def _read_or_make_key(path):
         return key
 
 
+# issue_register (17 Nov 2026: "issuance register alag se ... usme kewal issuance ka
+# data dikhega", "pura ledger ki table dekhne ki jarurat nhi", "koi bhi column null
+# na rhe"): a VIEW of spare_stock_ledger's ISSUE rows - a table to read, with only
+# what an issue is, nothing empty ("—" / 0), and no second copy that could drift.
+# Other departments' apps read it: select * from issue_register.
+_ISSUE_REGISTER_SELECT = """
+SELECT l.id AS issue_no,
+       {issued_at} AS issued_at,
+       p.part_no AS part_no,
+       COALESCE(p.item_description, '—') AS item_description,
+       COALESCE(p.uom, '—') AS uom,
+       COALESCE(s.name, '—') AS section,
+       -l.qty_delta AS qty_issued,
+       COALESCE((SELECT SUM(r.qty_delta) FROM spare_stock_ledger r WHERE r.return_of_id = l.id), 0) AS qty_returned,
+       -l.qty_delta - COALESCE((SELECT SUM(r.qty_delta) FROM spare_stock_ledger r WHERE r.return_of_id = l.id), 0) AS net_qty,
+       COALESCE(NULLIF(TRIM(l.department), ''), '—') AS department,
+       COALESCE(NULLIF(TRIM(l.issued_to), ''), e.name, '—') AS issued_to,
+       COALESCE(NULLIF(TRIM(l.issued_to_code), ''), e.employee_code, '—') AS employee_code,
+       COALESCE(NULLIF(TRIM(l.issued_to_mobile), ''), e.mobile, '—') AS mobile,
+       COALESCE(NULLIF(TRIM(l.line_name), ''), '—') AS line,
+       COALESCE(NULLIF(TRIM(l.machine), ''), '—') AS machine,
+       COALESCE(NULLIF(TRIM(l.remarks), ''), '—') AS remarks,
+       COALESCE(NULLIF(TRIM(l.reference), ''), '—') AS qr_scanned,
+       COALESCE(NULLIF(TRIM(l.created_by), ''), '—') AS issued_by,
+       COALESCE(l.status, 'ISSUED') AS status,
+       COALESCE(p.unit_price, 0) AS rate,
+       -l.qty_delta * COALESCE(p.unit_price, 0) AS value
+FROM spare_stock_ledger l
+JOIN part_master p ON p.id = l.part_id
+LEFT JOIN sections s ON s.id = p.section_id
+LEFT JOIN employees e ON e.id = l.employee_id
+WHERE l.txn_type = 'ISSUE'
+"""
+
+
+def _issue_register_view():
+    """(Re)make the issue_register view. Never stops the app: a failure is logged."""
+    import logging
+    dialect = db.engine.dialect.name
+    issued_at = ("(l.created_at AT TIME ZONE 'Asia/Kolkata')" if dialect == "postgresql" else "l.created_at")
+    sql = _ISSUE_REGISTER_SELECT.format(issued_at=issued_at)
+    try:
+        with db.engine.begin() as conn:
+            conn.exec_driver_sql("DROP VIEW IF EXISTS issue_register")
+            conn.exec_driver_sql(f"CREATE VIEW issue_register AS {sql}")
+    except Exception:  # noqa: BLE001
+        logging.getLogger("dxstore").warning("issue_register view not made", exc_info=True)
+
+
 def _ensure_secret_key(app):
     """A strong SECRET_KEY whatever the server's .env holds. A missing, short
     (< 32) or placeholder key — "dev-secret" is in the public code, and with it
@@ -422,6 +471,7 @@ def create_app(env_name=None):
             _seed_department_recipients()
             _seed_report_recipients()
             _clear_plain_passwords()
+            _issue_register_view()
 
     _start_erp_ledger_poller(app)
     _start_erp_sync_poller(app)
