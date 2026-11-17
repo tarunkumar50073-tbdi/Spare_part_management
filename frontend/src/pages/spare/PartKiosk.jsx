@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
@@ -102,7 +102,17 @@ function Photo({ src, alt, big = false, className = "" }) {
   );
 }
 
-export default function PartKiosk() {
+// The kiosk LINK (17 Nov 2026: "kiosk bina id password k chalega"): opened at
+// /k/<key> with no login; the search and the photos go through that key.
+const LinkKey = createContext(null);
+function useImg() {
+  const key = useContext(LinkKey);
+  return (part, thumb = false, n = 0) => (key
+    ? partKioskService.linkImageUrl(key, part, partService.photosOf(part)[n], thumb, n)
+    : partService.imageUrl(part, thumb, n));
+}
+
+export default function PartKiosk({ linkKey = null }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { dark } = useTheme() || {};
@@ -153,8 +163,10 @@ export default function PartKiosk() {
   }, []);
 
   const search = useInfiniteQuery({
-    queryKey: ["part-kiosk", q],
-    queryFn: ({ pageParam }) => partKioskService.search({ store_code: STORE, q, page: pageParam, per_page: PER_PAGE }, { silent: true })
+    queryKey: ["part-kiosk", q, linkKey],
+    queryFn: ({ pageParam }) => (linkKey
+      ? partKioskService.linkSearch(linkKey, { q, page: pageParam, per_page: PER_PAGE }, { silent: true })
+      : partKioskService.search({ store_code: STORE, q, page: pageParam, per_page: PER_PAGE }, { silent: true }))
       .then((r) => r.data.data),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.page < last.pages ? last.page + 1 : undefined),
@@ -176,6 +188,7 @@ export default function PartKiosk() {
     // overflow-x-clip, never -hidden: hidden makes this box a scroll box, and
     // the sticky search bar then scrolled away with the list (28 Oct 2026:
     // "scroll karne par search wala hissa chup jata h").
+    <LinkKey.Provider value={linkKey}>
     <div className={`flex flex-col overflow-x-clip bg-slate-50 dark:bg-navy-950 ${open ? "h-dvh overflow-y-clip" : "min-h-dvh"}`}>
       <header className="sticky top-0 z-20 shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-navy-800 dark:bg-navy-900/95">
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
@@ -268,6 +281,7 @@ export default function PartKiosk() {
       </main>
       )}
     </div>
+    </LinkKey.Provider>
   );
 }
 
@@ -275,7 +289,8 @@ export default function PartKiosk() {
 // every card, then Part No., description, spec / model, where it sits and its
 // stock — what the floor reads to pick the right part.
 function PartCard({ part: p, onOpen }) {
-  const thumb = partService.imageUrl(p, true);
+  const img = useImg();
+  const thumb = img(p, true);
   const spec = p.specification || "";
   return (
     <button type="button" onClick={onOpen}
@@ -345,7 +360,8 @@ function PartScreen({ part, onBack }) {
   }, [onBack, photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const spec = part.specification || "";
-  const big = partService.imageUrl(part, false, n);
+  const img = useImg();
+  const big = img(part, false, n);
   return (
     // The whole screen's width, as before (the store, 28 Oct 2026: "photo badi
     // h dikhni chahiye jaise phle th ... puri screen me" — the photo is there
@@ -385,7 +401,7 @@ function PartScreen({ part, onBack }) {
                   className={`flex h-14 w-14 items-center justify-center overflow-hidden rounded-lg bg-white p-0.5 transition dark:bg-navy-900 ${i === n
                     ? "ring-4 ring-toyotared ring-offset-2 dark:ring-offset-navy-950"
                     : "opacity-70 ring-1 ring-slate-300 hover:opacity-100 dark:ring-navy-700"}`}>
-                  <Photo key={name} src={partService.imageUrl(part, true, i)} alt="" />
+                  <Photo key={name} src={img(part, true, i)} alt="" />
                 </button>
               ))}
             </div>

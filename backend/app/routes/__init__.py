@@ -45,7 +45,7 @@ def register_routes(app):
     from app.routes.challan_register_routes import bp as challan_register_bp
     from app.routes.rejection_request_routes import bp as rejection_request_bp
     from app.routes.short_mail_routes import bp as short_mail_bp
-    from app.routes.part_kiosk_routes import bp as part_kiosk_bp
+    from app.routes.part_kiosk_routes import bp as part_kiosk_bp, link_bp as kiosk_link_bp
     from app.routes.spare_packet_routes import bp as spare_packets_bp
     from app.routes.job_work_routes import bp as job_work_bp
     from app.routes.data_browser_routes import bp as data_browser_bp
@@ -105,6 +105,7 @@ def register_routes(app):
     app.register_blueprint(rejection_request_bp)
     app.register_blueprint(short_mail_bp)
     app.register_blueprint(part_kiosk_bp)
+    app.register_blueprint(kiosk_link_bp)
     app.register_blueprint(spare_packets_bp)
     app.register_blueprint(job_work_bp)
     app.register_blueprint(data_browser_bp)

@@ -178,6 +178,16 @@ function PageFallback() {
 // no screen can fire its data calls, and hit a wall of 401s, before then.
 function AuthenticatedApp() {
   const { user, checking } = useAuth();
+  // The Part Search kiosk link: /k/<key> opens the kiosk with no login (17 Nov
+  // 2026: "kiosk bina id password k chalega"). The key is checked by the server.
+  const kioskKey = (window.location.pathname.match(/^\/k\/([^/?#]+)/) || [])[1];
+  if (kioskKey) {
+    return (
+      <Suspense fallback={<PageFallback />}>
+        <PartKiosk linkKey={decodeURIComponent(kioskKey)} />
+      </Suspense>
+    );
+  }
 
   if (checking) {
     return (

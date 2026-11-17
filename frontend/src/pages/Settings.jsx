@@ -17,6 +17,8 @@ import PrinterStatus from "../components/label/PrinterStatus.jsx";
 import { printerStatusKey } from "../components/label/usePrinterStatus.js";
 import { downloadFile } from "../utils/download.js";
 import { helperStatus } from "../utils/labelHelper.js";
+import { partKioskService } from "../services/partKioskService.js";
+import { Search as KioskIcon } from "lucide-react";
 
 // Shortcuts to the admin-manageable screens that already exist — one place to
 // reach everything, instead of rebuilding them here.
@@ -256,6 +258,46 @@ function LabelHelperBox() {
         )}
         <button type="button" onClick={check} className="text-[12px] font-semibold text-toyotared hover:underline">Check again</button>
       </div>
+    </div>
+  );
+}
+
+// The Part Search kiosk link (17 Nov 2026: "kiosk bina id password k chalega"):
+// an address that opens the kiosk with no login. Anyone with it can search parts
+// (stock, place, photo — no rate, no change); New link stops the old one at once.
+function KioskLinkBox() {
+  const [link, setLink] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { partKioskService.getLink().then((r) => setLink(r.data.data)).catch(() => setLink({ enabled: false })); }, []);
+  const save = async (body, ok) => {
+    setBusy(true);
+    try { setLink((await partKioskService.setLink(body)).data.data); toast.success(ok); }
+    catch (e) { toast.error(e?.response?.data?.message || "Could not save"); }
+    finally { setBusy(false); }
+  };
+  const url = link?.key ? `${window.location.origin}/k/${link.key}` : "";
+  const copy = async () => { try { await navigator.clipboard.writeText(url); toast.success("Link copied"); } catch { toast.error("Copy it from the box"); } };
+  if (!link) return <p className="text-sm text-slate-500">Loading…</p>;
+  return (
+    <div className="max-w-3xl space-y-3 text-sm text-slate-600 dark:text-slate-300">
+      <p>Open this link on the kiosk PC: Part Search opens straight away, <b>no ID or password</b>. It shows parts, stock, place
+        and photo only — no rate, nothing can be changed. Anyone who has the link can see that, so keep it on the kiosk only.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`badge ${link.enabled ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200" : "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300"}`}>
+          {link.enabled ? "Link is ON" : "Link is OFF"}</span>
+        <button type="button" disabled={busy} className={link.enabled ? "btn-secondary" : "btn-primary"}
+          onClick={() => save({ enabled: !link.enabled }, link.enabled ? "Kiosk link turned off" : "Kiosk link turned on")}>
+          {link.enabled ? "Turn off" : "Turn on"}</button>
+        {link.key && <button type="button" disabled={busy} className="btn-secondary"
+          onClick={() => save({ new: true }, "New link made — the old one no longer opens")}>New link</button>}
+      </div>
+      {link.enabled && url && (
+        <div className="flex flex-wrap items-center gap-2">
+          <input readOnly value={url} onFocus={(e) => e.target.select()} className="input-field min-w-0 flex-1 font-mono text-[12.5px]" />
+          <button type="button" className="btn-primary" onClick={copy}>Copy</button>
+          <a href={url} target="_blank" rel="noreferrer" className="btn-secondary">Open</a>
+        </div>
+      )}
     </div>
   );
 }
@@ -577,6 +619,13 @@ export default function Settings() {
         <SectionHead icon={Printer} title="Direct label printing (label helper)"
           hint="Download the helper for a PC with a label printer, and see if it runs on this PC" />
         <LabelHelperBox />
+      </div>
+
+      {/* 3b3 — the Part Search kiosk link, no login */}
+      <div className="card">
+        <SectionHead icon={KioskIcon} title="Kiosk link (no login)"
+          hint="An address that opens Part Search on the kiosk without ID or password" />
+        <KioskLinkBox />
       </div>
 
       {/* 3c — outgoing mail server (SMTP): the form moved to Email & Notifications */}

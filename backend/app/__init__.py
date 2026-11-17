@@ -22,6 +22,7 @@ from app.utils.response import error_response
 # The header a browser tab sends with the id of the user it signed in as.
 TAB_USER_HEADER = "X-DX-User"
 
+KIOSK_LINK_PREFIX = "/api/v1/kiosk-link/"
 _AUTH_EXEMPT_PATHS = {
     "/api/v1/health",
     "/api/v1/auth/login",
@@ -58,6 +59,10 @@ def _register_auth_guard(app):
         g.current_user = None
         g.is_machine = False
         if request.path in _AUTH_EXEMPT_PATHS:
+            return None
+        # The Part Search kiosk link (17 Nov 2026: "kiosk bina id password k
+        # chalega"): no login; each route there checks the link's secret key.
+        if request.path.startswith(KIOSK_LINK_PREFIX):
             return None
         # A signed-in browser session.
         user = AuthService().get_user(session.get("user_id"))
