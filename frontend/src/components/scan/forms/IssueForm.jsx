@@ -5,7 +5,7 @@ import PersonPicker from "../../PersonPicker.jsx";
 import { spareFlowService } from "../../../services/spareFlowService.js";
 import { num } from "../../../lib/format.js";
 import { partBins } from "../../../utils/binLocation.js";
-import { DepartmentSelect, Facts, Field, FormShell, LineMachinePicker, NO_PLACE, Note, machineText, useMachines } from "./FormKit.jsx";
+import { DepartmentSelect, Facts, Field, FormShell, LineMachinePicker, NO_PLACE, Note, machineListFailed, machineText, placeErrors, useMachines } from "./FormKit.jsx";
 import PacketIssueForm from "./PacketIssueForm.jsx";
 import { clean, fmtQty, isStoreDepartment, qtyError, qtyOf, stepMin, useActionFlow, useDepartments } from "./flow.js";
 
@@ -79,9 +79,10 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
   // operator chose is never overwritten.
   const [autoDept, setAutoDept] = useState(null);
   const [remarks, setRemarks] = useState("");
-  // Where the part goes: line + machine, optional (13 Nov 2026).
+  // Where the part goes: line + machine, required since 17 Nov 2026.
   const [place, setPlace] = useState(NO_PLACE);
-  const { data: machineList } = useMachines(department);
+  const machines = useMachines(department);
+  const machineList = machines.data;
   const [tried, setTried] = useState(false);
   const emp = person.employee;
   // A part with a rework location sits in two bins — Fresh (new parts) and
@@ -120,6 +121,7 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
       ? storeText || "Choose the department"
       : isStoreDepartment(department) ? "The store hands parts out — choose the department the part is for"
         : depts && !depts.some((d) => d.name === department) ? `${department} is not in the Department master — choose one` : null,
+    ...placeErrors(department, place, machines),
   };
   const valid = !Object.values(errors).some(Boolean);
   const show = (k) => (tried || k === "qty" ? errors[k] : null);
@@ -136,6 +138,8 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
       qty: qtyOf(qty), department, remarks: clean(remarks),
       employee_id: emp.id, issued_to: emp.name,
       line_name: place.line || undefined, machine: place.machine || undefined,
+      place_unavailable: machineListFailed(machines) || undefined,
+      line_has_no_machine: (place.line && !machineList?.lines?.find((l) => l.line === place.line)?.machines?.length) || undefined,
       scan_source: source || undefined,
     };
     const code = emp.employee_code ? ` (${emp.employee_code})` : "";
@@ -184,7 +188,8 @@ function QtyIssueForm({ scan, source, onDone, onCancel, onDirty }) {
           <QtyStepper id={`${uid}-qty`} value={qty} onChange={setQty} min={stepMin(available)} max={available}
             disabled={available <= 0} size="lg" label="Issue quantity" />
         </Field>
-        <LineMachinePicker id={`${uid}-place`} department={department} value={place} onChange={setPlace} />
+        <LineMachinePicker id={`${uid}-place`} department={department} value={place} onChange={setPlace}
+          lineError={show("line")} machineError={show("machine")} />
         <Field label="Remarks" htmlFor={`${uid}-rem`}>
           <input id={`${uid}-rem`} value={remarks} maxLength={255} onChange={(e) => setRemarks(e.target.value)}
             className="input-field" placeholder="Optional" />

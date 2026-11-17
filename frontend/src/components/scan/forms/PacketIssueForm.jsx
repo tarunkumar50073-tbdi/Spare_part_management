@@ -4,7 +4,7 @@ import PersonPicker from "../../PersonPicker.jsx";
 import useGunEnd from "../../../hooks/useGunEnd.js";
 import { packetService } from "../../../services/packetService.js";
 import { fmtDate, fmtStamp } from "../../../lib/format.js";
-import { DepartmentSelect, Facts, Field, FormShell, LineMachinePicker, NO_PLACE, Note, machineText, useMachines } from "./FormKit.jsx";
+import { DepartmentSelect, Facts, Field, FormShell, LineMachinePicker, NO_PLACE, Note, machineListFailed, machineText, placeErrors, useMachines } from "./FormKit.jsx";
 import { clean, fmtQty, isStoreDepartment, qtyError, useActionFlow, useDepartments } from "./flow.js";
 
 // ISSUE of a whole packet or one individual unit — what a packet / unit QR
@@ -33,9 +33,10 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   const [department, setDepartment] = useState("");
   const [autoDept, setAutoDept] = useState(null);
   const [remarks, setRemarks] = useState("");
-  // Where the part goes: line + machine, optional (13 Nov 2026).
+  // Where the part goes: line + machine, required since 17 Nov 2026.
   const [place, setPlace] = useState(NO_PLACE);
-  const { data: machineList } = useMachines(department);
+  const machines = useMachines(department);
+  const machineList = machines.data;
   const [reason, setReason] = useState("");
   const [tried, setTried] = useState(false);
   // The other labels of this part in this issue, as the server checked them,
@@ -124,6 +125,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     reason: older && !reason.trim()
       ? `Older stock is waiting — say why ${many ? "these labels go" : "this packet goes"} first` : null,
     lotQty: lot ? (lotQty === "" ? "Type the qty to issue" : lotErr) : null,
+    ...placeErrors(department, place, machines),
   };
   const valid = available && !Object.values(errors).some(Boolean);
   const show = (k) => (tried ? errors[k] : null);
@@ -137,6 +139,8 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     const payload = {
       department, remarks: clean(remarks), employee_id: emp.id, issued_to: emp.name,
       line_name: place.line || undefined, machine: place.machine || undefined,
+      place_unavailable: machineListFailed(machines) || undefined,
+      line_has_no_machine: (place.line && !machineList?.lines?.find((l) => l.line === place.line)?.machines?.length) || undefined,
       override_reason: older ? reason.trim() : undefined,
       scan_source: source || undefined,
       lot_qty: lot ? Number(lotQty) : undefined,
@@ -283,7 +287,8 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
               </p>
             </Field>
             )}
-            <LineMachinePicker id={`${uid}-place`} department={department} value={place} onChange={setPlace} />
+            <LineMachinePicker id={`${uid}-place`} department={department} value={place} onChange={setPlace}
+          lineError={show("line")} machineError={show("machine")} />
             <Field label="Remarks" htmlFor={`${uid}-rem`}>
               <input id={`${uid}-rem`} value={remarks} maxLength={200} onChange={(e) => setRemarks(e.target.value)}
                 className="input-field" placeholder="Optional" />

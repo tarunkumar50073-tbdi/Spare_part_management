@@ -270,6 +270,21 @@ export function DepartmentSelect({ id, value, onChange, error, noStore = false }
 export const NO_PLACE = { line: "", machine: "" };
 export const machineSource = (department) => (/tool/i.test(department || "") ? "TOOL_ROOM" : "MAINTENANCE");
 
+// Line + Machine are required on an issue since 17 Nov 2026 ("required saare
+// input fill ke baad submit ho"), unless the machine list could not be read at
+// all — then the issue still goes, saying so (place_unavailable).
+// A list that came back with no line at all counts as not read.
+export const machineListFailed = (q) => Boolean(q && (q.isError || (q.data && (!q.data.ok || !(q.data.lines || []).length))));
+export function placeErrors(department, place, q) {
+  if (!department || machineListFailed(q)) return { line: null, machine: null };
+  const line = (q?.data?.lines || []).find((l) => l.line === place.line);
+  return {
+    line: place.line ? null : "Choose the line",
+    // A line with no machine in the list needs only the line.
+    machine: !place.line || !line?.machines?.length ? null : place.machine ? null : "Choose the machine",
+  };
+}
+
 export function useMachines(department) {
   const source = machineSource(department);
   return useQuery({
@@ -282,7 +297,7 @@ export function useMachines(department) {
 
 /** Line, then Machine (only that line's), both optional. A department that
  *  switches to the other list clears what was picked. */
-export function LineMachinePicker({ id, department, value, onChange }) {
+export function LineMachinePicker({ id, department, value, onChange, lineError = null, machineError = null }) {
   const { data, isPending, isError, refetch } = useMachines(department);
   const source = machineSource(department);
   const was = useRef(source);
@@ -300,12 +315,11 @@ export function LineMachinePicker({ id, department, value, onChange }) {
   const failed = isError || (data && !data.ok);
   return (
     <>
-      <Field label="Line" htmlFor={`${id}-line`}
-        hint={!department ? "Choose the department first" : source === "TOOL_ROOM" ? "Tool Room presses" : "Optional"}
->
+      <Field label="Line" required={!failed} error={lineError} htmlFor={`${id}-line`}
+        hint={!department ? "Choose the department first" : source === "TOOL_ROOM" ? "Tool Room presses" : null}>
         <select id={`${id}-line`} value={value.line} disabled={off || failed}
           onChange={(e) => onChange({ line: e.target.value, machine: "" })} className={inputCls(false, "text-base")}>
-          <option value="">{department && isPending ? "Loading lines…" : "Select line (optional)…"}</option>
+          <option value="">{department && isPending ? "Loading lines…" : "Select line…"}</option>
           {zones.map((z) => (z.zone && zones.length > 1 ? (
             <optgroup key={z.zone} label={z.zone.replace(/_/g, " ")}>
               {z.lines.map((l) => <option key={`${z.zone}|${l.line}`} value={l.line}>{l.line.replace(/_/g, " ")}</option>)}
@@ -314,15 +328,15 @@ export function LineMachinePicker({ id, department, value, onChange }) {
         </select>
         {failed && (
           <p className="mt-1 text-xs text-amber-700 dark:text-amber-400" role="status">
-            Machine list couldn&apos;t be read — issue without it, or{" "}
+            Machine list couldn&apos;t be read — the issue goes without line / machine, or{" "}
             <button type="button" onClick={() => refetch()} className="font-semibold underline underline-offset-2">retry</button>.
           </p>
         )}
       </Field>
-      <Field label="Machine" htmlFor={`${id}-mc`} hint={value.line ? `${line?.machines.length || 0} on this line` : "Pick the line, or find it by number below"}>
+      <Field label="Machine" required={!failed} error={machineError} htmlFor={`${id}-mc`} hint={value.line ? `${line?.machines.length || 0} on this line` : "Pick the line, or find it by number below"}>
         <select id={`${id}-mc`} value={value.machine} disabled={!line}
           onChange={(e) => onChange({ ...value, machine: e.target.value })} className={inputCls(false, "text-base")}>
-          <option value="">Select machine (optional)…</option>
+          <option value="">Select machine…</option>
           {(line?.machines || []).map((m) => (
             <option key={m.code} value={m.code}>{m.name ? `${m.code} — ${m.name}` : m.code}</option>
           ))}

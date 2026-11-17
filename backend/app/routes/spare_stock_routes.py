@@ -437,7 +437,10 @@ def issue_part(part_id):
     row plus `issue`, the ISSUE row just written (the id the installation
     update and a return point at)."""
     _require_part_store(part_id)
-    data = validate_payload(SpareIssueSchema(), request.get_json(force=True) or {})
+    raw = request.get_json(force=True) or {}
+    data = validate_payload(SpareIssueSchema(), raw)
+    from app.utils.issue_place import require_place
+    require_place({**raw, **data})
     row = service.issue(
         part_id, float(data["qty"]), data["department"],
         machine=data.get("machine"), line_name=data.get("line_name"), returnable=data.get("returnable", False),

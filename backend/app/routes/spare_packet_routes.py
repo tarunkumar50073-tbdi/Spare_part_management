@@ -36,6 +36,8 @@ POST   /packets/<code>/issue       department, employee_id / issued_to_mobile / 
 """
 from flask import Blueprint, request
 
+from app.utils.issue_place import require_place
+
 from app.extensions import db
 from app.models.part import Part
 from app.models.spare_packet import SpareBatch, SparePacket
@@ -424,6 +426,7 @@ def issue_many():
     first = _issue_codes(data)[0]
     if not (data.get("department") or "").strip():
         raise BadRequestError("Choose the department")
+    require_place(data)
     out = service.issue_many(
         data.get("codes"), data.get("department"), user=_who(), employee_id=data.get("employee_id"),
         issued_to_mobile=data.get("issued_to_mobile"), issued_to=data.get("issued_to"),
@@ -443,6 +446,7 @@ def issue(code):
     data = _body()
     if not (data.get("department") or "").strip():
         raise BadRequestError("Choose the department")
+    require_place(data)
     out = service.issue(
         code, data.get("department"), user=_who(), employee_id=data.get("employee_id"),
         issued_to_mobile=data.get("issued_to_mobile"), issued_to=data.get("issued_to"),
