@@ -18,7 +18,8 @@ import { usePartDrawer } from "../../context/PartDrawerContext.jsx";
 import { receivingMonitorService } from "../../services/receivingMonitorService.js";
 import { erpFreshness, erpGrnService } from "../../services/erpGrnService.js";
 import { erpLineMeta as lineState } from "../../lib/scanStatus.js";
-import { ChevronDown as TreeOpen, ChevronRight as TreeShut } from "lucide-react";
+import { ChevronDown as TreeOpen, ChevronRight as TreeShut, Download as TreeDownload } from "lucide-react";
+import { downloadXlsx } from "../../utils/excel.js";
 import { fmtDate, fmtStamp, num, parseServerTime } from "../../lib/format.js";
 
 const WINDOWS = [30, 90, 180];
@@ -246,17 +247,20 @@ const LINE_COLUMNS = [
 // pending), opened to its part lines and each one's state. Newest GRN first;
 // a GRN with something pending opens by itself.
 const PENDING_STATES = new Set(["QUALITY_PENDING", "WILL_POST", "CHECK", "OFF"]);
-function GrnTree({ rows, onPart }) {
+function GrnTree({ rows, onPart, empty }) {
+  const [q, setQ] = useState("");
   const groups = useMemo(() => {
     const m = new Map();
-    rows.forEach((r) => {
+    const text = q.trim().toLowerCase();
+    rows.filter((r) => !text || [r.grn_no, r.part_no, r.part_name, r.ven_name, r.ven_cd, r.invoice_no]
+      .some((v) => String(v || "").toLowerCase().includes(text))).forEach((r) => {
       const k = r.grn_no || `${r.grn_date}|${r.ven_cd}`;
       if (!m.has(k)) m.set(k, { key: k, grn_no: r.grn_no, grn_date: r.grn_date, ven_name: r.ven_name || r.ven_cd, invoice_no: r.invoice_no, lines: [] });
       m.get(k).lines.push(r);
     });
     return [...m.values()].map((g) => ({ ...g, pending: g.lines.filter((l) => PENDING_STATES.has(l.state)).length }))
       .sort((a, b) => String(b.grn_date || "").localeCompare(String(a.grn_date || "")) || String(b.grn_no || "").localeCompare(String(a.grn_no || "")));
-  }, [rows]);
+  }, [rows, q]);
   const [open, setOpen] = useState(() => new Set());
   const [touched, setTouched] = useState(false);
   const isOpen = (g) => (touched ? open.has(g.key) : g.pending > 0);
@@ -267,17 +271,24 @@ function GrnTree({ rows, onPart }) {
     setTouched(true);
   };
   const all = (on) => { setOpen(new Set(on ? groups.map((g) => g.key) : [])); setTouched(true); };
-  if (!groups.length) return <p className="py-8 text-center text-sm text-slate-400">No GRN line here.</p>;
+  const excel = () => downloadXlsx(`ERP GRN ${new Date().toISOString().slice(0, 10)}`,
+    ["GRN No", "GRN Date", "Supplier", "Invoice", "Part No", "Item Description", "Received", "Accepted", "Added to stock", "State", "Reason"],
+    groups.flatMap((g) => g.lines.map((l) => [g.grn_no || "", g.grn_date || "", g.ven_name || "", g.invoice_no || "", l.part_no || "",
+      l.part_name || "", l.receipt_qty ?? "", l.accept_qty ?? "", l.posted_qty ?? 0, lineState(l.state).label, l.reason || ""])), "GRN");
   return (
     <div className="rounded-xl border border-slate-200 dark:border-navy-800">
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-[12px] text-slate-500 dark:border-navy-800">
-        <span>{groups.length} GRN · {groups.reduce((n, g) => n + g.lines.length, 0)} part lines · {groups.filter((g) => g.pending).length} GRN with something pending</span>
-        <span className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 text-[12px] text-slate-500 dark:border-navy-800">
+        <span>{groups.length} GRN · {groups.filter((g) => g.pending).length} with something pending</span>
+        <span className="flex flex-wrap items-center gap-2">
+          <input className="input-field w-56 py-1 text-[12.5px]" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search GRN, part, supplier…" />
+          <button type="button" className="btn-secondary inline-flex items-center gap-1 px-2 py-1 text-[12px]" disabled={!groups.length} onClick={excel}>
+            <TreeDownload size={13} /> Excel</button>
           <button type="button" className="font-semibold hover:underline" onClick={() => all(true)}>Open all</button>
           <button type="button" className="font-semibold hover:underline" onClick={() => all(false)}>Close all</button>
         </span>
       </div>
       <div className="max-h-[55vh] overflow-auto">
+        {!groups.length && <p className="py-8 text-center text-sm text-slate-400">{q ? `No GRN matches “${q}”.` : empty}</p>}
         {groups.map((g) => (
           <div key={g.key} className="border-b border-slate-100 last:border-0 dark:border-navy-800">
             <button type="button" onClick={() => toggle(g)} aria-expanded={isOpen(g)}
@@ -489,9 +500,6 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
   const [takingBack, setTakingBack] = useState(null);
 
   const all = useMemo(() => (Array.isArray(data?.rows) ? data.rows : []), [data]);
-  // GRN as a tree (17 Nov 2026: "konsi grn k ander konsa part pending h wo us
-  // grn me dikh jaaye like tree") or one row per part line.
-  const [view, setView] = useState("grn");
   const partRows = useMemo(() => (partFilter
     ? all.filter((r) => String(r.part_no || "").toUpperCase() === partFilter.toUpperCase())
     : all), [all, partFilter]);
@@ -638,8 +646,8 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
           <div role="group" aria-label="Filter ERP GRN lines by state" className="mb-3 flex flex-wrap items-center gap-2">
             {[null, ...states].map((s) => {
               const on = (stateFilter || null) === s;
-              const n = s ? counts[s] || 0 : partRows.length;
-              const g = grnCounts[s || "all"] || 0;
+              // GRNs, not part lines (17 Nov 2026: "sirf GRN, ginti bhi GRN ki").
+              const n = grnCounts[s || "all"] || 0;
               return (
                 <button key={s || "all"} type="button" aria-pressed={on} onClick={() => onFilter({ state: s })}
                   className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${on
@@ -647,10 +655,10 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
                     : n
                       ? "border-slate-200 text-slate-700 hover:border-toyotared dark:border-navy-700 dark:text-slate-200"
                       : "border-slate-200 text-slate-400 hover:border-toyotared dark:border-navy-700 dark:text-slate-500"}`}>
-                  {s ? lineState(s).label : "All lines"}
+                  {s ? lineState(s).label : "All GRN"}
                   <span className={`rounded-full px-1.5 text-[11px] font-semibold tabular ${on ? "bg-white/20" : n
                     ? "bg-slate-100 text-slate-700 dark:bg-navy-800 dark:text-slate-200" : "text-slate-400"}`}>
-                    {num(n)}{n ? ` · ${num(g)} GRN` : ""}
+                    {num(n)}
                   </span>
                 </button>
               );
@@ -664,31 +672,11 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
             )}
           </div>
 
-          <div className="mb-2 inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs dark:border-navy-700 dark:bg-navy-900" role="group" aria-label="Show by">
-            {[["grn", "By GRN (tree)"], ["line", "By part line"]].map(([k, label]) => (
-              <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}
-                className={`rounded-md px-3 py-1 font-semibold ${view === k ? "bg-toyotared text-white" : "text-slate-600 dark:text-slate-300"}`}>{label}</button>
-            ))}
-          </div>
-          {view === "grn" ? <GrnTree rows={rows} onPart={openPart} /> : (
-          <Table
-            key={`${stateFilter || "all"}|${partFilter || ""}`}
-            columns={columns}
-            rows={rows}
-            rowKey={lineKey}
-            searchable={rows.length > 8 ? "Search part, GRN no, supplier…" : false}
-            exportName="erp_grn_to_store_stock"
-            maxHeight="55vh"
-            onRowClick={(r) => { if (r.part_id) openPart(r.part_id); }}
-            emptyMessage={!all.length
-              ? (fresh.empty
-                ? "No ERP GRN data yet — the GRN mirror is empty."
-                : "No GRN line in the ERP mirror for this store's parts.")
-              : partFilter && !partRows.length
-                ? `No ERP GRN line for part ${partFilter} in the mirror.`
-                : `No line is in “${lineState(stateFilter).label}”.`}
-          />
-          )}
+          <GrnTree rows={rows} onPart={openPart}
+            empty={!all.length
+              ? (fresh.empty ? "No ERP GRN data yet — the GRN mirror is empty." : "No GRN in the ERP mirror for this store's parts.")
+              : partFilter && !partRows.length ? `No ERP GRN for part ${partFilter} in the mirror.`
+                : `No GRN is in “${lineState(stateFilter).label}”.`} />
 
           <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 dark:border-navy-800 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
             <PostingRules fromDate={data?.settings?.from_date} />
