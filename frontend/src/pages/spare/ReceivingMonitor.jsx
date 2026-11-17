@@ -18,6 +18,7 @@ import { usePartDrawer } from "../../context/PartDrawerContext.jsx";
 import { receivingMonitorService } from "../../services/receivingMonitorService.js";
 import { erpFreshness, erpGrnService } from "../../services/erpGrnService.js";
 import { erpLineMeta as lineState } from "../../lib/scanStatus.js";
+import { ChevronDown as TreeOpen, ChevronRight as TreeShut } from "lucide-react";
 import { fmtDate, fmtStamp, num, parseServerTime } from "../../lib/format.js";
 
 const WINDOWS = [30, 90, 180];
@@ -241,6 +242,84 @@ const LINE_COLUMNS = [
   },
 ];
 
+// The GRN tree: a GRN a row (number, date, supplier, parts, how many are still
+// pending), opened to its part lines and each one's state. Newest GRN first;
+// a GRN with something pending opens by itself.
+const PENDING_STATES = new Set(["QUALITY_PENDING", "WILL_POST", "CHECK", "OFF"]);
+function GrnTree({ rows, onPart }) {
+  const groups = useMemo(() => {
+    const m = new Map();
+    rows.forEach((r) => {
+      const k = r.grn_no || `${r.grn_date}|${r.ven_cd}`;
+      if (!m.has(k)) m.set(k, { key: k, grn_no: r.grn_no, grn_date: r.grn_date, ven_name: r.ven_name || r.ven_cd, invoice_no: r.invoice_no, lines: [] });
+      m.get(k).lines.push(r);
+    });
+    return [...m.values()].map((g) => ({ ...g, pending: g.lines.filter((l) => PENDING_STATES.has(l.state)).length }))
+      .sort((a, b) => String(b.grn_date || "").localeCompare(String(a.grn_date || "")) || String(b.grn_no || "").localeCompare(String(a.grn_no || "")));
+  }, [rows]);
+  const [open, setOpen] = useState(() => new Set());
+  const [touched, setTouched] = useState(false);
+  const isOpen = (g) => (touched ? open.has(g.key) : g.pending > 0);
+  const toggle = (g) => {
+    const next = new Set(touched ? open : groups.filter((x) => x.pending > 0).map((x) => x.key));
+    if (next.has(g.key)) next.delete(g.key); else next.add(g.key);
+    setOpen(next);
+    setTouched(true);
+  };
+  const all = (on) => { setOpen(new Set(on ? groups.map((g) => g.key) : [])); setTouched(true); };
+  if (!groups.length) return <p className="py-8 text-center text-sm text-slate-400">No GRN line here.</p>;
+  return (
+    <div className="rounded-xl border border-slate-200 dark:border-navy-800">
+      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-[12px] text-slate-500 dark:border-navy-800">
+        <span>{groups.length} GRN · {groups.reduce((n, g) => n + g.lines.length, 0)} part lines · {groups.filter((g) => g.pending).length} GRN with something pending</span>
+        <span className="flex gap-2">
+          <button type="button" className="font-semibold hover:underline" onClick={() => all(true)}>Open all</button>
+          <button type="button" className="font-semibold hover:underline" onClick={() => all(false)}>Close all</button>
+        </span>
+      </div>
+      <div className="max-h-[55vh] overflow-auto">
+        {groups.map((g) => (
+          <div key={g.key} className="border-b border-slate-100 last:border-0 dark:border-navy-800">
+            <button type="button" onClick={() => toggle(g)} aria-expanded={isOpen(g)}
+              className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-navy-800/50">
+              {isOpen(g) ? <TreeOpen size={16} className="shrink-0 text-slate-400" /> : <TreeShut size={16} className="shrink-0 text-slate-400" />}
+              <span className="font-mono text-[13px] font-bold text-slate-800 dark:text-slate-100">{g.grn_no || "—"}</span>
+              <span className="text-[12px] text-slate-500">{g.grn_date ? fmtDate(g.grn_date) : ""}</span>
+              <span className="min-w-0 flex-1 truncate text-[12.5px] text-slate-600 dark:text-slate-300">{g.ven_name || ""}{g.invoice_no ? ` · Inv ${g.invoice_no}` : ""}</span>
+              <span className="whitespace-nowrap text-[12px] text-slate-500">{g.lines.length} part{g.lines.length === 1 ? "" : "s"}</span>
+              {g.pending
+                ? <span className="badge whitespace-nowrap bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">{g.pending} pending</span>
+                : <span className="badge whitespace-nowrap bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200">All done</span>}
+            </button>
+            {isOpen(g) && (
+              <div className="bg-slate-50/60 pb-2 pl-9 pr-3 dark:bg-navy-950/30">
+                <table className="w-full text-left text-[12.5px]">
+                  <thead className="text-[10.5px] uppercase tracking-wide text-slate-400">
+                    <tr><th className="py-1.5 pr-2">Part</th><th className="py-1.5 pr-2 text-right">Received</th><th className="py-1.5 pr-2 text-right">Accepted</th>
+                      <th className="py-1.5 pr-2 text-right">Added</th><th className="py-1.5 pr-2">State</th><th className="py-1.5">Reason</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
+                    {g.lines.map((l) => (
+                      <tr key={lineKey(l)} className="cursor-pointer text-slate-700 hover:bg-white dark:text-slate-200 dark:hover:bg-navy-900" onClick={() => l.part_id && onPart(l.part_id)}>
+                        <td className="py-1.5 pr-2"><span className="font-mono font-semibold">{l.part_no}</span> <span className="text-slate-500">{l.part_name || ""}</span></td>
+                        <td className="py-1.5 pr-2 text-right tabular">{l.receipt_qty == null ? "—" : num(l.receipt_qty)}</td>
+                        <td className="py-1.5 pr-2 text-right tabular">{l.accept_qty == null ? "—" : num(l.accept_qty)}</td>
+                        <td className="py-1.5 pr-2 text-right tabular">{num(l.posted_qty ?? 0)}</td>
+                        <td className="py-1.5 pr-2"><span className={`badge whitespace-nowrap ${lineState(l.state).badge}`}>{lineState(l.state).label}</span></td>
+                        <td className="max-w-[280px] truncate py-1.5 text-[12px] text-slate-500" title={l.reason || ""}>{l.reason || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // A small on/off switch (the Settings page's look).
 function Toggle({ on, onClick, disabled, label }) {
   return (
@@ -410,6 +489,9 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
   const [takingBack, setTakingBack] = useState(null);
 
   const all = useMemo(() => (Array.isArray(data?.rows) ? data.rows : []), [data]);
+  // GRN as a tree (17 Nov 2026: "konsi grn k ander konsa part pending h wo us
+  // grn me dikh jaaye like tree") or one row per part line.
+  const [view, setView] = useState("grn");
   const partRows = useMemo(() => (partFilter
     ? all.filter((r) => String(r.part_no || "").toUpperCase() === partFilter.toUpperCase())
     : all), [all, partFilter]);
@@ -582,6 +664,13 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
             )}
           </div>
 
+          <div className="mb-2 inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs dark:border-navy-700 dark:bg-navy-900" role="group" aria-label="Show by">
+            {[["grn", "By GRN (tree)"], ["line", "By part line"]].map(([k, label]) => (
+              <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}
+                className={`rounded-md px-3 py-1 font-semibold ${view === k ? "bg-toyotared text-white" : "text-slate-600 dark:text-slate-300"}`}>{label}</button>
+            ))}
+          </div>
+          {view === "grn" ? <GrnTree rows={rows} onPart={openPart} /> : (
           <Table
             key={`${stateFilter || "all"}|${partFilter || ""}`}
             columns={columns}
@@ -599,6 +688,7 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
                 ? `No ERP GRN line for part ${partFilter} in the mirror.`
                 : `No line is in “${lineState(stateFilter).label}”.`}
           />
+          )}
 
           <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 dark:border-navy-800 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
             <PostingRules fromDate={data?.settings?.from_date} />
