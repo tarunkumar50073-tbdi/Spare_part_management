@@ -221,7 +221,7 @@ function ReceiptsTab({ storeCode }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-left text-[12.5px]">
             <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
-              <tr><TH>Received</TH><TH>Part</TH><TH>GRN / Gate entry</TH><TH right>Received qty</TH><TH>Verification</TH><TH right>Labelled</TH><TH right>To pack</TH><TH /></tr>
+              <tr><TH>Received</TH><TH>Part</TH><TH>GRN No · Gate entry</TH><TH right>Received qty</TH><TH>Verification</TH><TH right>Labelled</TH><TH right>To pack</TH><TH /></tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
               {(list.data?.rows || []).map((r) => (
@@ -229,13 +229,14 @@ function ReceiptsTab({ storeCode }) {
                   <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(r.received_on)}</div><div className="text-[11px] text-slate-400">{r.receipt_no}</div></td>
                   <PartCell part={r.part} />
                   <td className="px-3 py-2.5">
-                    <div>{r.source === "OPENING" ? "Shelf stock" : r.grn_no || (r.source === "GATE" ? "Gate entry" : "—")}</div>
+                    <div>{r.source === "OPENING" ? "Shelf stock" : <><span className="text-[11px] text-slate-400">GRN </span>{r.grn_no || "not yet"}</>}</div>
+                    {r.source !== "OPENING" && <div className="text-[12px]"><span className="text-[11px] text-slate-400">Gate entry </span>{r.gate_entry_no || "—"}</div>}
                     {r.qc === "QC_PENDING" && <span className="badge mt-0.5 bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200" title="Labels can be made and printed now; they are issued once ERP accepts the GRN">QC pending in ERP</span>}
                     {r.qc === "ACCEPTED" && <span className="badge mt-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300">Accepted {num(r.accepted_qty)} in ERP</span>}
                     {/* Came in before the part's stock count: already in that stock (5 Nov 2026). */}
                     {r.qc === "IN_COUNT" && <span className="badge mt-0.5 bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300" title="This material came in before the part's stock count and is already in that stock. To label it, use the Old stock tab.">In stock · counted {fmtDate(r.counted_on)}</span>}
                     <div className="max-w-[200px] truncate text-[11px] text-slate-400" title={r.supplier_name}>
-                      {[r.gate_entry_no && `GE ${r.gate_entry_no}`, r.supplier_name].filter(Boolean).join(" · ")}
+                      {r.supplier_name || ""}
                     </div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">{num(r.qty)} {r.uom}</td>

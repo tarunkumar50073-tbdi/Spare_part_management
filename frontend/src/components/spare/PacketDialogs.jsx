@@ -45,7 +45,8 @@ function ReceiptFacts({ r }) {
       <Fact label="Part">{r.part.part_no}</Fact>
       <Fact label="Received">{num(r.qty)} {r.uom}</Fact>
       <Fact label="Received on">{fmtDate(r.received_on)}</Fact>
-      <Fact label="GRN / Gate entry">{r.grn_no || (r.source === "OPENING" ? "Shelf stock" : "—")}{r.gate_entry_no ? ` · ${r.gate_entry_no}` : ""}</Fact>
+      <Fact label="GRN No">{r.grn_no || (r.source === "OPENING" ? "Shelf stock" : r.source === "GATE" ? "Not yet in ERP" : "—")}</Fact>
+      <Fact label="Gate entry">{r.gate_entry_no || (r.source === "OPENING" ? "—" : "None in ERP")}</Fact>
       <p className="col-span-full -mt-1 truncate text-[12px] text-slate-500" title={r.part.part_name}>{r.part.part_name}</p>
     </div>
   );
