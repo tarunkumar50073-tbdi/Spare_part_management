@@ -416,6 +416,17 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
   // Counted from the rows on screen, so a chip and the table under it always
   // agree (with a part picked, they are that part's lines).
   const counts = useMemo(() => partRows.reduce((m, r) => ({ ...m, [r.state]: (m[r.state] || 0) + 1 }), {}), [partRows]);
+  // How many GRNs those lines are (17 Nov 2026: "GRN ki ginti bhi bana de") — a
+  // GRN holds a line per part, so lines and GRNs differ.
+  const grnCounts = useMemo(() => {
+    const sets = { all: new Set() };
+    partRows.forEach((r) => {
+      const g = r.grn_no || `${r.grn_date}|${r.ven_cd}`;
+      sets.all.add(g);
+      (sets[r.state] = sets[r.state] || new Set()).add(g);
+    });
+    return Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, v.size]));
+  }, [partRows]);
   const rows = stateFilter ? partRows.filter((r) => r.state === stateFilter) : partRows;
   const states = [...LINE_STATES, ...Object.keys(counts).filter((s) => !LINE_STATES.includes(s))];
 
@@ -546,6 +557,7 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
             {[null, ...states].map((s) => {
               const on = (stateFilter || null) === s;
               const n = s ? counts[s] || 0 : partRows.length;
+              const g = grnCounts[s || "all"] || 0;
               return (
                 <button key={s || "all"} type="button" aria-pressed={on} onClick={() => onFilter({ state: s })}
                   className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ${on
@@ -556,7 +568,7 @@ function ErpGrnSection({ code, stateFilter, partFilter, onFilter, sectionRef }) 
                   {s ? lineState(s).label : "All lines"}
                   <span className={`rounded-full px-1.5 text-[11px] font-semibold tabular ${on ? "bg-white/20" : n
                     ? "bg-slate-100 text-slate-700 dark:bg-navy-800 dark:text-slate-200" : "text-slate-400"}`}>
-                    {num(n)}
+                    {num(n)}{n ? ` · ${num(g)} GRN` : ""}
                   </span>
                 </button>
               );
