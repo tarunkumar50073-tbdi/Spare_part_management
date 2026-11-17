@@ -637,7 +637,7 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
     }
   };
   return (
-    <Shell title={reprint ? "Reprint QR label" : `Print ${packets.length} QR label${packets.length === 1 ? "" : "s"}`} onClose={onClose} size="xl"
+    <Shell title={reprint ? "Reprint QR label" : `Print ${packets.length} QR label${packets.length === 1 ? "" : "s"}`} onClose={onClose} size="wide"
       footer={step === "ASK" ? <>
         <button type="button" className="btn-secondary" onClick={() => setStep("SETUP")}>Not printed — try again</button>
         <button type="button" className="btn-primary" onClick={record} disabled={busy}>
@@ -652,7 +652,10 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
       {step === "ASK" ? (
         <p className="text-[14px] text-slate-700 dark:text-slate-200">Did the {packets.length} label{packets.length === 1 ? "" : "s"} come out of the printer? Only then is the print recorded.</p>
       ) : (
-        <>
+        // Settings on the left, the label on the right — the whole dialog on one
+        // screen, no scrolling to see the preview (17 Nov 2026: "ise scroll na karna pade").
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 space-y-3">
           <LabelSizePicker ls={ls} />
           {reprint && (
             <Field label="Why print again" required hint="Torn, lost, faded … — kept with the print history">
@@ -669,12 +672,6 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
                 no print window.
               </div>
               {sizeOk && <TuneControls tune={tune} setTune={setTune} size={size} packet={packets[0]} />}
-              {picture && (
-                <div className="flex justify-center rounded-lg border border-slate-200 bg-slate-100 p-3 dark:border-navy-700">
-                  <img src={picture} alt="Label as it will print" className="border border-slate-300 bg-white shadow-sm"
-                    style={{ width: `${Math.min(520, size.w * 3.78 * (size.w <= 30 ? 6 : 3))}px`, imageRendering: "pixelated" }} />
-                </div>
-              )}
             </>
           ) : (
             <>
@@ -685,11 +682,20 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
                   <button type="button" className="font-semibold underline" onClick={() => helper.refetch()}>Check again</button>
                 </p>
               )}
-              <LabelPreview html={preview} size={size} sizeOk={sizeOk} />
             </>
           )}
           <p className="text-[12px] text-slate-500 dark:text-slate-400">The QR carries each packet's own code. No price is printed. Printing never adds stock.</p>
-        </>
+        </div>
+        <div className="lg:sticky lg:top-0 lg:self-start">
+          <p className="mb-1.5 text-[12px] font-semibold text-slate-600 dark:text-slate-300">Preview</p>
+          {direct ? (picture && (
+            <div className="flex justify-center rounded-lg border border-slate-200 bg-slate-100 p-3 dark:border-navy-700">
+              <img src={picture} alt="Label as it will print" className="w-full max-w-[270px] border border-slate-300 bg-white shadow-sm"
+                style={{ imageRendering: "pixelated" }} />
+            </div>
+          )) : <LabelPreview html={preview} size={size} sizeOk={sizeOk} />}
+        </div>
+        </div>
       )}
     </Shell>
   );

@@ -3,7 +3,7 @@ import { ArrowLeft, X } from "lucide-react";
 
 // `full` is for a list you are meant to read rather than glance at — a drill
 // -down of 481 parts across eight columns has nowhere to go in 768px.
-const MAX_WIDTH = { md: "max-w-lg", xl: "max-w-3xl", full: "max-w-[95vw]" };
+const MAX_WIDTH = { md: "max-w-lg", xl: "max-w-3xl", wide: "max-w-6xl", full: "max-w-[95vw]" };
 // A drawer slides in from the right and keeps the page it came from visible.
 const DRAWER_WIDTH = { md: "max-w-md", xl: "max-w-2xl", full: "max-w-[95vw]" };
 
