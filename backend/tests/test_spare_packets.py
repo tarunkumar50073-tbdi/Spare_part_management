@@ -779,6 +779,17 @@ def test_a_rework_shelf_lists_its_parts_and_labels_say_the_rework_location():
     made = svc.old_stock_pack(p.id, 2, "UNIT", user="sup")["packets"]           # at the fresh shelf
     assert {x["location"] for x in made} == {"R15-S4-B19(1)"}
     assert svc.old_figures(p.id)["to_label"] == 5                              # one stock figure: 10 - 3 - 2
+    # 17 Nov 2026: a rework label has its own code (-RW); a scan says which shelf and how much.
+    assert all(x["code"].endswith("-RW") for x in out["packets"]) and not made[0]["code"].endswith("-RW")
+    from app.services.spare_packet_service import is_packet_code, normalize_code
+    assert is_packet_code(out["packets"][0]["code"]) and normalize_code(out["packets"][0]["code"]) == out["packets"][0]["code"]
+    rw = svc.shelf(SparePacket.query.get(out["packets"][0]["id"]))
+    ok = svc.shelf(SparePacket.query.get(made[0]["id"]))
+    assert (rw["kind"], rw["location"], rw["qty"]) == ("REWORK", "R16-S5-B25(1)", 3)
+    assert (ok["kind"], ok["location"], ok["qty"]) == ("OK", "R15-S4-B19(1)", 7)
+    # FIFO keeps the shelves apart: the rework code gives a rework packet, the fresh code a fresh one.
+    assert svc.find(out["packets"][0]["code"]).code.endswith("-RW")
+    assert not svc.find(made[0]["code"]).code.endswith("-RW")
 
 
 # ---- the printed labels as Excel / PDF (14 Nov 2026) -----------------------------------------------

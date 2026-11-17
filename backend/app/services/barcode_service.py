@@ -317,6 +317,8 @@ class BarcodeService:
         payload["scan_id"] = audit.id
         payload.update(self._data_status(part))
         payload["packet"] = SparePacketService().get(str(packet.id))
+        # Rework or OK shelf: the location and quantity the scanned label stands for.
+        payload["shelf"] = SparePacketService().shelf(packet)
         return payload
 
     def _field_match(self, code):

@@ -81,7 +81,11 @@ CODE_PREFIX = "SPK-"
 # takes the oldest available packet of it; scanning it again takes the next.
 # An old label with "-NN" still scans: the number is dropped (lot_code).
 TB_PREFIX = "TB"
-TB_CODE = re.compile(r"TB\d{8}[A-Z0-9]+(?:-\d{2,3})?")
+# A label of the rework shelf ends in "-RW" (17 Nov 2026: "rework ka qr scan karen to
+# uski location and uski jitni qty wo khule and ok material ka qr ... uski"): its own
+# code, so a scan knows the shelf, and fresh and rework stock keep their own FIFO.
+TB_CODE = re.compile(r"TB\d{8}[A-Z0-9]+(?:-RW)?(?:-\d{2,3})?")
+REWORK_TAG = "-RW"
 _LABEL_NO = re.compile(r"-\d{2,3}$")
 CODE_MAX = 24                      # spare_packets.code
 # What the QR carries besides the code, for any scanner to read ("naye date
@@ -581,12 +585,14 @@ class SparePacketService:
     # ---- packets ----------------------------------------------------------------------
 
     @staticmethod
-    def _new_codes(part, day, n):
+    def _new_codes(part, day, n, rework=False):
         """The code of n new packets of a part on a date: TB + YYYYMMDD + Part
-        No., the same for all of them (14 Nov 2026 - no label number)."""
+        No., the same for all of them (14 Nov 2026 - no label number); a label
+        of the rework shelf ends in -RW (17 Nov 2026)."""
         no = re.sub(r"[^A-Z0-9]", "", (part.part_no or "").upper())
         stem = f"{TB_PREFIX}{day:%Y%m%d}"
-        return [f"{stem}{no[:max(1, CODE_MAX - len(stem))]}"] * n
+        tag = REWORK_TAG if rework else ""
+        return [f"{stem}{no[:max(1, CODE_MAX - len(stem) - len(tag))]}{tag}"] * n
 
     @staticmethod
     def standard_qty(part):
@@ -684,7 +690,9 @@ class SparePacketService:
             # label is printed (14 Nov 2026: CNTR1543's one lot had three codes,
             # labelled on 5, 6 and 14 Nov), so a lot keeps one code.
             day = receipt.received_on or date.today()
-            codes = self._new_codes(receipt.part, day, len(plan["sizes"]))
+            rework_shelf = (receipt.part.rework_location or "").strip()
+            rework = bool(location and rework_shelf and location.strip() == rework_shelf)
+            codes = self._new_codes(receipt.part, day, len(plan["sizes"]), rework=rework)
             made = []
             for i, size in enumerate(plan["sizes"]):
                 seq += 1
@@ -1660,6 +1668,26 @@ class SparePacketService:
         if part is None or not part.is_active:
             raise NotFoundError(f"Part {part_id} not found")
         return part
+
+    @staticmethod
+    def is_rework(packet):
+        return bool(packet is not None and (packet.code or "").endswith(REWORK_TAG))
+
+    def shelf(self, packet):
+        """What a scanned label stands for (17 Nov 2026): the rework shelf -
+        its location and the rework quantity (rework labels on the shelf) - or
+        the OK shelf - its location and the rest of the stock."""
+        part = packet.part
+        on_shelf = (db.session.query(func.coalesce(func.sum(SparePacket.qty), 0))
+                    .filter(SparePacket.part_id == part.id, SparePacket.status == "AVAILABLE",
+                            SparePacket.code.like(f"%{REWORK_TAG}")).scalar() or 0)
+        rework_qty = float(on_shelf)
+        stock = float(self.figures(part.id)["on_hand"])
+        if self.is_rework(packet):
+            return {"kind": "REWORK", "label": "Rework material",
+                    "location": packet.location or part.rework_location, "qty": _n(rework_qty), "uom": part.uom}
+        return {"kind": "OK", "label": "OK material", "location": part.location,
+                "qty": _n(max(stock - rework_qty, 0)), "uom": part.uom}
 
     @staticmethod
     def find(ref, prefer=("AVAILABLE", "QC_PENDING", "ISSUED", "CANCELLED"), exclude=()):
