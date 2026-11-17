@@ -86,16 +86,17 @@ RULES = (
      "audience": "report_recipients", "label": "window-time sheet of the month", "env": "WINDOW_TIME_MAIL",
      "description": "Mails the current month's supplier window-time sheet to the Report Recipients."},
     # The store's request of 17 Oct 2026 — "short ki mail banani padegi agar kisi
-    # supplier se short receive hua to mail jaayegi", "rejection ka bhi banana
-    # padega": what suppliers sent short and what quality rejected, as the Short
-    # & Rejection screen's own workbooks — one per kind, never mixed. Like every
+    # supplier se short receive hua to mail jaayegi": what suppliers sent short,
+    # as the Short Receiving screen's own workbook. (It carried the SRV
+    # rejections too until the store removed every rejection view on 17 Nov
+    # 2026; the key stays "short_rejection", as saved rules name it.) Like every
     # rule it starts switched off, with no one in its audience: nothing is mailed
     # until the store says so (all mail on hold since 17 Oct 2026).
-    {"key": "short_rejection", "title": "Short & Rejection list", "mail_type": "short_rejection",
-     "audience": "custom", "label": "GRN lines short or rejected",
-     "description": "The GRN lines of the last 90 days that a supplier sent short, and those with an SRV "
-                    "rejection, supplier-wise and line by line with the days pending — two attached Excel "
-                    "workbooks, never mixed — with one line of totals for each in the mail."},
+    {"key": "short_rejection", "title": "Short Receiving list", "mail_type": "short_rejection",
+     "audience": "custom", "label": "GRN lines received short",
+     "description": "The GRN lines of the last 90 days that a supplier sent short, supplier-wise and line "
+                    "by line with the days pending — an attached Excel workbook — with one line of totals "
+                    "in the mail."},
 )
 _RULE = {spec["key"]: spec for spec in RULES}
 RULE_FIELDS = ("enabled", "hour", "minute", "days", "department_ids", "emails")
@@ -151,11 +152,11 @@ TEMPLATES = (
      "footer": "Please follow up with the owners so that it is closed."},
     # No closing lines of its own: the mail ends with the shared signature (the
     # dashed line and the system note), as the stock report does.
-    {"mail_type": "short_rejection", "title": "Short & Rejection list",
+    {"mail_type": "short_rejection", "title": "Short Receiving list",
      "placeholders": ("{count}", "{date}", "{store}"),
-     "subject": "Short & Rejection — {count} GRN line(s) [{date}]",
+     "subject": "Short Receiving — {count} GRN line(s) [{date}]",
      "intro": "Dear Sir,\n\nPlease find attached the GRN lines of {store} of the last 90 days that a supplier "
-              "sent short or quality rejected, supplier-wise and line by line with the days pending.",
+              "sent short, supplier-wise and line by line with the days pending.",
      "footer": ""},
 )
 _TEMPLATE = {spec["mail_type"]: spec for spec in TEMPLATES}
@@ -200,15 +201,16 @@ EXCESS_LEGEND = (f"In Stock: yellow = above max · Excess Value: dark amber = �
 TRACKER_HEADERS = ("Problem", "Count", "₹ at stake", "Action needed", "Action by", "Target date", "Status")
 _STATUS_RANK = {"OPEN": 0, "UNKNOWN": 1, "CLEAR": 2}
 
-# The Short & Rejection rule's own reasons: an empty list, and a list that
-# could not be read (tried again on the next tick, like the tracker).
+# The Short Receiving rule's own reasons: an empty list, and a list that
+# could not be read (tried again on the next tick, like the tracker). The codes
+# are kept as saved runs name them.
 NOTHING_SHORT = "nothing_short_or_rejected"
 SHORT_UNREADABLE = "short_rejection_unavailable"
 # Why a run sends nothing, in words — for a rule's "last run", the preview and
 # the body of the SKIPPED row. The row's last_error keeps the code.
 REASON_WORDS = {
-    NOTHING_SHORT: "nothing short or rejected",
-    SHORT_UNREADABLE: "the Short & Rejection list could not be read",
+    NOTHING_SHORT: "nothing short",
+    SHORT_UNREADABLE: "the Short Receiving list could not be read",
     "nothing_to_report": "nothing to report",
     "nothing_to_reorder": "no part to reorder",
     "no_recipient": "no one to mail",
@@ -712,22 +714,21 @@ def _stock_report_mail(now):
     return _digest("stock_report", len(rows), blocks, now, lambda: [daily_stock_report(STORE_CODE, now)]), None
 
 
-# ---- content: short & rejection ----
+# ---- content: short receiving ----
 
 def _short_rejection():
-    """The Short & Rejection service, imported on first use: a problem there
+    """The Short Receiving service, imported on first use: a problem there
     must cost this rule its mail only — not every rule in this module."""
     from app.services import short_rejection_service
     return short_rejection_service
 
 
 # The kinds this mail carries, each as its own totals line and its own
-# workbook — never one mixed list ("rejection and short mix nhi rhega na" — the
-# store, 17 Oct 2026, when the screen was split into its Short and Rejection
-# tabs). Line Rejection is not readable yet (short_rejection_service.
-# erp_line_rejections), so it is not in the mail. The rule itself stays as the
-# store left it — off, no one to mail ("ye mail wale kaam baad me kar dena").
-SHORT_REJECTION_KINDS = ("short", "srv")
+# workbook. Only Short since the store removed every rejection view on 17 Nov
+# 2026 ("only rejection ka hta de na dekhni na bhejni . short wala rhne de").
+# The rule itself stays as the store left it — off, no one to mail ("ye mail
+# wale kaam baad me kar dena").
+SHORT_REJECTION_KINDS = ("short",)
 
 
 def _short_rejection_report(now):
@@ -771,13 +772,13 @@ def _short_rejection_blocks(outs):
 def _short_rejection_mail(now):
     """A totals line per kind and how the days are counted, with each kind's
     workbook attached — the one the screen's tab downloads, for the last 90
-    days; a kind with nothing in it has no file. Nothing short or rejected at
-    all: no mail."""
+    days; a kind with nothing in it has no file. Nothing short at all: no
+    mail."""
     try:
         sr, outs = _short_rejection_report(now)
     except Exception:  # noqa: BLE001 — the caller says "could not be read"; it never 500s a mail run
         db.session.rollback()
-        logger.exception("the short & rejection list could not be read")
+        logger.exception("the short receiving list could not be read")
         return None, SHORT_UNREADABLE
     count = _short_rejection_count(outs)
     if not count:

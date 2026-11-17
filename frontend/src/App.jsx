@@ -284,13 +284,10 @@ function AuthenticatedApp() {
           {/* Spare Parts Store control screens (enterprise spec, phases 7-12). */}
           <Route path="/erp-control" element={<RequirePermission mod="erp_control"><ErpControlCenter /></RequirePermission>} />
           <Route path="/receiving" element={<RequirePermission mod="receiving"><ReceivingMonitor /></RequirePermission>} />
-          {/* What suppliers sent short and quality rejected — the Receiving & GRN right (17 Oct 2026). */}
+          {/* What suppliers sent short (17 Oct 2026); short only since 17 Nov 2026 — every rejection view went. */}
           <Route path="/short-rejection" element={<RequirePermission mod="short_rejection"><ShortRejection /></RequirePermission>} />
           {/* Urgent spares in on a supplier challan before the PO / invoice — a register only, never stock (21 Oct 2026). */}
           <Route path="/challans" element={<RequirePermission mod="challan_register"><ChallanRegister /></RequirePermission>} />
-          {/* The one mail to RQC to punch an SRV / line rejection (22 Oct 2026). */}
-          {/* Rejection Mail opens from Short & Rejection's Rejection tab since 28 Oct 2026. */}
-          <Route path="/rejection-requests" element={<Navigate to="/short-rejection?tab=rejection" replace />} />
           <Route path="/spare-packets" element={<RequirePermission mod="spare_packets"><PacketManagement /></RequirePermission>} />
           <Route path="/job-work" element={<RequirePermission mod="scan_part"><JobWork /></RequirePermission>} />
           <Route path="/inventory-control" element={<RequirePermission mod="inventory_control"><InventoryControl /></RequirePermission>} />

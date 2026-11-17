@@ -2,8 +2,7 @@ import api from "./api";
 
 // Short Mail (/api/v1/short-mail) — the mail to Purchase for material received
 // short against an invoice: a draft .eml Outlook opens ready to send (the app
-// sends nothing itself). Separate from the Rejection Mail — its own right and
-// To / CC (the store, 25 Oct 2026: "short mail and rejection mail alag alag ho").
+// sends nothing itself). Its own right and To / CC (the store, 25 Oct 2026).
 export const shortMailService = {
   settings: (config) => api.get("/short-mail/settings", config),
   saveSettings: (payload) => api.put("/short-mail/settings", payload),

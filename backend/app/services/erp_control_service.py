@@ -18,7 +18,6 @@ from flask import current_app
 from sqlalchemy import and_, func
 
 from app.extensions import db
-from app.models.erp_line_rejection import ErpLineRejection
 from app.models.erp_stock import ERPStock
 from app.models.gate_entry import GateEntry
 from app.models.job_work import ErpRgpLine
@@ -207,7 +206,6 @@ class ERPControlService:
             "gate_entry": (GateEntry, GateEntry.gate_entry_dt, GateEntry.created_at),
             "receiving_register": (ReceivingRegister, ReceivingRegister.grn_date, ReceivingRegister.created_at),
             "erp_stock": (ERPStock, ERPStock.synced_at, ERPStock.synced_at),
-            "line_rejection": (ErpLineRejection, ErpLineRejection.return_slip_date, ErpLineRejection.synced_at),
             "rgp_lines": (ErpRgpLine, ErpRgpLine.challan_date, ErpRgpLine.synced_at),
         }
         out = {}

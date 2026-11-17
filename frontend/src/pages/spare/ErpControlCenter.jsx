@@ -151,7 +151,6 @@ const ERP_TABLES = [
   ["gate_entry", "Gate entry", "termsdb.gate_entry"],
   ["receiving_register", "GRN register (srv_report)", "termsdb.srv_report"],
   ["erp_stock", "ERP stock", "termsdb.current_stock"],
-  ["line_rejection", "Line rejection", "termsdb.line_rejection_report"],
   ["rgp_lines", "RGP (returnable gate pass)", "termsdb.challan_register"],
 ];
 

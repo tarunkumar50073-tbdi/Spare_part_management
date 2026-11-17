@@ -1,33 +1,19 @@
-"""Short & Rejection — what a supplier sent short, and what was rejected, on
-the ERP GRN lines of a store's parts, and how long each has been pending.
+"""Short Receiving — what a supplier sent short on the ERP GRN lines of a
+store's parts, and how long each has been pending.
 
 The store asked for it on 17 Oct 2026: "short ki mail banani padegi agar kisi
-supplier se short receive hua to mail jaayegi" and "rejection ka bhi banana
-padega taaki pta chale kis supplier ki rejection padi h kitne dino se and kis
-lot k against me reject hui — ye erp api se mil jaayega".
-
-Never mixed. On hearing the plan the store asked "rejection and short mix nhi
-rhega na": a short and a rejection are settled differently, so the service
-reads ONE kind per call (KINDS) — its own lines, supplier-wise table, totals
-and file — and a GRN line that is both short and rejected is listed under each
-kind with only that kind's figure. Rejection is punched in ERP in two types
-("rejection punch bhi erp se hoti h 2 type se srv rejection and line
-rejection"; on screen "rejection me drop down se srv rejection, line
-rejection"), and those two are never mixed either:
+supplier se short receive hua to mail jaayegi". The screen once showed
+rejections too (SRV Rejection and Line Rejection, with a Rejection Mail to
+RQC); the store removed every rejection view on 17 Nov 2026 ("only rejection
+ka hta de na dekhni na bhejni . short wala rhne de"), so the one kind left is:
 
     short  Short = Challan Qty - Received Qty, when above 0: the supplier's
            challan said more than the store received.
-    srv    SRV Rejection = the Reject Qty on the GRN line, when above 0:
-           quality rejected it at receipt.
-    line   Line Rejection = ERP's termsdb.line_rejection_report, which the app
-           neither mirrors nor can reach yet: erp_line_rejections() says so,
-           and the screen says that instead of showing a list.
 
-The source of Short and SRV Rejection is ERP's GRN register
-(termsdb.srv_report), mirrored read-only into receiving_register by
-ERPSyncService. It is read in ONE function, erp_grn_lines(): when the ERP API
-arrives it replaces that read and nothing else — the screen, the files and the
-mail take the same rows from it.
+The source is ERP's GRN register (termsdb.srv_report), mirrored read-only into
+receiving_register by ERPSyncService. It is read in ONE function,
+erp_grn_lines(): when the ERP API arrives it replaces that read and nothing
+else — the screen, the files and the mail take the same rows from it.
 
 A GRN line belongs to a store through its part: Part No = the ERP item code,
 trimmed and case-blind, as ErpGrnPostingService matches it (the mirror's own
@@ -35,16 +21,13 @@ store column is CHILD_PART on every row, so it says nothing). Money is at the
 part's CURRENT rate (unit_price): a part with no rate (or a rate of 0) has no
 value — blank, never 0 — and the totals say how many lines are not valued.
 
-Days pending, and when a line is closed. The store, 17 Oct 2026: a rejection
-is done "rejection invoice bna kar bhej denge tab" — once the rejection
-invoice is made and sent. ERP will tell the app that per GRN line, and later
-how a short was settled; it tells neither yet. Closure is read in ONE
-function, erp_closures(kind, rows): today it answers None ("ERP gives none"),
-so every rejection line is "Open — rejection invoice not yet made", every
-short line "Open", and the days pending are the days since the GRN date on the
-plant clock. When ERP gives the reference (for a rejection: the invoice no. /
-date), that function returns it and nothing else changes: the line reads
-"Closed — invoice <no> (<date>)", its days stop on that date, and it leaves
+Days pending, and when a line is closed. ERP will later tell the app how a
+short was settled; it does not yet. Closure is read in ONE function,
+erp_closures(kind, rows): today it answers None ("ERP gives none"), so every
+short line is "Open", and the days pending are the days since the GRN date on
+the plant clock. When ERP gives the reference (the settlement no. / date),
+that function returns it and nothing else changes: the line reads
+"Closed — ref <no> (<date>)", its days stop on that date, and it leaves
 the "oldest" and the age bands, which are about what is still pending. Age
 bands: 0-7, 8-15, 16-30, 30+ days.
 
@@ -71,7 +54,7 @@ from openpyxl.styles import Font
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
-from sqlalchemy import func, or_
+from sqlalchemy import func
 
 from app.extensions import db
 from app.models.base import utcnow
@@ -85,21 +68,14 @@ from app.utils import pdf_io
 from app.utils.excel_io import _append_safe_row, format_table
 from app.utils.exceptions import BadRequestError, NotFoundError
 
-TITLE = "Short & Rejection"
+TITLE = "Short Receiving"
 
-# The kinds, never mixed: each is its own tab (Short; Rejection with its Type
-# dropdown SRV / Line), its own figures and its own file, named by `label`.
-# `qty` / `value` head that kind's columns; `open` is a line's status while ERP
+# The one kind (the rejection kinds were removed on 17 Nov 2026), named by
+# `label`. `qty` / `value` head its columns; `open` is a line's status while ERP
 # reports no closure, `how` the word before the reference once it does; `noun`
 # names the kind inside a sentence, `none` opens "none of it" (`nothing` whole);
-# `days`,
-# `closed` and `no_closure` are the notes said beside the figures — plain text,
-# the PDF's font has no rupee sign.
-_REJECTION_DAYS = "Days pending count from the GRN date until ERP reports the rejection invoice."
-_REJECTION_CLOSED = ("A rejection is closed once ERP reports its rejection invoice (made and sent); "
-                     "its days pending stop at the invoice date.")
-_REJECTION_NONE = "ERP reports no rejection invoice yet, so every line here is open."
-_REJECTION_OPEN = "Open — rejection invoice not yet made"
+# `days`, `closed` and `no_closure` are the notes said beside the figures —
+# plain text, the PDF's font has no rupee sign.
 KINDS = {
     "short": {
         "label": "Short", "noun": "short", "qty": "Short Qty", "value": "Short Value", "open": "Open", "how": "ref",
@@ -108,22 +84,6 @@ KINDS = {
         "closed": "A short is closed once ERP reports how it was settled; its days pending stop on that date.",
         "no_closure": "ERP reports no settlement of a short yet, so every line here is open.",
         "nothing": "Nothing short in this window.", "none": "Nothing short",
-    },
-    "srv": {
-        "label": "SRV Rejection", "noun": "SRV rejection", "qty": "Rejected Qty", "value": "Rejected Value",
-        "open": _REJECTION_OPEN,
-        "how": "invoice",
-        "what": "SRV Rejection = the qty quality rejected on the ERP GRN line (its Reject Qty).",
-        "days": _REJECTION_DAYS, "closed": _REJECTION_CLOSED, "no_closure": _REJECTION_NONE,
-        "nothing": "No SRV rejection in this window.", "none": "No SRV rejection",
-    },
-    "line": {
-        "label": "Line Rejection", "noun": "line rejection", "qty": "Rejected Qty", "value": "Rejected Value",
-        "open": _REJECTION_OPEN,
-        "how": "invoice",
-        "what": "Line Rejection = the qty rejected on the line, punched in ERP (line_rejection_report).",
-        "days": _REJECTION_DAYS, "closed": _REJECTION_CLOSED, "no_closure": _REJECTION_NONE,
-        "nothing": "No line rejection in this window.", "none": "No line rejection",
     },
 }
 # The other notes, the same for every kind.
@@ -144,7 +104,7 @@ PERIODS = (("30d", "Last 30 days"), ("90d", "Last 90 days"), ("month", "This mon
 _PERIOD = dict(PERIODS)
 DEFAULT_PERIOD = "90d"
 # Five years, as the Consumption screen allows: the register is small, and an
-# old open rejection must stay reachable.
+# old open short must stay reachable.
 MAX_DAYS = 1830
 # The ERP data is "not current" once its last refresh is more than this many
 # plant days old — the screen's banner turns amber.
@@ -163,10 +123,7 @@ AGE_LEGEND = "Age (days pending): green = 0-7 days · amber = 8-15 · orange = 1
 
 FORMATS = {"excel": ("xlsx", XLSX_MIME), "pdf": ("pdf", "application/pdf")}
 
-# ERP's table of line rejections — named where the Line Rejection type says why
-# it shows nothing.
-LINE_REJECTION_TABLE = "line_rejection_report"
-MONEY_COLUMNS = ("Rate", "Short Value", "Rejected Value")
+MONEY_COLUMNS = ("Rate", "Short Value")
 TOTAL_LABEL = "Total"
 SUPPLIER_SHEET, LINES_SHEET = "Supplier-wise", "Lines"
 
@@ -187,9 +144,7 @@ def supplier_columns(kind):
 
 
 def line_columns(kind):
-    """The lines sheet's headings, in the screen's order: that kind's qty and
-    value only — a GRN line also short (or also rejected) shows nothing of it
-    here."""
+    """The lines sheet's headings, in the screen's order."""
     k = KINDS[kind]
     return ("GRN Date", "GRN No", "Lot (Gate Entry)", "Challan", "PO No", "Supplier Code", "Supplier",
             "Part No", "Item Description", "Challan Qty", "Received Qty", "Accepted Qty", k["qty"], "Rate",
@@ -200,13 +155,13 @@ def line_columns(kind):
 
 def erp_grn_lines(first, last):
     """(rows, as_of): every ERP GRN line dated `first`..`last` with something
-    short or rejected on it, and how far the ERP data reaches. Read today from
+    short on it, and how far the ERP data reaches. Read today from
     receiving_register, the read-only mirror of ERP's srv_report; the ERP API
     replaces this function — the same keys — and nothing else.
 
     rows: dicts with id, grn_no, grn_date, ven_cd, ven_name, gate_entry_no,
     gate_entry_dt, challan_no, challan_dt, po_no, item_cd, item_desc,
-    challan_qty, receipt_qty, accept_qty, reject_qty.
+    challan_qty, receipt_qty, accept_qty.
     as_of: {"synced_at": when the mirror last took rows from ERP (UTC, naive),
     "oldest_grn_date" / "newest_grn_date": the GRN dates the data reaches,
     "keeps_days": how many days back the source keeps (None = all of them),
@@ -214,49 +169,34 @@ def erp_grn_lines(first, last):
     RR = ReceivingRegister
     q = (db.session.query(RR.id, RR.grn_no, RR.grn_date, RR.ven_cd, RR.ven_name, RR.gate_entry_no,
                           RR.gate_entry_dt, RR.challan_no, RR.challan_dt, RR.po_no, RR.item_cd, RR.item_desc,
-                          RR.challan_qty, RR.receipt_qty, RR.accept_qty, RR.reject_qty)
+                          RR.challan_qty, RR.receipt_qty, RR.accept_qty)
          .filter(RR.grn_date >= first, RR.grn_date <= last, RR.item_cd.isnot(None),
-                 or_(RR.reject_qty > 0, RR.challan_qty - RR.receipt_qty > 0)))
+                 RR.challan_qty - RR.receipt_qty > 0))
     rows = [dict(r._mapping) for r in q]
     # The sync replaces the whole snapshot, so the newest row's stamp is the
     # moment of the last refresh.
     synced, oldest, newest, count = db.session.query(
         func.max(RR.created_at), func.min(RR.grn_date), func.max(RR.grn_date), func.count(RR.id)).one()
     # Each sync takes only the last ERP_SYNC_SINCE_DAYS of GRNs and swaps the
-    # whole snapshot, so a short or a rejection older than that leaves the
-    # mirror though nothing closed it: the screen must say where the data
-    # starts, or an early window reads as "nothing short or rejected".
+    # whole snapshot, so a short older than that leaves the mirror though
+    # nothing closed it: the screen must say where the data starts, or an
+    # early window reads as "nothing short".
     keeps = current_app.config.get("ERP_SYNC_SINCE_DAYS") or None
     return rows, {"synced_at": _utc_naive(synced), "oldest_grn_date": _as_date(oldest),
                   "newest_grn_date": _as_date(newest), "keeps_days": keeps, "rows": count or 0}
-
-
-def erp_line_rejections(first, last):
-    """Line rejections dated `first`..`last` — punched in ERP
-    (termsdb.line_rejection_report), the second type of rejection besides the
-    SRV rejection on the GRN line. None while the app cannot read them: there
-    is no mirror of that table (erp_sync_service) and the ERP database is not
-    reachable from the app yet. When it is, this returns the window's rows with
-    erp_grn_lines' keys — the GRN the rejected lot came in on, reject_qty the
-    qty rejected on the line — and the Line Rejection type lists them as SRV
-    Rejection lists its lines; nothing else needs to change."""
-    return None
 
 
 def erp_closures(kind, rows):
     """The ONE read of whether a line of `kind` is closed. `rows` are the
     source's rows, so a reader can ask ERP about those GRNs only.
 
-    For a rejection (srv, line): the rejection invoice ERP made and sent
-    against the GRN line ("rejection invoice bna kar bhej denge tab" — the
-    store, 17 Oct 2026). For a short: how ERP settled it (ERP will tell later).
+    For a short: how ERP settled it (ERP will tell later).
 
     Returns {grn_line_key(grn_no, item_cd): {"ref_no", "ref_date", "how"}}
-    — ref_no the invoice (or settlement) no., ref_date a date, an ISO text or
-    None, `how` optional (default KINDS[kind]["how"]: "invoice" for a
-    rejection) — or None while ERP gives the app no closures of that kind at
-    all: today, for every kind, since neither the srv_report mirror nor any
-    other ERP read carries them. When ERP (or its API) gives them, this
+    — ref_no the settlement no., ref_date a date, an ISO text or None, `how`
+    optional (default KINDS[kind]["how"]) — or None while ERP gives the app no
+    closures at all: today, since neither the srv_report mirror nor any other
+    ERP read carries them. When ERP (or its API) gives them, this
     function returns them and the lines close themselves."""
     return None
 
@@ -306,25 +246,24 @@ def _as_date(value):
 
 
 def _kind(kind):
-    key = (kind or "").strip()
+    """The kind asked for: "short" — the only one left — when none is named."""
+    key = (kind or "").strip() or "short"
     if key not in KINDS:
         raise BadRequestError(f"kind must be one of {', '.join(KINDS)}")
     return key
 
 
 def _quantities(row):
-    """(challan, received, short, rejected) of one ERP GRN line, to the
-    register's two places; short and rejected are 0 when not above 0."""
+    """(challan, received, short) of one ERP GRN line, to the register's two
+    places; short is 0 when not above 0."""
     challan, received = _q(row["challan_qty"]), _q(row["receipt_qty"])
     short = round(challan - received, 2) if challan is not None and received is not None else 0.0
-    rejected = _q(row["reject_qty"]) or 0.0
-    return challan, received, max(short, 0.0), max(rejected, 0.0)
+    return challan, received, max(short, 0.0)
 
 
 def _kind_qty(kind, row):
-    """The one figure of `kind` on a row: its short qty, or its rejected qty."""
-    _, _, short, rejected = _quantities(row)
-    return short if kind == "short" else rejected
+    """The short qty on a row."""
+    return _quantities(row)[2]
 
 
 def age_band(days):
@@ -437,12 +376,9 @@ def _coverage(kind, first, last, as_of):
     last day the data reaches (data_until) — on the live data, last synced
     28 Sep 2026, every period that runs into October. No line can show in
     either, so the screen and the files say nothing is known there rather
-    than let it read as "nothing short" / "nothing rejected". known: what is
-    left between — None when nothing is, or when no ERP data was ever read.
-    Line Rejection is not read from the register: its window is taken whole."""
+    than let it read as "nothing short". known: what is left between — None
+    when nothing is, or when no ERP data was ever read."""
     whole = {"from": first.isoformat(), "to": last.isoformat()}
-    if kind == "line":
-        return None, None, whole
     held, until = _as_date(as_of["held_from"]), _as_date(as_of["data_until"])
     if until is None:
         return None, whole, None
@@ -480,21 +416,19 @@ class ShortRejectionService:
 
     def report(self, store_code, kind=None, period=None, date_from=None, date_to=None, supplier=None, part=None,
                part_id=None, today=None):
-        """ONE kind (KINDS) on the store's ERP GRN lines in the window: {kind,
+        """The shorts (KINDS) on the store's ERP GRN lines in the window: {kind,
         label, available, window, filters, title, lines, summary, totals,
         data_as_of, not_given, unmatched, closures_known, basis, ...}. Lines and
         suppliers are worst first — open before closed, the longest pending,
-        then the dearest. `available` is False while the kind's source cannot
-        be read (Line Rejection today): then there is no list at all, which is
-        not "nothing rejected"."""
+        then the dearest. `available` is True whenever the register was read
+        (it was False for the unreadable Line Rejection, removed 17 Nov
+        2026)."""
         kind = _kind(kind)
         today = today or plant_today()
         period = _period(period, date_from, date_to)
         first, last = _window(period, date_from, date_to, today)
         picked = self._part(store_code, part_id) if part_id not in (None, "") else None
         rows, as_of = erp_grn_lines(first, last)
-        if kind == "line":
-            rows = erp_line_rejections(first, last)
         available = rows is not None
         rows = [row for row in rows or () if _kind_qty(kind, row)]
         closures = erp_closures(kind, rows)
@@ -532,7 +466,7 @@ class ShortRejectionService:
         # The parts of the window the register does not cover — before its
         # oldest GRN, after its last refresh: no line can show there, so the
         # screen and the files say so rather than let them read as "nothing
-        # short" / "nothing rejected" (_coverage).
+        # short" (_coverage).
         data_as_of = self._as_of(as_of, today)
         not_held, not_synced, known = _coverage(kind, first, last, data_as_of)
         k = KINDS[kind]
@@ -546,7 +480,7 @@ class ShortRejectionService:
             # False while the kind's source cannot be read at all — the screen
             # then says why instead of "nothing in this window".
             "available": available,
-            "erp_table": LINE_REJECTION_TABLE if kind == "line" else "srv_report",
+            "erp_table": "srv_report",
             "window": {"from": first.isoformat(), "to": last.isoformat(), "days": (last - first).days + 1,
                        "period": period, "label": _PERIOD[period],
                        "default_days": DEFAULT_DAYS, "not_held": not_held, "not_synced": not_synced,
@@ -589,8 +523,8 @@ class ShortRejectionService:
     @staticmethod
     def _store_parts(store_code):
         """{ITEM CODE: part facts} of every part of the store, active ones
-        winning a clash: a rejection is the supplier's, whether or not the part
-        is still in use."""
+        winning a clash: a short is the supplier's, whether or not the part is
+        still in use."""
         rows = (db.session.query(Part.id, Part.part_no, Part.part_name, Part.unit_price, Part.is_active)
                 .filter(Part.store_code == store_code)
                 .order_by(Part.is_active.asc(), Part.id.asc()))
@@ -627,14 +561,13 @@ class ShortRejectionService:
 
     @staticmethod
     def _line(kind, row, part, today, closure=None):
-        """One GRN line as the `kind` tab shows it — that kind's qty and value
-        only — or None when, rounded to the register's two places, nothing of
-        that kind is on it. `closure` is what erp_closures reports for it:
+        """One GRN line as the screen shows it — its short qty and value — or
+        None when, rounded to the register's two places, nothing is short on
+        it. `closure` is what erp_closures reports for it:
         while there is none the line is open and its days run to today;
         closed, they stop at the reference date (unknown when ERP gives no
         date) and it has no age band."""
-        challan, received, short, rejected = _quantities(row)
-        qty = short if kind == "short" else rejected
+        challan, received, qty = _quantities(row)
         if not qty:
             return None
         rate = part["rate"]
@@ -701,10 +634,10 @@ class ShortRejectionService:
 
     @staticmethod
     def _title(kind, first, last, supplier, part):
-        """The title, also the file's name: the kind ("Short", "SRV
-        Rejection"), then each filter that narrows it (the supplier, the part
-        text) — a file never passes for more than it holds — then the dates:
-        "SRV Rejection 19.07.2026 to 17.10.2026"."""
+        """The title, also the file's name: the kind ("Short"), then each
+        filter that narrows it (the supplier, the part text) — a file never
+        passes for more than it holds — then the dates:
+        "Short 19.07.2026 to 17.10.2026"."""
         picked = [_text(supplier), _text(part)]
         return " ".join([KINDS[kind]["label"], *(p for p in picked if p), _dates(first, last)])
 
@@ -739,11 +672,10 @@ class ShortRejectionService:
     # ---- the files ----
 
     def export(self, store_code, fmt, kind=None, **filters):
-        """(file, download name, mimetype): ONE kind of the window on screen as
-        ONE Excel workbook (sheets "Supplier-wise" and "Lines") or a PDF, named
-        by the title — "Short DD.MM.YYYY to DD.MM.YYYY", "SRV Rejection ..." —
-        with the notes the screen shows beside it: a file passed on has no
-        screen around it. A kind whose source cannot be read has no file."""
+        """(file, download name, mimetype): the window on screen as ONE Excel
+        workbook (sheets "Supplier-wise" and "Lines") or a PDF, named by the
+        title — "Short DD.MM.YYYY to DD.MM.YYYY" — with the notes the screen
+        shows beside it: a file passed on has no screen around it."""
         if fmt not in FORMATS:
             raise BadRequestError(f"format must be one of {', '.join(FORMATS)}")
         out = self.report(store_code, kind, **filters)
@@ -763,7 +695,7 @@ def file_notes(out):
                      + (" - not current" if as_of["stale"] else ""))
     else:
         notes.append("No ERP GRN data has been read yet")
-    if as_of["held_from"] and out["kind"] != "line":
+    if as_of["held_from"]:
         keeps = f" (the ERP sync keeps the last {as_of['keeps_days']} days)" if as_of["keeps_days"] else ""
         notes.append(f"ERP GRN lines are held from {_dmy(date.fromisoformat(as_of['held_from']))}{keeps}: "
                      f"an open {KINDS[out['kind']]['noun']} on an older GRN is not listed.")
@@ -772,7 +704,7 @@ def file_notes(out):
         notes.append(f"No GRN line is held for {_dates(date.fromisoformat(gap['from']), date.fromisoformat(gap['to']))}"
                      " - nothing can be listed for those dates.")
     # After the last ERP refresh nothing is known: a file of an empty October
-    # must not pass for "nothing short / rejected in October". With no ERP
+    # must not pass for "nothing short in October". With no ERP
     # data at all the first note has said so already.
     late = out["window"].get("not_synced")
     if late and as_of.get("data_until"):
@@ -874,7 +806,7 @@ def _paint_age(ws, number, row, at):
 
 
 def workbook(out):
-    """The bytes of the one workbook of ONE kind that the screen downloads:
+    """The bytes of the one workbook that the screen downloads:
     "Supplier-wise" (with its Total) and "Lines" (the Age cell coloured)."""
     wb = Workbook()
     notes = file_notes(out)

@@ -187,7 +187,8 @@ def test_erp_pollers_start_under_waitress_even_in_development_mode(app, monkeypa
     assert started == ["sync", "ledger", "sync"]
 
 
-# ---- 27 Oct 2026: ERP stock, line rejection, per-table status, one read at a time ----------------
+# ---- 27 Oct 2026: ERP stock, per-table status, one read at a time ----------------
+# (ERP's line rejections were read too until 17 Nov 2026, when the store removed every rejection view.)
 
 def _fake(tables):
     def fetch(table, columns, since_col=None, since_date=None):
@@ -198,10 +199,9 @@ def _fake(tables):
     return fetch
 
 
-def test_erp_stock_and_line_rejection_come_in_and_each_table_reports_itself(monkeypatch):
+def test_erp_stock_comes_in_and_each_table_reports_itself(monkeypatch):
     from app.extensions import db
     from app.models.app_setting import AppSetting
-    from app.models.erp_line_rejection import ErpLineRejection
     from app.models.erp_stock import ERPStock
     from app.models.part import Part
     from app.services.erp_sync_service import SYNC_STATUS_KEY
@@ -215,34 +215,37 @@ def test_erp_stock_and_line_rejection_come_in_and_each_table_reports_itself(monk
     monkeypatch.setattr(svc, "_erp_latest", lambda: {"erp_stock": "02:00:49"})
     erp = {"current_stock": [{"item_cd": " erpstk-1 ", "clos_stock": "5"}, {"item_cd": "ERPSTK-1", "clos_stock": "3"},
                              {"item_cd": "NOT-IN-APP", "clos_stock": "9"}],
-           "line_rejection_report": [{"id": 1, "return_slip_no": "RT/1", "return_slip_date": date(2026, 10, 27),
-                                      "item_cd": "ERPSTK-1", "item_desc": "BEARING", "uom": "NOS", "return_qty": "2",
-                                      "return_from_name": "MAIN STORE", "party_name": "ABC"}],
            "challan_register": []}
-    monkeypatch.setattr(svc.erp, "fetch_rows", _fake(erp))
+    read = []
+    fetch = _fake(erp)
+
+    def counting(table, columns, since_col=None, since_date=None):
+        read.append(table)
+        return fetch(table, columns, since_col, since_date)
+    monkeypatch.setattr(svc.erp, "fetch_rows", counting)
     from app.services.job_work_service import JobWorkService
     monkeypatch.setattr(JobWorkService, "_read_erp", staticmethod(lambda: []))
     result = svc.sync_all()
-    assert result["erp_stock"] >= 1 and result["line_rejection"] == 1
+    assert result["erp_stock"] >= 1 and "line_rejection" not in result
+    assert "line_rejection_report" not in read                                      # no longer read at all
     assert float(ERPStock.query.filter_by(part_id=p.id).one().qty_on_hand) == 8      # 5 + 3, two ERP locations
     from app.models.spare_stock import SpareStock
     assert float(SpareStock.query.filter_by(part_id=p.id).one().qty_on_hand) == 7    # physical untouched
-    assert ErpLineRejection.query.filter_by(return_slip_no="RT/1").one().return_qty == 2
     saved = AppSetting.get_value(SYNC_STATUS_KEY)
     assert saved["ok"] is True and saved["tables"]["erp_stock"]["erp_latest"] == "02:00:49"
 
     # ERP no longer lists the part: no guessed 0 — the figure goes ("Awaiting ERP").
     # And one table failing never stops the others; the failure is saved.
     erp["current_stock"] = []
-    erp["line_rejection_report"] = ConnectionError("line rejection table locked")
+    erp["gate_entry"] = ConnectionError("gate entry table locked")
     result = svc.sync_all()
     assert ERPStock.query.filter_by(part_id=p.id).first() is None
-    assert result["line_rejection"] is None and result["gate_entry"] == 0
+    assert result["gate_entry"] is None
     saved = AppSetting.get_value(SYNC_STATUS_KEY)
-    assert saved["ok"] is False and "line rejection table locked" in saved["tables"]["line_rejection"]["error"]
-    assert ErpLineRejection.query.filter_by(return_slip_no="RT/1").count() == 1      # the last good copy stays
+    assert saved["ok"] is False and "gate entry table locked" in saved["tables"]["gate_entry"]["error"]
+    assert saved["tables"]["erp_stock"]["ok"] is True                               # the next table still ran
     st = svc.status()
-    assert st["tables"]["line_rejection"]["ok"] is False and "line rejection" in (st["last_error"] or "")
+    assert st["tables"]["gate_entry"]["ok"] is False and "gate entry" in (st["last_error"] or "")
 
 
 def test_a_second_read_while_one_runs_is_skipped(monkeypatch):
@@ -253,29 +256,3 @@ def test_a_second_read_while_one_runs_is_skipped(monkeypatch):
         assert "skipped" in svc.sync_all()
     finally:
         ERPSyncService._lock.release()
-
-
-def test_line_rejections_endpoint_shows_this_stores_parts_or_all(app):
-    from app.extensions import db
-    from app.models.erp_line_rejection import ErpLineRejection
-    from app.models.part import Part
-    from app.models.user import User, UserStoreAccess
-    db.session.add(Part(part_no="LRJ-SPARE-1", part_name="SPARE SEAL", uom="NOS", part_type="OTHER", store_code="MAINTENANCE"))
-    db.session.add_all([
-        ErpLineRejection(erp_id=900001, return_slip_no="RT/LRJ/1", return_slip_date=date(2026, 10, 27), item_cd="lrj-spare-1", return_qty=2),
-        ErpLineRejection(erp_id=900002, return_slip_no="RT/LRJ/2", return_slip_date=date(2026, 10, 26), item_cd="7S-CHILD-X", return_qty=800)])
-    u = User(username="lrjviewer", role="STORE_USER", is_active=True)
-    u.set_password("pw-lrj-12345")
-    u.set_permissions({"short_rejection": {"view": True}})
-    db.session.add(u)
-    db.session.flush()
-    db.session.add(UserStoreAccess(user_id=u.id, store_code="MAINTENANCE"))
-    db.session.commit()
-    c = app.test_client()
-    with c.session_transaction() as s:
-        s["user_id"] = u.id
-    mine = c.get("/api/v1/short-rejection/line-rejections", query_string={"store_code": "MAINTENANCE", "q": "RT/LRJ"}).get_json()["data"]
-    assert [r["slip_no"] for r in mine["rows"]] == ["RT/LRJ/1"]
-    every = c.get("/api/v1/short-rejection/line-rejections",
-                  query_string={"store_code": "MAINTENANCE", "q": "RT/LRJ", "all": 1}).get_json()["data"]
-    assert [r["slip_no"] for r in every["rows"]] == ["RT/LRJ/1", "RT/LRJ/2"]

@@ -1,20 +1,16 @@
 import api from "./api";
 import { downloadFile } from "../utils/download.js";
 
-// Short & Rejection (/api/v1/short-rejection): what suppliers sent short, and
-// what was rejected, on the ERP GRN lines of a store's parts, with the days
-// each has been pending. Read-only, ONE kind per call — never mixed: kind =
-// short | srv (SRV Rejection) | line (Line Rejection; available = false while
-// ERP cannot be read). Params: store_code, kind, period (30d | 90d | month |
-// last_month | this_fy | last_fy | custom), from / to (custom: the GRN date,
-// YYYY-MM-DD), supplier (a code, or text in a code / name), part (text in the
-// Part No / description).
+// Short Receiving (/api/v1/short-rejection): what suppliers sent short on the
+// ERP GRN lines of a store's parts, with the days each has been pending.
+// Read-only. (Rejections were shown here too until 17 Nov 2026.) Params:
+// store_code, period (30d | 90d | month | last_month | this_fy | last_fy |
+// custom), from / to (custom: the GRN date, YYYY-MM-DD), supplier (a code, or
+// text in a code / name), part (text in the Part No / description).
 export const shortRejectionService = {
   // -> { kind, label, available, summary, lines, totals, data_as_of, not_given, basis, window, filters, title }
   get: (params, config) => api.get("/short-rejection", { params, ...config }),
-  // ERP's line rejection return slips: store_code, all (1 = every item), q, from, to.
-  lineRejections: (params, config) => api.get("/short-rejection/line-rejections", { params, ...config }),
-  // The same kind, period and filters as ONE file — format=excel (sheets
+  // The same period and filters as ONE file — format=excel (sheets
   // "Supplier-wise" and "Lines") | pdf — saved under `filename`.
   exportFile: (params, format, filename) =>
     downloadFile("/short-rejection/export", filename, { ...params, format }),

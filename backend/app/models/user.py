@@ -29,7 +29,7 @@ PERMISSION_MODULES = [
     {"key": "work_queue", "label": "Work Queue"},
     {"key": "consumption", "label": "Issue Register"},
     {"key": "receiving", "label": "Receiving & GRN"},
-    {"key": "short_rejection", "label": "Short & Rejection"},
+    {"key": "short_rejection", "label": "Short Receiving"},
     # No "kiosk" right any more: the kiosk part request and its Part Requisition
     # queue were taken out on 17 Oct 2026 ("management k according manual detail
     # fill karke issuance karna time waste h" — the store). A "kiosk" key an old
@@ -72,9 +72,11 @@ PERMISSION_MODULES = [
     # Urgent material on a supplier's delivery challan before its PO / invoice
     # (21 Oct 2026). A register only — the ERP GRN stays the one way stock goes up.
     {"key": "challan_register", "label": "Urgent Challan Register"},
-    {"key": "rejection_request", "label": "Rejection Mail (RQC)"},
+    # No "rejection_request" right any more: the Rejection Mail (RQC) was taken
+    # out on 17 Nov 2026 with every other rejection view ("only rejection ka hta
+    # de na dekhni na bhejni . short wala rhne de" — the store).
     # The mail to Purchase for material received short (25 Oct 2026) — its own
-    # right, apart from the Rejection Mail's ("alag alag ho").
+    # right.
     {"key": "short_mail", "label": "Short Mail (Purchase)"},
     # Receipt batches -> physical verification -> packets / units with their own
     # QR labels, FIFO (27 Oct 2026). Issuing a packet stays Scan Part's right.
@@ -125,7 +127,6 @@ MODULE_ACTIONS = {
     "reports": _R, "audit_trail": _R, "live_dashboard": _R, "gate_entry": _R,
     "part_kiosk": _R,             # read only: the kiosk changes nothing
     "challan_register": _RCUD,    # C new challan · E edit, invoice / GRN links · D cancel
-    "rejection_request": _RCU,    # C new request · E settings, mail draft
     "short_mail": _RCU,           # C make a short mail · E its To / CC
     "spare_packets": _RCUD,       # C verify a receipt, make packets, print labels · E reprint · D cancel a packet
     "vehicle_in_out": _R, "admin": _R,

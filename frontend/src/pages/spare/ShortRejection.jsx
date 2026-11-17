@@ -3,7 +3,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   CalendarClock, CalendarRange, Database, FileDown, FileText, Inbox, IndianRupee, Info, PackageMinus,
-  PackageSearch, PackageX, Search, TriangleAlert, Truck, Undo2, Unplug, X,
+  PackageSearch, Search, TriangleAlert, Truck, X,
 } from "lucide-react";
 import CardHead from "../../components/CardHead.jsx";
 import ErrorState from "../../components/ErrorState.jsx";
@@ -15,54 +15,23 @@ import { NO_ROWS } from "../../lib/stockQueries.js";
 import { compactMoney, money, num } from "../../lib/format.js";
 import { shortRejectionService } from "../../services/shortRejectionService.js";
 import ShortMailDialog from "../../components/spare/ShortMailDialog.jsx";
-import RejectionMailDialog from "../../components/spare/RejectionMailDialog.jsx";
 
-// Short & Rejection — what suppliers sent short, and what was rejected, on this
-// store's ERP GRN lines, supplier-wise and line by line, with the days each has
-// been pending. The store asked for it on 17 Oct 2026: "rejection ka bhi banana
-// padega taaki pta chale kis supplier ki rejection padi h kitne dino se and kis
-// lot k against me reject hui — ye erp api se mil jaayega".
+// Short Receiving — what suppliers sent short on this store's ERP GRN lines,
+// supplier-wise and line by line, with the days each has been pending (the
+// store, 17 Oct 2026). The screen once showed rejections too (SRV Rejection,
+// Line Rejection, the Rejection Mail to RQC); the store removed them on 17 Nov
+// 2026: "only rejection ka hta de na dekhni na bhejni . short wala rhne de".
+// The Short Mail to Purchase stays.
 //
-// Never mixed. On hearing the plan he asked "rejection and short mix nhi rhega
-// na": two tabs, Short and Rejection, each with its own tiles, supplier table,
-// lines, totals and download — the server answers ONE kind per call. Rejection
-// is punched in ERP in two types ("rejection me drop down se srv rejection,
-// line rejection"), chosen by the Type dropdown and never mixed either. Line
-// Rejection is not readable yet, and the screen says so instead of a list.
-//
-// As simple as the Issuance Report (ReportScreen.jsx): a title,
-// the tabs, ONE filter bar of named boxes with the downloads at its end.
+// As simple as the Issuance Report (ReportScreen.jsx): a title and ONE filter
+// bar of named boxes with the downloads at its end.
 
-const TABS = [
-  { key: "short", label: "Short", icon: PackageMinus },
-  { key: "rejection", label: "Rejection", icon: PackageX },
-  // ERP's line rejection return slips (read with every ERP read, 27 Oct 2026).
-  { key: "line", label: "Line rejection", icon: Undo2 },
-];
-const TYPES = [
-  { key: "srv", label: "SRV Rejection" },
-  { key: "line", label: "Line Rejection" },
-];
-// Each kind's words. The figures of one kind never sit beside another's.
-const KIND = {
-  short: {
-    label: "Short", noun: "short", qty: "Short qty", value: "Short value", tone: "amber", icon: PackageMinus,
-    suppliers: "with a short",
-    nothing: "Nothing short in this period", none: "Nothing short", explain: "was received short",
-    closedDays: "Closed — days from the GRN date to the settlement",
-  },
-  srv: {
-    label: "SRV Rejection", noun: "SRV rejection", qty: "Rejected qty", value: "Rejected value", tone: "red", icon: PackageX,
-    suppliers: "with an SRV rejection",
-    nothing: "No SRV rejection in this period", none: "No SRV rejection", explain: "had a rejection on its SRV",
-    closedDays: "Closed — days from the GRN date to the rejection invoice",
-  },
-  line: {
-    label: "Line Rejection", noun: "line rejection", qty: "Rejected qty", value: "Rejected value", tone: "red", icon: PackageX,
-    suppliers: "with a line rejection",
-    nothing: "No line rejection in this period", none: "No line rejection", explain: "had a line rejection",
-    closedDays: "Closed — days from the GRN date to the rejection invoice",
-  },
+// The shorts' words.
+const WORDS = {
+  label: "Short", noun: "short", qty: "Short qty", value: "Short value", tone: "amber", icon: PackageMinus,
+  suppliers: "with a short",
+  nothing: "Nothing short in this period", none: "Nothing short", explain: "was received short",
+  closedDays: "Closed — days from the GRN date to the settlement",
 };
 
 // The Period dropdown: the server cuts each on the plant clock
@@ -100,9 +69,8 @@ const FILES = [
 const isoDay = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-// "28 Sep" — the browser's en-GB short month reads "Sept", which the store does not write.
+// The browser's en-GB short month reads "Sept", which the store does not write.
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const dayMonth = (s) => `${Number(s.slice(8, 10))} ${MONTHS[Number(s.slice(5, 7)) - 1]}`;
 // "28 Sep 2026". Plant days are dates, not instants: read from the text, so
 // they never drift a day in either direction.
 const day = (s) => (s ? `${s.slice(8, 10)} ${MONTHS[Number(s.slice(5, 7)) - 1]} ${s.slice(0, 4)}` : "—");
@@ -150,7 +118,7 @@ function AgeChip({ days, band = bandOf(days), closedTitle = null }) {
 }
 
 // The server's status in two parts: "Open" / "Closed" as a chip, the rest
-// ("rejection invoice not yet made", "invoice RI/26/0042 (07.10.2026)") under it.
+// ("debit note DN/26/7 (07.10.2026)") under it.
 function Status({ line }) {
   const closed = line.status === "closed";
   const [head, ...rest] = String(line.status_text || "").split(" — ");
@@ -167,12 +135,10 @@ function Status({ line }) {
 }
 
 export default function ShortRejection() {
-  const canRejections = useCan("rejection_request", "view");
   const canShortMail = useCan("short_mail", "view");
   const canMakeShortMail = useCan("short_mail", "create");
   const canShortMailTo = useCan("short_mail", "update");
   const [shortMail, setShortMail] = useState(false);
-  const [rejectionMail, setRejectionMail] = useState(false);
   const { activeCode, activeStore } = useStores();
   const { openPart } = usePartDrawer();
   const code = activeCode;
@@ -183,9 +149,9 @@ export default function ShortRejection() {
   const location = useLocation();
   const [urlParams, setUrlParams] = useSearchParams();
   // The router writes the URL in a transition, and until it lands React puts
-  // the old choice back in a dropdown: an arrow-key press on Period or Type
-  // then starts from the old option, and a quick second change (Period, then
-  // the Rejection tab) would be built on the old URL and drop the first. So
+  // the old choice back in a dropdown: an arrow-key press on Period then
+  // starts from the old option, and a quick second change (Period, then a
+  // supplier) would be built on the old URL and drop the first. So
   // the last pick is held here and read at once, as ReportScreen.jsx does; a
   // new URL — the pick landing, or a link followed here — takes over from it.
   const [picked, setPicked] = useState(null);
@@ -196,9 +162,6 @@ export default function ShortRejection() {
     setPicked(null);
   }
   const params = picked ?? urlParams;
-  const tab = TABS.some((t) => t.key === params.get("tab")) ? params.get("tab") : "short";
-  const type = TYPES.some((t) => t.key === params.get("type")) ? params.get("type") : "srv";
-  const kind = tab === "short" ? "short" : type;
   const period = PERIODS.some((p) => p.key === params.get("period")) ? params.get("period") : DEFAULT_PERIOD;
   const custom = period === "custom";
   const from = custom ? params.get("from") || "" : "";
@@ -216,7 +179,6 @@ export default function ShortRejection() {
 
   const query = {
     store_code: code,
-    kind,
     period,
     from: from || undefined,
     to: to || undefined,
@@ -227,13 +189,13 @@ export default function ShortRejection() {
   // asks again once the day turns, for a screen kept open across midnight.
   const today = isoDay(new Date());
   const q = useQuery({
-    queryKey: ["short-rejection", code, kind, period, from, to, supplier, part, today],
+    queryKey: ["short-rejection", code, period, from, to, supplier, part, today],
     // Silent: the page shows its own error and Retry (api.js).
     queryFn: () => shortRejectionService.get(query, { silent: true }).then((r) => r.data.data),
     enabled: Boolean(code) && !badRange,
-    // The same kind's figures stay up while a new period loads; another
-    // kind's never stand in for this one's.
-    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === code && prevQuery?.queryKey[2] === kind ? prev : undefined),
+    // The figures stay up while a new period loads; another store's never
+    // stand in for this one's.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === code ? prev : undefined),
   });
   const d = q.data;
   const stale = q.isPlaceholderData;
@@ -250,70 +212,41 @@ export default function ShortRejection() {
     );
   }
 
-  const words = KIND[kind];
-  const unreadable = Boolean(d) && d.available === false;
-  const empty = Boolean(d) && !unreadable && d.lines.length === 0;
+  const words = WORDS;
+  const empty = Boolean(d) && d.lines.length === 0;
   const filtered = Boolean(supplier || part);
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 basis-72">
-          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Short &amp; Rejection</h2>
+          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Short Receiving</h2>
           <p className="mt-0.5 text-xs text-slate-400">
-            What suppliers sent short, and what was rejected, on {activeStore?.name || "this store"}&apos;s ERP GRN
-            lines — supplier-wise and line by line, with the days each has been pending.
+            What suppliers sent short on {activeStore?.name || "this store"}&apos;s ERP GRN lines — supplier-wise
+            and line by line, with the days each has been pending.
           </p>
         </div>
         <span className="flex items-center gap-2">
           {q.isFetching && d && <span className="text-[11px] text-slate-400">Updating…</span>}
-          {/* The mail to RQC to punch a rejection — on the Rejection tab only
-              (25 Oct 2026: "short me bhi rejection mail dikha rha h"); opens
-              here, no screen of its own (28 Oct 2026). */}
-          {canRejections && tab === "rejection" && (
-            <button type="button" className="btn-secondary text-[12.5px]" onClick={() => setRejectionMail(true)}>Rejection mail →</button>
-          )}
-          {/* The mail to Purchase for material received short — on the Short
-              tab only, apart from the Rejection Mail (25 Oct 2026). */}
-          {canShortMail && tab === "short" && (
+          {/* The mail to Purchase for material received short (25 Oct 2026). */}
+          {canShortMail && (
             <button type="button" className="btn-secondary text-[12.5px]" onClick={() => setShortMail(true)}>Short mail →</button>
           )}
         </span>
       </div>
 
-      <div role="tablist" aria-label="Short or rejection"
-        className="grid w-full grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-navy-800 dark:bg-navy-900 sm:inline-grid sm:w-auto">
-        {TABS.map((t) => {
-          const on = tab === t.key;
-          return (
-            <button key={t.key} type="button" role="tab" aria-selected={on} id={`sr-tab-${t.key}`}
-              aria-controls="sr-panel"
-              onClick={() => update({ tab: t.key === "short" ? "" : t.key })}
-              className={`inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2 text-sm font-semibold transition-colors ${on
-                ? "bg-toyotared text-white shadow-sm"
-                : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-navy-800"}`}>
-              <t.icon size={15} aria-hidden="true" />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {tab === "line" && <LineRejections storeCode={code} />}
-      <div id="sr-panel" role="tabpanel" aria-labelledby={`sr-tab-${tab}`} className={`space-y-5 ${tab === "line" ? "hidden" : ""}`}>
-        {/* No note on how days are counted for a kind that has no list at all. */}
-        <ErpBanner asOf={d?.data_as_of} kind={kind} basis={unreadable ? null : d?.basis} closuresKnown={d?.closures_known}
+      <div className="space-y-5">
+        <ErpBanner asOf={d?.data_as_of} basis={d?.basis} closuresKnown={d?.closures_known}
           gap={d?.window?.not_held} notGiven={d?.not_given || NO_ROWS} />
 
         <FilterBar
-          tab={tab} type={type} period={period} from={from} to={to} badRange={badRange}
+          period={period} from={from} to={to} badRange={badRange}
           supplier={supplier} part={part} shown={stale ? null : d?.window}
           onPeriod={choosePeriod}
           onDates={(f, t) => update({ period: "custom", from: f, to: t })}
           onChange={update}
-          downloads={<Downloads d={d} query={query} off={!d || stale || empty || unreadable}
-            why={unreadable ? "Nothing to download — line rejections are not read from ERP yet"
-              : empty ? `Nothing to download — ${lowerFirst(nothingSaid(d.window, words))}` : null}
+          downloads={<Downloads d={d} query={query} off={!d || stale || empty}
+            why={empty ? `Nothing to download — ${lowerFirst(nothingSaid(d.window, words))}` : null}
             label={words.label} />}
         />
 
@@ -331,13 +264,11 @@ export default function ShortRejection() {
           </div>
         ) : !d ? (
           <Loading />
-        ) : unreadable ? (
-          <LineRejectionUnavailable table={d.erp_table} asOf={d.data_as_of} />
         ) : (
           <div className={`space-y-5 transition-opacity ${stale ? "opacity-60" : ""}`} aria-busy={stale || undefined}>
             {/* No 0 tiles for a period of which nothing is known — before the
                 oldest GRN held, or after the last ERP refresh: 0 would read as
-                "nothing short / rejected". */}
+                "nothing short". */}
             {!(empty && d.window?.known === null) && <Tiles totals={d.totals} words={words} />}
             <UnmatchedNote unmatched={d.unmatched} words={words} />
             {empty ? (
@@ -352,7 +283,7 @@ export default function ShortRejection() {
                     update({ supplier: supplier.toLowerCase() === key.toLowerCase() ? "" : key });
                   }}
                 />
-                <LinesTable key={kind} lines={d.lines} totals={d.totals} words={words} onPart={openPart} />
+                <LinesTable lines={d.lines} totals={d.totals} words={words} onPart={openPart} />
               </>
             )}
           </div>
@@ -360,10 +291,9 @@ export default function ShortRejection() {
       </div>
 
       {shortMail && (
-        <ShortMailDialog lines={tab === "short" && d && !stale && !unreadable ? d.lines : []} storeCode={code}
+        <ShortMailDialog lines={d && !stale ? d.lines : []} storeCode={code}
           canMake={canMakeShortMail} canSettings={canShortMailTo} onClose={() => setShortMail(false)} />
       )}
-      {rejectionMail && <RejectionMailDialog storeCode={code} onClose={() => setRejectionMail(false)} />}
     </div>
   );
 }
@@ -374,7 +304,7 @@ export default function ShortRejection() {
 // days old), where it starts — the ERP sync keeps only its last N days, so an
 // open line on an older GRN is not listed (amber when the period reaches back
 // before it) — how the days are counted, and what ERP does not give yet.
-function ErpBanner({ asOf, kind, basis, closuresKnown, gap, notGiven }) {
+function ErpBanner({ asOf, basis, closuresKnown, gap, notGiven }) {
   if (!asOf) return null;
   const stale = asOf.stale;
   const staleBox = stale || Boolean(gap);
@@ -390,18 +320,18 @@ function ErpBanner({ asOf, kind, basis, closuresKnown, gap, notGiven }) {
           {asOf.synced_day ? (
             <>
               ERP data up to {day(asOf.synced_day)}
-              {stale && asOf.age_days != null && ` — ${plural(asOf.age_days, "day")} old. GRNs, shorts and rejections booked in ERP since then are not here until the ERP sync runs again.`}
+              {stale && asOf.age_days != null && ` — ${plural(asOf.age_days, "day")} old. GRNs and shorts booked in ERP since then are not here until the ERP sync runs again.`}
             </>
           ) : "No ERP GRN data has been read yet — the list fills on the first ERP sync."}
         </span>
       </p>
-      {asOf.held_from && kind !== "line" && (
+      {asOf.held_from && (
         <p className={`mt-1 flex items-start gap-2 ${gap ? "" : "text-slate-500 dark:text-slate-400"}`}>
           <CalendarRange size={14} className="mt-px shrink-0 opacity-70" aria-hidden="true" />
           <span>
             GRN lines are held from {day(asOf.held_from)}
             {asOf.keeps_days ? ` (the ERP sync keeps the last ${num(asOf.keeps_days)} days)` : ""}: an open{" "}
-            {KIND[kind].noun} on an older GRN is not listed.
+            {WORDS.noun} on an older GRN is not listed.
             {gap && (
               <b className="font-semibold"> No GRN line is held for {span(gap)} — nothing can show for those dates.</b>
             )}
@@ -444,7 +374,7 @@ function SearchBox({ value, onChange, placeholder, label, icon: Icon }) {
   const [text, setText] = useState(value);
   // The newest onChange, read when the pause ends: the one of the render that
   // started the timer would build on the filters of that moment and drop a
-  // Period or Type picked while typing.
+  // Period picked while typing.
   const onChangeRef = useRef(onChange);
   useEffect(() => { onChangeRef.current = onChange; });
   // Follow the URL only when it says something else (a supplier clicked,
@@ -472,9 +402,9 @@ function SearchBox({ value, onChange, placeholder, label, icon: Icon }) {
 }
 
 // On a phone each box takes a whole row — beside the icon rail half a row cut
-// "Last 90 days", "SRV Rejection" and a date short; from sm: up one row that
+// "Last 90 days" and a date short; from sm: up one row that
 // wraps, the downloads at its end.
-function FilterBar({ tab, type, period, from, to, badRange, supplier, part, shown, onPeriod, onDates, onChange, downloads }) {
+function FilterBar({ period, from, to, badRange, supplier, part, shown, onPeriod, onDates, onChange, downloads }) {
   const custom = period === "custom";
   const date = `input-field py-1.5 text-[13px] min-w-0 sm:w-auto ${badRange ? "border-toyotared" : ""}`;
   return (
@@ -493,13 +423,6 @@ function FilterBar({ tab, type, period, from, to, badRange, supplier, part, show
             <input type="date" value={to} min={from || undefined} onChange={(e) => onDates(from, e.target.value)} className={date} />
           </Field>
         </>
-      )}
-      {tab === "rejection" && (
-        <Field label="Type" className="col-span-2">
-          <select className={select} value={type} onChange={(e) => onChange({ type: e.target.value === "srv" ? "" : e.target.value })}>
-            {TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-          </select>
-        </Field>
       )}
       <Field label="Supplier" as="div" className="col-span-2">
         <SearchBox value={supplier} onChange={(v) => onChange({ supplier: v })} placeholder="Name or code"
@@ -528,8 +451,8 @@ function FilterBar({ tab, type, period, from, to, badRange, supplier, part, show
   );
 }
 
-// The shown tab's file only: its own supplier-wise sheet and lines, named as
-// the server names it ("Short <dates>", "SRV Rejection <dates>").
+// The file: its supplier-wise sheet and lines, named as the server names it
+// ("Short <dates>").
 function Downloads({ d, query, off, why, label }) {
   const [busy, setBusy] = useState(null);
   const download = (file) => {
@@ -574,7 +497,7 @@ function Tiles({ totals: t, words }) {
   );
 }
 
-// Lines of this kind whose item code is no store's Part No: no store lists
+// Short lines whose item code is no store's Part No: no store lists
 // them, so they are counted here rather than vanish.
 function UnmatchedNote({ unmatched: u, words }) {
   if (!u?.lines) return null;
@@ -615,14 +538,14 @@ const knownOf = (w) => (w.known === undefined ? { from: w.from, to: w.to } : w.k
 // What an empty period says — "nothing" only for the dates the ERP data
 // covers. Before the oldest GRN held, or after the last ERP refresh (on the
 // live data, synced 28 Sep 2026, every day of October) nothing is known, which
-// is not "nothing short" / "no rejection". The empty state's heading and the
+// is not "nothing short". The empty state's heading and the
 // disabled downloads' title say the same.
 function nothingSaid(w, words) {
   const known = knownOf(w);
   if (!known) return "No GRN line is held for these dates";
   return known.from === w.from && known.to === w.to ? words.nothing : `${words.none} ${within(known)}`;
 }
-// "No SRV rejection …" inside a sentence: only the first letter lowered, so "SRV" stays.
+// "Nothing short …" inside a sentence: only the first letter lowered.
 const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1);
 
 function EmptyState({ window: w, asOf, filtered, words, period, onPeriod }) {
@@ -655,38 +578,6 @@ function EmptyState({ window: w, asOf, filtered, words, period, onPeriod }) {
                 className="font-semibold text-toyotared underline underline-offset-2 hover:no-underline">
                 Look at this financial year
               </button>
-            </>
-          )}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// Line Rejection: ERP holds them, the app cannot read them yet — said plainly,
-// never filled with made-up rows. The store's sentence (17 Oct 2026) is for
-// today, when no ERP data has come since 28 Sep; once the ERP sync is current
-// again the reason left is that line_rejection_report is not read, so the
-// screen says that instead of an "unreachable" the banner above contradicts.
-function LineRejectionUnavailable({ table, asOf }) {
-  const name = <code className="font-mono text-[11px]">{table || "line_rejection_report"}</code>;
-  const unreachable = !asOf?.synced_day || asOf.stale;
-  const since = asOf?.synced_day ? `no ERP data since ${dayMonth(asOf.synced_day)}` : "no ERP data has been read yet";
-  return (
-    <div className="card">
-      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-4 py-8 text-center dark:border-navy-700 dark:bg-navy-800/40">
-        <Unplug size={26} strokeWidth={1.6} className="mx-auto mb-2 text-slate-400 dark:text-slate-500" aria-hidden="true" />
-        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Line rejections are not readable yet</p>
-        <p className="mx-auto mt-1.5 max-w-xl text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          {unreachable ? (
-            <>
-              Line rejections are punched in ERP (table {name}). The app cannot reach the ERP database yet ({since}),
-              so they will appear here once the ERP connection or API works.
-            </>
-          ) : (
-            <>
-              Line rejections are punched in ERP (table {name}). The app does not read that table yet, so they
-              will appear here once it is read through the ERP connection or API.
             </>
           )}
         </p>
@@ -938,63 +829,6 @@ function Loading() {
       <div className="card space-y-2">
         {[0, 1, 2, 3, 4].map((i) => <div key={i} className="skeleton h-9 w-full" />)}
       </div>
-    </div>
-  );
-}
-
-// ERP's line rejection return slips — read from ERP with every ERP read, never
-// typed here. This store's parts by default (the table is mostly child parts).
-function LineRejections({ storeCode }) {
-  const [all, setAll] = useState(false);
-  const [typed, setTyped] = useState("");
-  const [q, setQ] = useState("");
-  useEffect(() => { const t = setTimeout(() => setQ(typed.trim()), 300); return () => clearTimeout(t); }, [typed]);
-  const list = useQuery({
-    queryKey: ["short-rejection", "line", storeCode, all, q],
-    queryFn: () => shortRejectionService.lineRejections({ store_code: storeCode, all: all ? 1 : undefined, q: q || undefined },
-      { silent: true }).then((r) => r.data.data),
-    enabled: Boolean(storeCode),
-  });
-  const d = list.data;
-  return (
-    <div className="card p-0" role="tabpanel" aria-labelledby="sr-tab-line">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">
-        <div className="flex flex-wrap items-center gap-1">
-          {[[false, "This store's parts"], [true, "All items"]].map(([v, label]) => (
-            <button key={label} type="button" onClick={() => setAll(v)} aria-pressed={all === v}
-              className={`rounded-full px-3 py-1 text-[12px] font-semibold ${all === v ? "bg-navy-900 text-white dark:bg-white dark:text-navy-900" : "bg-slate-100 text-slate-600 dark:bg-navy-800 dark:text-slate-300"}`}>
-              {label}
-            </button>
-          ))}
-          {d && <span className="ml-2 text-[11px] text-slate-400">{d.rows.length} slip line{d.rows.length === 1 ? "" : "s"} · {d.total_in_erp} in ERP · read {d.synced_at ? new Date(d.synced_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "not yet"}</span>}
-        </div>
-        <span className="relative">
-          <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input className="input-field w-64 py-1.5 pl-8 text-[13px]" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Slip no., item, party…" />
-        </span>
-      </div>
-      {list.isError ? <div className="p-4"><ErrorState title="Line rejections did not load" message={list.error?.response?.data?.message || list.error?.message} onRetry={() => list.refetch()} /></div> : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-[12.5px]">
-            <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-950/40 dark:text-slate-400">
-              <tr>{["Date", "Return slip", "Item", "Qty", "From", "Party"].map((h) => <th key={h} className={`px-3 py-2.5 font-semibold ${h === "Qty" ? "text-right" : ""}`}>{h}</th>)}</tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
-              {(d?.rows || []).map((r, i) => (
-                <tr key={`${r.slip_no}-${r.item_cd}-${i}`} className="align-top text-slate-700 dark:text-slate-200">
-                  <td className="whitespace-nowrap px-3 py-2.5">{r.date ? new Date(`${r.date}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}<div className="text-[11px] text-slate-400">{r.time}</div></td>
-                  <td className="px-3 py-2.5 font-mono">{r.slip_no}</td>
-                  <td className="px-3 py-2.5"><div className="font-mono font-semibold">{r.item_cd}</div><div className="max-w-[280px] truncate text-[11px] text-slate-400" title={r.item_desc}>{r.item_desc}</div></td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{r.qty ?? "—"} {r.uom}</td>
-                  <td className="px-3 py-2.5">{r.from}</td>
-                  <td className="px-3 py-2.5">{r.party}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {d && d.rows.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400">{all || q ? "No line rejection matches." : "No line rejection of this store's parts in ERP — see All items."}</p>}
-        </div>
-      )}
     </div>
   );
 }

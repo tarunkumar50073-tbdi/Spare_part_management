@@ -1,8 +1,8 @@
 """Short Mail (the store, 25 Oct 2026): the mail to Purchase for material that
 came short against an invoice — one mail per invoice and day, every short part
-in one table, in the store's own words — kept apart from the Rejection Mail
-("short mail and rejection mail alag alag ho"): its own right and To / CC. A
-draft the store sends from Outlook; the app sends nothing."""
+in one table, in the store's own words — with its own right and To / CC. A
+draft the store sends from Outlook; the app sends nothing. (The Rejection Mail
+it was kept apart from was removed on 17 Nov 2026; the Short Mail stays.)"""
 import email
 import uuid
 from datetime import date
@@ -91,10 +91,10 @@ def test_a_mail_is_checked(over, message):
         svc.draft(_mail(**over))
 
 
-def test_settings_are_its_own_not_the_rejection_mails():
+def test_settings_are_its_own():
     svc.set_settings({"to": "purchase@tbdi.example"})
     assert svc.settings() == {"to": "purchase@tbdi.example", "cc": ""}
-    assert (AppSetting.get_value("rejection_mail") or {}).get("to") != "purchase@tbdi.example"
+    assert AppSetting.get_value("short_mail")["to"] == "purchase@tbdi.example"
     with pytest.raises(BadRequestError, match="not an e-mail address"):
         svc.set_settings({"to": "purchase"})
 
@@ -111,10 +111,13 @@ def _user(perms):
 def test_api_its_own_right():
     assert any(m["key"] == "short_mail" for m in PERMISSION_MODULES)
     assert MODULE_ACTIONS["short_mail"] == ("view", "create", "update")
+    # The Rejection Mail (RQC) and its right were removed on 17 Nov 2026.
+    assert not any(m["key"] == "rejection_request" for m in PERMISSION_MODULES)
+    assert "rejection_request" not in MODULE_ACTIONS
 
 
 def test_api_rights(app):
-    rejection_only = _user({"rejection_request": {"view": True, "create": True, "update": True}})
+    short_list_only = _user({"short_rejection": {"view": True}})
     viewer = _user({"short_mail": {"view": True}})
     maker = _user({"short_mail": {"view": True, "create": True, "update": True}})
     c = app.test_client()
@@ -123,7 +126,7 @@ def test_api_rights(app):
         with c.session_transaction() as s:
             s["user_id"] = u.id
 
-    as_(rejection_only)                                     # the Rejection Mail right does not open it
+    as_(short_list_only)                                    # the Short Receiving list's right does not open it
     assert c.get(f"{URL}/settings").status_code == 403
     assert c.post(f"{URL}/draft", json=_mail()).status_code == 403
     as_(viewer)

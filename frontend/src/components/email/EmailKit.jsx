@@ -71,7 +71,7 @@ export const MAIL_TYPE_LABEL = {
   tracker_digest: "Action Tracker summary",
   tracker_reminder: "Reminder",
   tracker_escalation: "Escalation",
-  short_rejection: "Short & Rejection list",
+  short_rejection: "Short Receiving list",
 };
 
 // A mail type the app no longer sends but the log can still hold: the critical

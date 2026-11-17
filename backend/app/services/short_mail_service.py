@@ -13,20 +13,22 @@ The parts come from the ERP GRN lines on the Short tab (or are typed in while ER
 is not reachable). The mail is a DRAFT the app hands over as an .eml (X-Unsent):
 Outlook opens it ready to send and the store sends it — the app's mail engine is
 not used and nothing leaves on its own. Apart from the To / CC, nothing is kept.
-It is separate from the Rejection Mail to RQC: its own right (short_mail), its
-own To / CC.
+It has its own right (short_mail) and its own To / CC. (The Rejection Mail to
+RQC it was once kept apart from was removed on 17 Nov 2026, with every other
+rejection view.)
 """
 import html
 import re
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
 from email.utils import formatdate
 
+from sqlalchemy import func, or_
+
 from app.extensions import db
 from app.models.app_setting import AppSetting
-from app.services.rejection_request_service import (
-    MAX_QTY, _clean, _date, _dmy, _emails, _need, _num, _qty, _today, _who,
-)
+from app.models.part import Part
 from app.utils.exceptions import BadRequestError
 
 SETTING_KEY = "short_mail"
@@ -34,6 +36,84 @@ SETTING_KEY = "short_mail"
 MAIL_DEFAULTS = {"to": "", "cc": ""}
 COLUMNS = ("Part No.", "Part Description", "Invoice Qty", "Received Qty", "Short Qty")
 MAX_LINES = 60
+MAX_QTY = Decimal("1000000")
+EMAIL_RE = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
+
+
+# ---- small helpers -------------------------------------------------------------
+
+def _today():
+    from app.services.spare_report_service import plant_today
+    return plant_today()
+
+
+def _clean(value, limit=None, label="Value"):
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return None
+    if limit and len(text) > limit:
+        raise BadRequestError(f"{label} is too long (at most {limit} characters)")
+    return text
+
+
+def _need(data, key, limit, label):
+    value = _clean(data.get(key), limit, label)
+    if value is None:
+        raise BadRequestError(f"{label} is required")
+    return value
+
+
+def _date(value, label):
+    if value in (None, ""):
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d").date()
+    except ValueError:
+        raise BadRequestError(f"{label} must be a date (YYYY-MM-DD)") from None
+
+
+def _qty(value, label):
+    try:
+        qty = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError, AttributeError):
+        raise BadRequestError(f"{label} must be a number") from None
+    if not qty.is_finite() or qty <= 0:
+        raise BadRequestError(f"{label} must be more than 0")
+    if qty > MAX_QTY:
+        raise BadRequestError(f"{label} is too large")
+    if qty != qty.quantize(Decimal("0.01")):
+        raise BadRequestError(f"{label} can have at most 2 decimals")
+    return qty
+
+
+def _num(value):
+    if value is None:
+        return None
+    value = float(value)
+    return int(value) if value.is_integer() else round(value, 2)
+
+
+def _dmy(value):
+    return value.strftime("%d-%b-%Y") if value else ""
+
+
+def _who(user):
+    return (getattr(user, "username", None) or str(user or "") or "SYSTEM")[:60]
+
+
+def _emails(text, label):
+    """A To / CC line: addresses split on , ; or spaces, each checked."""
+    out = []
+    for piece in re.split(r"[,;\s]+", text or ""):
+        piece = piece.strip()
+        if not piece:
+            continue
+        if not EMAIL_RE.match(piece):
+            raise BadRequestError(f"{label}: '{piece}' is not an e-mail address")
+        out.append(piece)
+    return out
 
 
 def _received(value, label):
@@ -73,6 +153,19 @@ class ShortMailService:
         AppSetting.set_value(SETTING_KEY, out, _who(user))
         db.session.commit()
         return out
+
+    # ---- the parts a typed-in mail picks from ---------------------------------------
+
+    def search_parts(self, store_code, q, limit=20):
+        text = (q or "").strip()
+        if len(text) < 2:
+            return []
+        like = f"%{text}%"
+        rows = (Part.query.filter(Part.store_code == store_code,
+                                  or_(Part.part_no.ilike(like), Part.part_name.ilike(like),
+                                      Part.old_part_no.ilike(like), Part.specification.ilike(like)))
+                .order_by(func.length(Part.part_no), Part.part_no).limit(max(1, min(int(limit), 50))).all())
+        return [{"id": p.id, "part_no": p.part_no, "part_name": p.part_name, "uom": p.uom} for p in rows]
 
     # ---- the mail -------------------------------------------------------------------
 

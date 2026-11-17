@@ -11,10 +11,10 @@ import { shortMailService } from "../../services/shortMailService.js";
 // Short Mail — the mail to Purchase for material received short against an
 // invoice (the store, 25 Oct 2026): one mail per invoice and day, every short
 // part of it in one table ("jis din, jis invoice me jitna part short receive
-// hua uski material short receive ki mail"), in the store's own words. Kept
-// apart from the Rejection Mail: its own right and To / CC ("alag alag ho").
+// hua uski material short receive ki mail"), in the store's own words, with its
+// own right and To / CC.
 //
-// The invoices come from the Short tab's ERP GRN lines, grouped by the day
+// The invoices come from Short Receiving's ERP GRN lines, grouped by the day
 // received + supplier + invoice no.; a mail can also be typed in while ERP is
 // not reachable. "Open mail in Outlook" hands over a ready draft — the store
 // presses Send; the app sends nothing itself and keeps nothing.
@@ -26,7 +26,7 @@ const BLANK_LINE = { part_no: "", description: "", invoice_qty: "", received_qty
 const short = (ln) => Number(ln.invoice_qty) - Number(ln.received_qty);
 const MAX_LINES = 60;
 
-// The Short tab's lines as one mail each per day received + supplier + invoice no.
+// Short Receiving's lines as one mail each per day received + supplier + invoice no.
 export function groupShortLines(lines) {
   const map = new Map();
   (lines || []).forEach((ln) => {

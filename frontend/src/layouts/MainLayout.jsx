@@ -63,6 +63,7 @@ const TITLES = {
   "/inventory-control": "Critical · Reorder · Excess",
   "/consumption": "Issue Register",
   "/receiving": "Receiving & GRN",
+  "/short-rejection": "Short Receiving",
   "/challans": "Urgent Challan Register",
   "/erp-control": "ERP Control Center",
   "/data-quality": "Data Quality",

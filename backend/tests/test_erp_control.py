@@ -333,7 +333,7 @@ def test_held_shows_each_erp_copy_from_its_own_table(quiet_erp):
     db.session.commit()
     try:
         held = ERPControlService().status(code)["db_sync"]["held"]
-        assert set(held) == {"gate_entry", "receiving_register", "erp_stock", "line_rejection", "rgp_lines"}
+        assert set(held) == {"gate_entry", "receiving_register", "erp_stock", "rgp_lines"}
         gate = held["gate_entry"]
         assert gate["rows"] >= 1 and gate["newest"] >= utcnow().date().isoformat()
         assert gate["written_at"] and gate["written_age_hours"] < 1

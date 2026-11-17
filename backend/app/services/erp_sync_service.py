@@ -11,14 +11,14 @@ server, ERP_SYNC_POLL_SECONDS=120, and "Read ERP now" on ERP Control):
     termsdb.srv_report            -> ReceivingRegister  (GRN receiving history)
     termsdb.current_stock         -> ERPStock           (ERP's stock: clos_stock summed over its locations,
                                                          per part — the ERP side of ERP vs Physical)
-    termsdb.line_rejection_report -> ErpLineRejection   (line rejection return slips)
     termsdb.challan_register      -> ErpRgpLine         (RGPs, JobWorkService)
 Each table is read on its own: one failing never stops the others, and how
 each went — rows, ERP's own newest date, any error — is saved in app_settings
 (erp_sync_status), so every machine sees the server's last run. Only one read
 runs at a time across machines (a PostgreSQL advisory lock), so the server's
 poller and a button press elsewhere can never write the same mirror together.
-termsdb.line_rejection_report has no mirror yet. The other four reports (RGP,
+termsdb.line_rejection_report is not read: its mirror was removed on 17 Nov
+2026 with every rejection view of the app. The other four reports (RGP,
 Pending GRN, Current Stock, Stock Valuation, Gate Exit) await their own ERP
 source tables — when those appear, add a mapper here the same way.
 
@@ -56,7 +56,6 @@ ERP_LATEST_SQL = {
     "gate_entry": 'SELECT max(gate_entry_dt)::text FROM "{s}".gate_entry',
     "receiving_register": 'SELECT max(grn_date)::text FROM "{s}".srv_report',
     "erp_stock": 'SELECT max(created_at)::text FROM "{s}".current_stock',
-    "line_rejection": 'SELECT max(return_slip_date)::text FROM "{s}".line_rejection_report',
     "rgp_lines": 'SELECT max(updated_at)::text FROM "{s}".challan_register',
 }
 
@@ -210,29 +209,6 @@ class ERPSyncService:
         db.session.commit()
         return len(present)
 
-    def sync_line_rejection(self):
-        """ERP's line rejection slips, the whole table (under a thousand rows), replaced."""
-        from app.extensions import db
-        from app.models.erp_line_rejection import ErpLineRejection
-        from app.services.job_work_service import _day, _txt
-        cols = ["id", "return_slip_no", "return_slip_date", "return_slip_time", "ref_doc_no", "item_cd", "item_desc",
-                "uom", "return_qty", "return_from_loc", "return_from_name", "party_cd", "party_name", "challan_no",
-                "challan_dt"]
-        raw = self.erp.fetch_rows("line_rejection_report", cols)
-        now = utcnow()
-        ErpLineRejection.query.delete()
-        for r in raw:
-            db.session.add(ErpLineRejection(
-                erp_id=r["id"], return_slip_no=_txt(r.get("return_slip_no"), 40), return_slip_date=_day(r.get("return_slip_date")),
-                return_slip_time=_txt(r.get("return_slip_time"), 10), ref_doc_no=_txt(r.get("ref_doc_no"), 60),
-                item_cd=_txt(r.get("item_cd"), 40), item_desc=_txt(r.get("item_desc"), 255), uom=_txt(r.get("uom"), 20),
-                return_qty=_num(r.get("return_qty")), return_from_loc=_txt(r.get("return_from_loc"), 20),
-                return_from_name=_txt(r.get("return_from_name"), 80), party_cd=_txt(r.get("party_cd"), 40),
-                party_name=_txt(r.get("party_name"), 160), challan_no=_txt(r.get("challan_no"), 60),
-                challan_dt=_txt(r.get("challan_dt"), 20), synced_at=now))
-        db.session.commit()
-        return len(raw)
-
     def _erp_latest(self):
         """{table: ERP's own newest record} — read only, best effort."""
         out = {}
@@ -292,7 +268,6 @@ class ERPSyncService:
             "gate_entry": self._step(tables, "gate_entry", self.sync_gate_entry),
             "receiving_register": self._step(tables, "receiving_register", self.sync_receiving_register),
             "erp_stock": self._step(tables, "erp_stock", self.sync_current_stock),
-            "line_rejection": self._step(tables, "line_rejection", self.sync_line_rejection),
         }
         errors = [f"{k}: {v['error']}" for k, v in tables.items() if not v["ok"]]
         ERPSyncService._last_sync_at = utcnow().isoformat()

@@ -141,11 +141,10 @@ const NAV_BY_STORE = {
       items: [
         { to: "/receiving", label: "Receiving & GRN", short: "GRN", icon: PackageCheck, mod: "receiving" },
         { to: "/spare-packets", label: "Packets & QR Labels", short: "Packets & QR", icon: QrCode, mod: "spare_packets" },
-        // Which supplier sent short / had a rejection, since how many days (17 Oct 2026).
-        { to: "/short-rejection", label: "Short & Rejection", short: "Short / Reject", icon: PackageX, mod: "short_rejection" },
+        // Which supplier sent short, since how many days (17 Oct 2026; short only since 17 Nov 2026).
+        { to: "/short-rejection", label: "Short Receiving", short: "Short", icon: PackageX, mod: "short_rejection" },
         // Urgent spares in on a supplier challan before the PO / invoice (21 Oct 2026).
         { to: "/challans", label: "Urgent Challan Register", short: "Urgent Challan", icon: FileClock, mod: "challan_register" },
-        // The one mail to RQC to punch an SRV / line rejection (22 Oct 2026).
         { to: "/gate-entry", label: "Gate Entry", icon: Truck, mod: "gate_entry" },
         { to: "/vehicle-in-out", label: "Vehicle In / Out", icon: TrafficCone, mod: "vehicle_in_out" },
       ],

@@ -2,8 +2,8 @@
 
 The mail the store sends Purchase when material came short against an invoice —
 a draft the store sends from Outlook; the app sends nothing itself and keeps
-only the To / CC (ShortMailService). Right: "short_mail", separate from the
-Rejection Mail's (view to read, create to make a mail, update for the To / CC).
+only the To / CC (ShortMailService). Right: "short_mail" (view to read, create
+to make a mail, update for the To / CC).
 
 GET    /settings              the mail's To / CC
 PUT    /settings              set them
@@ -14,7 +14,6 @@ import io
 
 from flask import Blueprint, request, send_file
 
-from app.services.rejection_request_service import RejectionRequestService
 from app.services.short_mail_service import ShortMailService
 from app.utils.authz import current_user, permission_required, require_store_access
 from app.utils.exceptions import BadRequestError
@@ -53,7 +52,7 @@ def parts():
     if not code:
         raise BadRequestError("store_code is required")
     require_store_access(code)
-    return success_response(RejectionRequestService().search_parts(code, request.args.get("q")))
+    return success_response(service.search_parts(code, request.args.get("q")))
 
 
 @bp.route("/draft", methods=["POST"])

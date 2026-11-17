@@ -157,16 +157,17 @@ SERVICES = [
      "keywords": ["grn", "srv", "receipt", "receiving", "inward", "aging", "under inspection",
                   "quality pending", "qc pending", "grn department", "dept wise grn",
                   "check with erp", "take back", "grn take back"]},
-    # What suppliers sent short and quality rejected, since how many days and
-    # against which lot (the store, 17 Oct 2026) — the same right as Receiving & GRN.
-    {"key": "short_rejection", "title": "Short & Rejection", "route": "/short-rejection",
+    # What suppliers sent short, since how many days and against which lot (the
+    # store, 17 Oct 2026). Short only since 17 Nov 2026: every rejection view and
+    # the Rejection Mail were removed ("only rejection ka hta de na dekhni na
+    # bhejni . short wala rhne de").
+    {"key": "short_rejection", "title": "Short Receiving", "route": "/short-rejection",
      "category": "Receiving", "icon": "⚠️", "mod": "spare_store",
-     "keywords": ["rejection", "rejected", "reject", "short receipt", "short supply", "short received",
-                  "supplier rejection", "srv rejection", "line rejection", "rejection invoice",
+     "keywords": ["short receipt", "short supply", "short received", "short receiving", "material short",
                   "debit note", "replacement", "lot", "days pending",
-                  "kam aaya", "maal kam", "rejection kitne din",
-                  # The Rejection Mail opens from its Rejection tab (28 Oct 2026).
-                  "rqc", "punch rejection", "rejection mail", "outlook"]},
+                  "kam aaya", "maal kam", "short kitne din",
+                  # The Short Mail to Purchase opens from this screen (25 Oct 2026).
+                  "short mail", "purchase mail", "outlook"]},
     {"key": "gate_entry", "title": "Gate Entry", "route": "/gate-entry",
      "category": "Receiving", "icon": "🚚", "mod": "gate_entry",
      "keywords": ["gate", "entry", "receiving", "arrival", "inward", "vehicle"]},

@@ -43,7 +43,6 @@ def register_routes(app):
     from app.routes.receiving_monitor_routes import bp as receiving_monitor_bp
     from app.routes.short_rejection_routes import bp as short_rejection_bp
     from app.routes.challan_register_routes import bp as challan_register_bp
-    from app.routes.rejection_request_routes import bp as rejection_request_bp
     from app.routes.short_mail_routes import bp as short_mail_bp
     from app.routes.part_kiosk_routes import bp as part_kiosk_bp, link_bp as kiosk_link_bp
     from app.routes.spare_packet_routes import bp as spare_packets_bp
@@ -102,7 +101,6 @@ def register_routes(app):
     app.register_blueprint(receiving_monitor_bp)
     app.register_blueprint(short_rejection_bp)
     app.register_blueprint(challan_register_bp)
-    app.register_blueprint(rejection_request_bp)
     app.register_blueprint(short_mail_bp)
     app.register_blueprint(part_kiosk_bp)
     app.register_blueprint(kiosk_link_bp)

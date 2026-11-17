@@ -2772,7 +2772,7 @@ def test_a_footer_that_already_ends_with_the_system_note_does_not_get_it_twice(e
     assert preview["html"].count(_NOTE) == 1
 
 
-# ---- the short & rejection list (the store's request of 17 Oct 2026) ----
+# ---- the short receiving list (the store's request of 17 Oct 2026; short only since 17 Nov 2026) ----
 
 @pytest.fixture()
 def grn_lines():
@@ -2819,13 +2819,13 @@ def test_short_rejection_rule_ships_off_with_no_one_to_mail(engine, grn_lines, s
     off with no audience, the scheduler never runs it, and the button mails no
     one — nothing is sent either way."""
     day = _day()
-    grn_lines(day, (3, 10, 10, 2, 100.0, "VK-0016", "Keyence India"))
+    grn_lines(day, (3, 10, 8, None, 100.0, "VK-0016", "Keyence India"))
     rule = rules.describe_rule("short_rejection", _at(day, 9))
     assert (rule["enabled"], rule["is_default"], rule["audience"], rule["mail_type"]) == (
         False, True, "custom", "short_rejection")
     assert (rule["department_ids"], rule["emails"], rule["next_run_at"]) == ([], [], None)
     assert rule["recipients"] == {"to": [], "cc": [], "bcc": []}
-    assert (rule["title"], rule["content"]["label"]) == ("Short & Rejection list", "GRN lines short or rejected")
+    assert (rule["title"], rule["content"]["label"]) == ("Short Receiving list", "GRN lines received short")
     before = _max_id()
     assert not any(rules.rule_is_due("short_rejection", _at(day, hour, 59)) for hour in (0, 8, 12, 23))
     assert rules.run_due_rules(engine, _at(day, 23, 59)) == []
@@ -2836,93 +2836,84 @@ def test_short_rejection_rule_ships_off_with_no_one_to_mail(engine, grn_lines, s
     assert send.calls == []
 
 
-def test_short_rejection_mail_is_a_line_per_kind_with_each_kinds_workbook_attached(engine, grn_lines, send, monkeypatch):
-    """Short and SRV Rejection are never mixed ("rejection and short mix nhi
-    rhega na" — the store, 17 Oct 2026): a totals line each and a workbook
-    each, as the screen's two tabs download them."""
+def test_short_rejection_mail_is_a_totals_line_with_the_short_workbook_attached(engine, grn_lines, send, monkeypatch):
+    """Short only since 17 Nov 2026 ("only rejection ka hta de na dekhni na
+    bhejni . short wala rhne de"): one totals line and the screen's Short
+    workbook; a rejection on a GRN line is neither counted nor attached."""
     day = _day()
     keyence, short, unrated = grn_lines(
         day,
-        (40, 2, 2, 2, 25000.0, "VK-0016", "Keyence India"),       # 2 rejected x 25,000
+        (40, 2, 2, 2, 25000.0, "VK-0016", "Keyence India"),       # 2 rejected, nothing short: not in the mail
         (5, 10, 7, None, 100.0, "VS-0013", "Sar Coating"),         # 3 short x 100
-        (12, 4, 4, 1, None, "VS-0013", "Sar Coating"))             # 1 rejected, no rate
+        (12, 4, 3, 1, None, "VS-0013", "Sar Coating"))             # 1 short (and 1 rejected), no rate
     rules.save_rule("short_rejection", {"emails": _STORE_DESK})
     store = rules._store_name()
     template = rules.template("short_rejection")
     assert template["is_default"] is True and template["defaults"] == {
-        "subject": "Short & Rejection — {count} GRN line(s) [{date}]",
+        "subject": "Short Receiving — {count} GRN line(s) [{date}]",
         "intro": "Dear Sir,\n\nPlease find attached the GRN lines of {store} of the last 90 days that a supplier "
-                 "sent short or quality rejected, supplier-wise and line by line with the days pending.",
+                 "sent short, supplier-wise and line by line with the days pending.",
         "footer": ""}
 
-    # The preview is the same mail — without building the workbooks.
+    # The preview is the same mail — without building the workbook.
     with monkeypatch.context() as patch:
         patch.setattr(short_rejection_service, "workbook", lambda out: pytest.fail("a preview built the workbook"))
         preview = rules.preview_rule("short_rejection", _at(day, 10))
-    assert preview["count"] == 3 and preview["to"] == ["store@example.com"]
+    assert preview["count"] == 2 and preview["to"] == ["store@example.com"]
 
     result = rules.run_rule(engine, "short_rejection", _at(day, 10))
     assert result["status"] == "queued" and len(result["messages"]) == 1
     message = result["messages"][0]
     assert (message["mail_type"], message["rule_key"]) == ("short_rejection", "short_rejection")
-    assert message["subject"] == f"Short & Rejection — 3 GRN line(s) [{day:%d.%m.%Y}]" == preview["subject"]
+    assert message["subject"] == f"Short Receiving — 2 GRN line(s) [{day:%d.%m.%Y}]" == preview["subject"]
     row = _row(message["id"])
     html, text = row.body_html, row.body_text
     assert (html, text) == (preview["html"], preview["text"])
     synced = short_rejection_service.ShortRejectionService().report(
-        "MAINTENANCE", "srv", today=day)["data_as_of"]["synced_day"]
-    short_line = "Short: 1 GRN line · 3 qty (₹ 300) · 1 supplier · oldest 5 days pending"
-    srv_line = ("SRV Rejection: 2 GRN lines · 3 qty (₹ 50,000) · 2 suppliers · oldest 40 days pending"
-                " · 1 without a rate, not valued")
+        "MAINTENANCE", "short", today=day)["data_as_of"]["synced_day"]
+    short_line = ("Short: 2 GRN lines · 4 qty (₹ 300) · 1 supplier · oldest 12 days pending"
+                  " · 1 without a rate, not valued")
     assert text == "\n\n".join([
         f"Dear Sir,\n\nPlease find attached the GRN lines of {store} of the last 90 days that a supplier sent "
-        "short or quality rejected, supplier-wise and line by line with the days pending.",
+        "short, supplier-wise and line by line with the days pending.",
         short_line,
-        srv_line,
         f"ERP data up to {date.fromisoformat(synced):%d.%m.%Y}. Short: Days pending count from the GRN date until "
-        "ERP reports how the short is settled. SRV Rejection: Days pending count from the GRN date until "
-        "ERP reports the rejection invoice.",
+        "ERP reports how the short is settled.",
         _SIGNATURE,                                       # the dashed line and the system note, once
     ])
-    assert f"<strong>{short_line}</strong>" in html and f"<strong>{srv_line}</strong>" in html
+    assert f"<strong>{short_line}</strong>" in html and "Rejection" not in text
     _no_list_in(html, text, [keyence.part_no, short.part_no, unrated.part_no])
     assert html.endswith(f"{_SIGNATURE_HTML}</p></body></html>") and html.count(_SIGNATURE_HTML) == 1
 
-    # The attachments are the screen's own workbooks, one per kind, for the last 90 days.
+    # The attachment is the screen's own workbook, for the last 90 days.
     first = day - timedelta(days=89)
     dates = f"{first:%d.%m.%Y} to {day:%d.%m.%Y}"
     stored = {a.filename: a for a in row.attachments}
-    assert sorted(stored) == [f"SRV Rejection {dates}.xlsx", f"Short {dates}.xlsx"]
+    assert sorted(stored) == [f"Short {dates}.xlsx"]
     assert all(a.mime == _XLSX for a in row.attachments)
-    assert sorted(message["attachments"], key=lambda a: a["filename"]) == [
-        {"filename": name, "size": len(stored[name].content)} for name in sorted(stored)]
+    assert message["attachments"] == [{"filename": name, "size": len(stored[name].content)} for name in stored]
     short_book = load_workbook(io.BytesIO(stored[f"Short {dates}.xlsx"].content))
-    srv_book = load_workbook(io.BytesIO(stored[f"SRV Rejection {dates}.xlsx"].content))
-    assert short_book.sheetnames == srv_book.sheetnames == ["Supplier-wise", "Lines"]
-    suppliers = [line[:2] for line in srv_book["Supplier-wise"].iter_rows(min_row=2, max_row=4, values_only=True)]
-    assert suppliers == [("VK-0016", "Keyence India"), ("VS-0013", "Sar Coating"), ("Total", "2 suppliers")]
-    head = [c.value for c in srv_book["Lines"][1]]
-    listed = [line[head.index("Part No")] for line in srv_book["Lines"].iter_rows(min_row=2, max_row=3, values_only=True)]
-    assert listed == [keyence.part_no, unrated.part_no]                      # the longest pending first
+    assert short_book.sheetnames == ["Supplier-wise", "Lines"]
     head = [c.value for c in short_book["Lines"][1]]
     assert "Short Qty" in head and "Rejected Qty" not in head
-    shorts = [line[head.index("Part No")] for line in short_book["Lines"].iter_rows(min_row=2, max_row=2, values_only=True)]
-    assert shorts == [short.part_no]
+    shorts = [line[head.index("Part No")] for line in short_book["Lines"].iter_rows(min_row=2, max_row=3, values_only=True)]
+    assert shorts == [unrated.part_no, short.part_no]                        # the longest pending first
     assert send.calls == []                                                  # queued, never sent by a test
 
 
 def test_short_rejection_rule_is_skipped_when_nothing_is_short_or_rejected(engine, grn_lines, send):
     day = _day()
-    grn_lines(day, (200, 5, 3, 1, 10.0, "VX-1", "Old Supplier"))             # before the last 90 days
+    grn_lines(day, (200, 5, 3, 1, 10.0, "VX-1", "Old Supplier"),            # before the last 90 days
+              (3, 5, 5, 2, 10.0, "VX-2", "Rejecting Supplier"))                # rejected, not short: not counted
     rules.save_rule("short_rejection", {"emails": _STORE_DESK})
     preview = rules.preview_rule("short_rejection", _at(day, 10))
     assert (preview["count"], preview["html"], preview["subject"]) == (0, None, "")
-    assert preview["text"] == "No mail would go out right now: nothing short or rejected."
+    assert preview["text"] == "No mail would go out right now: nothing short."
     result = rules.run_rule(engine, "short_rejection", _at(day, 10))
     assert (result["status"], result["reason"]) == ("skipped", "nothing_short_or_rejected")
     row = _row(result["messages"][0]["id"])
     assert (row.status, row.body_text, row.attachments) == (
-        "SKIPPED", "Nothing was sent: nothing short or rejected.", [])
+        "SKIPPED", "Nothing was sent: nothing short.", [])
     # Scheduled: the day is taken by the skip, and the rule is not tried again.
     rules.save_rule("short_rejection", {"enabled": True, "hour": 8, "days": list(range(7))})
     ran = rules.run_due_rules(engine, _at(day, 8))
@@ -2941,12 +2932,12 @@ def test_a_short_rejection_list_that_cannot_be_read_is_tried_again(engine, send,
 
     with monkeypatch.context() as patch:
         patch.setattr(short_rejection_service.ShortRejectionService, "report", broken)
-        with pytest.raises(RuntimeError, match="short_rejection: RuntimeError: the Short & Rejection list could not"):
+        with pytest.raises(RuntimeError, match="short_rejection: RuntimeError: the Short Receiving list could not"):
             rules.run_due_rules(engine, _at(day, 8))
         assert EmailMessage.query.filter_by(dedup_key=f"short_rejection:{day.isoformat()}").first() is None
         assert rules.rule_is_due("short_rejection", _at(day, 8, 1)) is True
         assert rules.preview_rule("short_rejection", _at(day, 9))["text"] == \
-            "No mail would go out right now: the Short & Rejection list could not be read."
+            "No mail would go out right now: the Short Receiving list could not be read."
     # Readable again: the next tick runs it (nothing in this window, so a skip) and the day is done.
     ran = rules.run_due_rules(engine, _at(day, 8, 2))
     assert [(r["key"], r["reason"]) for r in ran] == [("short_rejection", "nothing_short_or_rejected")]
