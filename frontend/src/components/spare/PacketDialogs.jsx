@@ -362,7 +362,9 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
             <span className="flex gap-2">
               <input type="number" min="0" step="any" inputMode="decimal" className={inputCls(false, "w-full text-lg font-semibold")}
                 value={counted} onChange={(e) => setCounted(e.target.value)} autoFocus placeholder="Count it" />
-              <button type="button" className="btn-secondary shrink-0 px-2.5 text-[12px]" onClick={() => setCounted(String(old.to_label))}>Same as app</button>
+              <button type="button" className="btn-secondary shrink-0 px-2.5 text-[12px]" aria-pressed={counted === String(old.to_label)}
+                onClick={() => setCounted(counted === String(old.to_label) ? "" : String(old.to_label))}>
+                {counted === String(old.to_label) ? "Clear" : "Same as app"}</button>
             </span>
           </Field>
           {short && (

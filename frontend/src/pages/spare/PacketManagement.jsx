@@ -506,7 +506,12 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState([]);
   const set = (id, v) => setCounts((c) => ({ ...c, [id]: v }));
-  const allSame = () => setCounts(Object.fromEntries(rows.map((r) => [keyOf(r), String(r.to_label)])));
+  // "Same as app" toggles (17 Nov 2026: "check karte to check mark aa jata h but
+  // dubara click karte h to uncheck nhi hota"): a second click clears it again.
+  const isSame = (r) => counts[keyOf(r)] === String(r.to_label);
+  const everySame = rows.length > 0 && rows.every(isSame);
+  const allSame = () => setCounts(everySame ? {} : Object.fromEntries(rows.map((r) => [keyOf(r), String(r.to_label)])));
+  const sameOne = (r) => set(keyOf(r), isSame(r) ? "" : String(r.to_label));
   const planned = rows.map((r) => labelsFor(r, counts[keyOf(r)])).filter(Boolean);
   const total = planned.reduce((s, x) => s + x.n, 0);
   const over = rows.filter((r) => Number(counts[keyOf(r)]) > Number(r.to_label));
@@ -543,7 +548,8 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
           <p className="text-[12.5px] text-slate-600 dark:text-slate-300">
             Count each part on the shelf. Parts with a Pkt Qty go in packets; measured parts (MTR, KG, LTR) get one label for the lot; the rest a label a piece. A part left blank is not labelled.
           </p>
-          <button type="button" className="btn-secondary py-1 text-[12px]" onClick={allSame} disabled={!rows.length}>All same as app</button>
+          <button type="button" className="btn-secondary py-1 text-[12px]" onClick={allSame} disabled={!rows.length} aria-pressed={everySame}>
+            {everySame ? "Clear all" : "All same as app"}</button>
         </div>
         {q.isError ? <ErrorState title="The rack did not load" message={errText(q.error)} onRetry={() => q.refetch()} /> : (
           <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200 dark:border-navy-700">
@@ -571,8 +577,8 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
                           <input type="number" min="0" step="any" inputMode="decimal" value={counts[keyOf(r)] ?? ""}
                             onChange={(e) => set(keyOf(r), e.target.value)} aria-label={`Counted ${r.part.part_no}`}
                             className={`input-field w-24 py-1 text-[13px] ${tooMany ? "border-rose-400" : ""}`} />
-                          <button type="button" className="text-[11px] text-sky-700 hover:underline dark:text-sky-300"
-                            onClick={() => set(keyOf(r), String(r.to_label))}>Same</button>
+                          <button type="button" className={`text-[11px] hover:underline ${isSame(r) ? "text-rose-600 dark:text-rose-300" : "text-sky-700 dark:text-sky-300"}`}
+                            aria-pressed={isSame(r)} onClick={() => sameOne(r)}>{isSame(r) ? "Clear" : "Same"}</button>
                         </span>
                         {tooMany && <div className="text-[11px] text-rose-600">More than the app has — count again or fix the stock first</div>}
                       </td>
