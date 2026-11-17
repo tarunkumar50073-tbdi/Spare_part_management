@@ -225,6 +225,8 @@ def _read_or_make_key(path):
 # na rhe"): a VIEW of spare_stock_ledger's ISSUE rows - a table to read, with only
 # what an issue is, nothing empty ("—" / 0), and no second copy that could drift.
 # Other departments' apps read it: select * from issue_register.
+# Returns sit on the issue's own row (17 Nov 2026: "return ka" ... "isme hi"):
+# qty returned, net qty, and the latest return's date, who brought it, why.
 _ISSUE_REGISTER_SELECT = """
 SELECT l.id AS issue_no,
        {issued_at} AS issued_at,
@@ -235,6 +237,11 @@ SELECT l.id AS issue_no,
        -l.qty_delta AS qty_issued,
        COALESCE((SELECT SUM(r.qty_delta) FROM spare_stock_ledger r WHERE r.return_of_id = l.id), 0) AS qty_returned,
        -l.qty_delta - COALESCE((SELECT SUM(r.qty_delta) FROM spare_stock_ledger r WHERE r.return_of_id = l.id), 0) AS net_qty,
+       {returned_at} AS returned_at,
+       COALESCE((SELECT NULLIF(TRIM(r.returned_by), '') FROM spare_stock_ledger r WHERE r.return_of_id = l.id
+                 ORDER BY r.id DESC LIMIT 1), '—') AS returned_by,
+       COALESCE((SELECT NULLIF(TRIM(r.return_reason), '') FROM spare_stock_ledger r WHERE r.return_of_id = l.id
+                 ORDER BY r.id DESC LIMIT 1), '—') AS return_reason,
        COALESCE(NULLIF(TRIM(l.department), ''), '—') AS department,
        COALESCE(NULLIF(TRIM(l.issued_to), ''), e.name, '—') AS issued_to,
        COALESCE(NULLIF(TRIM(l.issued_to_code), ''), e.employee_code, '—') AS employee_code,
@@ -260,7 +267,11 @@ def _issue_register_view():
     import logging
     dialect = db.engine.dialect.name
     issued_at = ("(l.created_at AT TIME ZONE 'Asia/Kolkata')" if dialect == "postgresql" else "l.created_at")
-    sql = _ISSUE_REGISTER_SELECT.format(issued_at=issued_at)
+    last_return = ("(SELECT r.created_at FROM spare_stock_ledger r WHERE r.return_of_id = l.id ORDER BY r.id DESC LIMIT 1)")
+    # No return yet: the column says so in words, never empty.
+    returned_at = (f"COALESCE(TO_CHAR({last_return} AT TIME ZONE 'Asia/Kolkata', 'DD.MM.YYYY HH24:MI'), '—')"
+                   if dialect == "postgresql" else f"COALESCE({last_return}, '—')")
+    sql = _ISSUE_REGISTER_SELECT.format(issued_at=issued_at, returned_at=returned_at)
     try:
         with db.engine.begin() as conn:
             conn.exec_driver_sql("DROP VIEW IF EXISTS issue_register")
