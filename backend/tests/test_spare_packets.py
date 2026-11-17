@@ -790,6 +790,10 @@ def test_a_rework_shelf_lists_its_parts_and_labels_say_the_rework_location():
     # FIFO keeps the shelves apart: the rework code gives a rework packet, the fresh code a fresh one.
     assert svc.find(out["packets"][0]["code"]).code.endswith("-RW")
     assert not svc.find(made[0]["code"]).code.endswith("-RW")
+    # A Part No scan shows each shelf's quantity too.
+    from app.services.scan_result_service import ScanResultService
+    sh = ScanResultService().build(p.id)["shelves"]
+    assert (sh["new_location"], sh["new_qty"], sh["rework_location"], sh["rework_qty"]) == ("R15-S4-B19(1)", 7, "R16-S5-B25(1)", 3)
 
 
 # ---- the printed labels as Excel / PDF (14 Nov 2026) -----------------------------------------------

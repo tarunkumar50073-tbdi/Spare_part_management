@@ -76,6 +76,8 @@ export default function useScanWorkstation(storeCode) {
         // A packet / unit QR (27 Oct 2026): the packet itself — Issue then
         // issues it whole (forms/PacketIssueForm).
         packet: d.packet || null,
+        // Rework or OK shelf of a scanned label (17 Nov 2026).
+        shelf: d.shelf || null,
       });
       // Re-scanning the part already on screen must show it as it is NOW: the
       // answer just read is that; without it, read it again.

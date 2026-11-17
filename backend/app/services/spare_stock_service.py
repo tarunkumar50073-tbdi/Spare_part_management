@@ -1269,7 +1269,13 @@ class SpareStockService:
         part = self.part_repo.get_by_id(part_id)
         if not part:
             raise NotFoundError(f"Part {part_id} not found")
-        return self._row_dict(part, self.repo.get_by_part(part_id))
+        row = self._row_dict(part, self.repo.get_by_part(part_id))
+        # A part with a rework shelf: what is on each (17 Nov 2026: "abhi combine
+        # stock dikha rha and dono location saath").
+        if (part.rework_location or "").strip():
+            from app.services.spare_packet_service import SparePacketService
+            row["shelves"] = SparePacketService().shelves(part)
+        return row
 
     def list_stock(self, store_code, section_id=None, section_ids=None):
         from flask import current_app

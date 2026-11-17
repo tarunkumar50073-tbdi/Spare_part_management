@@ -577,8 +577,8 @@ export default function ScanPart() {
   const partBlock = scan && (
     <>
       {done && <DoneStrip message={done.message} onDismiss={() => setDone(null)} />}
-      <IdentityCard part={part} ident={ident} onOpenDetails={() => openPart(part.id)} onClear={clearPart} />
-      {scan.shelf && <ShelfStrip shelf={scan.shelf} />}
+      <IdentityCard part={part} ident={ident} onOpenDetails={() => openPart(part.id)} onClear={clearPart} shelves={scan.shelves} />
+      {ident?.shelf && <ShelfStrip shelf={ident.shelf} />}
       <StatusCard scan={scan} dataStatus={ident?.dataStatus} />
       <TransactionInfo scan={scan} canAct={canAct} onAction={chooseAction} collapsed={Boolean(action)} />
       {action ? (

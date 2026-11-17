@@ -1673,21 +1673,28 @@ class SparePacketService:
     def is_rework(packet):
         return bool(packet is not None and (packet.code or "").endswith(REWORK_TAG))
 
-    def shelf(self, packet):
-        """What a scanned label stands for (17 Nov 2026): the rework shelf -
-        its location and the rework quantity (rework labels on the shelf) - or
-        the OK shelf - its location and the rest of the stock."""
-        part = packet.part
+    def shelves(self, part):
+        """A part's two shelves (17 Nov 2026): the rework quantity is what its
+        rework labels (-RW) on the shelf hold; the new / OK shelf has the rest."""
         on_shelf = (db.session.query(func.coalesce(func.sum(SparePacket.qty), 0))
                     .filter(SparePacket.part_id == part.id, SparePacket.status == "AVAILABLE",
                             SparePacket.code.like(f"%{REWORK_TAG}")).scalar() or 0)
         rework_qty = float(on_shelf)
         stock = float(self.figures(part.id)["on_hand"])
+        return {"new_location": part.location, "new_qty": _n(max(stock - rework_qty, 0)),
+                "rework_location": part.rework_location, "rework_qty": _n(rework_qty), "uom": part.uom}
+
+    def shelf(self, packet):
+        """What a scanned label stands for (17 Nov 2026): the rework shelf -
+        its location and the rework quantity (rework labels on the shelf) - or
+        the OK shelf - its location and the rest of the stock."""
+        part = packet.part
+        sh = self.shelves(part)
         if self.is_rework(packet):
             return {"kind": "REWORK", "label": "Rework material",
-                    "location": packet.location or part.rework_location, "qty": _n(rework_qty), "uom": part.uom}
+                    "location": packet.location or part.rework_location, "qty": sh["rework_qty"], "uom": part.uom}
         return {"kind": "OK", "label": "OK material", "location": part.location,
-                "qty": _n(max(stock - rework_qty, 0)), "uom": part.uom}
+                "qty": sh["new_qty"], "uom": part.uom}
 
     @staticmethod
     def find(ref, prefer=("AVAILABLE", "QC_PENDING", "ISSUED", "CANCELLED"), exclude=()):

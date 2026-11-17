@@ -493,6 +493,13 @@ class ScanResultService:
         }
 
     @staticmethod
+    def _shelves(part):
+        if not (part.rework_location or "").strip():
+            return None
+        from app.services.spare_packet_service import SparePacketService
+        return SparePacketService().shelves(part)
+
+    @staticmethod
     def _packet_figures(part_id):
         from app.services.spare_packet_service import SparePacketService
         return SparePacketService().figures(part_id)
@@ -648,6 +655,8 @@ class ScanResultService:
             # On hand split into what is in QR-labelled packets and what is
             # loose (spare_packet.py): an issue by quantity takes loose only.
             "packets": self._packet_figures(part.id),
+            # A part with a rework shelf: each shelf's location and quantity (17 Nov 2026).
+            "shelves": self._shelves(part),
             "timeline": {"rows": history[:SCAN_TIMELINE_ROWS],
                          "has_more": len(history) > SCAN_TIMELINE_ROWS},
         }

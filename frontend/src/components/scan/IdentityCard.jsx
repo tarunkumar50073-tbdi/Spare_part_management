@@ -16,7 +16,10 @@ function viaText({ source, code, origin }) {
   return "";
 }
 
-export default function IdentityCard({ part, ident, onOpenDetails, onClear }) {
+export default function IdentityCard({ part, ident, onOpenDetails, onClear, shelves = null }) {
+  // Each shelf's own quantity beside its location (17 Nov 2026: "combine stock
+  // dikha rha and dono location saath"); rework = the rework labels (-RW) on it.
+  const qty = (v) => (v == null ? null : <span className="ml-auto pl-3 text-sm font-bold tabular text-slate-700 dark:text-slate-200">{v} <span className="text-[11px] font-medium text-slate-400">{shelves?.uom || part.uom}</span></span>);
   const meta = [part.uom && `UOM ${part.uom}`, part.section_name, part.sub_category || part.category].filter(Boolean);
   return (
     <section className="card p-4" aria-label="Part identified">
@@ -57,12 +60,14 @@ export default function IdentityCard({ part, ident, onOpenDetails, onClear }) {
           <p className="flex items-center gap-1.5 text-lg font-bold text-slate-900 dark:text-white">
             <MapPin size={16} className="text-toyotared" aria-hidden="true" />
             {part.location || <span className="text-sm font-medium text-slate-400">No location set</span>}
+            {shelves && qty(shelves.new_qty)}
           </p>
           {part.rework_location && (
             <p className="mt-1.5 flex items-center gap-1.5 text-base font-bold text-amber-700 dark:text-amber-300">
               <MapPin size={15} aria-hidden="true" />
               <span className="text-[11px] font-semibold uppercase tracking-wide">Rework</span>
               {part.rework_location}
+              {shelves && qty(shelves.rework_qty)}
             </p>
           )}
         </div>
