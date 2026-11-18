@@ -36,7 +36,7 @@ const TABS = [
 // What an empty tab means — said plainly, so "nothing here" is never mistaken
 // for "not loaded".
 const EMPTY = {
-  quality: "No ERP GRN line is waiting for quality clearance in ERP, and none needs a check.",
+  quality: "No ERP GRN is waiting for quality clearance in ERP, and none needs a check.",
   inspection: "No returned part is waiting for the store inspection, on hold or damaged.",
   with_supplier: "No part is with a supplier for rework.",
   rgp_grn_pending: "No supplier return is waiting for its RGP GRN.",
@@ -530,7 +530,7 @@ export default function WorkQueue() {
       )}
       {data && total === 0 && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          All clear — no ERP GRN line, return, RGP or issue is waiting on anyone.
+          All clear — no ERP GRN, return, RGP or issue is waiting on anyone.
         </p>
       )}
       {body}

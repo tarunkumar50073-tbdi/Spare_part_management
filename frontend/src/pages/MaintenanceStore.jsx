@@ -928,7 +928,14 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
   // Rows kept with the source they came from, so the columns always match them;
   // `state` keeps a load or a failure from reading as "nothing waiting".
   const [pending, setPending] = useState({ receipts: false, rows: [], state: "idle" });
-  const pendingRows = pending.rows;
+  // ERP rows GRN-wise: the parts of one GRN sit together (18 Nov 2026).
+  const pendingRows = useMemo(() => {
+    if (!pending.receipts) return pending.rows;
+    const key = (r) => r.grn_no || `${r.grn_date}|${r.part_id}`;
+    const first = new Map();
+    pending.rows.forEach((r, i) => { if (!first.has(key(r))) first.set(key(r), i); });
+    return [...pending.rows].sort((x, y) => first.get(key(x)) - first.get(key(y)));
+  }, [pending]);
 
   // Spec 1: spare receiving has no separate SRV step, and the GRN and the
   // quality clearance are done in ERP. The overview's ERP count
@@ -1920,7 +1927,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
         <div className="space-y-3">
           <p className="text-xs text-slate-400 -mt-1">
             {pending.receipts
-              ? "ERP GRN lines of this store's parts waiting for the Maintenance / Tool Room quality clearance in ERP, or to be checked against ERP — not store stock until ERP accepts them. Read from ERP; nothing to record in the app."
+              ? "ERP GRNs of this store's parts waiting for the Maintenance / Tool Room quality clearance in ERP, or to be checked against ERP (each GRN with its parts under it) — not store stock until ERP accepts them. Read from ERP; nothing to record in the app."
               : "Arrived but no SRV raised, or the SRV is with an engineer for clearance"}
           </p>
           {pending.receipts && receiving?.erp && (() => {
@@ -1940,8 +1947,8 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
           ) : pendingRows.length === 0 ? (
             pending.receipts ? (
               <NotCaptured
-                what="No ERP GRN line is waiting"
-                needs="ERP GRN lines of this store's parts are listed here until quality accepts them in ERP — then the accepted qty is added to store stock by itself."
+                what="No ERP GRN is waiting"
+                needs="ERP GRNs of this store's parts are listed here until quality accepts them in ERP — then the accepted qty is added to store stock by itself."
                 endpoint="GET /spare-flow/queues"
               />
             ) : (
@@ -1952,11 +1959,19 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
               />
             )
           ) : (
+            <>
+            {pending.receipts && (
+              <p className="text-sm font-semibold text-slate-800 dark:text-white">
+                {(() => { const g = new Set(pendingRows.map((r) => r.grn_no || `${r.grn_date}|${r.part_id}`)).size;
+                  return `${g} pending GRN${g === 1 ? "" : "s"} · ${pendingRows.length} part${pendingRows.length === 1 ? "" : "s"}`; })()}
+              </p>
+            )}
             <Table key={pending.receipts ? "erp-lines" : "srv"}
               columns={pending.receipts ? ERP_LINE_PENDING_COLUMNS : PENDING_COLUMNS} rows={pendingRows} pageSize={0} maxHeight="60vh"
               rowKey={pending.receipts ? erpLineKey : undefined}
               searchable={pendingRows.length > 10 ? "Search GRN, part or supplier…" : false}
               exportName={pending.receipts ? "spares_grn_quality_pending_erp" : "spares_srv_pending"} emptyMessage="Nothing pending" />
+            </>
           )}
         </div>
       </Modal>

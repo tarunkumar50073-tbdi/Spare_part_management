@@ -2734,15 +2734,29 @@ function ErpGapView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
 // ERP (spec 1/9 — read from ERP, never recorded in the app); without it (an
 // older overview) they are the SRV register's lines.
 function SrvListView({ frame }) {
-  const rows = frame.rows || [];
   const rc = Boolean(frame.receipts);
-  const unit = rc ? "ERP GRN line" : "line";
+  // GRN-wise (18 Nov 2026: "grn wala har jagah"): the parts of one GRN sit
+  // together under it, and the heading counts GRNs — same as the tile.
+  const grnKey = (r) => r.grn_no || `${r.grn_date}|${r.part_id}`;
+  const rows = useMemo(() => {
+    const list = frame.rows || [];
+    if (!rc) return list;
+    const first = new Map();
+    list.forEach((r, i) => { if (!first.has(grnKey(r))) first.set(grnKey(r), i); });
+    return [...list].sort((a, b) => first.get(grnKey(a)) - first.get(grnKey(b)));
+  }, [frame.rows, rc]);
+  const span = useMemo(() => {
+    const m = new Map();
+    if (rc) rows.forEach((r) => m.set(grnKey(r), (m.get(grnKey(r)) || 0) + 1));
+    return m;
+  }, [rows, rc]);
+  const grnCount = span.size;
   const fresh = rc && frame.erp ? erpFreshness(frame.erp) : null;
   return (
     <div className="flex flex-col gap-[1.4vh] h-full">
       <Card className="p-[1.5vh] text-[1.55vh] font-medium text-[var(--dx-t2)] border-l-4" style={{ borderLeftColor: "#7c3aed" }}>
         {rc
-          ? "ERP GRN lines of this store's parts waiting for the Maintenance / Tool Room quality clearance in ERP, or to be checked against ERP — read from ERP. Not store stock until ERP accepts them; the accepted qty is then added once, by itself."
+          ? "ERP GRNs of this store's parts waiting for the Maintenance / Tool Room quality clearance in ERP, or to be checked against ERP (each GRN with its parts under it) — read from ERP. Not store stock until ERP accepts them; the accepted qty is then added once, by itself."
           : "Material that has arrived and is waiting for an SRV to be raised or for an engineer's clearance — as recorded in this app's SRV register."}
         {fresh && (
           <span className="block mt-[0.5vh] text-[1.3vh]" style={{ color: fresh.stale ? "#d97706" : "var(--dx-t4)" }}>
@@ -2752,8 +2766,10 @@ function SrvListView({ frame }) {
       </Card>
       <Card className="p-[1.6vh] overflow-auto flex-1">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">
-          {frame.loading ? `Loading pending ${unit}s…`
-            : frame.error ? "GRN / Quality pending (ERP)" : `${rows.length} pending ${unit}${rows.length === 1 ? "" : "s"}`}
+          {frame.loading ? (rc ? "Loading pending GRNs…" : "Loading pending lines…")
+            : frame.error ? "GRN / Quality pending (ERP)"
+              : rc ? `${grnCount} pending GRN${grnCount === 1 ? "" : "s"} · ${rows.length} part${rows.length === 1 ? "" : "s"}`
+                : `${rows.length} pending line${rows.length === 1 ? "" : "s"}`}
         </h3>
         {frame.loading ? <PanelState state="loading" h="30vh" /> : (
         <table className="w-full text-[1.45vh]">
@@ -2766,9 +2782,16 @@ function SrvListView({ frame }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--dx-divide)]">
-            {rows.map((r) => (
+            {rows.map((r, i) => {
+              const head = !rc || i === 0 || grnKey(rows[i - 1]) !== grnKey(r);
+              return (
               <tr key={rc ? `${r.part_id}|${r.grn_no}` : r.id}>
-                <td className="py-[0.8vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{(rc ? r.grn_no : r.srv_no) || "—"}</td>
+                {head && (
+                  <td rowSpan={rc ? span.get(grnKey(r)) : undefined} className="py-[0.8vh] pr-[1vh] font-bold text-[var(--dx-t1)] align-top">
+                    {(rc ? r.grn_no : r.srv_no) || "—"}
+                    {rc && span.get(grnKey(r)) > 1 && <span className="block text-[1.15vh] font-medium text-[var(--dx-t4)]">{span.get(grnKey(r))} parts</span>}
+                  </td>
+                )}
                 <td className="pr-[1vh] font-semibold text-[var(--dx-t1)]">{r.part_no || "—"}</td>
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[22vh]">{r.part_name || "—"}</td>
                 {/* The department the GRN is for: the part's section group or section (5 Nov 2026). */}
@@ -2792,12 +2815,13 @@ function SrvListView({ frame }) {
                   </span>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {!rows.length && (
               <tr><td colSpan={rc ? 8 : 7} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">
                 {rc
-                  ? (frame.error ? "Couldn't load the ERP GRN lines — close and tap the tile again"
-                    : "Nothing pending — no ERP GRN line is waiting for quality clearance or a check")
+                  ? (frame.error ? "Couldn't load the ERP GRNs — close and tap the tile again"
+                    : "Nothing pending — no ERP GRN is waiting for quality clearance or a check")
                   : frame.error ? "Couldn't load the SRV list — close and tap the tile again"
                     : frame.untracked ? "No SRV has been recorded in this app for the store yet, so pending SRVs are not tracked here"
                       : "Nothing pending — no SRV line is waiting in the app's register"}
