@@ -2323,8 +2323,14 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
     if (isBySection) { const sid = d && (d.sid ?? d.payload?.sid); if (sid != null) setSecPick((p) => (p === sid ? null : sid)); return; }
     const r = name && rows.find((x) => x.part_no === name); if (r) onOpen(r);
   };
+  // Any picked filter (department, section, category): a tap anywhere off a
+  // filter button (and off a part row) shows every part again (18 Nov 2026:
+  // "select k bahar click kare to pura aa jaye", "sabme jahan jahan bhi h").
+  const picked = deptPick != null || secPick != null || pick != null;
+  const clearPick = () => { setDeptPick(null); setSecPick(null); setPick(null); };
   return (
-    <div className={`grid grid-cols-1 ${hasChart ? "xl:grid-cols-2" : ""} gap-[1.4vh] h-full`}>
+    <div className={`grid grid-cols-1 ${hasChart ? "xl:grid-cols-2" : ""} gap-[1.4vh] h-full`}
+      onClick={picked ? clearPick : undefined}>
       {hasChart && (
       <Card className="p-[1.6vh] flex flex-col">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh]">{chartTitle}</h3>
@@ -2333,22 +2339,11 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
             <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No parts</div>
           ) : isByDept ? (
             <div className="h-full overflow-auto pr-[0.4vh] space-y-[0.7vh]">
-              {/* "All" on top: back to every part without leaving the drill
-                  (18 Nov 2026: "us par se hatata nhi, back jana padta h"). */}
-              <button type="button" onClick={() => setDeptPick(null)}
-                className={`w-full text-left rounded-md px-[0.8vh] py-[0.7vh] transition-colors ${deptPick == null ? "bg-[var(--dx-track)] ring-1 ring-[var(--dx-border)]" : "hover:bg-[var(--dx-track)]"}`}>
-                <span className="flex items-center gap-[1.2vh] text-[1.65vh]">
-                  <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0 border-2 border-[var(--dx-t3)]" />
-                  <span className="flex-1 min-w-0 font-semibold text-[var(--dx-t1)]">All departments</span>
-                  <span className="dx-radiant font-extrabold text-[var(--dx-t1)] text-[2vh] whitespace-nowrap">{fmtInt(chartTotal)}</span>
-                  <span className="w-[5vh] text-right text-[var(--dx-t4)]">100%</span>
-                </span>
-              </button>
               {chartData.map((c, i) => {
                 const col = PIE[i % PIE.length];
                 const active = deptPick === c.name;
                 return (
-                  <button key={c.name} onClick={() => setDeptPick((p) => (p === c.name ? null : c.name))}
+                  <button key={c.name} onClick={(e) => { e.stopPropagation(); setDeptPick((p) => (p === c.name ? null : c.name)); }}
                     className={`w-full text-left rounded-md px-[0.8vh] py-[0.7vh] transition-colors ${active ? "bg-[var(--dx-track)] ring-1 ring-[var(--dx-border)]" : "hover:bg-[var(--dx-track)]"}`}>
                     <span className="flex items-center gap-[1.2vh] text-[1.65vh]">
                       <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(col), boxShadow: `0 1px 4px ${col}66` }} />
@@ -2365,7 +2360,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                   </button>
                 );
               })}
-              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a department to show only its parts · tap it again or "All departments" to show all</div>
+              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a department to show only its parts · tap anywhere outside it to show all</div>
             </div>
           ) : isByType ? (
             // Ranked horizontal bars (not a donut) — tap a type to filter the list.
@@ -2374,7 +2369,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 const col = PIE[i % PIE.length];
                 const active = pick === c.name;
                 return (
-                  <button key={c.name} onClick={() => setPick((p) => (p === c.name ? null : c.name))}
+                  <button key={c.name} onClick={(e) => { e.stopPropagation(); setPick((p) => (p === c.name ? null : c.name)); }}
                     className={`w-full flex items-center gap-[1.2vh] text-[1.5vh] rounded-md px-[0.6vh] py-[0.55vh] transition-colors ${active ? "bg-[var(--dx-track)]" : "hover:bg-[var(--dx-track)]"}`}>
                     <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(col), boxShadow: `0 1px 4px ${col}66` }} />
                     <span className="w-[16vh] shrink-0 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
@@ -2386,11 +2381,11 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                   </button>
                 );
               })}
-              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a type to filter the list</div>
+              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a type to filter the list · tap anywhere outside it to show all</div>
             </div>
           ) : isBySection ? (
             <div className="h-full flex items-center gap-[1.5vh]">
-              <div className="h-full aspect-square relative shrink-0" style={{ maxWidth: "36vh" }}>
+              <div className="h-full aspect-square relative shrink-0" style={{ maxWidth: "36vh" }} onClick={(e) => e.stopPropagation()}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <defs>
@@ -2401,15 +2396,21 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                     </defs>
                     <Pie data={chartData} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="88%"
                       paddingAngle={1} stroke="none" isAnimationActive={false} onClick={onBarClick}>
-                      {chartData.map((c, i) => <Cell key={i} fill={`url(#sg-${i})`} cursor="pointer" />)}
+                      {chartData.map((c, i) => <Cell key={i} fill={`url(#sg-${i})`} cursor="pointer"
+                        fillOpacity={secPick == null || secPick === c.sid ? 1 : 0.25} />)}
                     </Pie>
                   </PieChart>
                 </ResponsiveContainer>
-                <DonutHub value={fmtV(chartTotal)} label="Total value" size="3.4vh" />
+                {/* The picked section's value in the hub; tap outside -> the total
+                    again (18 Nov 2026: "jis dept par select uski value"). */}
+                {(() => {
+                  const sel = secPick != null ? chartData.find((c) => c.sid === secPick) : null;
+                  return <DonutHub value={fmtV(sel ? sel.value : chartTotal)} label={sel ? sel.name : "Total value"} size="3.4vh" />;
+                })()}
               </div>
               <div className="flex-1 min-w-0 space-y-[0.5vh]">
                 {chartData.map((c) => (
-                  <button key={c.sid} onClick={() => setSecPick((p) => (p === c.sid ? null : c.sid))}
+                  <button key={c.sid} onClick={(e) => { e.stopPropagation(); setSecPick((p) => (p === c.sid ? null : c.sid)); }}
                     className={`w-full flex items-center gap-[1vh] text-[1.6vh] rounded-md px-[0.6vh] py-[0.5vh] transition-colors ${secPick === c.sid ? "bg-[var(--dx-track)]" : "hover:bg-[var(--dx-track)]"}`}>
                     <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(c.color), boxShadow: `0 1px 4px ${c.color}66` }} />
                     <span className="flex-1 text-left text-[var(--dx-t2)] truncate">{c.name}</span>
@@ -2417,7 +2418,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                     <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (chartTotal || 1)) * 100)}%</span>
                   </button>
                 ))}
-                <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section to filter the list</div>
+                <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a section to filter the list · tap anywhere outside it to show all</div>
               </div>
             </div>
           ) : (
@@ -2428,7 +2429,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
             <div className="h-full flex flex-col">
               <div className="flex-1 min-h-0 overflow-auto pr-[0.4vh] space-y-[0.4vh]">
                 {top.map((c, i) => (
-                  <button key={c.name} type="button" onClick={() => onBarClick(c)} title={`${c.name} — ${c.desc || ""}`}
+                  <button key={c.name} type="button" onClick={(e) => { e.stopPropagation(); onBarClick(c); }} title={`${c.name} — ${c.desc || ""}`}
                     className="w-full text-left rounded-md px-[0.6vh] py-[0.45vh] hover:bg-[var(--dx-track)] transition-colors">
                     <span className="flex items-baseline gap-[1vh] text-[1.45vh]">
                       <span className="w-[2.4vh] shrink-0 text-right tabular-nums text-[var(--dx-t4)]">{i + 1}</span>
@@ -2495,7 +2496,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
           </thead>
           <tbody className="divide-y divide-[var(--dx-divide)]">
             {shown.map((r) => (
-              <tr key={r.part_id} onClick={() => onOpen(r)} className="cursor-pointer hover:bg-[var(--dx-track)] transition-colors">
+              <tr key={r.part_id} onClick={(e) => { e.stopPropagation(); onOpen(r); }} className="cursor-pointer hover:bg-[var(--dx-track)] transition-colors">
                 <td className="py-[0.9vh] pr-[1vh] font-bold text-[var(--dx-t1)]">{r.part_no}</td>
                 <td className="pr-[1vh] text-[var(--dx-t2)] truncate max-w-[24vh]">{r.part_name}</td>
                 <td className="pr-[1vh] text-center">{fmtInt(r.qty_on_hand)}</td>
