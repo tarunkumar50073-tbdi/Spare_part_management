@@ -1689,9 +1689,9 @@ class SparePacketService:
         part = packet.part
         sh = self.shelves(part)
         if self.is_rework(packet):
-            return {"kind": "REWORK", "label": "Rework material",
+            return {"kind": "REWORK", "label": "Rework part",
                     "location": packet.location or part.rework_location, "qty": sh["rework_qty"], "uom": part.uom}
-        return {"kind": "OK", "label": "OK material", "location": part.location,
+        return {"kind": "OK", "label": "New part", "location": part.location,
                 "qty": sh["new_qty"], "uom": part.uom}
 
     @staticmethod

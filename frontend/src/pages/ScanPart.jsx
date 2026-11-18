@@ -685,7 +685,7 @@ export default function ScanPart() {
   );
 }
 
-// A scanned label's shelf (17 Nov 2026: "rework ka qr scan karen to uski location and
+// (Shown as "New part" / "Rework part" since 18 Nov 2026.) A scanned label's shelf (17 Nov 2026: "rework ka qr scan karen to uski location and
 // uski jitni qty wo khule and ok material ka qr scan karen to uski location and qty"):
 // rework labels end in -RW; the strip says which material, where it sits and how much.
 function ShelfStrip({ shelf }) {
@@ -695,9 +695,9 @@ function ShelfStrip({ shelf }) {
       className={`card flex flex-wrap items-center gap-x-6 gap-y-2 border-l-4 p-4 ${rework
         ? "border-l-amber-500 bg-amber-50/70 dark:bg-amber-500/10" : "border-l-emerald-500 bg-emerald-50/70 dark:bg-emerald-500/10"}`}>
       <span className={`rounded-lg px-3 py-1 text-sm font-extrabold uppercase tracking-wide ${rework
-        ? "bg-amber-500 text-white" : "bg-emerald-600 text-white"}`}>{rework ? "Rework material" : "OK material"}</span>
+        ? "bg-amber-500 text-white" : "bg-emerald-600 text-white"}`}>{rework ? "Rework part" : "New part"}</span>
       <span className="text-sm text-slate-600 dark:text-slate-300">Location <b className="text-base text-slate-900 dark:text-white">{shelf.location || "—"}</b></span>
-      <span className="text-sm text-slate-600 dark:text-slate-300">{rework ? "Rework qty" : "OK qty"} <b className="text-base text-slate-900 dark:text-white">{shelf.qty} {shelf.uom}</b></span>
+      <span className="text-sm text-slate-600 dark:text-slate-300">{rework ? "Rework qty" : "New qty"} <b className="text-base text-slate-900 dark:text-white">{shelf.qty} {shelf.uom}</b></span>
     </section>
   );
 }
