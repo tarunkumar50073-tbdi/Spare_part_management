@@ -1357,7 +1357,19 @@ export default function TvDashboard() {
   if (issuedLines) liveAlerts.push({ color: C.blue, text: `${fmtInt(issuedQty)} issued this shift · ${plural(issuedLines, "line")}`,
     onClick: openTodayIssues });
   const overdueActions = tracker?.summary?.overdue || 0;
-  if (overdueActions) liveAlerts.push({ color: STATUS.out, text: `${plural(overdueActions, "action")} past the target date — see the action tracker` });
+  // Tappable like every other alert (18 Nov 2026: "ye clickable nhi h"): one
+  // overdue line opens its own list; more than one -> the tracker panel.
+  const openOverdue = () => {
+    const late = (tracker?.items || []).filter((it) => it.overdue);
+    const only = late.length === 1 ? trackerOpen[late[0].key] : null;
+    if (only) { only(); return; }
+    const el = document.getElementById("dx-action-tracker");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.animate?.([{ boxShadow: "0 0 0 0.5vh rgba(244,63,94,0.7)" }, { boxShadow: "0 0 0 0 rgba(244,63,94,0)" }], { duration: 1600, iterations: 2 });
+    }
+  };
+  if (overdueActions) liveAlerts.push({ color: STATUS.out, onClick: openOverdue, text: `${plural(overdueActions, "action")} past the target date — see the action tracker` });
   // The wall has no room for the movements table, so its newest line runs here.
   const lastMove = recent && recent[0];
   if (lastMove) liveAlerts.push({ color: C.green, onClick: openMovements,
@@ -1940,7 +1952,7 @@ export default function TvDashboard() {
       {/* Which problem, how big, how much money, and WHO must act — the same
           lines, owners and target dates as the app's Action Tracker page. A
           line opens its list where the board has one. */}
-      <Card className="min-w-0 p-[0.7vh] order-9 col-span-2 landscape:col-span-3 landscape:order-12">
+      <Card id="dx-action-tracker" className="min-w-0 p-[0.7vh] order-9 col-span-2 landscape:col-span-3 landscape:order-12">
         <PanelHead icon={ListChecks} color={C.red} title="Management Action Tracker"
           note={tracker ? `${fmtInt(tracker.summary?.open)} open${tracker.summary?.overdue ? ` · ${fmtInt(tracker.summary.overdue)} overdue` : ""} · worst first` : undefined} />
         {mgState !== "ok" || !tracker ? <PanelState state={mgState === "ok" ? "error" : mgState} onRetry={reload} h="12vh" /> : (
