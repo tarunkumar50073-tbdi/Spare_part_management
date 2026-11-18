@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { ArrowRight, CircleAlert, Info, Lock, TriangleAlert } from "lucide-react";
 import ActionConfirm, { StepLabel } from "../ActionConfirm.jsx";
 import { useCan } from "../../Can.jsx";
@@ -41,6 +41,40 @@ export function FormShell({
   const step = flow.review ? "CONFIRM" : "ACTION";
   useEffect(() => { onStepRef.current?.(step); }, [step]);
 
+  // Review with a required field empty (18 Nov 2026: "review par click kar rha
+  // but save nhi ho rha ... ye bata bhi nhi rha"): say which fields, beside the
+  // button, and take the operator to the first one. The fields' own red lines
+  // (Field data-error) are the source, so every form gets it.
+  const boxRef = useRef(null);
+  const [missing, setMissing] = useState(null);
+  const readMissing = () => {
+    const box = boxRef.current;
+    if (!box || !box.isConnected) return null;
+    // In page order (the person's line comes before the remarks).
+    const named = [...box.querySelectorAll("[data-error]")];
+    if (!named.length) return null;
+    return { names: [...new Set(named.map((e) => e.dataset.error).filter(Boolean))], first: named[0] };
+  };
+  const review = () => {
+    onReview();
+    setTimeout(() => {
+      const got = readMissing();
+      setMissing(got ? got.names : null);
+      if (!got) return;
+      got.first.scrollIntoView({ behavior: "smooth", block: "center" });
+      const input = got.first.querySelector("input, select, textarea")
+        || got.first.parentElement?.querySelector("input, select, textarea");
+      input?.focus({ preventScroll: true });
+    }, 30);
+  };
+  // Once shown, the note follows the fields: it goes when they are filled.
+  useEffect(() => {
+    if (!missing) return;
+    const got = readMissing();
+    const now = got ? got.names : null;
+    if ((now || []).join("|") !== missing.join("|") || !now) setMissing(now);
+  });
+
   if (flow.review) {
     return (
       <ActionConfirm {...flow.review} busy={flow.busy} onBack={flow.back}
@@ -49,7 +83,7 @@ export function FormShell({
     );
   }
   return (
-    <div className="space-y-4">
+    <div ref={boxRef} className="space-y-4">
       {!mayEdit && (
         <p className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600 dark:bg-navy-800 dark:text-slate-300">
           <Lock size={13} aria-hidden="true" />View only — you can fill this in and review it, but saving needs {rightText}.
@@ -66,9 +100,17 @@ export function FormShell({
         <div className="space-y-3">{children}</div>
       </div>
       {flow.failure && <FailureNote kind={flow.failure} />}
+      {missing && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+          <CircleAlert size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+          {missing.length
+            ? <span>Required — fill {missing.join(", ")} to continue.</span>
+            : <span>Required fields are empty — fill the ones marked in red to continue.</span>}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3 dark:border-navy-800">
         <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
-        <button type="button" onClick={onReview} disabled={blocked}
+        <button type="button" onClick={review} disabled={blocked}
           className="btn-primary px-5 py-2.5 text-base disabled:cursor-not-allowed disabled:opacity-50">
           {reviewLabel}<ReviewIcon size={18} aria-hidden="true" />
         </button>
@@ -114,7 +156,7 @@ export function Facts({ items }) {
 /** A labelled input with its inline error (or hint). */
 export function Field({ label, required, error, hint, htmlFor, className = "", children }) {
   return (
-    <div className={className}>
+    <div className={className} data-error={error ? label : undefined}>
       <label htmlFor={htmlFor} className="text-sm text-slate-600 dark:text-slate-300">
         {label}{required && <span className="text-rose-500" aria-hidden="true"> *</span>}
       </label>
@@ -131,7 +173,7 @@ export function Field({ label, required, error, hint, htmlFor, className = "", c
 /** A form-level inline error that belongs to no single field. */
 export function FormError({ children }) {
   if (!children) return null;
-  return <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400" role="alert">{children}</p>;
+  return <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400" role="alert" data-error="">{children}</p>;
 }
 
 /** "What happens next" note — the honest line about stock and ERP. */

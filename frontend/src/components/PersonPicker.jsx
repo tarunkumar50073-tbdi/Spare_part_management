@@ -218,7 +218,7 @@ export default function PersonPicker({
           <UserPlus size={13} aria-hidden="true" /> Not in the list? Add new person
         </button>
       ))}
-      {error && <p className={ERR} role="alert">{error}</p>}
+      {error && <p className={ERR} role="alert" data-error="Person">{error}</p>}
       {(failed.length > 0 || duty.isError) && (
         <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-amber-700 dark:text-amber-300">
           {duty.isError ? "The rosters could not be read." : `${failed.map((x) => x.department).join(" and ")} roster not reachable — its people show as "Shift not known".`}
