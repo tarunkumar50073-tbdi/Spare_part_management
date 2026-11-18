@@ -1,5 +1,5 @@
-"""Line + machine are required on every Scan Part issue (17 Nov 2026), unless the
-plant machine list could not be read (place_unavailable)."""
+"""Remarks are required on every Scan Part issue (17 Nov 2026); line + machine
+are not asked at the store (18 Nov 2026) and never stop an issue."""
 import pytest
 
 from app.extensions import db
@@ -11,7 +11,7 @@ STORE = "MAINTENANCE"
 
 
 @pytest.mark.require_place
-def test_issue_needs_line_and_machine(app):
+def test_issue_needs_remarks_but_no_line_or_machine(app):
     p = Part(part_no="PLACE-REQ-1", part_name="PLACE TEST", uom="NOS", part_type="OTHER", store_code=STORE)
     db.session.add(p)
     db.session.commit()
@@ -30,13 +30,14 @@ def test_issue_needs_line_and_machine(app):
     assert r.status_code == 400 and "remarks" in r.get_json()["message"]
     body["remarks"] = "breakdown"
     r = c.post(f"/api/v1/spare-stock/parts/{p.id}/issue", json=body)
-    assert r.status_code == 400 and "line" in r.get_json()["message"]
-    r = c.post(f"/api/v1/spare-stock/parts/{p.id}/issue", json={**body, "line_name": "SA_PWM"})
-    assert r.status_code == 400 and "machine" in r.get_json()["message"]
+    assert r.status_code in (200, 201)
+    # A line / machine sent by an old screen is dropped, not saved.
     r = c.post(f"/api/v1/spare-stock/parts/{p.id}/issue", json={**body, "line_name": "SA_PWM", "machine": "SA_PWM_11"})
     assert r.status_code in (200, 201)
-    r = c.post(f"/api/v1/spare-stock/parts/{p.id}/issue", json={**body, "place_unavailable": True})
-    assert r.status_code in (200, 201)
+    from app.models.spare_stock import SpareStockLedger
+    rows = SpareStockLedger.query.filter_by(part_id=p.id, txn_type="ISSUE").all()
+    assert len(rows) == 2 and all(x.line_name is None and x.machine is None for x in rows)
+    assert c.get("/api/v1/employees/machines?department=Maintenance").status_code == 404
 
 
 def test_issue_register_view_has_only_issues_and_no_empty_column(app):
@@ -52,7 +53,7 @@ def test_issue_register_view_has_only_issues_and_no_empty_column(app):
     r = rows[0]
     assert float(r["qty_issued"]) == 2 and float(r["net_qty"]) == 2 and r["department"] == "Maintenance"
     assert all(v is not None for v in r.values())             # nothing empty
-    assert r["line"] == "—" and r["machine"] == "—"
+    assert "line" not in r and "machine" not in r            # not asked at the store (18 Nov 2026)
 
 
 def test_issue_register_shows_the_return_on_the_issue_row(app):
@@ -62,7 +63,7 @@ def test_issue_register_shows_the_return_on_the_issue_row(app):
     db.session.add(p)
     db.session.commit()
     SpareStockService().set_quantity(p.id, 5, txn_type="OPENING")
-    out = SpareStockService().issue(p.id, 2, "Maintenance", issued_to="Ravi", user="sup", line_name="L1", machine="M1")
+    out = SpareStockService().issue(p.id, 2, "Maintenance", issued_to="Ravi", user="sup")
     r = db.session.execute(text("select * from issue_register where part_no = 'VIEW-RET-1'")).mappings().one()
     assert (r["returned_at"], r["returned_by"], r["return_reason"]) == ("—", "—", "—")
     db.session.add(SpareStockLedger(part_id=p.id, qty_delta=1, balance_after=4, txn_type="RETURN",
@@ -72,4 +73,4 @@ def test_issue_register_shows_the_return_on_the_issue_row(app):
     r = db.session.execute(text("select * from issue_register where part_no = 'VIEW-RET-1'")).mappings().one()
     assert float(r["qty_returned"]) == 1 and float(r["net_qty"]) == 1
     assert (r["returned_by"], r["return_reason"]) == ("Ravi", "UNUSED") and r["returned_at"] != "—"
-    assert (r["line"], r["machine"]) == ("L1", "M1") and all(v is not None for v in r.values())
+    assert "line" not in r and all(v is not None for v in r.values())

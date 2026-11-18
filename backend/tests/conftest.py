@@ -180,12 +180,12 @@ def waiting_return():
 
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "require_place: run with the line + machine rule on issues")
+    config.addinivalue_line("markers", "require_place: run with the remarks rule on issues")
 
 
 @pytest.fixture(autouse=True)
 def _issue_place_rule(request, monkeypatch):
-    """Line + machine are required on an issue since 17 Nov 2026 (app/utils/
+    """Remarks are required on an issue since 17 Nov 2026 (app/utils/
     issue_place.py). The older issue tests are about other things and send no
     place; they run without the rule. A test marked require_place keeps it."""
     if request.node.get_closest_marker("require_place"):

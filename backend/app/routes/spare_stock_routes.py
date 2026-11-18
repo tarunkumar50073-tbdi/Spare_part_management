@@ -443,7 +443,7 @@ def issue_part(part_id):
     require_place({**raw, **data})
     row = service.issue(
         part_id, float(data["qty"]), data["department"],
-        machine=data.get("machine"), line_name=data.get("line_name"), returnable=data.get("returnable", False),
+        returnable=data.get("returnable", False),
         reference=data.get("reference"), remarks=data.get("remarks"), user=_username(),
         issued_to=data.get("issued_to"),
         employee_id=data.get("employee_id"), issued_to_mobile=data.get("issued_to_mobile"),

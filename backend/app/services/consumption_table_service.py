@@ -36,9 +36,9 @@ length, auto_group() — the screen's first view: "kis date ko kitna part and ko
 kon sa issue hua" — 14 Oct 2026), day, week, month, year, fy, part, department
 (each consuming department, one with nothing used too unless the table is
 narrowed to a part, a section or a type), person (issued to: the person, code
-and mobile), category (sub_category). Since 13 Nov 2026 the issue can name the
-line + machine (optional, from the plant's machine list); the Issue list shows
-them.
+and mobile), category (sub_category). No Line / Machine: the store does not
+ask them on an issue (18 Nov 2026 — the Maintenance / Tool Room users fill
+them in their own apps).
 
 The period views: Date ("10.03.2026", only days with issues), Week (Monday to
 Sunday, cut at the range's ends), Month ("Oct 2026"), Year (the calendar year)
@@ -109,7 +109,7 @@ Use = namedtuple("Use", "issue part dept section day qty back cancelled")
 # the Issue Register's words.
 _L = SpareStockLedger
 ISSUE_COLUMNS = (_L.id, _L.part_id, _L.qty_delta, _L.created_at, _L.status, _L.actual_qty, _L.reference, _L.department, _L.issued_to, _L.issued_to_mobile,
-                 _L.issued_to_code, _L.employee_id, _L.line_name, _L.machine, _L.remarks)
+                 _L.issued_to_code, _L.employee_id, _L.remarks)
 # The screen's filters: the Part and Section rows picked, the consuming
 # department and the part type typed (None = all).
 Filters = namedtuple("Filters", "part section department type")
@@ -161,9 +161,8 @@ BY_DEPT_PART_COLUMNS = ("Issued to Dept", "Part No", "Item Description", "UOM", 
                         "Qty Returned", "Net Qty", "Rate", "Value", "Net Value")
 # The Issue list, in the Issue Register's words — Issued To = the person and the
 # mobile — with what came back against each issue beside what went out.
-# Line + Machine: where the part went, as picked on the issue (13 Nov 2026), blank before.
 LIST_COLUMNS = ("Date", "Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Department",
-                "Issued to Dept", "Issued To", "Line", "Machine", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
+                "Issued to Dept", "Issued To", "Qty Issued", "Qty Returned", "Net Qty", "Rate", "Value", "Net Value",
                 "Status", "Remarks")
 
 # Remarks (15 Nov 2026: "m/c no. sayaad remarks me daali thi wo nhi dikha rha"):
@@ -986,7 +985,6 @@ class ConsumptionTableService:
             "Date": on, "Time": at, "Issue No": i.id, "Reference": i.reference, "Part No": part.part_no,
             "Item Description": part.part_name, "Section": u.section, "Department": u.dept,
             "Issued to Dept": _dept_taken(i), "Issued To": _issued_to(i), "Rate": part.unit_price or None,   # a rate of 0 is a missing rate
-            "Line": i.line_name, "Machine": i.machine,
             "Status": _issue_status(i), "Remarks": _issue_remark(i.remarks),
         }
         if u.cancelled:

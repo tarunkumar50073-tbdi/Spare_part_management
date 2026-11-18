@@ -4,7 +4,7 @@ import PersonPicker from "../../PersonPicker.jsx";
 import useGunEnd from "../../../hooks/useGunEnd.js";
 import { packetService } from "../../../services/packetService.js";
 import { fmtDate, fmtStamp } from "../../../lib/format.js";
-import { DepartmentSelect, Facts, Field, FormShell, LineMachinePicker, NO_PLACE, Note, machineListFailed, machineText, placeErrors, useMachines } from "./FormKit.jsx";
+import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
 import { clean, fmtQty, isStoreDepartment, qtyError, useActionFlow, useDepartments } from "./flow.js";
 
 // ISSUE of a whole packet or one individual unit — what a packet / unit QR
@@ -33,10 +33,8 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   const [department, setDepartment] = useState("");
   const [autoDept, setAutoDept] = useState(null);
   const [remarks, setRemarks] = useState("");
-  // Where the part goes: line + machine, required since 17 Nov 2026.
-  const [place, setPlace] = useState(NO_PLACE);
-  const machines = useMachines(department);
-  const machineList = machines.data;
+  // Line + machine are not asked at the store (18 Nov 2026): the Maintenance /
+  // Tool Room users fill them in their own apps.
   const [reason, setReason] = useState("");
   const [tried, setTried] = useState(false);
   // The other labels of this part in this issue, as the server checked them,
@@ -112,7 +110,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     setAutoDept(fill || null);
   };
 
-  const dirty = Boolean(department || emp || person.typed?.trim() || remarks.trim() || place.line || reason.trim() || many);
+  const dirty = Boolean(department || emp || person.typed?.trim() || remarks.trim() || reason.trim() || many);
   useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
 
   const errors = {
@@ -125,7 +123,6 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     reason: older && !reason.trim()
       ? `Older stock is waiting — say why ${many ? "these labels go" : "this packet goes"} first` : null,
     lotQty: lot ? (lotQty === "" ? "Type the qty to issue" : lotErr) : null,
-    ...placeErrors(department, place, machines),
     remarks: remarks.trim() ? null : "Write the remarks (why / for what)",
   };
   const valid = available && !Object.values(errors).some(Boolean);
@@ -139,9 +136,6 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     if (!valid) return;
     const payload = {
       department, remarks: clean(remarks), employee_id: emp.id, issued_to: emp.name,
-      line_name: place.line || undefined, machine: place.machine || undefined,
-      place_unavailable: machineListFailed(machines) || undefined,
-      line_has_no_machine: (place.line && !machineList?.lines?.find((l) => l.line === place.line)?.machines?.length) || undefined,
       override_reason: older ? reason.trim() : undefined,
       scan_source: source || undefined,
       lot_qty: lot ? Number(lotQty) : undefined,
@@ -159,8 +153,6 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
         { label: "Employee code", value: emp.employee_code },
         { label: "Department", value: department },
         { label: "Shift", value: emp.shift },
-        { label: "Line", value: place.line ? place.line.replace(/_/g, " ") : null },
-        { label: "Machine", value: machineText(machineList?.lines, place) },
         many ? { label: "Received", value: days }
           : { label: "Received", value: `${fmtDate(packet.receipt.received_on)} · ${packet.receipt.receipt_no}` },
         { label: "From location", value: packet.location || part.location },
@@ -288,8 +280,6 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
               </p>
             </Field>
             )}
-            <LineMachinePicker id={`${uid}-place`} department={department} value={place} onChange={setPlace}
-          lineError={show("line")} machineError={show("machine")} />
             <Field label="Remarks" required error={show("remarks")} htmlFor={`${uid}-rem`}>
               <input id={`${uid}-rem`} value={remarks} maxLength={200} onChange={(e) => setRemarks(e.target.value)}
                 className="input-field" placeholder="Why / for what — e.g. breakdown, PM, spare change" />

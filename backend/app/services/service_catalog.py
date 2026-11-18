@@ -38,10 +38,6 @@ SERVICES = [
                   "supplier barcode", "supplier qr code", "qr code", "mapping", "label",
                   # 10 Nov 2026: several labels of one part to one person in one issue.
                   "multiple labels", "many labels", "4 qty", "ek saath", "ek sath",
-                  # 13 Nov 2026: the issue names the line + machine the part goes to.
-                  "machine", "line", "kis machine", "kis line", "m/c",
-                  # 15 Nov 2026: find a machine by its number on any line.
-                  "machine no", "machine number", "find machine", "machine dhundo",
                   # 14 Nov 2026: a person not on the list is added at the issue.
                   "add person", "new person", "naya aadmi", "naam nahi", "fabrication"]},
     # The screens below were in the sidebar but not here, so Store Saathi

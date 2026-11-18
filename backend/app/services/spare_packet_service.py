@@ -1114,7 +1114,7 @@ class SparePacketService:
         }
 
     def issue(self, code, department, user=None, employee_id=None, issued_to_mobile=None, issued_to=None,
-              remarks=None, override_reason=None, scan_source=None, line_name=None, machine=None, qty=None):
+              remarks=None, override_reason=None, scan_source=None, qty=None):
         """Issue a whole packet (or one individual unit): its full quantity,
         once, to a department + person, through the same issue as Scan Part's
         (ISSUE ledger row, journal). Skipping an older receipt's packets needs
@@ -1164,7 +1164,6 @@ class SparePacketService:
                     packet.part_id, float(take), department, reference=packet.code, remarks=note[:255],
                     user=user, issued_to=issued_to, employee_id=employee_id, issued_to_mobile=issued_to_mobile,
                     scanned_code=packet.code, scan_source=scan_source, from_packet=True,
-                    line_name=line_name, machine=machine,
                 )
             db.session.refresh(packet)
             result["packet"] = self.packet_dict(packet)
@@ -1186,7 +1185,6 @@ class SparePacketService:
                 packet.part_id, float(packet.qty), department, reference=packet.code, remarks=note[:255],
                 user=user, issued_to=issued_to, employee_id=employee_id, issued_to_mobile=issued_to_mobile,
                 scanned_code=packet.code, scan_source=scan_source, from_packet=True,
-                line_name=line_name, machine=machine,
             )
             SparePacket.query.filter_by(id=packet.id).update(
                 {"issue_ledger_id": result["issue"]["id"], "issued_to": (result["issue"].get("issued_to") or "")[:120]},
@@ -1270,7 +1268,7 @@ class SparePacketService:
         }
 
     def issue_many(self, codes, department, user=None, employee_id=None, issued_to_mobile=None, issued_to=None,
-                   remarks=None, override_reason=None, scan_source=None, line_name=None, machine=None):
+                   remarks=None, override_reason=None, scan_source=None):
         """Issue several labels of one part to one person at once — all or none."""
         packets = self._issue_set(codes)
         reason = _text(override_reason, 255, "FIFO reason")
@@ -1309,7 +1307,7 @@ class SparePacketService:
                 packets[0].part_id, float(total), department, reference=", ".join(codes_used)[:80],
                 remarks=note[:255], user=user, issued_to=issued_to, employee_id=employee_id,
                 issued_to_mobile=issued_to_mobile, scanned_code=packets[0].code, scan_source=scan_source,
-                from_packet=True, line_name=line_name, machine=machine,
+                from_packet=True,
             )
             SparePacket.query.filter(SparePacket.id.in_([p.id for p in packets])).update(
                 {"issue_ledger_id": result["issue"]["id"],
