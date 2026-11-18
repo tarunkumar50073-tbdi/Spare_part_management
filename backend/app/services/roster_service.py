@@ -6,8 +6,11 @@ code number ya naam se usme search karenge and wo select kar lenge").
 Two rosters on the plant's PostgreSQL server, READ ONLY — nothing is ever
 written there:
   maintenance_db  maintenance_employee (id, name, emp_code, designation, contact,
-                  removed_on) and the daily maintenance_attendance_board (day,
-                  staff_id, slot: A / B / G on duty; WO / LEAVE / WFH not here);
+                  removed_on) and maintenance_attendance_live (staff_id, shift
+                  "A Shift" / "B Shift" / "G Shift" on duty; "Leave" / "Week
+                  Off" not here; live_day = today, shift carried on from the
+                  last day set). Fallback: the daily maintenance_attendance_board
+                  (day, staff_id, slot: A / B / G on duty; WO / LEAVE / WFH not here);
   tool_room_db    tool_room_attendance_members (id, name, emp_code, designation,
                   contact, in_attendance) and the daily tool_room_attendance
                   (att_date, member_id, status: A_SHIFT / B_SHIFT / G_SHIFT / P /
@@ -57,6 +60,8 @@ Roster = namedtuple("Roster", "key department database config read")
 
 # A day's attendance mark -> the badge shown, for the marks that mean "on duty".
 MAINTENANCE_DUTY = {"A": "A", "B": "B", "G": "G"}
+# maintenance_attendance_live.shift (upper-cased); "LEAVE" / "WEEK OFF" are off duty.
+MAINTENANCE_LIVE_DUTY = {"A SHIFT": "A", "B SHIFT": "B", "G SHIFT": "G", "A": "A", "B": "B", "G": "G"}
 TOOL_ROOM_DUTY = {"A_SHIFT": "A", "B_SHIFT": "B", "G_SHIFT": "G", "P": "Present",
                   "HALF_DAY": "Half day", "GATE_PASS": "Gate pass"}
 NOT_MARKED = "Attendance not marked"
@@ -91,6 +96,21 @@ def _read_maintenance(conn, today):
                "contact": r.contact, "active": r.removed_on is None}
               for r in conn.execute(text("SELECT id, name, emp_code, designation, contact, removed_on "
                                          "FROM maintenance_employee"))]
+    # The Maintenance app's own live view first (the store, 18 Nov 2026:
+    # "maintenance_attendance_live ... usse data utha le"): one row per person
+    # for today, a shift carried on from the last day it was set, so B-shift
+    # people not yet marked today still show. The day board is the fallback
+    # when that table is missing or not yet rolled over to today.
+    marks = {}
+    try:
+        with conn.begin_nested():
+            marks = {str(r.staff_id): (r.shift or "").strip().upper()
+                     for r in conn.execute(text("SELECT staff_id, shift FROM maintenance_attendance_live "
+                                                "WHERE live_day = :d"), {"d": today})}
+    except Exception as exc:  # noqa: BLE001 - an older Maintenance app has no live table
+        logger.info("maintenance_attendance_live not read (%s); using the day board", exc.__class__.__name__)
+    if marks:
+        return people, {k: MAINTENANCE_LIVE_DUTY.get(v) for k, v in marks.items()}, True
     marks = {str(r.staff_id): (r.slot or "").strip().upper()
              for r in conn.execute(text("SELECT staff_id, slot FROM maintenance_attendance_board WHERE day = :d"),
                                    {"d": today})}

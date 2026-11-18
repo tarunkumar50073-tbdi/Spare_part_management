@@ -143,3 +143,37 @@ def test_a_person_added_at_the_store_is_listed_and_takes_parts(rosters):
     db.session.get(Employee, emp["id"]).is_active = False
     db.session.commit()
     assert "Raju Fab" not in {r["name"] for r in RosterService().on_duty()["rows"]}
+
+
+def _maintenance_db(with_live):
+    from sqlalchemy import create_engine, text
+    eng = create_engine("sqlite://")
+    with eng.begin() as c:
+        c.execute(text("CREATE TABLE maintenance_employee (id INTEGER, name TEXT, emp_code TEXT, designation TEXT, "
+                       "contact TEXT, removed_on DATE)"))
+        c.execute(text("CREATE TABLE maintenance_attendance_board (day DATE, staff_id INTEGER, slot TEXT)"))
+        for i, n in ((80, "AMAN"), (85, "HEMANT"), (89, "PRINCE"), (88, "KHITIJ")):
+            c.execute(text("INSERT INTO maintenance_employee VALUES (:i, :n, :c, 'DET', NULL, NULL)"),
+                      {"i": i, "n": n, "c": str(i)})
+        # The day board has only AMAN today; HEMANT (B shift) not marked yet.
+        c.execute(text("INSERT INTO maintenance_attendance_board VALUES (:d, 80, 'A')"), {"d": TODAY})
+        if with_live:
+            c.execute(text("CREATE TABLE maintenance_attendance_live (staff_id INTEGER, shift TEXT, live_day DATE)"))
+            for sid, sh in ((80, "A Shift"), (85, "B Shift"), (89, "Leave"), (88, "Week Off")):
+                c.execute(text("INSERT INTO maintenance_attendance_live VALUES (:s, :h, :d)"),
+                          {"s": sid, "h": sh, "d": TODAY})
+    return eng
+
+
+def test_maintenance_shift_comes_from_its_live_table():
+    """18 Nov 2026: "maintenance_attendance_live ... usse data utha le" — the
+    live table carries a B shift on, so HEMANT shows before today's board has him."""
+    with _maintenance_db(True).connect() as c:
+        _people, duty, marked = roster_service._read_maintenance(c, TODAY)
+    assert marked and duty == {"80": "A", "85": "B", "89": None, "88": None}
+
+
+def test_maintenance_falls_back_to_the_day_board_without_the_live_table():
+    with _maintenance_db(False).connect() as c:
+        _people, duty, marked = roster_service._read_maintenance(c, TODAY)
+    assert marked and duty == {"80": "A"}
