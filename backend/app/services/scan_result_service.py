@@ -1148,7 +1148,10 @@ class ScanResultService:
             "with_supplier": with_supplier,
             "rgp_grn_pending": grn_pending,
             "counts": {
-                "quality": len(quality), "inspection": len(inspection),
+                # GRNs, not lines (18 Nov 2026: "grn wala har jagah") - the
+                # list itself stays one row per GRN line.
+                "quality": len({q.get("grn_no") or f"{q.get('grn_date')}|{q.get('part_id')}" for q in quality}),
+                "quality_lines": len(quality), "inspection": len(inspection),
                 "with_supplier": len(with_supplier), "rgp_grn_pending": len(grn_pending),
             },
             # How current the ERP GRN mirror behind `quality` is.

@@ -568,7 +568,7 @@ def test_queues_list_and_count_the_stores_open_work(queue_store):
     _erp_grn(_part(), 9)                                           # another store's work
 
     q = ScanResultService().queues(code)
-    assert q["counts"] == {"quality": 2, "inspection": 1, "with_supplier": 1,
+    assert q["counts"] == {"quality": 2, "quality_lines": 2, "inspection": 1, "with_supplier": 1,
                            "rgp_grn_pending": 1}          # no line / machine queue since 27 Oct 2026
     assert q["quality"][0]["grn_no"] == first                      # oldest GRN first
     assert q["quality"][0]["state"] == "QUALITY_PENDING" and q["quality"][0]["age_days"] == 6

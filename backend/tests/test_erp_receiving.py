@@ -311,7 +311,7 @@ def test_quality_queue_lists_the_stores_erp_lines(store):
     _grn(a, 3, receipt=1, accept=1, tag="WP2")                       # to be added: not queued
 
     q = ScanResultService().queues(s.code)
-    assert q["counts"]["quality"] == 2
+    assert q["counts"]["quality"] == 2 and q["counts"]["quality_lines"] == 2
     assert [(x["grn_no"], x["state"]) for x in q["quality"]] == [(older, "QUALITY_PENDING"), (check, "CHECK")]
     first = q["quality"][0]
     assert (first["part_id"], first["part_no"], first["location"]) == (a.id, a.part_no, "R2-S1-B4")

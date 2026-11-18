@@ -838,7 +838,8 @@ export default function TvDashboard() {
         ]);
         const qc = asObj(asObj(queues)?.counts);
         const qLines = asList(asObj(queues)?.quality);
-        const byState = (s) => (qLines || []).filter((r) => r.state === s).length;
+        // GRNs, not lines — same figure as the overview tile.
+        const byState = (s) => new Set((qLines || []).filter((r) => r.state === s).map((r) => r.grn_no || `${r.grn_date}|${r.part_id}`)).size;
         const qp = qLines && qLines.some((r) => r.state) ? byState("QUALITY_PENDING") : qc?.quality ?? null;
         ovObj = {
           fallback: true,
