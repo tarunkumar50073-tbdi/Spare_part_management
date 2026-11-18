@@ -1154,7 +1154,17 @@ export default function ReceivingMonitor() {
   // Ledger stock-ins the app could push but has not — those that came in by an
   // ERP GRN are never pushed, so they are not "missing" from ERP.
   const notPushed = lists.receipts.filter((r) => !r.erp_pushed_at && !isErpOrigin(r)).length;
-  const pc = preview?.counts || null;
+  // GRNs per ERP state, not lines (18 Nov 2026: "grn wala har jagah") — the
+  // same ginti as the dashboard tile and the Work Queue.
+  // Plain call, not a hook: this runs after the loading / error returns.
+  const pc = (() => {
+    if (!preview?.counts) return null;
+    const rows = Array.isArray(preview.rows) ? preview.rows : null;
+    if (!rows) return preview.counts;
+    const sets = {};
+    rows.forEach((r) => { (sets[r.state] = sets[r.state] || new Set()).add(r.grn_no || `${r.grn_date}|${r.part_id}`); });
+    return Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, v.size]));
+  })();
   const showErpState = (state) => {
     setErpFilter({ state });
     erpRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });

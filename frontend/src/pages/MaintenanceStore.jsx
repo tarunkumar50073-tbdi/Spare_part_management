@@ -959,7 +959,7 @@ function SpareDashboard({ stats, onPartClick, onStockClick, overview = null,
       return {
         ...it, label: "GRN / Quality pending (ERP)", count,
         hint: [
-          "ERP GRN lines awaiting quality clearance in ERP",
+          "ERP GRNs awaiting quality clearance in ERP",
           extra,
           fresh ? `${fresh.text}${fresh.stale && !fresh.empty ? ` (${fresh.ageDays} d old)` : ""}` : null,
         ].filter(Boolean).join(" · "),

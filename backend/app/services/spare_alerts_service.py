@@ -363,7 +363,7 @@ class SpareAlertsService:
         if n:
             out.append(_alert(
                 "erp_grn_quality_pending", "warning", "erp_grn_quality_pending",
-                f"{_count(n, 'ERP GRN line')} awaiting quality clearance",
+                f"{_count(n, 'ERP GRN')} awaiting quality clearance",
                 (f"{_qty(rp['qty']['quality_pending'])} received against GRNs in ERP, not yet accepted by "
                  "Maintenance / Tool Room quality in ERP — not issuable until ERP accepts it."
                  + oldest(rp["oldest_grn_date"]) + " " + fresh),
@@ -373,7 +373,7 @@ class SpareAlertsService:
         if n:
             out.append(_alert(
                 "erp_grn_check", "warning", "erp_grn_check",
-                f"{_count(n, 'ERP GRN line')} to check",
+                f"{_count(n, 'ERP GRN')} to check",
                 ("ERP now accepts less on these GRNs than the app already added to store stock — "
                  "check with ERP; nothing was reversed." + oldest(rp["oldest_check_grn_date"]) + " " + fresh),
                 n, oldest_grn_date=rp["oldest_check_grn_date"], erp=rp["erp"], action=_receiving(),

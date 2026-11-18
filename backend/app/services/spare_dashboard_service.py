@@ -314,7 +314,7 @@ class SpareDashboardService:
             items.append({
                 "key": "srv_pending", "label": "GRN / Quality pending",
                 "severity": "warning" if receiving["total"] else "ok",
-                "hint": ("ERP GRN lines waiting for the Maintenance / Tool Room quality clearance in "
+                "hint": ("ERP GRNs waiting for the Maintenance / Tool Room quality clearance in "
                          "ERP — not issuable yet. " + _erp_as_of(receiving["erp"])),
                 "count": receiving["total"], "value": None, "value_label": None, "sections": [],
                 "action": {"label": "Open Receiving & GRN", "to": "/receiving"},

@@ -376,7 +376,7 @@ def test_alerts_come_from_erp_lines_with_their_freshness(store):
 
     qp = a["erp_grn_quality_pending"]
     assert (qp["severity"], qp["count"], qp["oldest_grn_date"]) == ("warning", 1, _ago(14).isoformat())
-    assert qp["title"] == "1 ERP GRN line awaiting quality clearance" and qp["action"] == receiving
+    assert qp["title"] == "1 ERP GRN awaiting quality clearance" and qp["action"] == receiving
     assert f"Oldest GRN dated {_ago(14).isoformat()} (14 days ago)" in qp["message"]
     assert "ERP GRN data last read" in qp["message"] and "newest GRN dated" in qp["message"]
     assert "ERP updated" not in qp["message"]
