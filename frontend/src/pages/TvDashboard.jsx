@@ -2615,8 +2615,8 @@ function PartHistoryView({ frame, axis = "#64748b", grid = "#e2e8f0" }) {
                     label={{ value: `Max ${part.max_stock_level}`, position: "right", fill: "#d97706", fontSize: 11, fontWeight: 700 }} />
                 )}
                 {/* The area only shades under the line: one "Balance" in the tooltip, not two. */}
-                <Area type="stepAfter" dataKey="bal" stroke="none" fill="url(#dg-area)" tooltipType="none" />
-                <Line type="stepAfter" dataKey="bal" name="Balance" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3, fill: "#2563eb" }} />
+                <Area type="linear" dataKey="bal" stroke="none" fill="url(#dg-area)" tooltipType="none" />
+                <Line type="linear" dataKey="bal" name="Balance" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3, fill: "#2563eb" }} />
               </ComposedChart>
             </ResponsiveContainer>
           ) : <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">{emptyText}</div>}
