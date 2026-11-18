@@ -2333,6 +2333,17 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
             <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No parts</div>
           ) : isByDept ? (
             <div className="h-full overflow-auto pr-[0.4vh] space-y-[0.7vh]">
+              {/* "All" on top: back to every part without leaving the drill
+                  (18 Nov 2026: "us par se hatata nhi, back jana padta h"). */}
+              <button type="button" onClick={() => setDeptPick(null)}
+                className={`w-full text-left rounded-md px-[0.8vh] py-[0.7vh] transition-colors ${deptPick == null ? "bg-[var(--dx-track)] ring-1 ring-[var(--dx-border)]" : "hover:bg-[var(--dx-track)]"}`}>
+                <span className="flex items-center gap-[1.2vh] text-[1.65vh]">
+                  <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0 border-2 border-[var(--dx-t3)]" />
+                  <span className="flex-1 min-w-0 font-semibold text-[var(--dx-t1)]">All departments</span>
+                  <span className="dx-radiant font-extrabold text-[var(--dx-t1)] text-[2vh] whitespace-nowrap">{fmtInt(chartTotal)}</span>
+                  <span className="w-[5vh] text-right text-[var(--dx-t4)]">100%</span>
+                </span>
+              </button>
               {chartData.map((c, i) => {
                 const col = PIE[i % PIE.length];
                 const active = deptPick === c.name;
@@ -2354,7 +2365,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                   </button>
                 );
               })}
-              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a department to show only its parts</div>
+              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a department to show only its parts · tap it again or "All departments" to show all</div>
             </div>
           ) : isByType ? (
             // Ranked horizontal bars (not a donut) — tap a type to filter the list.
