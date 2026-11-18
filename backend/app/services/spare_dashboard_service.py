@@ -472,11 +472,17 @@ class SpareDashboardService:
         def oldest(rows):
             return min((ln["grn_date"] for ln in rows if ln["grn_date"]), default=None)
 
+        # GRNs, not part lines (18 Nov 2026: the tile said 4 while Receiving & GRN,
+        # which counts GRNs since 17 Nov, said 3 — one GRN held two parts).
+        def grns(rows):
+            return len({ln.get("grn_no") or f"{ln.get('grn_date')}|{ln.get('part_id')}" for ln in rows})
+
         return {
-            "quality_pending": len(qc),
-            "check": len(check),
-            "to_add": len(to_add),
-            "total": len(qc),
+            "quality_pending": grns(qc),
+            "quality_pending_lines": len(qc),
+            "check": grns(check),
+            "to_add": grns(to_add),
+            "total": grns(qc),
             "awaiting_grn": None,
             "qty": {"quality_pending": _q(sum(ln["receipt_qty"] or 0 for ln in qc)),
                     "to_add": _q(sum(ln["to_post"] or 0 for ln in to_add)),

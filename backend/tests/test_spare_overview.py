@@ -133,7 +133,7 @@ def test_document_blocks_for_a_section(seeded):
     empty = SpareDashboardService().overview(STORE, section_id=sec.id)
     rp = empty["receiving_pending"]
     assert {k: rp[k] for k in rp if k != "erp"} == {
-        "quality_pending": 0, "check": 0, "to_add": 0, "total": 0, "awaiting_grn": None,
+        "quality_pending": 0, "quality_pending_lines": 0, "check": 0, "to_add": 0, "total": 0, "awaiting_grn": None,
         "qty": {"quality_pending": 0.0, "to_add": 0.0, "total": 0.0},
         "oldest_grn_date": None, "oldest_check_grn_date": None}
     assert set(rp["erp"]) == {"synced_at", "newest_grn_date"}

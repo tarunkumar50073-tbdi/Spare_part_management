@@ -346,6 +346,7 @@ def test_overview_receiving_pending_is_read_from_erp(store):
     ov = SpareDashboardService().overview(s.code)
     rp = ov["receiving_pending"]
     assert (rp["quality_pending"], rp["check"], rp["to_add"], rp["total"]) == (1, 1, 1, 1)
+    assert rp["quality_pending_lines"] == 1                 # GRNs counted; the lines kept beside
     assert rp["awaiting_grn"] is None
     assert rp["qty"] == {"quality_pending": 4.0, "to_add": 2.0, "total": 4.0}
     assert (rp["oldest_grn_date"], rp["oldest_check_grn_date"]) == (_ago(14).isoformat(), _ago(18).isoformat())
