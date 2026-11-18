@@ -606,7 +606,7 @@ function TrackerRow({ it, wallHidden, onOpen }) {
       : clear ? ["CLEAR", "var(--pill-green)", "16,185,129"] : ["—", "var(--pill-slate)", "148,163,184"];
   const Row = onOpen ? "button" : "div";
   return (
-    <Row {...(onOpen ? { type: "button", onClick: onOpen } : {})}
+    <Row {...(onOpen ? { type: "button", onClick: onOpen } : {})} data-trk={it.key}
       className={`${TRK_COLS} ${wallHidden ? "hidden landscape:grid" : ""} w-full text-left px-[0.6vh] py-[0.3vh] landscape:py-[0.45vh] border-b border-[var(--dx-divide)] last:border-b-0 text-[1.15vh] landscape:text-[1.35vh] leading-tight ${clear ? "opacity-55" : ""} ${onOpen ? "cursor-pointer hover:bg-[var(--dx-track)] transition-colors" : ""}`}>
       <span className="min-w-0 flex items-center gap-[0.7vh]">
         <span className="w-[0.9vh] h-[0.9vh] rounded-full shrink-0" style={{ background: tone }} />
@@ -1357,17 +1357,21 @@ export default function TvDashboard() {
   if (issuedLines) liveAlerts.push({ color: C.blue, text: `${fmtInt(issuedQty)} issued this shift · ${plural(issuedLines, "line")}`,
     onClick: openTodayIssues });
   const overdueActions = tracker?.summary?.overdue || 0;
-  // Tappable like every other alert (18 Nov 2026: "ye clickable nhi h"): one
-  // overdue line opens its own list; more than one -> the tracker panel.
+  // Tappable like every other alert (18 Nov 2026: "ye clickable nhi h"). It
+  // shows WHERE the late line is: scrolls to the tracker and flashes the
+  // overdue row(s) themselves — it does not open their part list (that opened
+  // "Critical Parts", which looked like the wrong place). The row is still
+  // tappable for its list.
   const openOverdue = () => {
-    const late = (tracker?.items || []).filter((it) => it.overdue);
-    const only = late.length === 1 ? trackerOpen[late[0].key] : null;
-    if (only) { only(); return; }
-    const el = document.getElementById("dx-action-tracker");
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.animate?.([{ boxShadow: "0 0 0 0.5vh rgba(244,63,94,0.7)" }, { boxShadow: "0 0 0 0 rgba(244,63,94,0)" }], { duration: 1600, iterations: 2 });
-    }
+    const card = document.getElementById("dx-action-tracker");
+    if (!card) return;
+    const lateKeys = (tracker?.items || []).filter((it) => it.overdue).map((it) => it.key);
+    const rows = lateKeys.map((k) => card.querySelector(`[data-trk="${k}"]`))
+      .filter((el) => el && el.offsetParent !== null);
+    (rows[0] || card).scrollIntoView({ behavior: "smooth", block: "center" });
+    const flash = [{ backgroundColor: "rgba(244,63,94,0.45)", boxShadow: "inset 0 0 0 0.3vh rgba(244,63,94,0.9)" },
+      { backgroundColor: "rgba(244,63,94,0)", boxShadow: "inset 0 0 0 0 rgba(244,63,94,0)" }];
+    (rows.length ? rows : [card]).forEach((el) => el.animate?.(flash, { duration: 1200, iterations: 3 }));
   };
   if (overdueActions) liveAlerts.push({ color: STATUS.out, onClick: openOverdue, text: `${plural(overdueActions, "action")} past the target date — see the action tracker` });
   // The wall has no room for the movements table, so its newest line runs here.
