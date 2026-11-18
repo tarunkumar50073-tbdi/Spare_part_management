@@ -35,7 +35,7 @@ const NAV = [
   { label: "Notification Center", to: "/notifications", mod: "notifications", keywords: "alerts notification critical warning bell" },
   { label: "Suppliers", to: "/suppliers", keywords: "vendor supplier master" },
   { label: "Reports", to: "/reports", mod: "reports", keywords: "excel pdf export daily monthly consumption" },
-  { label: "Live Dashboard (HMI)", to: "/live-dashboard", mod: "live_dashboard", keywords: "wallboard tv hmi big screen" },
+  { label: "Live Dashboard (HMI)", to: "/live-dashboard", mod: "live_dashboard", keywords: "wallboard tv hmi big screen critical department" },
   { label: "All Services", to: "/services", keywords: "menu launcher screens" },
   { label: "Scan Audit", to: "/scan-audit", mod: "scan_audit", keywords: "scan audit log scan history who scanned" },
   { label: "Department Emails", to: "/departments", mod: "departments", keywords: "department email reorder mail recipient dept" },

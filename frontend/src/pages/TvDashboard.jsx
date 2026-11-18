@@ -972,13 +972,17 @@ export default function TvDashboard() {
   const openParts = (frame) => openStack({ kind: "partList", rowsState, ...frame });
   const shortBy = (r) => Math.max(0, (r.min_stock_level || 0) - (r.qty_on_hand || 0));
   const byStatus = (...st) => rows.filter((r) => st.includes(r.status));
-  const openCritical = () => openParts({ title: "Critical Parts", rows: byStatus("Out of Stock", "Below Minimum"), valueLabel: "Short by", valueOf: shortBy });
+  // Department first, then its parts (18 Nov 2026: "kis dept k itne phir dept
+  // par click kare tab dikhe kon kon se"). Department = the section's group
+  // (Press + General Tool Room -> Tool Room) or the section.
+  const openCritical = () => openParts({ title: "Critical Parts", rows: byStatus("Out of Stock", "Below Minimum"), valueLabel: "Short by", valueOf: shortBy, chart: "byDept", deptNames: deptName });
   const openReorder = () => openParts({ title: "Reorder", rows: byStatus("Reorder"), valueLabel: "Stock", valueOf: (r) => r.qty_on_hand });
   // A Top 10 only where the list's question is money — Excess ₹ and Stock
   // Value (`top10`); a short / reorder / healthy list is the list alone (the
   // store's chart rule, 17 Oct 2026).
   const openExcess = () => openParts({ title: "Excess Parts", rows: byStatus("Above Maximum"), valueLabel: "Excess ₹", valueOf: excessOf, valueFmt: fmtMoney, top10: true });
   const sectionName = useMemo(() => Object.fromEntries((sections || []).map((s) => [s.id, s.name])), [sections]);
+  const deptName = useMemo(() => Object.fromEntries((sections || []).map((s) => [s.id, (s.group_name || "").trim() || s.name])), [sections]);
 
   // Stock value by section, straight off the overview — the same split the
   // desktop dashboard's value panel shows. A slice drills to that section's
@@ -2255,7 +2259,9 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   // parts, how many sensors…). Cleared whenever the data reloads.
   const [pick, setPick] = useState(null);
   const [secPick, setSecPick] = useState(null);
-  useEffect(() => { setPick(null); setSecPick(null); }, [rows]);
+  const [deptPick, setDeptPick] = useState(null);
+  useEffect(() => { setPick(null); setSecPick(null); setDeptPick(null); }, [rows]);
+  const deptOf = (r) => (frame.deptNames || {})[r.section_id] || "Others";
   const sectionNames = frame.sectionNames || {};
   // An excess-aging list: each row's wait since its last inward replaces the status.
   const age = frame.ageCol || null;
@@ -2285,16 +2291,29 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   }
   const isByType = frame.chart === "byType";
   const isBySection = frame.chart === "bySection";
+  const isByDept = frame.chart === "byDept";
+  const byDept = (() => {
+    if (!isByDept) return [];
+    const by = {};
+    rows.forEach((r) => {
+      const d = deptOf(r);
+      const e = by[d] || (by[d] = { name: d, value: 0, out: 0, below: 0 });
+      e.value += 1;
+      if (r.status === "Out of Stock") e.out += 1; else e.below += 1;
+    });
+    return Object.values(by).sort((a, b) => b.value - a.value);
+  })();
   // No chart at all on a list that is not about money (Critical, Reorder,
   // Healthy, a type's parts): ranking pcs / sets / metres against each other
   // says nothing ("is type k jitne bhi chart wo horizontal" — 22 Oct 2026).
-  const hasChart = isByType || isBySection || Boolean(frame.top10);
-  const chartData = isByType ? byType : isBySection ? bySection : top;
+  const hasChart = isByType || isBySection || isByDept || Boolean(frame.top10);
+  const chartData = isByType ? byType : isBySection ? bySection : isByDept ? byDept : top;
   const chartTotal = chartData.reduce((s, d) => s + (d.value || 0), 0);
-  const chartTitle = isByType ? "Parts by category"
+  const chartTitle = isByDept ? `${frame.title || "Parts"} by department` : isByType ? "Parts by category"
     : isBySection ? `${frame.valueLabel || "Value"} by section`
       : `Top ${top.length} by ${frame.valueLabel || "Stock"}`;
-  const shown = secPick != null ? rows.filter((r) => r.section_id === secPick)
+  const shown = isByDept ? (deptPick ? rows.filter((r) => deptOf(r) === deptPick) : [])
+    : secPick != null ? rows.filter((r) => r.section_id === secPick)
     : pick ? rows.filter((r) => (r.sub_category || "Others") === pick) : rows;
   const onBarClick = (d) => {
     const name = d && (d.name ?? d.payload?.name);
@@ -2310,6 +2329,31 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
         <div className="flex-1 min-h-[36vh]">
           {!chartData.length ? (
             <div className="h-full flex items-center justify-center text-[var(--dx-t4)] text-[1.6vh]">No parts</div>
+          ) : isByDept ? (
+            <div className="h-full overflow-auto pr-[0.4vh] space-y-[0.7vh]">
+              {chartData.map((c, i) => {
+                const col = PIE[i % PIE.length];
+                const active = deptPick === c.name;
+                return (
+                  <button key={c.name} onClick={() => setDeptPick((p) => (p === c.name ? null : c.name))}
+                    className={`w-full text-left rounded-md px-[0.8vh] py-[0.7vh] transition-colors ${active ? "bg-[var(--dx-track)] ring-1 ring-[var(--dx-border)]" : "hover:bg-[var(--dx-track)]"}`}>
+                    <span className="flex items-center gap-[1.2vh] text-[1.65vh]">
+                      <span className="w-[1.4vh] h-[1.4vh] rounded-full shrink-0" style={{ background: gradCss(col), boxShadow: `0 1px 4px ${col}66` }} />
+                      <span className="flex-1 min-w-0 font-semibold text-[var(--dx-t1)] truncate">{c.name}</span>
+                      <span className="dx-radiant font-extrabold text-[var(--dx-t1)] text-[2vh] whitespace-nowrap">{fmtInt(c.value)}</span>
+                      <span className="w-[5vh] text-right text-[var(--dx-t4)]">{Math.round((c.value / (chartTotal || 1)) * 100)}%</span>
+                    </span>
+                    <span className="ml-[2.6vh] mt-[0.4vh] block h-[1.2vh] rounded-full bg-[var(--dx-track)] overflow-hidden">
+                      <span className="block h-full rounded-full" style={{ width: `${Math.max(3, (c.value / (chartData[0]?.value || 1)) * 100)}%`, background: gradCss(col, 90) }} />
+                    </span>
+                    <span className="ml-[2.6vh] mt-[0.3vh] block text-[1.25vh] text-[var(--dx-t3)]">
+                      <span style={{ color: "var(--pill-red)" }}>{fmtInt(c.out)} out of stock</span> · <span style={{ color: "var(--pill-amber)" }}>{fmtInt(c.below)} below minimum</span>
+                    </span>
+                  </button>
+                );
+              })}
+              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a department to see its parts</div>
+            </div>
           ) : isByType ? (
             // Ranked horizontal bars (not a donut) — tap a type to filter the list.
             <div className="h-full overflow-auto pr-[0.4vh] space-y-[0.6vh]">
@@ -2397,7 +2441,17 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
       )}
       <Card className="p-[1.6vh] overflow-auto">
         <h3 className="dx-radiant text-[1.8vh] font-bold text-[var(--dx-t1)] mb-[1vh] flex items-center gap-[1vh] flex-wrap">
-          {secPick != null ? (
+          {isByDept ? (
+            deptPick ? (
+              <>
+                <span>{shown.length} × {deptPick}</span>
+                <button onClick={() => setDeptPick(null)}
+                  className="text-[1.2vh] px-[1vh] py-[0.3vh] rounded-full bg-[var(--dx-track)] text-[var(--dx-t4)] hover:text-[var(--dx-t1)] transition-colors">
+                  ✕ clear
+                </button>
+              </>
+            ) : <span>{rows.length} parts in {chartData.length} departments · tap a department</span>
+          ) : secPick != null ? (
             <>
               <span>{shown.length} × {sectionNames[secPick] || "Section"}</span>
               <button onClick={() => setSecPick(null)}
@@ -2436,7 +2490,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <td className="pr-[1vh] whitespace-nowrap">{age ? <AgeCell r={r} age={age} /> : <StatusPill status={r.status} />}</td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={showValue ? 5 : 4} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{pick ? `No ${pick} parts` : "No parts in this list"}</td></tr>}
+            {!shown.length && <tr><td colSpan={showValue ? 5 : 4} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{isByDept && !deptPick ? "Tap a department on the left to see its parts" : pick ? `No ${pick} parts` : "No parts in this list"}</td></tr>}
           </tbody>
         </table>
       </Card>

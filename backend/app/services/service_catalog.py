@@ -18,7 +18,7 @@ SERVICES = [
      "keywords": ["dashboard", "overview", "spare", "store", "home", "kpi", "coverage", "summary"]},
     {"key": "live_dashboard", "title": "Live Dashboard", "route": "/live-dashboard",
      "category": "Overview", "icon": "🖥️", "mod": "live_dashboard",
-     "keywords": ["live", "wallboard", "tv", "led", "alerts", "real time", "monitor"]},
+     "keywords": ["live", "wallboard", "tv", "led", "alerts", "real time", "monitor", "critical department"]},
     # Every open point of the store on one page, with who must act and by when.
     # No "issues" keyword: the assistant matches by substring, and that would put
     # this screen ahead of Scan Part for anyone asking how to issue a part.
