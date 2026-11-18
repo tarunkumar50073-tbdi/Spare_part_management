@@ -2312,7 +2312,9 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
   const chartTitle = isByDept ? `${frame.title || "Parts"} by department` : isByType ? "Parts by category"
     : isBySection ? `${frame.valueLabel || "Value"} by section`
       : `Top ${top.length} by ${frame.valueLabel || "Stock"}`;
-  const shown = isByDept ? (deptPick ? rows.filter((r) => deptOf(r) === deptPick) : [])
+  // All parts until a department is picked (18 Nov 2026: "right side pure part
+  // dikhaye and dept select kare tab uske part").
+  const shown = isByDept ? (deptPick ? rows.filter((r) => deptOf(r) === deptPick) : rows)
     : secPick != null ? rows.filter((r) => r.section_id === secPick)
     : pick ? rows.filter((r) => (r.sub_category || "Others") === pick) : rows;
   const onBarClick = (d) => {
@@ -2352,7 +2354,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                   </button>
                 );
               })}
-              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a department to see its parts</div>
+              <div className="text-[1.2vh] text-[var(--dx-t4)] pt-[0.3vh] pl-[0.6vh]">Tap a department to show only its parts</div>
             </div>
           ) : isByType ? (
             // Ranked horizontal bars (not a donut) — tap a type to filter the list.
@@ -2450,7 +2452,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                   ✕ clear
                 </button>
               </>
-            ) : <span>{rows.length} parts in {chartData.length} departments · tap a department</span>
+            ) : <span>All {rows.length} parts · {chartData.length} departments · tap a department to filter</span>
           ) : secPick != null ? (
             <>
               <span>{shown.length} × {sectionNames[secPick] || "Section"}</span>
@@ -2490,7 +2492,7 @@ function PartListView({ frame, onOpen, axis = "#64748b", grid = "#e2e8f0" }) {
                 <td className="pr-[1vh] whitespace-nowrap">{age ? <AgeCell r={r} age={age} /> : <StatusPill status={r.status} />}</td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={showValue ? 5 : 4} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{isByDept && !deptPick ? "Tap a department on the left to see its parts" : pick ? `No ${pick} parts` : "No parts in this list"}</td></tr>}
+            {!shown.length && <tr><td colSpan={showValue ? 5 : 4} className="py-[3vh] text-center text-[var(--dx-t4)] text-[1.6vh]">{pick ? `No ${pick} parts` : "No parts in this list"}</td></tr>}
           </tbody>
         </table>
       </Card>
