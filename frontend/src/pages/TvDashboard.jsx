@@ -208,7 +208,9 @@ function PartValTip({ active, payload, fmt, label }) {
 // left out, and `fmt` formats the values (rupees on the in-vs-out chart).
 function BoardTip({ active, payload, label, fmt = fmtInt }) {
   if (!active || !payload) return null;
-  const rows = payload.filter((it) => it && it.value != null);
+  // An Area drawn only to shade under its Line (tooltipType "none") is not a
+  // second figure — skip it (18 Nov 2026: "value, stock value 2 dikha rha").
+  const rows = payload.filter((it) => it && it.value != null && it.type !== "none");
   if (!rows.length) return null;
   const text = "max(11px, 1.25vh)";
   // A lone unnamed series (dataKey "value") needs no caption beside its figure.

@@ -80,7 +80,7 @@ SERVICES = [
     {"key": "store_stock", "title": "Store Stock", "route": "/store-stock-spare",
      "category": "Inventory", "icon": "📦", "mod": "store_stock",
      "keywords": ["stock", "count", "counting", "opening", "quantity", "qty", "in stock",
-                  "on hand", "in stock", "upload", "below min", "reorder", "excess", "above max",
+                  "on hand", "upload", "below min", "reorder", "excess", "above max",
                   "zero stock", "out of stock", "never counted", "stock value", "kitna stock",
                   "kam stock", "bin", "opening stock", "erp stock upload", "waiting for qc"]},
     {"key": "part_ledger", "title": "Part Ledger", "route": "/spare-part-history",
