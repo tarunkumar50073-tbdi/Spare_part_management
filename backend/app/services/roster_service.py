@@ -155,6 +155,27 @@ def _engine(url):
     return eng
 
 
+def _free(column, value, me, active, roster, name):
+    """May the person (Employee id `me`, -1 = new) carry this code / mobile?
+    Yes when nobody else here has it. When an INACTIVE record has it and this
+    person is active, it moves over: the Maintenance app made its staff again
+    under new ids (Oct 2026) and the old, removed records kept every code, so
+    the active people showed no employee code (18 Nov 2026: "employee code
+    nhi aa rhe"). An active holder keeps it; past issues keep the code they
+    saved at the time."""
+    holder = Employee.query.filter(column == value, Employee.id != me).first()
+    if holder is None:
+        return True
+    if active and not holder.is_active:
+        setattr(holder, column.key, None)
+        holder.updated_by = "ROSTER"
+        db.session.flush()
+        logger.info("roster %s: %s %s moved from inactive #%s to %s", roster.key, column.key, value, holder.id, name)
+        return True
+    logger.warning("roster %s: %s %s is another employee's here — left off %s", roster.key, column.key, value, name)
+    return False
+
+
 class RosterService:
 
     @staticmethod
@@ -245,7 +266,9 @@ class RosterService:
     def _mirror(roster, people):
         """The roster's people on the Employee master: added, updated, or made
         inactive when the roster no longer has them. A code or mobile already
-        another person's here is left off (logged), never taken from him."""
+        another ACTIVE person's here is left off (logged), never taken from
+        him; one held by an inactive record moves to the active person (see
+        _free)."""
         mine = {e.external_id: e for e in Employee.query.filter_by(source=roster.key)}
         seen = set()
         for p in people:
@@ -255,11 +278,10 @@ class RosterService:
             me = emp.id if emp is not None else -1
             name = _text(p["name"], 80) or f"#{ext}"
             code = _text(p["code"], 30)
-            if code and Employee.query.filter(Employee.employee_code == code, Employee.id != me).first():
-                logger.warning("roster %s: code %s is another employee's here — left off %s", roster.key, code, name)
+            if code and not _free(Employee.employee_code, code, me, p["active"], roster, name):
                 code = None
             mobile = normalise_mobile(p["contact"])
-            if mobile and Employee.query.filter(Employee.mobile == mobile, Employee.id != me).first():
+            if mobile and not _free(Employee.mobile, mobile, me, p["active"], roster, name):
                 mobile = None
             want = {"name": name, "employee_code": code, "department": roster.department,
                     "designation": _text(p["designation"], 60), "mobile": mobile, "is_active": bool(p["active"])}

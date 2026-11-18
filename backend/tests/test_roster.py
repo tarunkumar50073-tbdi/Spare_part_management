@@ -177,3 +177,20 @@ def test_maintenance_falls_back_to_the_day_board_without_the_live_table():
     with _maintenance_db(False).connect() as c:
         _people, duty, marked = roster_service._read_maintenance(c, TODAY)
     assert marked and duty == {"80": "A"}
+
+
+def test_an_active_person_takes_his_code_from_an_old_inactive_record(rosters):
+    """18 Nov 2026: the Maintenance app made its staff again under new ids; the
+    old, removed records held every code, so the active people had none."""
+    rosters["MAINTENANCE"] = ([_person(70, "HEMANT", "455", active=False), _person(85, "HEMANT", "455")],
+                              {"85": "B"}, True)
+    RosterService().refresh(force=True)
+    old = Employee.query.filter_by(source="MAINTENANCE", external_id="70").one()
+    new = Employee.query.filter_by(source="MAINTENANCE", external_id="85").one()
+    assert (new.employee_code, new.is_active) == ("455", True)
+    assert (old.employee_code, old.is_active) == (None, False)
+    # Stable on the next read, whatever the order.
+    rosters["MAINTENANCE"] = (list(reversed(rosters["MAINTENANCE"][0])), {"85": "B"}, True)
+    RosterService().refresh(force=True)
+    assert Employee.query.filter_by(source="MAINTENANCE", external_id="85").one().employee_code == "455"
+    assert [r["employee_code"] for r in RosterService().on_duty(q="455")["rows"]] == ["455"]
