@@ -697,7 +697,7 @@ function ShelfStrip({ shelf }) {
       <span className={`rounded-lg px-3 py-1 text-sm font-extrabold uppercase tracking-wide ${rework
         ? "bg-amber-500 text-white" : "bg-emerald-600 text-white"}`}>{rework ? "Rework part" : "New part"}</span>
       <span className="text-sm text-slate-600 dark:text-slate-300">Location <b className="text-base text-slate-900 dark:text-white">{shelf.location || "—"}</b></span>
-      <span className="text-sm text-slate-600 dark:text-slate-300">{rework ? "Rework qty" : "New qty"} <b className="text-base text-slate-900 dark:text-white">{shelf.qty} {shelf.uom}</b></span>
+      <span className="text-sm text-slate-600 dark:text-slate-300">Qty <b className="text-base text-slate-900 dark:text-white">{shelf.qty} {shelf.uom}</b></span>
     </section>
   );
 }
