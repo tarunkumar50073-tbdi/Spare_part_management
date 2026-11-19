@@ -10,7 +10,7 @@ import { packetService } from "../../services/packetService.js";
 import { printLabels } from "../../utils/barcodeRender.js";
 import { LABEL_LIMITS, LABEL_SIZES, packetLabelsHtml, tinyQr } from "../../utils/packetLabels.js";
 import { defaultTune, labelPng, qrFit, savedTune, saveTune } from "../../utils/labelImage.js";
-import { helperPrint, helperStatus, pickPrinter, savePrinter } from "../../utils/labelHelper.js";
+import { HelperStillPrinting, helperPrint, helperStatus, pickPrinter, savePrinter } from "../../utils/labelHelper.js";
 
 // The Packets & QR Labels dialogs (the store's spec of 27 Oct 2026): verify a
 // receipt physically, make its packets / unit labels (or label old stock on the
@@ -614,6 +614,13 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
         savePrinter(printer);
         setStep("ASK");
       } catch (e) {
+        if (e instanceof HelperStillPrinting) {
+          // Sent, but the printer has not finished yet: let the store confirm once it has.
+          savePrinter(printer);
+          toast("Labels are still printing — confirm once they are all out.", { icon: "🖨️", duration: 8000 });
+          setStep("ASK");
+          return;
+        }
         toast.error(e.message || "Could not print");
       } finally {
         setPrinting(false);
@@ -646,7 +653,7 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
       </> : <>
         <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
         <button type="button" className="btn-primary" onClick={print} disabled={(reprint && !reason.trim()) || !sizeOk || printing || (direct && !printer)}>
-          <Printer size={15} aria-hidden="true" /> {printing ? "Printing…" : direct ? "Print" : "Print (print window)"}
+          <Printer size={15} aria-hidden="true" /> {printing ? `Printing ${packets.length} label${packets.length === 1 ? "" : "s"}… keep this open` : direct ? "Print" : "Print (print window)"}
         </button>
       </>}>
       {step === "ASK" ? (

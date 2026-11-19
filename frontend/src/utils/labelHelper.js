@@ -18,16 +18,24 @@ export async function helperStatus() {
   }
 }
 
+// The helper answers only after the whole batch is with the printer, so a
+// big batch (441 labels on 19 Nov) takes minutes: the wait grows with the
+// count. If it still runs out, the labels are usually printing anyway, so
+// the caller is told "still printing" instead of "failed".
+export class HelperStillPrinting extends Error {}
+
 export async function helperPrint({ printer, w, h, images, title }) {
+  const wait = Math.min(30 * 60000, 60000 + images.length * 2000);
   let r;
   try {
     r = await fetch(`${BASE}/print`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ printer, w, h, images, title }),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(wait),
     });
-  } catch {
+  } catch (e) {
+    if (e?.name === "TimeoutError") throw new HelperStillPrinting("The printer is still busy with the labels");
     throw new Error("The label helper on this PC did not answer - is its window still open?");
   }
   const j = await r.json().catch(() => ({}));
