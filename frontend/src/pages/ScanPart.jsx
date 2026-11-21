@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { sendToIssue } from "../lib/issueScanSink.js";
 import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -318,6 +319,9 @@ export default function ScanPart() {
   // false when the code did not identify a part: the tab stays open with the
   // text as typed, for the operator to correct it.
   const onScan = async (code, scanSource) => {
+    // A label of the part on the open packet Issue form goes into that issue
+    // (21 Nov 2026) - not a new lookup that would throw the form away.
+    if (action?.key === "ISSUE" && sendToIssue(code, scanSource)) return true;
     if (!(await okToLeave())) return false;
     startNew();
     resolve(code, { via: "SCAN", scanSource });

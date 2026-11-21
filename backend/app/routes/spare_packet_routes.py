@@ -432,12 +432,46 @@ def _issue_codes(data):
 
 # Several labels of one part to one person in one go (10 Nov 2026) — the Scan Part issue
 # right, as for one label.
+def _audit_issue_scan(data, ok):
+    """A label scanned INTO an issue (its "Scan the next label" box, or the
+    main scan box while an Issue form is open) is a scan too: one Scan Audit
+    row, mode ISSUE, SUCCESS when it was added and FAILED when refused (21 Nov
+    2026: "har lable ka scan nhi dikha rha scan audit me"). Never stops the
+    issue: a failure to record is logged and passed over."""
+    scanned = str(data.get("scanned") or "").strip()[:80]
+    if not scanned:
+        return
+    import logging
+    from app.models.scan_audit import SCAN_SOURCES, ScanAudit
+    try:
+        p = SparePacketService.find(scanned)
+        src = data.get("scan_source")
+        db.session.add(ScanAudit(
+            scanned_code=scanned, part_id=p.part_id if p is not None else None,
+            scan_source=src if src in SCAN_SOURCES else "USB_SCANNER", scan_mode="ISSUE",
+            result="SUCCESS" if ok else "FAILED", user=_who(),
+            store_code=(p.part.store_code if p is not None and p.part is not None else None)))
+        db.session.commit()
+    except Exception:  # noqa: BLE001 - the audit row must never block the counter
+        db.session.rollback()
+        logging.getLogger("dxstore").warning("issue scan not audited", exc_info=True)
+
+
 @bp.route("/packets/issue-check", methods=["POST"])
 @permission_required("scan_part", "create")
 def issue_check():
     data = _body()
-    _issue_codes(data)
-    return success_response(service.issue_check(data.get("codes")))
+    try:
+        _issue_codes(data)
+        out = service.issue_check(data.get("codes"))
+    except Exception:
+        _audit_issue_scan(data, ok=False)
+        raise
+    # The scan is the last code sent: added only if the list grew by it (a
+    # label already in the list is not added again).
+    codes = data.get("codes") or []
+    _audit_issue_scan(data, ok=int(out.get("count") or 0) >= len(codes))
+    return success_response(out)
 
 
 @bp.route("/packets/issue-many", methods=["POST"])

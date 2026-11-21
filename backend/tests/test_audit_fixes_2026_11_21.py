@@ -120,3 +120,29 @@ def test_a_racks_unprinted_labels_are_listed_for_ticking(app):
     c = _login(app, perms={"spare_packets": {"view": True}})
     r = c.get(f"/api/v1/spare-packets/rack-labels?store_code={STORE}&rack=R6&section_id={sec.id}")
     assert r.status_code == 200 and len(r.get_json()["data"]["rows"]) == 2
+
+
+def test_each_label_scanned_into_an_issue_is_on_scan_audit(app):
+    """21 Nov 2026: every "Scan the next label" scan is a Scan Audit row, mode
+    ISSUE - SUCCESS when added, FAILED when not (already in the list)."""
+    from app.models.scan_audit import ScanAudit
+    from tests.test_read_access import _login
+    p = _part(qty=3, pkt=1)
+    made = svc.old_stock_pack(p.id, 3, "UNIT", user="sup")["packets"]
+    code = made[0]["code"]
+    c = _login(app, perms={"scan_part": {"view": True, "create": True}})
+    url = "/api/v1/spare-packets/packets/issue-check"
+    r = c.post(url, json={"codes": [str(made[0]["id"]), code], "scanned": code, "scan_source": "USB_SCANNER"})
+    assert r.status_code == 200 and r.get_json()["data"]["count"] == 2
+    r = c.post(url, json={"codes": [str(made[0]["id"]), str(made[1]["id"]), str(made[1]["id"])], "scanned": str(made[1]["id"])})
+    assert r.status_code == 200 and r.get_json()["data"]["count"] == 2          # nothing new added
+    r = c.post(url, json={"codes": [str(made[0]["id"]), "TB20991231NOSUCH"], "scanned": "TB20991231NOSUCH"})
+    assert r.status_code == 404
+    rows = ScanAudit.query.filter_by(scan_mode="ISSUE").order_by(ScanAudit.id).all()[-3:]
+    assert [(x.scanned_code, x.result) for x in rows] == [
+        (code, "SUCCESS"), (str(made[1]["id"]), "FAILED"), ("TB20991231NOSUCH", "FAILED")]
+    assert rows[0].part_id == p.id and rows[0].store_code == STORE
+    # No scan named: no row (the list being re-checked after a removal).
+    n = ScanAudit.query.count()
+    c.post(url, json={"codes": [str(made[0]["id"]), str(made[1]["id"])]})
+    assert ScanAudit.query.count() == n

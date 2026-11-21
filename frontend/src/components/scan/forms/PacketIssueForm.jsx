@@ -6,6 +6,7 @@ import { packetService } from "../../../services/packetService.js";
 import { fmtDate, fmtStamp } from "../../../lib/format.js";
 import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
 import { clean, fmtQty, isStoreDepartment, qtyError, useActionFlow, useDepartments } from "./flow.js";
+import { partOfLabel, setIssueScanSink } from "../../../lib/issueScanSink.js";
 
 // ISSUE of a whole packet or one individual unit — what a packet / unit QR
 // opens on Scan Part (the store's spec of 27 Oct 2026). One scan names one
@@ -58,21 +59,22 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   const lotErr = lot ? qtyError(lotQty, { max: Number(packet.qty), maxText: `Only ${fmtQty(packet.qty, packet.uom)} on this label` }) : null;
   const totalQty = lot ? Number(lotQty || 0) : all.reduce((sum, p) => sum + Number(p.qty || 0), 0);
 
-  const check = async (codes) => {
-    const d = (await packetService.issueCheck(codes, { silent: true })).data.data;
+  const check = async (codes, scan) => {
+    const d = (await packetService.issueCheck(codes, { silent: true }, scan)).data.data;
     setMore(d.packets.slice(1));
     setSetFifo(d.fifo);
     return d;
   };
-  const addLabel = async () => {
-    const text = next.trim();
+  const addLabel = async (scanned, scanSource = "USB_SCANNER") => {
+    const text = String(scanned ?? next).trim();
     if (!text || adding) return;
     setAddMsg(null);
     setAdding(true);
     try {
       // The packets held are sent by id; the new scan's code takes the next
       // packet of it on the shelf (one code a part a day since 14 Nov 2026).
-      const d = await check([...all.map((p) => String(p.id)), text]);
+      // The scan itself goes on Scan Audit as an ISSUE scan (21 Nov 2026).
+      const d = await check([...all.map((p) => String(p.id)), text], { scanned: text, scan_source: scanSource });
       if (d.count === all.length) setAddMsg("This label is already in the list");
     } catch (e) {
       setAddMsg(e?.response?.data?.message || "Could not add the label — check the network and scan again");
@@ -82,6 +84,20 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
       setTimeout(() => nextRef.current?.focus(), 0);
     }
   };
+  // A label of this part scanned into the page's main scan box is added here
+  // too, not opened again (21 Nov 2026). Another part's label is left to Scan
+  // Part, which asks before leaving this form.
+  const addRef = useRef(addLabel);
+  addRef.current = addLabel;
+  const canAdd = !lot && available && !flow.review && !flow.busy;
+  useEffect(() => {
+    if (!canAdd) return undefined;
+    return setIssueScanSink((code, scanSource) => {
+      if (partOfLabel(code) !== String(part.part_no || "").toUpperCase()) return false;
+      addRef.current(code, scanSource);
+      return true;
+    });
+  }, [canAdd, part.part_no]);
   // A scanner that sends no Enter adds the label when its burst goes quiet.
   const gunEnd = useGunEnd(() => addLabel());
   const removeLabel = async (id) => {

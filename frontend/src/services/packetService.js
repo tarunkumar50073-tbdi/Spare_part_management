@@ -44,6 +44,7 @@ export const packetService = {
   issue: (code, payload) => api.post(`/spare-packets/packets/${encodeURIComponent(code)}/issue`, payload),
   // Several labels of ONE part to one person in one go (10 Nov 2026): the
   // check as labels are scanned in (changes nothing), then the issue — all or none.
-  issueCheck: (codes, config) => api.post("/spare-packets/packets/issue-check", { codes }, config),
+  // scanned / scan_source: the label just scanned, for its Scan Audit row (21 Nov 2026).
+  issueCheck: (codes, config, scan = {}) => api.post("/spare-packets/packets/issue-check", { codes, ...scan }, config),
   issueMany: (payload) => api.post("/spare-packets/packets/issue-many", payload),
 };
