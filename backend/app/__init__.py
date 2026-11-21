@@ -615,7 +615,7 @@ def _start_backup_worker(app):
 # server whose database may not be SQLite): (table, column, SQL type). Added
 # on boot wherever they are missing, on any database.
 LATE_COLUMNS = (
-    # The issue's own number, <FY>/<unit>/DXIS<NNNN> - 26-27/001/DXIS0001 (21 Nov
+    # The issue's own number, DX/<FY>/<unit>/IS<NNNN> - DX/26-27/001/IS0001 (21 Nov
     # 2026, ERP's slip shape with DX for the app) - older issues keep only their row id.
     ("spare_stock_ledger", "issue_no", "VARCHAR(30)"),
     # The part's 2nd and 3rd photos, comma-separated file names (24 Oct 2026).

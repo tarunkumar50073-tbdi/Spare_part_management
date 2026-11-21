@@ -67,7 +67,7 @@ def test_reading_return_documents_needs_a_right(app):
 
 
 def test_issue_and_return_numbers_run_by_financial_year():
-    """21 Nov 2026: 26-27/001/DXIS0001 and 26-27/001/DXRT0001 (ERP's shape, DX = app), from April each year."""
+    """21 Nov 2026: DX/26-27/001/IS0001 and DX/26-27/001/RT0001 (DX/ + ERP's shape), from April each year."""
     import re
     from datetime import date
     from app.models.spare_stock import SpareStockLedger
@@ -82,12 +82,12 @@ def test_issue_and_return_numbers_run_by_financial_year():
     stock = SpareStockService()
     a = stock.issue(p.id, 1, DEPT, issued_to="Ravi", user="sup", remarks="r")["issue"]
     b = stock.issue(p.id, 1, DEPT, issued_to="Ravi", user="sup", remarks="r")["issue"]
-    pat = re.compile(r"^\d{2}-\d{2}/001/DXIS(\d{4})$")
+    pat = re.compile(r"^DX/\d{2}-\d{2}/001/IS(\d{4})$")
     na, nb = pat.match(a["issue_no"]), pat.match(b["issue_no"])
     assert na and nb and int(nb.group(1)) == int(na.group(1)) + 1
-    assert a["issue_no"].split("/")[0] == fy()
+    assert a["issue_no"].split("/")[1] == fy()
     ret = SpareReturnService().return_to_store(a["id"], qty=1, reason="Wrong Part", user="sup")
-    assert re.match(r"^\d{2}-\d{2}/001/DXRT\d{4}$", ret["return_no"]), ret["return_no"]
+    assert re.match(r"^DX/\d{2}-\d{2}/001/RT\d{4}$", ret["return_no"]), ret["return_no"]
     # A count or receipt gets no issue number.
     assert SpareStockLedger.query.filter(SpareStockLedger.part_id == p.id,
                                          SpareStockLedger.txn_type != "ISSUE",

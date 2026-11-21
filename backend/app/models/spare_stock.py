@@ -141,7 +141,7 @@ class SpareStockLedger(BaseModel):
     # is the person from the department who handed it over. created_by stays the
     # store user who processed the slip. All NULL on non-RETURN rows.
     return_no = db.Column(db.String(40), nullable=True, index=True)
-    # An ISSUE row's own number, 26-27/001/DXIS0001 (21 Nov 2026); None on older
+    # An ISSUE row's own number, DX/26-27/001/IS0001 (21 Nov 2026); None on older
     # issues and on every other movement.
     issue_no = db.Column(db.String(30), nullable=True, index=True)
     return_reason = db.Column(db.String(60), nullable=True)

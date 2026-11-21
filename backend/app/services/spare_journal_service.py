@@ -112,22 +112,22 @@ class SpareJournalService:
         prefix = f"RCV-{datetime.now():%Y%m%d}-"
         return f"{prefix}{self._next_seq(prefix, SpareReceipt.receipt_no):03d}"
 
-    # Store document numbers in ERP's own shape - <FY>/<unit>/<type><NNNN> -
-    # with "DX" in front of the type so an app number is never taken for an
-    # ERP slip (21 Nov 2026: ERP's issue slip is 26-27/001/IS0001; he agreed to
-    # 26-27/001/DXIS0001 and 26-27/001/DXRT0001, issue and return only).
+    # Store document numbers: "DX/" + ERP's own shape <FY>/<unit>/<type><NNNN>
+    # (21 Nov 2026: ERP's issue slip is 26-27/001/IS0001; he chose
+    # DX/26-27/001/IS0001 and DX/26-27/001/RT0001, issue and return only). The
+    # DX/ in front marks an app number, so it is never taken for an ERP slip.
     UNIT_KEY, UNIT_DEFAULT = "doc_unit_code", "001"      # Plant 1
 
     def next_return_no(self):
-        """26-27/001/DXRT0001 - a return slip (was RET-YYYYMMDD-NNN). Checked
+        """DX/26-27/001/RT0001 - a return slip (was RET-YYYYMMDD-NNN). Checked
         against the return slips of both tables."""
         from app.models.spare_stock import SpareStockLedger
-        return self._fy_no("DXRT", SpareReturn.return_no, SpareStockLedger.return_no)
+        return self._fy_no("RT", SpareReturn.return_no, SpareStockLedger.return_no)
 
     def next_issue_no(self):
-        """26-27/001/DXIS0001 - an issue slip of this app."""
+        """DX/26-27/001/IS0001 - an issue slip of this app."""
         from app.models.spare_stock import SpareStockLedger
-        return self._fy_no("DXIS", SpareStockLedger.issue_no)
+        return self._fy_no("IS", SpareStockLedger.issue_no)
 
     @staticmethod
     def financial_year(day=None):
@@ -144,7 +144,7 @@ class SpareJournalService:
         return code or cls.UNIT_DEFAULT
 
     def _fy_no(self, head, *columns):
-        """The next <FY>/<unit>/<HEAD><NNNN>, from 0001 each April.
+        """The next DX/<FY>/<unit>/<HEAD><NNNN>, from 0001 each April.
 
         The last number of each series is kept in app_settings and that row is
         write-locked before it is read, so two issues saved at the same moment
@@ -154,7 +154,7 @@ class SpareJournalService:
         import json
         from app.models.app_setting import AppSetting
         from app.models.base import utcnow
-        prefix = f"{self.financial_year()}/{self.unit_code()}/{head}"
+        prefix = f"DX/{self.financial_year()}/{self.unit_code()}/{head}"
         key = f"doc_seq:{prefix}"
         row = AppSetting.query.filter_by(key=key).first()
         if row is None:

@@ -43,7 +43,7 @@ def _no(lid):
 
 def _id(no):
     """Back from a report's Issue No (IS/…) to the ISSUE row id the tests hold."""
-    if isinstance(no, str) and "/DXIS" in no:
+    if isinstance(no, str) and no.startswith("DX/"):
         row = SpareStockLedger.query.filter_by(issue_no=no).first()
         return row.id if row is not None else no
     return no
