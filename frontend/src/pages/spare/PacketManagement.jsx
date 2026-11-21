@@ -442,10 +442,14 @@ function OldStockTab({ storeCode }) {
                         <div className="text-[11px] text-slate-400">Rack {r.rack}{r.bin && <BinTag bin={r.bin} />}</div></td>
                       <PartCell part={r.part} />
                       <td className="px-3 py-2.5 text-[12px]">{r.part.section || "—"}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">{num(r.on_hand)} {r.part.uom}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">{num(r.on_hand)} {r.part.uom}
+                        {r.bin && <div className="text-[11px] font-normal text-amber-700 dark:text-amber-300">fresh + rework together</div>}</td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right tabular">{num(r.packed_available)}
                         {r.waiting_in_receipts > 0 && <div className="text-[11px] text-slate-400">{num(r.waiting_in_receipts)} in Receipts</div>}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{num(r.to_label)}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{num(r.to_label)}
+                        {/* A part on two shelves (21 Nov 2026: "ye rework and fresh k lable same
+                            same h kya"): one stock figure, shown on both lines - count each shelf. */}
+                        {r.bin && <div className="text-[11px] font-normal text-amber-700 dark:text-amber-300">for both shelves — label what is on this one</div>}</td>
                       <td className="px-3 py-2.5"><span className={`badge ${pill}`}>{word}</span></td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right">
                         {canCreate && r.to_label > 0 && (
@@ -755,7 +759,8 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
                     <tr key={`${r.part.id}-${r.bin || ""}`} className={`align-middle ${isTicked(r) ? "bg-sky-50/70 dark:bg-sky-500/5" : ""}`}>
                       <td className="px-3 py-2"><input type="checkbox" checked={isTicked(r)} onChange={() => tick(r)}
                         aria-label={`Tick ${r.part.part_no}`} /></td>
-                      <td className="whitespace-nowrap px-3 py-2 font-semibold">{r.part.location || "—"}{r.bin && <BinTag bin={r.bin} />}</td>
+                      <td className="whitespace-nowrap px-3 py-2 font-semibold">{r.part.location || "—"}{r.bin && <BinTag bin={r.bin} />}
+                        {r.bin && <div className="text-[10.5px] font-normal text-amber-700 dark:text-amber-300">qty is for both shelves</div>}</td>
                       <td className="px-3 py-2"><div className="font-mono text-[12px] font-semibold">{r.part.part_no}</div>
                         <div className="max-w-[260px] truncate text-[11px] text-slate-400" title={r.part.part_name}>{r.part.part_name}</div></td>
                       <td className="whitespace-nowrap px-3 py-2">{r.part.packet_qty

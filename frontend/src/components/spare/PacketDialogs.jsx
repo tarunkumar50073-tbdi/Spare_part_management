@@ -344,7 +344,7 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
   };
   const short = !receipt && Number(counted) > 0 && Number(counted) < Number(old.to_label);
   return (
-    <Shell title={receipt ? "Make QR labels" : "Label old stock"} onClose={onClose} size="xl"
+    <Shell title={receipt ? "Make QR labels" : old?.bin === "REWORK" ? "Label old stock — rework shelf" : old?.bin ? "Label old stock — fresh shelf" : "Label old stock"} onClose={onClose} size="xl"
       footer={<>
         <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
         {!same && (
@@ -358,7 +358,10 @@ export function MakeLabelsDialog({ receipt, old, onClose, onMade, onKeptLoose })
       {receipt ? <ReceiptFacts r={receipt} /> : <OldFacts row={old} />}
       {!receipt && (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Counted on the shelf" required hint={`The app has ${num(old.to_label)} ${unit} without a label`}>
+          <Field label={old.bin ? `Counted on the ${old.bin === "REWORK" ? "rework" : "fresh"} shelf (${part.location && old.bin !== "REWORK" ? part.location : part.rework_location || part.location || "—"})` : "Counted on the shelf"} required
+            hint={old.bin
+              ? `The app has ${num(old.to_label)} ${unit} without a label on BOTH shelves together — count only this shelf.${old.bin === "REWORK" ? " Its labels end in -RW." : ""}`
+              : `The app has ${num(old.to_label)} ${unit} without a label`}>
             <span className="flex gap-2">
               <input type="number" min="0" step="any" inputMode="decimal" className={inputCls(false, "w-full text-lg font-semibold")}
                 value={counted} onChange={(e) => setCounted(e.target.value)} autoFocus placeholder="Count it" />
