@@ -85,6 +85,8 @@ function detailChips(row) {
   const line = [row.line_name, row.line_no].filter(Boolean).join(" ");
   const docs = new Set([row.rgp_no, row.grn_no, row.return_no].filter(Boolean));
   return [
+    // The issue's slip number (DX/26-27/001/IS0001, "#id" before 21 Nov 2026).
+    row.issue_no && ["Issue No", row.issue_no],
     row.department && ["Dept", row.department],
     row.issued_to && ["To", row.issued_to],
     line && [/^line\b/i.test(line) ? "" : "Line", line],

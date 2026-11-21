@@ -113,7 +113,7 @@ ISSUE_FIELDS = (
 TIMELINE_KEYS = (
     "at", "kind", "title", "detail", "qty", "qty_delta", "prev_status", "new_status",
     "department", "issued_to", "line_name", "line_no", "machine", "die_no", "supplier",
-    "rgp_no", "grn_no", "return_no", "reference", "user", "source",
+    "rgp_no", "grn_no", "return_no", "reference", "user", "source", "issue_no",
 )
 
 INSPECTION_TITLES = {
@@ -712,19 +712,35 @@ class ScanResultService:
         # "Added to store stock" row sits just above the event that caused it.
         events = []
         added = set()
+
+        # The issue's own number on its rows (21 Nov 2026: "transaction time line
+        # me jo issue kiya h usme ... issue slip no nhi dikha rha"): the slip
+        # number, or "#<row id>" for an issue from before the numbers began.
+        def issue_no_of(issue_id):
+            issue = ledger_by_id.get(issue_id)
+            if issue is None or issue.txn_type != "ISSUE":
+                return None
+            return issue.issue_no or f"#{issue.id}"
+
+        def with_issue(row, issue_id):
+            if issue_id and not row.get("issue_no"):
+                row["issue_no"] = issue_no_of(issue_id)
+            return row
+
         for t in journal:
             if self._taken_back(t) and t.return_id in taken_back:
                 continue                    # shown on its return's own row
             led = ledger_by_id.get(t.ledger_id)
             back = taken_back.get(t.return_id) if t.txn_type == "RETURN_TO_STORE" else None
-            events.append((t.created_at, 1, t.id, self._journal_row(
-                t, led, receipts, returns, rgps, waiting=waiting.get(t.id), back=back)))
+            events.append((t.created_at, 1, t.id, with_issue(self._journal_row(
+                t, led, receipts, returns, rgps, waiting=waiting.get(t.id), back=back), t.issue_id)))
             if led is not None and led.id not in added and self._adds_available(led):
                 added.add(led.id)
                 events.append((t.created_at, 2, t.id, self._stock_available_row(led, t, returns)))
         for led in ledger:
             if led.id not in explained:
-                events.append((led.created_at, 0, led.id, self._ledger_row(led)))
+                events.append((led.created_at, 0, led.id, with_issue(
+                    self._ledger_row(led), led.id if led.txn_type == "ISSUE" else led.return_of_id)))
             if (led.txn_type == "ISSUE" and led.confirmed_at is not None
                     and led.id not in installed_in_journal):
                 events.append((led.confirmed_at, 0, led.id, self._ledger_installation_row(led)))
@@ -1119,7 +1135,8 @@ class ScanResultService:
             at=_iso(at), kind="USED", title=f"Used at {u['where']} ({u['dept']})",
             detail=" · ".join(x for x in (match, u.get("ref"), f"by {u['by']}" if u.get("by") else None) if x),
             qty=u["qty"], qty_delta=None, department=u["dept"], user=u.get("by"),
-            reference=(issue.issue_no if issue is not None else None), source=u["source"],
+            issue_no=((issue.issue_no or f"#{issue.id}") if issue is not None else None),
+            source=u["source"],
         )
 
     @staticmethod

@@ -92,3 +92,18 @@ def test_a_department_database_that_cannot_be_read_gives_nothing(monkeypatch):
     a = _issue(p, 1, "Maintenance", datetime(2026, 11, 18, 9))
     used, unmatched = usage_service.usage_for_issues([a])      # scratch SQLite: no department DB at all
     assert used == {} and unmatched == []
+
+
+def test_issue_and_its_return_carry_the_issue_number_on_the_timeline(dept):
+    """21 Nov 2026: the timeline's issue row shows its slip number (and the
+    return row the number of the issue it came back against)."""
+    from app.services.spare_return_service import SpareReturnService
+    p = _part(qty=5, pkt=1)
+    a = _issue(p, 2, "Tool Room", datetime(2026, 11, 21, 9))
+    SpareReturnService().return_to_store(a.id, qty=1, reason="Wrong Part", user="sup")
+    rows = ScanResultService().timeline(p.id)["rows"]
+    issue_rows = [r for r in rows if r["kind"] == "ISSUE"]
+    back_rows = [r for r in rows if r["kind"] == "RETURN_TO_STORE"]
+    assert issue_rows and all(r["issue_no"] == a.issue_no for r in issue_rows)
+    assert a.issue_no.startswith("DX/")
+    assert back_rows and all(r["issue_no"] == a.issue_no for r in back_rows)
