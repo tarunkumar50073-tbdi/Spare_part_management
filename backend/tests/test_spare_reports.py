@@ -411,7 +411,9 @@ def test_issue_register_status_words(make):
     assert rows[_no(partly)]["Status"] == "Partly used"
     assert rows[_no(full)]["Status"] == "Installed"
     # No Line / Machine / Die / Used Qty: nothing records them since 27 Oct 2026.
-    assert not {"Line", "Machine", "Die", "Used Qty"} & set(rows[_no(full)])
+    assert not {"Line", "Machine", "Die"} & set(rows[_no(full)])
+    # Used Qty / Used At come from the departments' apps (21 Nov 2026); none here.
+    assert (rows[_no(full)]["Used Qty"], rows[_no(full)]["Used At"]) == (None, None)
     assert rows[_no(back)]["Status"] == "Partly returned"
     assert (rows[_no(back)]["Qty Issued"], rows[_no(back)]["Returned Qty"], rows[_no(back)]["Still Out"]) == (3, 1, 2)
     # Department is who took it, as typed; Consumer the owner of the part's section.
