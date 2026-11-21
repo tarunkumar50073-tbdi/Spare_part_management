@@ -646,6 +646,21 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
   const everySame = rows.length > 0 && rows.every(isSame);
   const allSame = () => setCounts(everySame ? {} : Object.fromEntries(rows.map((r) => [keyOf(r), String(r.to_label)])));
   const sameOne = (r) => set(keyOf(r), isSame(r) ? "" : String(r.to_label));
+  // Tick boxes (21 Nov 2026: "isme tick box k liye kaha tha"): a ticked part is
+  // labelled at the app's figure (its count can still be typed over); the top
+  // box ticks every part shown, and the search narrows what is shown first.
+  const [typed, setTyped] = useState("");
+  const words = typed.trim().toUpperCase();
+  const shown = words ? rows.filter((r) => `${r.part.part_no} ${r.part.part_name || ""} ${r.part.location || ""}`
+    .toUpperCase().includes(words)) : rows;
+  const isTicked = (r) => Number(counts[keyOf(r)]) > 0;
+  const tick = (r) => set(keyOf(r), isTicked(r) ? "" : String(r.to_label));
+  const allShownTicked = shown.length > 0 && shown.every(isTicked);
+  const tickShown = () => setCounts((c) => {
+    const n = { ...c };
+    shown.forEach((r) => { n[keyOf(r)] = allShownTicked ? "" : (Number(c[keyOf(r)]) > 0 ? c[keyOf(r)] : String(r.to_label)); });
+    return n;
+  });
   const planned = rows.map((r) => labelsFor(r, counts[keyOf(r)])).filter(Boolean);
   const total = planned.reduce((s, x) => s + x.n, 0);
   const over = rows.filter((r) => Number(counts[keyOf(r)]) > Number(r.to_label));
@@ -669,7 +684,7 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
   return (
     <Modal open onClose={onClose} size="xl" title={`Label rack ${rack} — all parts at once`}
       footer={<div className="flex w-full flex-wrap items-center justify-between gap-2">
-        <span className="text-[12.5px] text-slate-500">{planned.length} of {rows.length} parts counted · {total} labels</span>
+        <span className="text-[12.5px] text-slate-500">{planned.length} of {rows.length} parts ticked · {total} labels</span>
         <span className="flex gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
           <button type="button" className="btn-primary" onClick={make} disabled={busy || !total || over.length > 0}>
@@ -680,23 +695,32 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[12.5px] text-slate-600 dark:text-slate-300">
-            Count each part on the shelf. Parts with a Pkt Qty go in packets; measured parts (MTR, KG, LTR) get one label for the lot; the rest a label a piece. A part left blank is not labelled.
+            Tick the parts to label — a ticked part takes the app's qty, or type the count. Parts with a Pkt Qty go in packets; measured parts (MTR, KG, LTR) get one label for the lot; the rest a label a piece. A part not ticked is not labelled.
           </p>
-          <button type="button" className="btn-secondary py-1 text-[12px]" onClick={allSame} disabled={!rows.length} aria-pressed={everySame}>
-            {everySame ? "Clear all" : "All same as app"}</button>
+          <span className="flex flex-wrap items-center gap-2">
+            <SearchBox value={typed} onChange={setTyped} placeholder="Part, description, location…" />
+            <button type="button" className="btn-secondary py-1 text-[12px]" onClick={allSame} disabled={!rows.length} aria-pressed={everySame}>
+              {everySame ? "Clear all" : "All same as app"}</button>
+          </span>
         </div>
         {q.isError ? <ErrorState title="The rack did not load" message={errText(q.error)} onRetry={() => q.refetch()} /> : (
           <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200 dark:border-navy-700">
             <table className="w-full min-w-[720px] text-left text-[12.5px]">
               <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-navy-900 dark:text-slate-400">
-                <tr><TH>Location</TH><TH>Part</TH><TH>Type</TH><TH right>Without label</TH><TH>Counted</TH><TH>Labels</TH></tr>
+                <tr>
+                  <th className="w-10 px-3 py-2"><input type="checkbox" checked={allShownTicked} onChange={tickShown} disabled={!shown.length}
+                    aria-label={allShownTicked ? "Untick all parts shown" : "Tick all parts shown"} /></th>
+                  <TH>Location</TH><TH>Part</TH><TH>Type</TH><TH right>Without label</TH><TH>Counted</TH><TH>Labels</TH>
+                </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
-                {rows.map((r) => {
+                {shown.map((r) => {
                   const plan = labelsFor(r, counts[keyOf(r)]);
                   const tooMany = Number(counts[keyOf(r)]) > Number(r.to_label);
                   return (
-                    <tr key={`${r.part.id}-${r.bin || ""}`} className="align-middle">
+                    <tr key={`${r.part.id}-${r.bin || ""}`} className={`align-middle ${isTicked(r) ? "bg-sky-50/70 dark:bg-sky-500/5" : ""}`}>
+                      <td className="px-3 py-2"><input type="checkbox" checked={isTicked(r)} onChange={() => tick(r)}
+                        aria-label={`Tick ${r.part.part_no}`} /></td>
                       <td className="whitespace-nowrap px-3 py-2 font-semibold">{r.part.location || "—"}{r.bin && <BinTag bin={r.bin} />}</td>
                       <td className="px-3 py-2"><div className="font-mono text-[12px] font-semibold">{r.part.part_no}</div>
                         <div className="max-w-[260px] truncate text-[11px] text-slate-400" title={r.part.part_name}>{r.part.part_name}</div></td>
@@ -724,6 +748,7 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
             </table>
             {q.isLoading && <p className="px-3 py-6 text-center text-sm text-slate-400">Loading the rack…</p>}
             {q.data && !rows.length && <p className="px-3 py-6 text-center text-sm text-slate-400">Nothing left to label on this rack.</p>}
+            {q.data && rows.length > 0 && !shown.length && <p className="px-3 py-6 text-center text-sm text-slate-400">No part matches.</p>}
           </div>
         )}
         {errors.length > 0 && (
