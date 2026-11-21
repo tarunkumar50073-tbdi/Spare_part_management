@@ -7,7 +7,7 @@ from app.utils.validators import validate_payload
 from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import success_response, paginated_response
 from app.utils.exceptions import BadRequestError
-from app.utils.authz import current_user, permission_required, require_store_access, scoped_store
+from app.utils.authz import current_user, is_machine, permission_required, require_store_access, scoped_store
 from app.utils.event_bus import publish
 from app.services.spare_stock_service import invalidate_stock_cache
 
@@ -32,6 +32,30 @@ def _own_part(part_id):
     return part
 
 
+# The money on a part (21 Nov 2026 audit): the Part Search kiosk, the Live
+# Board TV login or an issue-only login reads /parts for names and racks, and
+# must not get the rates. Rates go to whoever holds a right on a screen that
+# shows a rate (RATE_VIEW).
+MONEY_FIELDS = ("unit_price",)
+RATE_VIEW = ("part_master", "data_quality", "spare_store", "store_stock", "inventory_control",
+             "part_ledger", "erp_gap", "erp_control", "reports")
+
+
+def _sees_rates():
+    user = current_user()
+    if user is None:
+        return is_machine()
+    return user.is_admin or any(user.can(m, "view") for m in RATE_VIEW)
+
+
+def _part_out(part, rates=None):
+    d = part.to_dict()
+    if not (_sees_rates() if rates is None else rates):
+        for k in MONEY_FIELDS:
+            d.pop(k, None)
+    return d
+
+
 @bp.route("", methods=["GET"])
 def list_parts():
     keyword = request.args.get("keyword")
@@ -53,7 +77,8 @@ def list_parts():
     )
     page, per_page = get_pagination_params()
     items, pagination = paginate_query(query, page, per_page)
-    return paginated_response([p.to_dict() for p in items], pagination)
+    rates = _sees_rates()
+    return paginated_response([_part_out(p, rates) for p in items], pagination)
 
 
 @bp.route("/qr-list.pdf", methods=["GET"])
@@ -143,7 +168,7 @@ def delete_part_image(part_id):
 
 @bp.route("/<int:part_id>", methods=["GET"])
 def get_part(part_id):
-    return success_response(_own_part(part_id).to_dict())
+    return success_response(_part_out(_own_part(part_id)))
 
 
 @bp.route("", methods=["POST"])
@@ -178,6 +203,7 @@ def delete_part(part_id):
 
 
 @bp.route("/template", methods=["GET"])
+@permission_required("part_master", "view")
 def download_template():
     buf = service.build_template(store_code=scoped_store(request.args.get("store_code")))
     return send_file(buf, as_attachment=True, download_name="part_master_template.xlsx",
@@ -185,6 +211,7 @@ def download_template():
 
 
 @bp.route("/export", methods=["GET"])
+@permission_required("part_master", "view")
 def export_parts():
     buf = service.export_all(store_code=scoped_store(request.args.get("store_code")))
     return send_file(buf, as_attachment=True, download_name="part_master_export.xlsx",

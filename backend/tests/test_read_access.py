@@ -92,3 +92,21 @@ def test_store_saathi_gives_figures_only_to_those_who_may_see_them(app):
     assert r.status_code == 200 and "Spare Store right" in r.get_json()["data"]["answer"]
     r = _login(app, {"spare_store": {"view": True}}).post("/api/v1/assistant/ask", json={"query": "stock value"})
     assert "Spare Store right" not in r.get_json()["data"]["answer"]
+
+
+def test_rates_and_the_part_master_file_only_for_those_who_see_stock(app, part):
+    """21 Nov 2026 audit: a kiosk / TV / issue-only login reads parts without rates
+    and cannot download the Part Master file."""
+    plain = _login(app, perms={"scan_part": {"view": True}})
+    r = plain.get(f"/api/v1/parts?store_code={STORE}&keyword={part.part_no}")
+    assert r.status_code == 200
+    rows = r.get_json()["data"]
+    assert rows and all("unit_price" not in x for x in rows)
+    assert "unit_price" not in plain.get(f"/api/v1/parts/{part.id}").get_json()["data"]
+    assert plain.get(f"/api/v1/parts/export?store_code={STORE}").status_code == 403
+    assert plain.get(f"/api/v1/parts/template?store_code={STORE}").status_code == 403
+
+    keeper = _login(app, perms={"part_master": {"view": True}})
+    r = keeper.get(f"/api/v1/parts/{part.id}").get_json()["data"]
+    assert float(r["unit_price"]) == 10
+    assert keeper.get(f"/api/v1/parts/export?store_code={STORE}").status_code == 200
