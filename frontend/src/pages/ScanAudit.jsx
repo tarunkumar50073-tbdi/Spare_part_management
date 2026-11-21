@@ -73,9 +73,12 @@ export default function ScanAudit() {
         <button className="btn-secondary" onClick={load}>Refresh</button>
       </div>
 
-      <div className="overflow-auto rounded-xl2 border border-slate-200 bg-white dark:border-navy-800 dark:bg-navy-900">
+      {/* The list fits the screen (21 Nov 2026: "chota ho taaki daayen baayen uper
+          niche slide dikh sake 1 screen par"): it scrolls inside, both bars in view,
+          the heading stays on top. */}
+      <div className="max-h-[calc(100vh-15rem)] min-h-[16rem] overflow-auto rounded-xl2 border border-slate-200 bg-white dark:border-navy-800 dark:bg-navy-900">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500 dark:bg-navy-800 dark:text-slate-300">
+          <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:bg-navy-800 dark:text-slate-300">
             <tr>
               <th className="px-3 py-2">When</th><th className="px-3 py-2">Code</th>
               <th className="px-3 py-2">Part</th><th className="px-3 py-2">Mode</th>
