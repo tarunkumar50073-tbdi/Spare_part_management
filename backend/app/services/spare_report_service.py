@@ -76,7 +76,7 @@ EXCESS_COLUMNS = ("Section", "Category", "Part No", "Item Description", "Supplie
                   "Max", "Excess Qty", "Rate", "Excess Value")
 ISSUE_COLUMNS = ("Date & Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Qty Issued",
                  "Department", "Consumer", "Issued To", "Emp Code", "Issued By", "Status",
-                 "Returned Qty", "Still Out")
+                 "Returned Qty", "Still Out", "Used Qty", "Used At")
 RETURN_COLUMNS = ("Date & Time", "Return No", "Issue No", "Part No", "Item Description", "Qty", "Reason",
                   "Returned By", "Department", "Recorded By", "Result")
 RECEIPT_COLUMNS = ("Date", "GRN No", "Part No", "Item Description", "Section", "Qty", "Supplier",
@@ -255,10 +255,16 @@ class SpareReportService:
         sections = self._sections(store_code)
         owner, _ = consumers(store_code)
         returned = SpareStockService._returned_qty_map([r.id for r, _ in rows])
+        # Where it was used, from the Maintenance / Tool Room apps (21 Nov 2026,
+        # usage_service, read only). "~" = matched by part and date, not by the
+        # issue number (the Maintenance app keeps its own slip).
+        from app.services.usage_service import usage_for_issues
+        used, _ = usage_for_issues([r for r, _ in rows if r.status != "CANCELLED"], returned)
         out = []
         for r, part in rows:
             issued = abs(float(r.qty_delta))
             back = returned.get(r.id, 0.0)
+            u = used.get(r.id)
             out.append({
                 "Date & Time": _stamp(r.created_at), "Issue No": r.issue_no or r.id, "Reference": r.reference,
                 "Part No": part.part_no, "Item Description": part.part_name,
@@ -268,10 +274,13 @@ class SpareReportService:
                 "Department": r.department, "Consumer": consumer_of(owner, part.section_id),
                 "Issued To": r.issued_to, "Emp Code": r.issued_to_code,
                 "Issued By": r.created_by, "Status": _issue_status(r),
-                # No Line / Machine / Die / Used Qty: nothing records them since
-                # Confirm Installation went (27 Oct 2026; columns out 28 Oct).
+                # No Line / Machine / Die: nothing records them at the store
+                # since Confirm Installation went (27 Oct 2026); where it was
+                # used comes from the departments' apps (Used Qty / Used At).
                 "Returned Qty": back,
                 "Still Out": 0 if r.status == "CANCELLED" else max(round(issued - back, 2), 0),
+                "Used Qty": u["used"] if u else None,
+                "Used At": (("" if u["exact"] else "~ ") + ", ".join(u["where"])) if u else None,
             })
         return out
 

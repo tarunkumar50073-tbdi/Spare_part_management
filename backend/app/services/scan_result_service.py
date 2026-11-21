@@ -742,6 +742,16 @@ class ScanResultService:
         for m in (SpareLocationHistory.query.filter_by(part_id=part.id).all()):
             events.append((m.created_at, 0, m.id, self._location_row(m)))
 
+        # Where the issued part was used, from the Maintenance / Tool Room apps
+        # (21 Nov 2026, read only; usage_service).
+        from app.services.usage_service import usage_for_part
+        issues = [r for r in ledger if r.txn_type == "ISSUE" and r.status != "CANCELLED"]
+        back = SpareStockService._returned_qty_map([i.id for i in issues]) if issues else {}
+        for n, u in enumerate(usage_for_part(part, issues, back)):
+            at = u["at"] if isinstance(u["at"], datetime) else (
+                datetime.combine(u["day"], datetime.min.time()) if u["day"] else None)
+            events.append((at, 3, n, self._usage_row(u, at, ledger_by_id.get(u.get("issue_id")))))
+
         events.sort(key=lambda e: (_naive(e[0]) or datetime.min, e[1], e[2]), reverse=True)
         return [e[3] for e in events]
 
@@ -1095,6 +1105,21 @@ class ScanResultService:
                          p.location_printed and f"Location {p.location_printed}",
                          p.reason and f"Reason: {p.reason}"),
             reference=p.barcode_value, user=p.printed_by, source="label",
+        )
+
+    @staticmethod
+    def _usage_row(u, at, issue):
+        """A use recorded in a department's own app (usage_service)."""
+        if issue is not None:
+            no = issue.issue_no or f"#{issue.id}"
+            match = f"issue {no}" + ("" if u["exact"] else " (matched by part + date)")
+        else:
+            match = "no store issue matched"
+        return _row(
+            at=_iso(at), kind="USED", title=f"Used at {u['where']} ({u['dept']})",
+            detail=" · ".join(x for x in (match, u.get("ref"), f"by {u['by']}" if u.get("by") else None) if x),
+            qty=u["qty"], qty_delta=None, department=u["dept"], user=u.get("by"),
+            reference=(issue.issue_no if issue is not None else None), source=u["source"],
         )
 
     @staticmethod

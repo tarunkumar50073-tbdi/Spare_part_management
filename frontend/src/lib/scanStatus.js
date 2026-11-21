@@ -168,6 +168,8 @@ export const TIMELINE_KIND = {
   CANCEL: { label: "Cancelled", icon: "Ban", tone: "neutral" },
   LABEL_PRINT: { label: "Label printed", icon: "Printer", tone: "neutral" },
   LOCATION_MOVE: { label: "Location changed", icon: "MapPin", tone: "neutral" },
+  // Where an issued part was used, from the Maintenance / Tool Room apps (21 Nov 2026).
+  USED: { label: "Used", icon: "Wrench", tone: "success" },
 };
 export const timelineMeta = (kind) =>
   TIMELINE_KIND[kind] || { label: kind ? kind.replace(/_/g, " ").toLowerCase() : "Event", icon: "Circle", tone: "neutral" };
