@@ -23,14 +23,25 @@ function scrollBoxOf(table) {
   return null;
 }
 
+// The box's own bottom scrollbar is on screen: the top one is not needed
+// (21 Nov 2026: "1 scrren me aa gya to 2 patti ki jarurat nhi h") - a list
+// that fits the screen (its own max-height, like Scan Audit), or one whose
+// bottom edge is in view right now.
+function bottomInView(box) {
+  if (getComputedStyle(box).maxHeight !== "none") return true;
+  const r = box.getBoundingClientRect();
+  return r.bottom <= window.innerHeight;
+}
+
 function update(box) {
   const link = links.get(box);
   if (!link) return;
   const wide = box.scrollWidth > box.clientWidth + 1;
-  link.bar.style.display = wide ? "block" : "none";
+  const show = wide && !bottomInView(box);
+  link.bar.style.display = show ? "block" : "none";
   link.bar.style.width = `${box.clientWidth}px`;
   link.inner.style.width = `${box.scrollWidth}px`;
-  if (wide && Math.abs(link.bar.scrollLeft - box.scrollLeft) > 1) link.bar.scrollLeft = box.scrollLeft;
+  if (show && Math.abs(link.bar.scrollLeft - box.scrollLeft) > 1) link.bar.scrollLeft = box.scrollLeft;
 }
 
 function attach(box) {
@@ -96,5 +107,11 @@ export function installTopScrollbars() {
     later();
   }).observe(document.body, { childList: true, subtree: true });
   window.addEventListener("resize", later);
+  // Page scrolled: the bottom bar may have come into view, or gone out of it.
+  let frame = 0;
+  document.addEventListener("scroll", () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; links.forEach((_, box) => update(box)); });
+  }, { passive: true, capture: true });
   later();
 }
