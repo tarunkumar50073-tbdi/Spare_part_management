@@ -735,8 +735,10 @@ class ScanResultService:
         for ln in erp_lines:
             events.append((self._erp_day(ln["grn_date"]), -1, 0, self._erp_grn_row(ln)))
 
-        for p in (prints if prints is not None else self._prints(part.id)):
-            events.append((p.created_at, 0, p.id, self._label_row(p)))
+        # Label prints are not material movements (21 Nov 2026: "isme lable
+        # printing ki history kyu aa rha h ... receiving, issuance, return, rgp
+        # ye detail aani chahiye"): the timeline shows what happened to the part;
+        # the labels printed stay in Packets & QR Labels (printed labels list).
         for m in (SpareLocationHistory.query.filter_by(part_id=part.id).all()):
             events.append((m.created_at, 0, m.id, self._location_row(m)))
 

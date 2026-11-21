@@ -145,9 +145,8 @@ def test_the_print_history_stays_and_still_reads():
     db.session.commit()
     assert inspect(db.engine).has_table(LabelPrintAudit.__tablename__)
     assert LabelPrintAudit.query.filter_by(part_id=p.id, source="GATE_ENTRY").one().reference == no
-    rows = [r for r in ScanResultService().timeline(p.id)["rows"] if r["kind"] == "LABEL_PRINT"]
-    assert [r["title"] for r in rows] == [f"Label printed – 3 (gate entry {no})"]
-    assert rows[0]["detail"].startswith("Gate Entry")
+    # Kept, but not on the part's movement timeline any more (21 Nov 2026).
+    assert not [r for r in ScanResultService().timeline(p.id)["rows"] if r["kind"] == "LABEL_PRINT"]
 
 
 def test_a_single_part_label_still_prints_but_not_as_a_gate_entry(client):

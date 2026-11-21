@@ -384,8 +384,9 @@ def test_timeline_merges_every_source_newest_first_without_duplicates():
     assert stamps == sorted(stamps, reverse=True)                  # newest first
     kinds = [r["kind"] for r in rows]
     assert {"OPENING", "ISSUE", "INSTALLATION", "RETURN_TO_STORE", "RECEIVE", "GRN",
-            "QUALITY_CLEARANCE", "STOCK_AVAILABLE", "LABEL_PRINT", "LOCATION_MOVE",
+            "QUALITY_CLEARANCE", "STOCK_AVAILABLE", "LOCATION_MOVE",
             "ERP_GATE", "ERP_GRN"} <= set(kinds)
+    assert "LABEL_PRINT" not in kinds          # prints are no movement (21 Nov 2026)
 
     # two ISSUE ledger rows -> two ISSUE rows: the journal one is not repeated
     issues = [r for r in rows if r["kind"] == "ISSUE"]
