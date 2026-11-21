@@ -15,7 +15,11 @@ export default defineConfig({
     host: true,
     port: Number(process.env.VITE_PORT) || 5173,
     proxy: {
-      '/api': process.env.VITE_API_TARGET || 'http://localhost:5001',
+      // xfwd: the proxy adds the caller's real address to X-Forwarded-For, so
+      // the backend (which believes that header only from this machine) sees
+      // each LAN PC by its own address and a forged one never comes last
+      // (21 Nov 2026 audit).
+      '/api': { target: process.env.VITE_API_TARGET || 'http://localhost:5001', xfwd: true },
     },
   },
 })
