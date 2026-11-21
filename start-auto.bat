@@ -29,7 +29,7 @@ REM --- Backend (Flask, port 5001) - only if nothing listens on 5001 yet ---
 call :await_port 5001 "run\.py"
 netstat -ano | findstr /R /C:":5001 .*LISTENING" >nul
 if errorlevel 1 (
-  start "DX_Store Backend (5001)" /MIN /D "%~dp0backend" cmd /k "%PYCMD% run.py"
+  start "DX_Store Backend (5001)" /MIN "%~dp0backend-run.bat"
 ) else (
   echo Backend already running on port 5001 - not started again.
 )
