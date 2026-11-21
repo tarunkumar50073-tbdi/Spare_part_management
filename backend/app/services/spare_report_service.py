@@ -260,7 +260,7 @@ class SpareReportService:
             issued = abs(float(r.qty_delta))
             back = returned.get(r.id, 0.0)
             out.append({
-                "Date & Time": _stamp(r.created_at), "Issue No": r.id, "Reference": r.reference,
+                "Date & Time": _stamp(r.created_at), "Issue No": r.issue_no or r.id, "Reference": r.reference,
                 "Part No": part.part_no, "Item Description": part.part_name,
                 "Section": sections.get(part.section_id), "Qty Issued": issued,
                 # Department = who took it, as typed (often the store's own
@@ -285,14 +285,18 @@ class SpareReportService:
                   .filter(Part.store_code == store_code, L.txn_type == "RETURN",
                           or_(L.status.is_(None), L.status != RETURN_ROW_INSPECTED),
                           *_in(L.created_at, win)).all())
+        # The issue's own IS/… number where it has one (21 Nov 2026), else its row id.
+        ids = {r.issue_id for r, _ in returns} | {e.return_of_id for e, _ in direct}
+        issue_nos = dict(db.session.query(L.id, L.issue_no).filter(L.id.in_([i for i in ids if i] or [-1])))
+        no_of = lambda iid: issue_nos.get(iid) or iid  # noqa: E731
         lines = [(_utc_naive(r.created_at), r.return_no, {
-            "Date & Time": _stamp(r.created_at), "Return No": r.return_no, "Issue No": r.issue_id,
+            "Date & Time": _stamp(r.created_at), "Return No": r.return_no, "Issue No": no_of(r.issue_id),
             "Part No": part.part_no, "Item Description": part.part_name, "Qty": r.qty,
             "Reason": LEGACY_RETURN_REASONS.get(r.reason, r.reason), "Returned By": r.returned_by,
             "Department": r.department, "Recorded By": r.received_by, "Result": _return_result(r),
         }) for r, part in returns]
         lines += [(_utc_naive(e.created_at), e.return_no or "", {
-            "Date & Time": _stamp(e.created_at), "Return No": e.return_no, "Issue No": e.return_of_id,
+            "Date & Time": _stamp(e.created_at), "Return No": e.return_no, "Issue No": no_of(e.return_of_id),
             "Part No": part.part_no, "Item Description": part.part_name, "Qty": abs(float(e.qty_delta)),
             "Reason": LEGACY_RETURN_REASONS.get(e.return_reason, e.return_reason),
             "Returned By": e.returned_by, "Department": e.department,

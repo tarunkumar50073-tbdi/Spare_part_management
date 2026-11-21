@@ -35,6 +35,12 @@ from app.models.part import Part
 from app.models.put_away_log import PutAwayLog
 from app.models.spare_flow import SpareReturn, SpareTransaction
 from app.models.spare_stock import RETURN_ROW_INSPECTED, SpareStock, SpareStockLedger
+
+def _no(lid):
+    """The Issue No a report shows for this ISSUE row: its IS/… number (21 Nov 2026)."""
+    row = db.session.get(SpareStockLedger, lid)
+    return (row.issue_no if row is not None else None) or lid
+
 from app.models.store import Section, Store
 from app.models.user import User, UserStoreAccess
 from app.services import report_service
@@ -365,11 +371,11 @@ def test_issue_register_filters_by_plant_day(make):
     _, after = _issue(s, dept, at=_utc(day + timedelta(days=1), 0, 5))
 
     rows = _rows(s, "issue_register", "2025-03-10", "2025-03-10")
-    assert [r["Issue No"] for r in rows] == [early]
+    assert [r["Issue No"] for r in rows] == [_no(early)]
     assert rows[0]["Date & Time"] == "10.03.2025 00:30"
     assert _rows(s, "issue_register", "2025-03-09", "2025-03-09") == []
     span = _rows(s, "issue_register", "2025-03-01", "2025-03-11")
-    assert [r["Issue No"] for r in span] == [before, early, after]   # oldest first
+    assert [r["Issue No"] for r in span] == [_no(x) for x in (before, early, after)]   # oldest first
 
 
 # ---- issue register: status words and what is still out --------------------------------
@@ -396,20 +402,20 @@ def test_issue_register_status_words(make):
     db.session.commit()
 
     rows = {r["Issue No"]: r for r in _rows(s, "issue_register")}
-    assert rows[waiting]["Status"] == "Issued"
-    assert (rows[waiting]["Emp Code"], rows[waiting]["Issued To"]) == (emp.employee_code, emp.name)
-    assert "Mobile" not in rows[waiting]                       # no mobile anywhere (27 Oct 2026)
-    assert rows[waiting]["Reference"] == f"REQ-{_TAG}-1"
-    assert rows[waiting]["Still Out"] == 3
-    assert rows[none_used]["Status"] == "Not used yet"
-    assert rows[partly]["Status"] == "Partly used"
-    assert rows[full]["Status"] == "Installed"
+    assert rows[_no(waiting)]["Status"] == "Issued"
+    assert (rows[_no(waiting)]["Emp Code"], rows[_no(waiting)]["Issued To"]) == (emp.employee_code, emp.name)
+    assert "Mobile" not in rows[_no(waiting)]                       # no mobile anywhere (27 Oct 2026)
+    assert rows[_no(waiting)]["Reference"] == f"REQ-{_TAG}-1"
+    assert rows[_no(waiting)]["Still Out"] == 3
+    assert rows[_no(none_used)]["Status"] == "Not used yet"
+    assert rows[_no(partly)]["Status"] == "Partly used"
+    assert rows[_no(full)]["Status"] == "Installed"
     # No Line / Machine / Die / Used Qty: nothing records them since 27 Oct 2026.
-    assert not {"Line", "Machine", "Die", "Used Qty"} & set(rows[full])
-    assert rows[back]["Status"] == "Partly returned"
-    assert (rows[back]["Qty Issued"], rows[back]["Returned Qty"], rows[back]["Still Out"]) == (3, 1, 2)
+    assert not {"Line", "Machine", "Die", "Used Qty"} & set(rows[_no(full)])
+    assert rows[_no(back)]["Status"] == "Partly returned"
+    assert (rows[_no(back)]["Qty Issued"], rows[_no(back)]["Returned Qty"], rows[_no(back)]["Still Out"]) == (3, 1, 2)
     # Department is who took it, as typed; Consumer the owner of the part's section.
-    assert (rows[back]["Department"], rows[back]["Consumer"]) == (dept.name, "No section")
+    assert (rows[_no(back)]["Department"], rows[_no(back)]["Consumer"]) == (dept.name, "No section")
     columns = next(r.columns for r in SpareReportService.REPORTS if r.key == "issue_register")
     assert columns[columns.index("Department") + 1] == "Consumer"
 
@@ -440,7 +446,7 @@ def test_return_register_says_where_the_quantity_went(make):
     assert [r["Return No"] for r in rows] == [split.return_no, good.return_no, f"RET-OLD-{_TAG}"]
     assert [r["Result"] for r in rows] == ["Back in stock 1, Damaged 1", "Back in stock", "Back in stock"]
     assert [r["Reason"] for r in rows] == ["Fitment Issue", "Fitment Issue", "Wrong Part"]
-    assert rows[0]["Issue No"] == lid and rows[0]["Qty"] == 2 and rows[0]["Recorded By"] == "store.user"
+    assert rows[0]["Issue No"] == _no(lid) and rows[0]["Qty"] == 2 and rows[0]["Recorded By"] == "store.user"
     assert rows[2]["Returned By"] == "Mohan" and rows[2]["Recorded By"] == "old.store"
     assert _rows(s, "return_register", "2025-05-07", "2025-05-07") == []
 
@@ -700,4 +706,4 @@ def test_no_none_or_nan_cells(client, make, monkeypatch):
                 assert not any(v.strip() in bad for v in cells), key
     assert pdf_rows and not any(v is None or str(v).strip() in bad for r in pdf_rows for v in r.values())
     issue_rows = SpareReportService().build(s.code, "issue_register")[2]
-    assert [r["Issue No"] for r in issue_rows] == [lid]
+    assert [r["Issue No"] for r in issue_rows] == [_no(lid)]

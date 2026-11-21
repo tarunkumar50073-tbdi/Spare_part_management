@@ -113,12 +113,58 @@ class SpareJournalService:
         return f"{prefix}{self._next_seq(prefix, SpareReceipt.receipt_no):03d}"
 
     def next_return_no(self):
-        """Same RET-YYYYMMDD-NNN series as the legacy ledger return slips, so a
-        number is never issued twice across the old and new tables."""
+        """RET/<financial year>/NNNN, e.g. RET/2026-27/0001 (21 Nov 2026; was
+        RET-YYYYMMDD-NNN). Checked against the return slips of both tables."""
         from app.models.spare_stock import SpareStockLedger
-        prefix = f"RET-{datetime.now():%Y%m%d}-"
-        seq = self._next_seq(prefix, SpareReturn.return_no, SpareStockLedger.return_no)
-        return f"{prefix}{seq:03d}"
+        return self._fy_no("RET", SpareReturn.return_no, SpareStockLedger.return_no)
+
+    def next_issue_no(self):
+        """IS/<financial year>/NNNN, e.g. IS/2026-27/0001 (21 Nov 2026)."""
+        from app.models.spare_stock import SpareStockLedger
+        return self._fy_no("IS", SpareStockLedger.issue_no)
+
+    @staticmethod
+    def financial_year(day=None):
+        """April to March, as "2026-27"."""
+        day = day or datetime.now().date()
+        start = day.year if day.month >= 4 else day.year - 1
+        return f"{start}-{(start + 1) % 100:02d}"
+
+    def _fy_no(self, head, *columns):
+        """The next HEAD/<financial year>/NNNN, from 0001 each April.
+
+        The last number of each series is kept in app_settings and that row is
+        write-locked before it is read, so two issues saved at the same moment
+        (on two counters) never get the same number; the lock is held until
+        this transaction commits. The data is checked too, so the counter is
+        never behind a number already used."""
+        import json
+        from app.models.app_setting import AppSetting
+        from app.models.base import utcnow
+        prefix = f"{head}/{self.financial_year()}/"
+        key = f"doc_seq:{prefix}"
+        row = AppSetting.query.filter_by(key=key).first()
+        if row is None:
+            row = AppSetting(key=key, value=json.dumps({"n": 0}), updated_by="system")
+            db.session.add(row)
+            db.session.flush()
+        db.session.query(AppSetting).filter(AppSetting.id == row.id).update(
+            {AppSetting.updated_at: utcnow()}, synchronize_session=False)
+        db.session.refresh(row)
+        try:
+            last = int(json.loads(row.value or "{}").get("n", 0))
+        except (ValueError, TypeError, AttributeError):
+            last = 0
+        used = 0
+        for col in columns:
+            for (val,) in db.session.query(col).filter(col.like(f"{prefix}%")):
+                try:
+                    used = max(used, int(str(val).rsplit("/", 1)[1]))
+                except (ValueError, IndexError):
+                    pass
+        n = max(last, used) + 1
+        row.value = json.dumps({"n": n})
+        return f"{prefix}{n:04d}"
 
     def next_rgp_no(self):
         """RGP-YYYY-NNNNN (e.g. RGP-2026-00125), sequential within the year."""

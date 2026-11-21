@@ -453,6 +453,8 @@ class SpareStockService:
         # zero-delta row for all 481 parts on every upload would bury the real
         # ones within a week.
         ledger = None
+        if delta != 0 and txn_type == "ISSUE":
+            extra = {**(extra or {}), "issue_no": self.journal.next_issue_no()}
         if delta != 0:
             ledger = self.ledger_repo.create(
                 part_id=part_id, qty_delta=delta, balance_after=new_qty,
@@ -1122,6 +1124,7 @@ class SpareStockService:
                 continue
             out.append({
                 "id": i.id,
+                "issue_no": i.issue_no,
                 "part_id": i.part_id,
                 "part_no": i.part.part_no if i.part else None,
                 "part_name": i.part.part_name if i.part else None,
@@ -1264,6 +1267,7 @@ class SpareStockService:
         queue, the issue response and the installation-update response."""
         return {
             "id": row.id,
+            "issue_no": row.issue_no,
             "part_id": row.part_id,
             "part_no": row.part.part_no if row.part else None,
             "part_name": row.part.part_name if row.part else None,

@@ -254,7 +254,8 @@ SELECT l.id AS issue_no,
        -l.qty_delta * COALESCE(p.unit_price, 0) AS value,
        {return_nos} AS return_no,
        COALESCE((SELECT NULLIF(TRIM(r.created_by), '') FROM spare_stock_ledger r WHERE r.return_of_id = l.id
-                 ORDER BY r.id DESC LIMIT 1), '—') AS return_received_by
+                 ORDER BY r.id DESC LIMIT 1), '—') AS return_received_by,
+       COALESCE(NULLIF(TRIM(l.issue_no), ''), '—') AS issue_slip_no
 FROM spare_stock_ledger l
 JOIN part_master p ON p.id = l.part_id
 LEFT JOIN sections s ON s.id = p.section_id
@@ -614,6 +615,9 @@ def _start_backup_worker(app):
 # server whose database may not be SQLite): (table, column, SQL type). Added
 # on boot wherever they are missing, on any database.
 LATE_COLUMNS = (
+    # The issue's own number, IS/<financial year>/NNNN (21 Nov 2026: "IS/2026-27/0001
+    # kar de, 4 digit, sirf aage se") - older issues keep only their row id.
+    ("spare_stock_ledger", "issue_no", "VARCHAR(30)"),
     # The part's 2nd and 3rd photos, comma-separated file names (24 Oct 2026).
     ("part_master", "extra_images", "VARCHAR(200)"),
     # A packet that carries the supplier's own label instead of ours: the code

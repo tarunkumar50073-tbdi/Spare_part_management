@@ -67,7 +67,9 @@ def test_issue_register_shows_the_return_on_the_issue_row(app):
     r = db.session.execute(text("select * from issue_register where part_no = 'VIEW-RET-1'")).mappings().one()
     assert (r["returned_at"], r["returned_by"], r["return_reason"]) == ("—", "—", "—")
     assert (r["return_no"], r["return_received_by"]) == ("—", "—")
-    assert list(r.keys())[-2:] == ["return_no", "return_received_by"]     # new columns last (21 Nov 2026)
+    # New columns last (21 Nov 2026), the issue's own IS/… number at the very end.
+    assert list(r.keys())[-3:] == ["return_no", "return_received_by", "issue_slip_no"]
+    assert r["issue_slip_no"].startswith("IS/")
     db.session.add(SpareStockLedger(part_id=p.id, qty_delta=1, balance_after=4, txn_type="RETURN",
                                     return_of_id=out["issue"]["id"], return_no="RET-T-1", returned_by="Ravi",
                                     return_reason="UNUSED", created_by="sup"))

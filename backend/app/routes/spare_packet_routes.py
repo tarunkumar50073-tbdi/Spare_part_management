@@ -440,8 +440,10 @@ def issue_many():
     )
     publish("stock", {"part_id": first.part_id, "action": "issue"})
     who = out.get("issued_to")
+    no = (out.get("issues") or [{}])[0].get("issue_no")
     return success_response(out, f"{out['count']} labels of {out['part_no']} issued — {out['qty']:g} "
-                                 f"{out['uom'] or ''} to {data.get('department')}{(' · ' + who) if who else ''}")
+                                 f"{out['uom'] or ''} to {data.get('department')}{(' · ' + who) if who else ''}"
+                                 f"{(' · ' + no) if no else ''}")
 
 
 @bp.route("/packets/<code>/issue", methods=["POST"])
@@ -462,5 +464,7 @@ def issue(code):
     publish("stock", {"part_id": p.part_id, "action": "issue"})
     who = out["issue"].get("issued_to")
     left = f" · {out['packet']['qty']:g} left on the label" if out["packet"]["status"] == "AVAILABLE" else ""
+    no = out["issue"].get("issue_no")
     return success_response(out, f"Packet {out['packet']['code']} issued — {out['issue']['qty']:g} "
-                                 f"{out['packet']['uom'] or ''} to {data.get('department')}{(' · ' + who) if who else ''}{left}")
+                                 f"{out['packet']['uom'] or ''} to {data.get('department')}{(' · ' + who) if who else ''}{left}"
+                                 f"{(' · ' + no) if no else ''}")

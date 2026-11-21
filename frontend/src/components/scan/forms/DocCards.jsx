@@ -32,7 +32,7 @@ export function IssueCard({ i, uom }) {
   const meta = issueStatusMeta(i);
   return (
     <>
-      <Head no={`Issue #${i.id}`} qty={i.outstanding_qty} qtyLabel={`${uom ? `${uom} ` : ""}still out`}
+      <Head no={i.issue_no ? `Issue ${i.issue_no}` : `Issue #${i.id}`} qty={i.outstanding_qty} qtyLabel={`${uom ? `${uom} ` : ""}still out`}
         status={meta ? <StatusBadge status={meta} /> : null} />
       <Line>
         {i.department || "Department not recorded"}{i.issued_to ? ` · ${i.issued_to}` : ""} · issued {fmtStamp(i.issued_at)}

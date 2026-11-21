@@ -453,7 +453,8 @@ def issue_part(part_id):
     who = row["issue"]["issued_to"]
     where = data["department"] + (f" · {who}" if who else "")
     publish("stock", {"part_id": part_id, "action": "issue"})
-    return success_response(row, f"Issued to {where}")
+    no = row["issue"].get("issue_no")
+    return success_response(row, f"Issued to {where}" + (f" · {no}" if no else ""))
 
 
 @bp.route("/issues/<int:ledger_id>/confirm", methods=["POST"])

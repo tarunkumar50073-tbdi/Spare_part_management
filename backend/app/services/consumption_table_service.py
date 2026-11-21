@@ -109,7 +109,7 @@ Use = namedtuple("Use", "issue part dept section day qty back cancelled")
 # the Issue Register's words.
 _L = SpareStockLedger
 ISSUE_COLUMNS = (_L.id, _L.part_id, _L.qty_delta, _L.created_at, _L.status, _L.actual_qty, _L.reference, _L.department, _L.issued_to, _L.issued_to_mobile,
-                 _L.issued_to_code, _L.employee_id, _L.remarks)
+                 _L.issued_to_code, _L.employee_id, _L.remarks, _L.issue_no)
 # The screen's filters: the Part and Section rows picked, the consuming
 # department and the part type typed (None = all).
 Filters = namedtuple("Filters", "part section department type")
@@ -982,7 +982,7 @@ class ConsumptionTableService:
         i, part = u.issue, u.part
         on, at = _stamp(i.created_at).split(" ")
         cells = {
-            "Date": on, "Time": at, "Issue No": i.id, "Reference": i.reference, "Part No": part.part_no,
+            "Date": on, "Time": at, "Issue No": i.issue_no or i.id, "Reference": i.reference, "Part No": part.part_no,
             "Item Description": part.part_name, "Section": u.section, "Department": u.dept,
             "Issued to Dept": _dept_taken(i), "Issued To": _issued_to(i), "Rate": part.unit_price or None,   # a rate of 0 is a missing rate
             "Status": _issue_status(i), "Remarks": _issue_remark(i.remarks),

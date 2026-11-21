@@ -34,6 +34,24 @@ from app.models.department import Department
 from app.models.part import Part
 from app.models.spare_flow import SpareReturn
 from app.models.spare_stock import SpareStockLedger
+
+def _no(lid):
+    """The Issue No a report shows for this ISSUE row: its IS/… number (21 Nov 2026)."""
+    row = db.session.get(SpareStockLedger, lid)
+    return (row.issue_no if row is not None else None) or lid
+
+
+def _id(no):
+    """Back from a report's Issue No (IS/…) to the ISSUE row id the tests hold."""
+    if isinstance(no, str) and no.startswith("IS/"):
+        row = SpareStockLedger.query.filter_by(issue_no=no).first()
+        return row.id if row is not None else no
+    return no
+
+
+def _ids(rows):
+    return [{**r, "Issue No": _id(r["Issue No"])} for r in rows]
+
 from app.models.store import Section, Store
 from app.models.user import User, UserStoreAccess
 from app.services import spare_report_service
@@ -562,9 +580,9 @@ def test_department_view_and_issue_register_on_the_floor(make, plant_at):
         ("Total", None, *FLOOR_TOTAL),
     ]
     register = {r["Issue No"]: r for r in SpareReportService().build(f.s.code, "issue_register", *SPRING)[2]}
-    assert (register[f.i1]["Department"], register[f.i1]["Consumer"]) == (f.taker, f.group)
-    assert (register[f.i3]["Consumer"], register[f.i4]["Consumer"]) == (f.zed, f.old)
-    assert (register[f.i5]["Status"], register[f.i5]["Consumer"]) == ("Cancelled", "No section")
+    assert (register[_no(f.i1)]["Department"], register[_no(f.i1)]["Consumer"]) == (f.taker, f.group)
+    assert (register[_no(f.i3)]["Consumer"], register[_no(f.i4)]["Consumer"]) == (f.zed, f.old)
+    assert (register[_no(f.i5)]["Status"], register[_no(f.i5)]["Consumer"]) == ("Cancelled", "No section")
 
 
 def test_issued_to_department_views(make, plant_at):
@@ -597,7 +615,7 @@ def test_issued_to_department_views(make, plant_at):
         ("Total", "2 parts", 4, 10, 90)]
     assert out["subtotal_rows"] == [2, 4]
 
-    listed = {r["Issue No"]: r for r in _view(s, "list", *span)}
+    listed = {_id(r["Issue No"]): r for r in _view(s, "list", *span)}
     assert (listed[i1]["Issued to Dept"], listed[i4]["Issued to Dept"]) == (press.name, weld.name)
     # The department filter is still the consuming one; these parts have no section.
     assert _view(s, "issued_to", *span, department=press.name) == [
@@ -1158,7 +1176,7 @@ def test_returns_are_netted_in_every_view_the_issue_list_too(make, plant_at):
     part = next(r for r in _view(f.s, "part", *march) if r["Part No"] == f.p1)
     assert (part["Qty Issued"], part["Value"], part["Qty Returned"], part["Net Qty"], part["Net Value"]) == (
         2, 20, 1, 1, 10)
-    line = next(r for r in _view(f.s, "list", *march) if r["Issue No"] == f.i1)
+    line = next(r for r in _view(f.s, "list", *march) if _id(r["Issue No"]) == f.i1)
     assert _cut([line], *LIST_FIGURES) == [(2, 1, 1, 10, 20, 10)]
 
 
@@ -1178,7 +1196,7 @@ def test_issue_list_on_the_floor(make, plant_at):
     assert (out["title"], out["group"], out["label"]) == (
         "Issue Register Issue list 01.03.2026 to 30.04.2026", "day", "Issue list")
     rows = out["rows"]
-    assert _cut(rows, "Date", "Time", "Issue No", "Part No", "Section", "Department", *LIST_FIGURES) == [
+    assert _cut(_ids(rows), "Date", "Time", "Issue No", "Part No", "Section", "Department", *LIST_FIGURES) == [
         ("10.03.2026", "09:00", f.i1, f.p1, f.s.live_name, f.group, 2, 1, 1, 10, 20, 10),   # 1 back on 5 Apr
         ("10.03.2026", "15:00", f.i3, f.p2, f.zed, f.zed, 4, 0, 4, None, None, None),       # no rate: no value
         ("Subtotal 10.03.2026", None, "2 issues", None, None, None, 6, 1, 5, None, 20, 10),
@@ -1269,8 +1287,8 @@ def test_issue_list_agrees_with_the_issue_register(make, plant_at):
     skip = set(out["subtotal_rows"]) | {len(out["rows"]) - 1}
     issues = [r for i, r in enumerate(out["rows"]) if i not in skip]
     register = SpareReportService().build(f.s.code, "issue_register", *SPRING)[2]
-    assert [r["Issue No"] for r in issues] == [r["Issue No"] for r in register] == [
-        f.i1, f.i3, f.i2, f.i4, f.i5, f.i6, f.i7]
+    assert [r["Issue No"] for r in issues] == [r["Issue No"] for r in register] == [_no(x) for x in (
+        f.i1, f.i3, f.i2, f.i4, f.i5, f.i6, f.i7)]
     for mine, theirs in zip(issues, register):
         assert f"{mine['Date']} {mine['Time']}" == theirs["Date & Time"], mine["Issue No"]
         assert _cut([mine], "Reference", "Part No", "Item Description", "Section", "Department", "Status",
@@ -1285,7 +1303,7 @@ def test_issue_list_filters(make, plant_at):
     def listed(**filters):
         out = _table(f.s, "list", *SPRING, **filters)
         skip = set(out["subtotal_rows"]) | {len(out["rows"]) - 1}
-        return [r["Issue No"] for i, r in enumerate(out["rows"]) if i not in skip], out["rows"][-1]["Issue No"]
+        return [_id(r["Issue No"]) for i, r in enumerate(out["rows"]) if i not in skip], out["rows"][-1]["Issue No"]
 
     assert listed(part_id=f.p1_id) == ([f.i1, f.i2], "2 issues")
     assert listed(section_id=f.s.live) == ([f.i1, f.i2, f.i7], "3 issues")
@@ -1331,7 +1349,7 @@ def test_person_wise(make):
         ("Sunil", None, "No section", 2, 2, 5, None),
         ("Not recorded", None, "No section", 1, 1, 5, None),
         ("Total", None, None, 5, 5, 15, 50)]
-    listed = {r["Issue No"]: r for r in _view(s, "list", *span)}
+    listed = {_id(r["Issue No"]): r for r in _view(s, "list", *span)}
     assert (listed[a]["Issued To"], listed[a]["Department"]) == (f"Ravi {_TAG}", maint.name)
     assert (listed[b]["Issued To"], listed[b]["Department"]) == ("Ravi K", "No section")
 
@@ -1367,7 +1385,7 @@ def test_old_links_open_the_one_report(client, make, plant_at):
 
     def issues(out):
         skip = set(out["subtotal_rows"]) | {len(out["rows"]) - 1}
-        return [(r["Issue No"], r["Department"]) for i, r in enumerate(out["rows"]) if i not in skip]
+        return [(_id(r["Issue No"]), r["Department"]) for i, r in enumerate(out["rows"]) if i not in skip]
 
     old = c.get(URL, query_string={"store_code": f.s.code, "report": "issuance", "view": "list", "department": f.zed,
                                    "from": "2026-03-01", "to": "2026-04-30"}).get_json()["data"]
@@ -1377,7 +1395,7 @@ def test_old_links_open_the_one_report(client, make, plant_at):
                                                     "department": f.zed, "from": "2026-03-01", "to": "2026-04-30"})
     assert _filename(old_file) == f"Issue Register Issue list {f.zed} 01.03.2026 to 30.04.2026.xlsx"
     rows, _ = _sheet(old_file)
-    assert [r[2] for r in rows[1:4]] == [f.i3, "1 issue", "1 issue"]   # the issue, its day's subtotal, the Total
+    assert [_id(r[2]) for r in rows[1:4]] == [f.i3, "1 issue", "1 issue"]   # the issue, its day's subtotal, the Total
     monthly = c.get(f"{URL}?store_code={f.s.code}&view=list&group=month&{span}").get_json()["data"]
     assert [monthly["rows"][i]["Date"] for i in monthly["subtotal_rows"]] == ["Subtotal Mar 2026", "Subtotal Apr 2026"]
     for report in ("", "&report=issuance"):
@@ -1503,7 +1521,7 @@ def test_full_pack(client, make, plant_at):
         "Subtotal 10.03.2026", "Subtotal 01.04.2026", "Total"]
     assert all(listed.cell(row=r, column=1).font.b for r in (4, 10, 11))
     assert not listed.cell(row=2, column=1).font.b
-    assert listed.cell(row=7, column=3).value == f.i5 and listed.cell(row=7, column=3).font.color.rgb[-6:] == "94A3B8"
+    assert _id(listed.cell(row=7, column=3).value) == f.i5 and listed.cell(row=7, column=3).font.color.rgb[-6:] == "94A3B8"
 
     summary = list(wb["Summary"].iter_rows(values_only=True))
     assert summary[0] == ("Item", "Value")
