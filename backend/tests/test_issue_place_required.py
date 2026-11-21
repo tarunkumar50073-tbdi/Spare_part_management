@@ -66,6 +66,8 @@ def test_issue_register_shows_the_return_on_the_issue_row(app):
     out = SpareStockService().issue(p.id, 2, "Maintenance", issued_to="Ravi", user="sup")
     r = db.session.execute(text("select * from issue_register where part_no = 'VIEW-RET-1'")).mappings().one()
     assert (r["returned_at"], r["returned_by"], r["return_reason"]) == ("—", "—", "—")
+    assert (r["return_no"], r["return_received_by"]) == ("—", "—")
+    assert list(r.keys())[-2:] == ["return_no", "return_received_by"]     # new columns last (21 Nov 2026)
     db.session.add(SpareStockLedger(part_id=p.id, qty_delta=1, balance_after=4, txn_type="RETURN",
                                     return_of_id=out["issue"]["id"], return_no="RET-T-1", returned_by="Ravi",
                                     return_reason="UNUSED", created_by="sup"))
@@ -73,4 +75,11 @@ def test_issue_register_shows_the_return_on_the_issue_row(app):
     r = db.session.execute(text("select * from issue_register where part_no = 'VIEW-RET-1'")).mappings().one()
     assert float(r["qty_returned"]) == 1 and float(r["net_qty"]) == 1
     assert (r["returned_by"], r["return_reason"]) == ("Ravi", "UNUSED") and r["returned_at"] != "—"
+    assert (r["return_no"], r["return_received_by"]) == ("RET-T-1", "sup")
+    db.session.add(SpareStockLedger(part_id=p.id, qty_delta=1, balance_after=5, txn_type="RETURN",
+                                    return_of_id=out["issue"]["id"], return_no="RET-T-2", returned_by="Ravi",
+                                    return_reason="UNUSED", created_by="keeper"))
+    db.session.commit()
+    r = db.session.execute(text("select * from issue_register where part_no = 'VIEW-RET-1'")).mappings().one()
+    assert (r["return_no"], r["return_received_by"]) == ("RET-T-1, RET-T-2", "keeper")
     assert "line" not in r and all(v is not None for v in r.values())

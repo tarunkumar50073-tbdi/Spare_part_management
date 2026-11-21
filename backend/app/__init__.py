@@ -251,7 +251,10 @@ SELECT l.id AS issue_no,
        COALESCE(NULLIF(TRIM(l.created_by), ''), '—') AS issued_by,
        COALESCE(l.status, 'ISSUED') AS status,
        COALESCE(p.unit_price, 0) AS rate,
-       -l.qty_delta * COALESCE(p.unit_price, 0) AS value
+       -l.qty_delta * COALESCE(p.unit_price, 0) AS value,
+       {return_nos} AS return_no,
+       COALESCE((SELECT NULLIF(TRIM(r.created_by), '') FROM spare_stock_ledger r WHERE r.return_of_id = l.id
+                 ORDER BY r.id DESC LIMIT 1), '—') AS return_received_by
 FROM spare_stock_ledger l
 JOIN part_master p ON p.id = l.part_id
 LEFT JOIN sections s ON s.id = p.section_id
@@ -269,7 +272,15 @@ def _issue_register_view():
     # No return yet: the column says so in words, never empty.
     returned_at = (f"COALESCE(TO_CHAR({last_return} AT TIME ZONE 'Asia/Kolkata', 'DD.MM.YYYY HH24:MI'), '—')"
                    if dialect == "postgresql" else f"COALESCE({last_return}, '—')")
-    sql = _ISSUE_REGISTER_SELECT.format(issued_at=issued_at, returned_at=returned_at)
+    # Every return slip of the issue, oldest first (21 Nov 2026, for the
+    # Maintenance / Tool Room apps: "return_no" and who took it back at the
+    # store). Added at the end, so the apps' existing columns stay put.
+    nos = "SELECT r.return_no FROM spare_stock_ledger r WHERE r.return_of_id = l.id AND r.return_no IS NOT NULL"
+    return_nos = (f"COALESCE((SELECT STRING_AGG(x.return_no, ', ' ORDER BY x.id) FROM spare_stock_ledger x "
+                  f"WHERE x.return_of_id = l.id AND x.return_no IS NOT NULL), '—')"
+                  if dialect == "postgresql" else
+                  f"COALESCE((SELECT GROUP_CONCAT(return_no, ', ') FROM ({nos} ORDER BY r.id)), '—')")
+    sql = _ISSUE_REGISTER_SELECT.format(issued_at=issued_at, returned_at=returned_at, return_nos=return_nos)
     try:
         with db.engine.begin() as conn:
             conn.exec_driver_sql("DROP VIEW IF EXISTS issue_register")
