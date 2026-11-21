@@ -1694,13 +1694,26 @@ class SparePacketService:
 
     @staticmethod
     def _part_dict(part):
-        section = db.session.get(Section, part.section_id) if part.section_id else None
+        # Section names read once per request (21 Nov 2026: a rack of 534
+        # labels read its section 534 times - sessions hold rows weakly, so each
+        # get() went to the database again; 68 s over Tailscale).
+        section = SparePacketService._section(part.section_id)
         return {"id": part.id, "part_no": part.part_no, "part_name": part.part_name, "uom": part.uom,
                 "location": part.location, "rework_location": part.rework_location,
                 "specification": part.specification,
                 "packet_qty": _n(SparePacketService.standard_qty(part)),
                 "bulk": is_bulk(part),
                 "section": section.name if section else None}
+
+    @staticmethod
+    def _section(section_id):
+        if not section_id:
+            return None
+        from flask import g, has_app_context
+        cache = g.setdefault("_dx_sections", {}) if has_app_context() else {}
+        if section_id not in cache:
+            cache[section_id] = db.session.get(Section, section_id)
+        return cache[section_id]
 
     def receipt_dict(self, r, counted_on=None):
         packed = self._packed_of(r.id)
