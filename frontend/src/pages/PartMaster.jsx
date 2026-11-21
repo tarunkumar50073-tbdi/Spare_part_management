@@ -138,8 +138,12 @@ export default function PartMaster() {
     ? [...storeCategories, form.category]
     : storeCategories;
 
+  // Only the newest request may fill the list (21 Nov 2026 audit): fast typing
+  // or a store switch sends several, and a slower older one must not win.
+  const loadSeq = useRef(0);
   const load = async (p = page, kw = keyword, miss = missing, f = filters) => {
     if (!activeCode) return;
+    const mine = ++loadSeq.current;
     setLoading(true);
     try {
       const res = await partService.list({
@@ -152,12 +156,13 @@ export default function PartMaster() {
         category: f.category || undefined,
         sub_category: f.sub_category || undefined,
       });
+      if (mine !== loadSeq.current) return;
       setRows(res.data.data);
       setMeta(res.data.meta);
     } catch (_) {
       /* handled globally */
     } finally {
-      setLoading(false);
+      if (mine === loadSeq.current) setLoading(false);
     }
   };
 
@@ -316,8 +321,12 @@ export default function PartMaster() {
     setModalOpen(true);
   };
 
+  // One save at a time: a double click on a slow link sent two creates.
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);   // two clicks in one frame both see saving=false
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (savingRef.current) return;
     const payload = {
       ...form,
       barcode: form.barcode.trim() === "" ? null : form.barcode.trim(),
@@ -340,6 +349,8 @@ export default function PartMaster() {
       // to both dashboards, which count only parts that have one.
       store_code: activeCode || null,
     };
+    savingRef.current = true;
+    setSaving(true);
     try {
       if (editing) {
         const { part_no, ...updatable } = payload;
@@ -354,6 +365,9 @@ export default function PartMaster() {
       loadCounts();
     } catch (_) {
       /* error toast handled globally */
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -723,7 +737,7 @@ export default function PartMaster() {
         footer={
           <>
             <button className="btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
-            <button className="btn-primary" onClick={handleSubmit}>{editing ? "Update" : "Create"}</button>
+            <button className="btn-primary" onClick={handleSubmit} disabled={saving}>{saving ? "Saving…" : editing ? "Update" : "Create"}</button>
           </>
         }
       >

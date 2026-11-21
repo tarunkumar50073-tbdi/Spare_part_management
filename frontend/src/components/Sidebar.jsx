@@ -1,3 +1,4 @@
+import { pageZoom } from "../lib/displayScale.js";
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, useLocation } from "react-router-dom";
@@ -411,7 +412,10 @@ function CollapsedModule({ group, items }) {
 
       {rect && createPortal(
         <div
-          style={{ position: "fixed", top: Math.max(8, rect.top), left: rect.right + 8, zIndex: 60 }}
+          // The page is zoomed to fit the screen (display-fit, 6 Nov 2026):
+          // screen pixels from getBoundingClientRect divided by the zoom are
+          // the page's own pixels a fixed box is placed in.
+          style={{ position: "fixed", top: Math.max(8, rect.top / pageZoom()), left: rect.right / pageZoom() + 8, zIndex: 60 }}
           onMouseEnter={keep}
           onMouseLeave={close}
           className="w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-navy-800 dark:bg-navy-900"

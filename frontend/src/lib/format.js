@@ -48,9 +48,13 @@ export const fmtStamp = (iso) => {
 };
 
 // Date-only (gate-entry date carries no time), so fmtStamp's 00:00 is dropped.
+// A full server timestamp passed here is read on the plant clock first, so a
+// time between 00:00 and 05:30 IST is not shown as the day before (21 Nov 2026 audit).
 export const fmtDate = (iso) => {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-GB", {
+  const d = String(iso).length > 10 ? parseServerTime(iso) : new Date(iso);
+  if (!d || Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", {
     day: "2-digit", month: "short", year: "numeric",
   });
 };

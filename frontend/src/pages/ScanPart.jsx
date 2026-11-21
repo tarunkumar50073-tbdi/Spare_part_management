@@ -242,10 +242,19 @@ export default function ScanPart() {
   const actions = useMemo(() => scan?.actions || [], [scan]);
 
   // A new part replaces whatever was open for the old one.
+  // The packet the scan named, once issued from this view, is no longer the
+  // one on the shelf: its facts (AVAILABLE, full metres, the New / Rework qty)
+  // are from before the issue, so they are not offered again (21 Nov 2026 audit).
+  const [spentPacket, setSpentPacket] = useState(null);
+  const livePacket = ident?.packet && ident.packet.id !== spentPacket ? ident.packet : null;
+  // The open form, for a save that finishes after the operator moved on.
+  const actionRef = useRef(null);
+  actionRef.current = action;
   useEffect(() => {
     setAction(null);
     setPrint(null);
     setHistoryOpen(false);
+    setSpentPacket(null);
   }, [ident]);
 
   // An open form holds what the operator typed; a new scan must not throw it
@@ -447,14 +456,20 @@ export default function ScanPart() {
   // ActionForm contract: onDone(message) after a successful write. The part's
   // result stays on screen (refreshed) and the caret goes back to the scanner,
   // so the next part is one scan away.
-  const onDone = useCallback((message) => {
-    const text = message || `${ACTIONS[action?.key]?.label || "Action"} recorded`;
-    setAction(null);
-    setDone({ message: text });
+  // `from` is the form the write came from: a save still running when the
+  // operator closed it or scanned the next part must not close the form now
+  // open, nor put its "done" strip on another part (21 Nov 2026 audit).
+  const onDone = useCallback((message, from) => {
+    const text = message || `${ACTIONS[from?.key || action?.key]?.label || "Action"} recorded`;
     toast.success(text);
     qc.invalidateQueries({ queryKey: ["stock"] });
+    qc.invalidateQueries({ queryKey: ["packets"] });
+    if (from && actionRef.current !== from) return;
+    if (ident?.packet) setSpentPacket(ident.packet.id);
+    setAction(null);
+    setDone({ message: text });
     backToGun();
-  }, [action, qc, backToGun]);
+  }, [action, ident, qc, backToGun]);
 
   // The dialog records the print and refreshes the "stock" cache itself.
   const onPrinted = useCallback(() => {
@@ -578,7 +593,7 @@ export default function ScanPart() {
     <>
       {done && <DoneStrip message={done.message} onDismiss={() => setDone(null)} />}
       <IdentityCard part={part} ident={ident} onOpenDetails={() => openPart(part.id)} onClear={clearPart} shelves={scan.shelves} />
-      {ident?.shelf && <ShelfStrip shelf={ident.shelf} />}
+      {ident?.shelf && !(ident.packet && !livePacket) && <ShelfStrip shelf={ident.shelf} />}
       <StatusCard scan={scan} dataStatus={ident?.dataStatus} />
       <TransactionInfo scan={scan} canAct={canAct} onAction={chooseAction} collapsed={Boolean(action)} />
       {action ? (
@@ -603,9 +618,9 @@ export default function ScanPart() {
               </button>
             </header>
             <div className="p-4">
-              <ActionForm actionKey={action.key} scan={ident.packet ? { ...scan, packet: ident.packet } : scan}
+              <ActionForm actionKey={action.key} scan={livePacket ? { ...scan, packet: livePacket } : scan}
                 target={action.target} source={ident.source}
-                onDone={onDone} onCancel={cancelAction} onStep={setFormStep} onDirty={setDirty} />
+                onDone={(m) => onDone(m, action)} onCancel={cancelAction} onStep={setFormStep} onDirty={setDirty} />
             </div>
           </section>
           {/* Issuance first: everything else the part allows, one click
