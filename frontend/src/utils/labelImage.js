@@ -37,10 +37,18 @@ export function defaultTune(size) {
   return { ...BASE_TUNE, ...(TUNED[sizeKey(size)] || {}) };
 }
 
+// QR step saved before every label's QR became one size (21 Nov 2026, version
+// 4): it was picked for a smaller QR, and on the new one it drew the QR to
+// 0.17 mm of the label's top edge. Such a step is dropped (the QR takes its
+// own size again); left / right, up / down and text stay.
+const TUNE_VERSION = 2;
+
 export function savedTune(size) {
   try {
     const all = JSON.parse(localStorage.getItem(TUNE_KEY)) || {};
-    return { ...defaultTune(size), ...(all[sizeKey(size)] || {}) };
+    const mine = { ...(all[sizeKey(size)] || {}) };
+    if (mine.v !== TUNE_VERSION) delete mine.mod;
+    return { ...defaultTune(size), ...mine };
   } catch {
     return defaultTune(size);
   }
@@ -49,7 +57,7 @@ export function savedTune(size) {
 export function saveTune(size, tune) {
   try {
     const all = JSON.parse(localStorage.getItem(TUNE_KEY)) || {};
-    all[sizeKey(size)] = tune;
+    all[sizeKey(size)] = { ...tune, v: TUNE_VERSION };
     localStorage.setItem(TUNE_KEY, JSON.stringify(all));
   } catch { /* remembered for this visit only */ }
 }
@@ -128,7 +136,10 @@ function tinyFit(p, w, h, tune) {
   const code = String(p.code || "");
   // The code keeps a margin each side: at most 88% of the label's width.
   const autoPt = Math.min(codePtMax(labelTier(h, w)), ((w - 2 * pad) * 0.88 / (Math.max(code.length, 8) * 0.6)) / PT);
-  const codePt = autoPt * (tune.text / 100);
+  // A bigger text size never pushes the code past the label's sides, the
+  // left / right move included (21 Nov 2026: "kuch cut to nhi ho rha").
+  const widest = ((w - 2 * pad - 2 * Math.abs(tune.dx || 0)) / (Math.max(code.length, 8) * 0.6)) / PT;
+  const codePt = Math.min(autoPt * (tune.text / 100), widest);
   const codeMm = codePt * PT * 1.1;
   const rows = qrRows(tinyQr(p));
   const n = rows.length;
@@ -136,9 +147,15 @@ function tinyFit(p, w, h, tune) {
   return { code, codePt, codeMm, rows, ...pickDots(n, (room * n) / (n + 1), room, tune) };
 }
 
+// The QR and code stay this far inside the label's edges, whatever the up /
+// down move (a roll shifts a little on the printer).
+const EDGE = 0.3;
+
 function drawTiny(ctx, p, w, h, tune) {
   const f = tinyFit(p, w, h, tune);
-  const top = (h - (f.side + GAP + f.codeMm)) / 2 + tune.dy;
+  const total = f.side + GAP + f.codeMm;
+  const want = (h - total) / 2 + tune.dy;
+  const top = total + 2 * EDGE <= h ? Math.min(Math.max(want, EDGE), h - total - EDGE) : (h - total) / 2;
   const cx = w / 2 + tune.dx;
   drawQr(ctx, f.rows, cx - f.side / 2, top, f.dots);
   font(ctx, f.codePt, "'Courier New', monospace");
