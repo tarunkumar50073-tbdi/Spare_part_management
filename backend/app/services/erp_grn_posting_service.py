@@ -560,7 +560,7 @@ class ErpGrnPostingService:
                 qty = round((line["accept_qty"] or 0) - already, 2)
                 if qty <= 0:
                     continue
-                stock_row = SpareStock.query.filter_by(part_id=line["part_id"]).first()
+                stock_row = self.stock.locked_row(line["part_id"], create=False)
                 if stock_row is None:
                     continue  # never counted — the rule above; re-checked here
                 new_qty = round(float(stock_row.qty_on_hand or 0) + qty, 2)

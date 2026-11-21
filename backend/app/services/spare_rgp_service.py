@@ -298,10 +298,7 @@ class SpareRgpService:
             rgp.grn_at, rgp.grn_by = utcnow(), user
             rgp.refresh_status()
 
-            row = self.stock.repo.get_or_create(rgp.part_id)
-            # This transaction holds the write lock, so the committed figure
-            # read here cannot change before the write below.
-            db.session.refresh(row)
+            row = self.stock.locked_row(rgp.part_id)
             new_qty = round(float(row.qty_on_hand or 0) + qty, 2)
             to_bin = rework_bin(rgp.part)
             _, _, ledger = self.stock._write(

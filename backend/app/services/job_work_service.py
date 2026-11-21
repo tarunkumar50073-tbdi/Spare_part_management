@@ -429,7 +429,7 @@ class JobWorkService:
                     self.stock_svc._lock(SpareStock, first.id)
                     now_have = self._out_so_far([p.id]).get((p.id, self._key(challan)), (0.0, None))[0]
                     diff = round(want - now_have, 2)
-                    row = SpareStock.query.filter_by(part_id=p.id).first()
+                    row = self.stock_svc.locked_row(p.id)
                     on_hand = float(row.qty_on_hand or 0)
                     if diff == 0 or (diff > 0 and on_hand + 1e-9 < diff):
                         continue

@@ -426,7 +426,10 @@ class SpareStockService:
         Returns (stock_row, delta). With return_ledger=True it returns
         (stock_row, delta, ledger_row) — the row a journal entry or a document
         points at (None for a zero-delta write, which records no row)."""
-        row = self.repo.get_or_create(part_id)
+        # Lock the stock row and read what is committed (21 Nov 2026 audit):
+        # the delta on the ledger row is then measured against the real
+        # figure, even if another write landed after the caller's own read.
+        row = self.locked_row(part_id)
         before = float(row.qty_on_hand or 0)
         delta = round(new_qty - before, 2)
         # Stock in AVAILABLE packets is part of on hand (spare_packet.py): no
@@ -465,6 +468,24 @@ class SpareStockService:
         if return_ledger:
             return row, delta, ledger
         return row, delta
+
+    def locked_row(self, part_id, create=True):
+        """The part's stock row, write-locked and re-read from the database.
+
+        Every write that adds to or takes from on hand must read on hand
+        through this, inside its `with atomic():`. A plain read lets two writes
+        at the same moment both start from the same figure, and the second
+        then wipes out the first (21 Nov 2026 audit: a return, a job-work
+        return, an ERP GRN post or an RGP GRN racing an issue). None when the
+        part has no stock row and create is False."""
+        row = self.repo.get_or_create(part_id) if create else SpareStock.query.filter_by(part_id=part_id).first()
+        if row is None:
+            return None
+        if row.id is None:
+            db.session.flush()
+        self._lock(SpareStock, row.id)
+        db.session.refresh(row)
+        return row
 
     @staticmethod
     def _lock(model, row_id):

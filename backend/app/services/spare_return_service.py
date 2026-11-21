@@ -127,32 +127,49 @@ class SpareReturnService:
     # ------------------------------------------------------ return to store
 
     @staticmethod
-    def _packets_back(issue, qty_back):
+    def _packets_back(issue, qty_back, scanned=None):
         """The packets (or individual units) of this issue that come back for
         qty_back, each whole: none for an issue by quantity; else the issue's
-        packets still out, in label order, that add up to exactly qty_back.
+        packets still out that add up to exactly qty_back.
         One issue can hold several labels since 14 Nov 2026 (one issue line
-        for the labels scanned together); a packet never comes back in part."""
+        for the labels scanned together); a packet never comes back in part.
+
+        21 Nov 2026 audit: the packet whose QR was scanned is taken first (it is
+        the one in the person's hand); a packet already recorded on an earlier
+        return of this issue (a job-work return keeps it ISSUED) is never taken
+        again; and any combination that adds up is found, not only the first
+        greedy one ([10, 10, 4] can return 20)."""
         from app.models.spare_packet import SparePacket
         mine = (SparePacket.query.filter_by(issue_ledger_id=issue.id)
                 .order_by(SparePacket.seq.desc(), SparePacket.id.desc()).all())
         if not mine:
             return []
-        out = [p for p in mine if p.status == "ISSUED"]
+        gone = {pid for (pid,) in db.session.query(SpareReturn.packet_id).filter(
+            SpareReturn.issue_id == issue.id, SpareReturn.packet_id.isnot(None))}
+        out = [p for p in mine if p.status == "ISSUED" and p.id not in gone]
         if not out:
             raise BadRequestError(f"The labels of this issue are not out ({mine[0].status.lower()}) — "
                                   "they cannot come back")
-        picked, got = [], Decimal("0")
-        want = Decimal(str(qty_back))
-        for p in out:
-            if got + Decimal(str(p.qty)) <= want:
-                picked.append(p)
-                got += Decimal(str(p.qty))
-            if got == want:
-                return picked
-        sizes = " + ".join(f"{float(p.qty):g}" for p in out)
+        code = (scanned or "").strip().upper()
+        if code:
+            out.sort(key=lambda p: 0 if (p.code or "").upper() == code else 1)   # stable: label order kept
+        want = int((Decimal(str(qty_back)) * 1000).to_integral_value())
+        sizes = [int((Decimal(str(p.qty)) * 1000).to_integral_value()) for p in out]
+        # Smallest-index-first subset that sums to want: reach[s] = the packets
+        # used to reach s, built in order so the scanned packet is in it when it can be.
+        reach = {0: []}
+        for i, size in enumerate(sizes):
+            for total, used in list(reach.items()):
+                t = total + size
+                if t <= want and t not in reach:
+                    reach[t] = used + [i]
+            if want in reach:
+                break
+        if want in reach:
+            return [out[i] for i in reach[want]]
         what = "an individual part" if out[0].kind == "UNIT" else "a packet"
-        raise BadRequestError(f"{out[0].code} goes out as {what} at a time ({sizes}) — it comes back only "
+        listed = " + ".join(f"{float(p.qty):g}" for p in out)
+        raise BadRequestError(f"{out[0].code} goes out as {what} at a time ({listed}) — it comes back only "
                               "whole packets, never part of one")
 
     def job_work_return(self, issue_id, qty=None, reason=None, note=None, returned_by=None, user=None,
@@ -169,7 +186,7 @@ class SpareReturnService:
         if len(reason) > REASON_MAX:
             raise BadRequestError(f"Job work reason must be {REASON_MAX} characters or fewer")
         issue, part, qty_back = self._returnable(issue_id, qty)
-        backs = self._packets_back(issue, qty_back)
+        backs = self._packets_back(issue, qty_back, scanned_code)
         packet = backs[0] if backs else None
         note = _text(note, 255)
         with atomic():
@@ -193,8 +210,8 @@ class SpareReturnService:
             db.session.flush()
             # Into the main store, as ERP's return slip: + on hand now, out
             # again on the supplier's challan (the issue slip).
-            row = SpareStock.query.filter_by(part_id=issue.part_id).first()
-            on_hand = float(row.qty_on_hand or 0) if row is not None else 0.0
+            row = self.stock.locked_row(issue.part_id)
+            on_hand = float(row.qty_on_hand or 0)
             self.stock._write(
                 issue.part_id, round(on_hand + float(qty_back), 2), "RETURN", reference=ret.return_no,
                 remarks=(f"Job work return — into the main store (ERP return slip); goes out on the "
@@ -282,7 +299,7 @@ class SpareReturnService:
         note = _text(note, 255)
         returned_by = _text(returned_by, 80)
         scanned_code, scan_source = _text(scanned_code, 80), _text(scan_source, 20)
-        backs = self._packets_back(issue, qty_back)
+        backs = self._packets_back(issue, qty_back, scanned_code)
         packet = backs[0] if backs else None
 
         with atomic():
@@ -446,10 +463,9 @@ class SpareReturnService:
         already counted from this return, so the issue's returned figure never
         counts it twice. Returns the ledger row."""
         issue = ret.issue
-        row = self.stock.repo.get_or_create(ret.part_id)
-        # This transaction holds the write lock (inspect), so the committed
-        # figure read here cannot change before the write below.
-        db.session.refresh(row)
+        # Lock the stock row: the lock this transaction holds is on the return,
+        # not on stock, so an issue could otherwise land between read and write.
+        row = self.stock.locked_row(ret.part_id)
         new_qty = round(float(row.qty_on_hand or 0) + qty, 2)
         _, _, ledger = self.stock._write(
             ret.part_id, new_qty, "RETURN",
