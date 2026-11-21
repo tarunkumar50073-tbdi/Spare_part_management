@@ -92,3 +92,30 @@ def test_issue_and_return_numbers_run_by_financial_year():
     assert SpareStockLedger.query.filter(SpareStockLedger.part_id == p.id,
                                          SpareStockLedger.txn_type != "ISSUE",
                                          SpareStockLedger.issue_no.isnot(None)).count() == 0
+
+
+def test_a_racks_unprinted_labels_are_listed_for_ticking(app):
+    """21 Nov 2026: R6's labels made but not printed - listed by section x rack,
+    then one rack's labels in rack order; printed ones only on request."""
+    from app.models.store import Section, Store
+    p = _part(qty=3, pkt=1)
+    sec = Section(name=f"Rack test {p.id}", store_id=Store.query.filter_by(code=STORE).one().id)
+    db.session.add(sec)
+    db.session.commit()
+    p.section_id, p.location = sec.id, "R6-S1-B2"
+    db.session.commit()
+    made = svc.old_stock_pack(p.id, 3, "UNIT", user="sup")["packets"]
+    summary = svc.rack_label_summary(STORE)
+    mine = [r for r in summary["racks"] if r["section_id"] == sec.id]
+    assert mine == [{"section_id": sec.id, "section": sec.name, "rack": "R6", "labels": 3, "parts": 1}]
+    out = svc.rack_labels(STORE, "r6", section_id=sec.id)
+    assert [r["id"] for r in out["rows"]] == [x["id"] for x in made]
+    db.session.get(SparePacket, made[0]["id"]).print_count = 1
+    db.session.commit()
+    assert len(svc.rack_labels(STORE, "R6", section_id=sec.id)["rows"]) == 2
+    assert len(svc.rack_labels(STORE, "R6", section_id=sec.id, unprinted=False)["rows"]) == 3
+    assert svc.rack_labels(STORE, "R60", section_id=sec.id)["rows"] == []      # R6 is not R60
+    from tests.test_read_access import _login
+    c = _login(app, perms={"spare_packets": {"view": True}})
+    r = c.get(f"/api/v1/spare-packets/rack-labels?store_code={STORE}&rack=R6&section_id={sec.id}")
+    assert r.status_code == 200 and len(r.get_json()["data"]["rows"]) == 2

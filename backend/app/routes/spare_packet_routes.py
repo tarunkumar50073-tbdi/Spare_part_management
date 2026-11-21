@@ -377,6 +377,22 @@ def issued():
                                             date_to=request.args.get("to") or None))
 
 
+@bp.route("/rack-labels", methods=["GET"])
+@permission_required(RIGHT, "view")
+def rack_labels():
+    """?rack=R6&section_id=..: the rack's labels for the print dialog; no rack:
+    where labels wait to be printed, section x rack. printed=1 shows printed too."""
+    store = _store()
+    unprinted = request.args.get("printed") not in ("1", "true")
+    section = request.args.get("section_id") or None
+    if section is not None and not str(section).isdigit():
+        raise BadRequestError("section_id must be a number")
+    rack = (request.args.get("rack") or "").strip()
+    if not rack:
+        return success_response(service.rack_label_summary(store, unprinted=unprinted))
+    return success_response(service.rack_labels(store, rack, section_id=section, unprinted=unprinted))
+
+
 @bp.route("/packets/<code>", methods=["GET"])
 @permission_required(RIGHT, "view")
 def packet(code):

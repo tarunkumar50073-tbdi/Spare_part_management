@@ -1525,6 +1525,61 @@ class SparePacketService:
         ("Department", "department"),
     ]
 
+    # ---- a rack's labels to print (21 Nov 2026: "R-6 k lable bne the lekin print
+    # nhi huye ... tick box ka option bhi taaki 2000 lable me se 50 nikal saku") ----
+
+    MAX_RACK_LABELS = 6000
+
+    @staticmethod
+    def _labelled_query(store_code, unprinted=True, section_id=None):
+        query = (SparePacket.query.join(Part, Part.id == SparePacket.part_id)
+                 .filter(Part.store_code == store_code, SparePacket.status.in_(LABELLED),
+                         SparePacket.supplier_code.is_(None)))
+        if unprinted:
+            query = query.filter(func.coalesce(SparePacket.print_count, 0) == 0)
+        if section_id:
+            query = query.filter(Part.section_id == int(section_id))
+        return query
+
+    def rack_label_summary(self, store_code, unprinted=True):
+        """Section x rack: how many labels (by default not printed yet) and of
+        how many parts - where printing is left to do. A rack number is used in
+        several sections, so the two are always kept together."""
+        rows = (self._labelled_query(store_code, unprinted)
+                .with_entities(Part.section_id, SparePacket.location, SparePacket.part_id).all())
+        names = {x.id: x.name for x in Section.query.all()}
+        out = {}
+        for sec, loc, pid in rows:
+            key = (sec, rack_of(loc))
+            item = out.setdefault(key, {"section_id": sec, "section": names.get(sec) or "No section",
+                                        "rack": key[1], "labels": 0, "parts": set()})
+            item["labels"] += 1
+            item["parts"].add(pid)
+        items = [{**v, "parts": len(v["parts"])} for v in out.values()]
+        items.sort(key=lambda x: (x["section"], _natural(x["rack"])))
+        return {"racks": items, "labels": sum(x["labels"] for x in items)}
+
+    def rack_labels(self, store_code, rack, section_id=None, unprinted=True):
+        """Every label on one rack (of one section), in rack order - location,
+        part, label - for the print dialog's tick boxes."""
+        from sqlalchemy.orm import joinedload
+        rack = (rack or "").strip().upper()
+        if not rack:
+            raise BadRequestError("Pick a rack")
+        up = func.upper(func.trim(func.coalesce(SparePacket.location, "")))
+        query = self._labelled_query(store_code, unprinted, section_id)
+        if rack == "NO LOCATION":
+            query = query.filter(up == "")
+        else:
+            query = query.filter(or_(up == rack, up.like(f"{rack}-%"), up.like(f"{rack}/%"), up.like(f"{rack} %")))
+        rows = (query.options(joinedload(SparePacket.part), joinedload(SparePacket.batch))
+                .limit(self.MAX_RACK_LABELS + 1).all())
+        if len(rows) > self.MAX_RACK_LABELS:
+            raise BadRequestError(f"More than {self.MAX_RACK_LABELS} labels on rack {rack} - pick its section")
+        rows.sort(key=lambda p: (_natural(p.location or ""), p.part.part_no if p.part else "", p.seq or 0, p.id))
+        return {"rack": rack, "section_id": int(section_id) if section_id else None,
+                "rows": [self.packet_dict(p) for p in rows]}
+
     def printed_labels(self, store_code, q=None, issued_only=False, date_from=None, date_to=None):
         """Every label of the store printed at least once and not cancelled,
         shelf order (location, part, label), with where each one stands.

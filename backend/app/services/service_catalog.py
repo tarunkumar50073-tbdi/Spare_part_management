@@ -50,6 +50,8 @@ SERVICES = [
                   "packing", "fifo", "box label", "supplier label", "gate entry qr", "receipt",
                   "verify", "undo verify", "qc pending receipt", "to verify", "label printer", "godex",
                   "printer setup", "direct print", "label helper", "print helper",
+                  "print rack labels", "rack labels print", "select labels", "tick labels",
+                  "unprinted labels", "print nahi hue",
                   # 13 Nov 2026: packed only by the part's Pkt Qty.
                   "pkt qty", "packet qty", "pack qty",
                   # 14 Nov 2026: the shelf list tab is "Labels & FIFO".
