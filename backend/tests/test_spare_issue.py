@@ -244,7 +244,7 @@ def test_return_goes_straight_back_into_stock():
     assert _on_hand(p.id) == 10.0                        # all 3 back on the shelf at once
     assert res["qty_on_hand"] == 10.0                    # the answer carries the new stock
     assert res["returned_qty"] == 3.0
-    assert res["return_no"].startswith("RET/")           # a return number was raised (RET/2026-27/0001)
+    assert "/DXRT" in res["return_no"]           # a return number was raised (26-27/001/DXRT0001)
     assert res["issue_status"] == "RETURNED"
     doc = res["return"]
     assert doc["status"] == "CLOSED" and (doc["qty_good"], doc["qty_pending"]) == (3.0, 0.0)
@@ -329,8 +329,8 @@ def test_return_numbers_are_sequential_and_never_reused():
     svc.issue(b.id, 1, "Maintenance"); n2 = svc.return_item(_last_issue_id(b.id), reason="Wrong Part")["return_no"]
     nos = [r.return_no for r in SpareReturn.query.all()]
     assert len(set(nos)) == len(nos)        # no number reused
-    assert n1.startswith("RET/") and n2.startswith("RET/")
-    assert int(n2.rsplit("/", 1)[1]) > int(n1.rsplit("/", 1)[1])
+    assert "/DXRT" in n1 and "/DXRT" in n2
+    assert int(n2[-4:]) > int(n1[-4:])
 
 
 def test_cancelled_issue_cannot_be_returned():

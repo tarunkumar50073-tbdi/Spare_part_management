@@ -112,26 +112,39 @@ class SpareJournalService:
         prefix = f"RCV-{datetime.now():%Y%m%d}-"
         return f"{prefix}{self._next_seq(prefix, SpareReceipt.receipt_no):03d}"
 
+    # Store document numbers in ERP's own shape - <FY>/<unit>/<type><NNNN> -
+    # with "DX" in front of the type so an app number is never taken for an
+    # ERP slip (21 Nov 2026: ERP's issue slip is 26-27/001/IS0001; he agreed to
+    # 26-27/001/DXIS0001 and 26-27/001/DXRT0001, issue and return only).
+    UNIT_KEY, UNIT_DEFAULT = "doc_unit_code", "001"      # Plant 1
+
     def next_return_no(self):
-        """RET/<financial year>/NNNN, e.g. RET/2026-27/0001 (21 Nov 2026; was
-        RET-YYYYMMDD-NNN). Checked against the return slips of both tables."""
+        """26-27/001/DXRT0001 - a return slip (was RET-YYYYMMDD-NNN). Checked
+        against the return slips of both tables."""
         from app.models.spare_stock import SpareStockLedger
-        return self._fy_no("RET", SpareReturn.return_no, SpareStockLedger.return_no)
+        return self._fy_no("DXRT", SpareReturn.return_no, SpareStockLedger.return_no)
 
     def next_issue_no(self):
-        """IS/<financial year>/NNNN, e.g. IS/2026-27/0001 (21 Nov 2026)."""
+        """26-27/001/DXIS0001 - an issue slip of this app."""
         from app.models.spare_stock import SpareStockLedger
-        return self._fy_no("IS", SpareStockLedger.issue_no)
+        return self._fy_no("DXIS", SpareStockLedger.issue_no)
 
     @staticmethod
     def financial_year(day=None):
-        """April to March, as "2026-27"."""
+        """April to March, as ERP writes it: "26-27"."""
         day = day or datetime.now().date()
         start = day.year if day.month >= 4 else day.year - 1
-        return f"{start}-{(start + 1) % 100:02d}"
+        return f"{start % 100:02d}-{(start + 1) % 100:02d}"
+
+    @classmethod
+    def unit_code(cls):
+        """The unit in the number: app_settings doc_unit_code, else 001."""
+        from app.models.app_setting import AppSetting
+        code = str(AppSetting.get_value(cls.UNIT_KEY) or "").strip()
+        return code or cls.UNIT_DEFAULT
 
     def _fy_no(self, head, *columns):
-        """The next HEAD/<financial year>/NNNN, from 0001 each April.
+        """The next <FY>/<unit>/<HEAD><NNNN>, from 0001 each April.
 
         The last number of each series is kept in app_settings and that row is
         write-locked before it is read, so two issues saved at the same moment
@@ -141,7 +154,7 @@ class SpareJournalService:
         import json
         from app.models.app_setting import AppSetting
         from app.models.base import utcnow
-        prefix = f"{head}/{self.financial_year()}/"
+        prefix = f"{self.financial_year()}/{self.unit_code()}/{head}"
         key = f"doc_seq:{prefix}"
         row = AppSetting.query.filter_by(key=key).first()
         if row is None:
@@ -158,10 +171,9 @@ class SpareJournalService:
         used = 0
         for col in columns:
             for (val,) in db.session.query(col).filter(col.like(f"{prefix}%")):
-                try:
-                    used = max(used, int(str(val).rsplit("/", 1)[1]))
-                except (ValueError, IndexError):
-                    pass
+                tail = str(val)[len(prefix):]
+                if tail.isdigit():
+                    used = max(used, int(tail))
         n = max(last, used) + 1
         row.value = json.dumps({"n": n})
         return f"{prefix}{n:04d}"

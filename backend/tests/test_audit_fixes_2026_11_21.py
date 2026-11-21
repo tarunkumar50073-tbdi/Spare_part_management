@@ -67,7 +67,7 @@ def test_reading_return_documents_needs_a_right(app):
 
 
 def test_issue_and_return_numbers_run_by_financial_year():
-    """21 Nov 2026: IS/2026-27/0001 and RET/2026-27/0001, 4 digits, from April each year."""
+    """21 Nov 2026: 26-27/001/DXIS0001 and 26-27/001/DXRT0001 (ERP's shape, DX = app), from April each year."""
     import re
     from datetime import date
     from app.models.spare_stock import SpareStockLedger
@@ -76,18 +76,18 @@ def test_issue_and_return_numbers_run_by_financial_year():
     from app.services.spare_stock_service import SpareStockService
     from tests.test_spare_packets import DEPT
     fy = SpareJournalService.financial_year
-    assert fy(date(2026, 11, 21)) == "2026-27" and fy(date(2027, 3, 31)) == "2026-27"
-    assert fy(date(2027, 4, 1)) == "2027-28" and fy(date(2099, 1, 5)) == "2098-99"
+    assert fy(date(2026, 11, 21)) == "26-27" and fy(date(2027, 3, 31)) == "26-27"
+    assert fy(date(2027, 4, 1)) == "27-28" and fy(date(2099, 1, 5)) == "98-99" and fy(date(2099, 6, 1)) == "99-00"
     p = _part(qty=10, pkt=1)
     stock = SpareStockService()
     a = stock.issue(p.id, 1, DEPT, issued_to="Ravi", user="sup", remarks="r")["issue"]
     b = stock.issue(p.id, 1, DEPT, issued_to="Ravi", user="sup", remarks="r")["issue"]
-    pat = re.compile(r"^IS/\d{4}-\d{2}/(\d{4})$")
+    pat = re.compile(r"^\d{2}-\d{2}/001/DXIS(\d{4})$")
     na, nb = pat.match(a["issue_no"]), pat.match(b["issue_no"])
     assert na and nb and int(nb.group(1)) == int(na.group(1)) + 1
-    assert a["issue_no"].split("/")[1] == fy()
+    assert a["issue_no"].split("/")[0] == fy()
     ret = SpareReturnService().return_to_store(a["id"], qty=1, reason="Wrong Part", user="sup")
-    assert re.match(r"^RET/\d{4}-\d{2}/\d{4}$", ret["return_no"]), ret["return_no"]
+    assert re.match(r"^\d{2}-\d{2}/001/DXRT\d{4}$", ret["return_no"]), ret["return_no"]
     # A count or receipt gets no issue number.
     assert SpareStockLedger.query.filter(SpareStockLedger.part_id == p.id,
                                          SpareStockLedger.txn_type != "ISSUE",
