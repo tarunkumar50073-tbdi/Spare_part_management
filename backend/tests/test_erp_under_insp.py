@@ -379,3 +379,22 @@ def test_the_take_back_route_needs_the_stock_edit_right():
     assert resp.status_code == 200, resp.get_json()
     assert resp.get_json()["data"]["qty"] == 3 and _on_hand(p) == 5
     assert client.post(url, json={"grn_no": grn}).status_code == 400
+
+
+def test_a_blank_under_inspection_is_not_read_as_zero_and_an_empty_read_keeps_figures(monkeypatch):
+    """21 Nov 2026 audit: blank under_insp stays unknown (so a GRN in QC is not
+    taken as cleared), and an empty ERP read does not wipe ERP's figures."""
+    p = _part()
+    svc = ERPSyncService()
+    rows = [{"item_cd": p.part_no, "clos_stock": "2", "under_insp": ""},
+            {"item_cd": p.part_no, "clos_stock": "1", "under_insp": None}]
+    monkeypatch.setattr(svc.erp, "fetch_rows", lambda table, cols, **kw: rows)
+    svc.sync_current_stock()
+    row = ERPStock.query.filter_by(part_id=p.id).one()
+    assert float(row.qty_on_hand) == 3 and row.under_insp is None
+    rows[1]["under_insp"] = "4"                 # one row gives a figure: that is it
+    svc.sync_current_stock()
+    assert float(ERPStock.query.filter_by(part_id=p.id).one().under_insp) == 4
+    rows.clear()                                # ERP mid-rebuild
+    assert svc.sync_current_stock() == 0
+    assert float(ERPStock.query.filter_by(part_id=p.id).one().qty_on_hand) == 3

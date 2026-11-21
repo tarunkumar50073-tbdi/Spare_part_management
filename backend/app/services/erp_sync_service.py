@@ -172,6 +172,9 @@ class ERPSyncService:
         except Exception:  # noqa: BLE001 — a renamed column must not stop the stock read
             logger.warning("ERP current_stock read without created_at", exc_info=True)
             raw = self.erp.fetch_rows("current_stock", cols)
+        if not raw:
+            logger.warning("ERP current_stock read gave no rows - last figures kept")
+            return 0
         # When ERP's under-inspection figure was made: a GRN newer than it is
         # in none of it (ErpGrnPostingService.record_snapshot).
         ErpGrnPostingService.record_snapshot(raw)
@@ -182,7 +185,14 @@ class ERPSyncService:
             code, qty = (r.get("item_cd") or "").strip().upper(), _num(r.get("clos_stock"))
             if code and qty is not None:
                 totals[code] = round(totals.get(code, 0.0) + qty, 2)
-                insp[code] = round(insp.get(code, 0.0) + (_num(r.get("under_insp")) or 0.0), 2)
+                # A blank under_insp is "not given", not 0 (21 Nov 2026 audit):
+                # read as 0 it let a GRN still in QC count as cleared and be
+                # added to stock. None unless some row of the part has a figure.
+                u = _num(r.get("under_insp"))
+                if u is not None:
+                    insp[code] = round((insp.get(code) or 0.0) + u, 2)
+                else:
+                    insp.setdefault(code, None)
         parts = {(p.part_no or "").strip().upper(): p.id for p in Part.query.filter(Part.is_active.is_(True))}
         now = utcnow()
         have = {e.part_id: e for e in ERPStock.query.all()}
@@ -193,17 +203,23 @@ class ERPSyncService:
                 continue
             present.append(pid)
             row = have.pop(pid, None)
-            under = insp.get(code, 0.0)
+            under = insp.get(code)
             if row is None:
                 db.session.add(ERPStock(part_id=pid, qty_on_hand=qty, under_insp=under, synced_at=now))
             else:
                 if float(row.qty_on_hand or 0) != qty:
                     row.qty_on_hand = qty
-                if row.under_insp is None or float(row.under_insp) != under:
+                if (None if row.under_insp is None else float(row.under_insp)) != under:
                     row.under_insp = under
         for start in range(0, len(present), 500):
             (ERPStock.query.filter(ERPStock.part_id.in_(present[start:start + 500]))
              .update({"synced_at": now}, synchronize_session=False))
+        # An empty read (ERP rebuilding current_stock around 02:00) is not
+        # "ERP lists nothing": keep the last figures until a real read comes.
+        if not totals:
+            logger.warning("ERP current_stock read gave no rows for this plant - last figures kept")
+            db.session.rollback()
+            return 0
         for row in have.values():
             db.session.delete(row)
         db.session.commit()
