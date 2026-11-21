@@ -234,9 +234,11 @@ def test_erp_stock_comes_in_and_each_table_reports_itself(monkeypatch):
     saved = AppSetting.get_value(SYNC_STATUS_KEY)
     assert saved["ok"] is True and saved["tables"]["erp_stock"]["erp_latest"] == "02:00:49"
 
-    # ERP no longer lists the part: no guessed 0 — the figure goes ("Awaiting ERP").
+    # ERP no longer lists the part (other parts still listed): no guessed 0 —
+    # the figure goes ("Awaiting ERP"). An empty read keeps the last figures
+    # (21 Nov 2026), so another part stays listed here.
     # And one table failing never stops the others; the failure is saved.
-    erp["current_stock"] = []
+    erp["current_stock"] = [{"item_cd": "NOT-IN-APP", "clos_stock": "9"}]
     erp["gate_entry"] = ConnectionError("gate entry table locked")
     result = svc.sync_all()
     assert ERPStock.query.filter_by(part_id=p.id).first() is None

@@ -7,7 +7,10 @@ from app.models.spare_packet import SparePacket
 from app.models.spare_stock import SpareStockLedger
 from app.services.spare_return_service import SpareReturnService
 from app.utils.exceptions import BadRequestError
-from tests.test_spare_packets import DEPT, _part, svc
+from tests.test_spare_packets import _seq, DEPT, _part, svc
+
+# Own part numbers: this file runs beside test_spare_packets in one DB.
+_seq["n"] = max(_seq["n"], 50000 + (sum(map(ord, __name__)) % 1000) * 100)
 
 rsvc = SpareReturnService()
 

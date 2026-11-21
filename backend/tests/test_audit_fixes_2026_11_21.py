@@ -4,7 +4,10 @@ import pytest
 from app.extensions import db
 from app.models.spare_packet import SparePacket
 from app.utils.exceptions import BadRequestError
-from tests.test_spare_packets import STORE, _part, svc
+from tests.test_spare_packets import _seq, STORE, _part, svc
+
+# Own part numbers: this file runs beside test_spare_packets in one DB.
+_seq["n"] = max(_seq["n"], 50000 + (sum(map(ord, __name__)) % 1000) * 100)
 
 
 def test_one_receipts_unprinted_labels_come_past_the_first_hundred():

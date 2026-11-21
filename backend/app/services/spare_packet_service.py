@@ -1398,15 +1398,25 @@ class SparePacketService:
         in_count = self._gate_in_count(store_code, rows)
         if status == "PENDING":
             rows = [r for r in rows if r.id not in in_count]
-        out = [self.receipt_dict(r, counted_on=in_count.get(r.id)) for r in rows]
-        if status == "TO_PACK":
-            out = [r for r in out if r["verify_status"] != "PENDING" and r["to_pack"] > 0]
-        elif status == "PACKED":
-            out = [r for r in out if r["verify_status"] != "PENDING" and r["to_pack"] <= 0]
         size = max(1, min(int(page_size or PAGE_SIZE), MAX_PAGE_SIZE))
         page = max(1, int(page or 1))
-        return {"rows": out[(page - 1) * size: page * size], "total": len(out), "page": page,
-                "pages": -(-len(out) // size), "page_size": size}
+        if status in ("TO_PACK", "PACKED"):
+            # These filter on what is packed, so every receipt is worked out.
+            out = [self.receipt_dict(r, counted_on=in_count.get(r.id)) for r in rows]
+            if status == "TO_PACK":
+                out = [r for r in out if r["verify_status"] != "PENDING" and r["to_pack"] > 0]
+            else:
+                out = [r for r in out if r["verify_status"] != "PENDING" and r["to_pack"] <= 0]
+            total, page_rows = len(out), out[(page - 1) * size: page * size]
+        else:
+            # All / to verify: only the page shown is worked out (21 Nov 2026
+            # audit: each receipt costs ~6 queries, so every receipt per page
+            # was thousands of queries over Tailscale).
+            total = len(rows)
+            page_rows = [self.receipt_dict(r, counted_on=in_count.get(r.id))
+                         for r in rows[(page - 1) * size: page * size]]
+        return {"rows": page_rows, "total": total, "page": page,
+                "pages": -(-total // size), "page_size": size}
 
     @staticmethod
     def _gate_in_count(store_code, rows):
