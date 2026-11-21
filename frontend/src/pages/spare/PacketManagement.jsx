@@ -521,8 +521,29 @@ function RackPrintDialog({ storeCode, section: startSection, rack: startRack, ti
   const words = typed.trim().toUpperCase();
   const shown = useMemo(() => (!words ? rows : rows.filter((p) => `${p.part.part_no} ${p.part.part_name || ""} ${p.location || ""} ${p.code}`
     .toUpperCase().includes(words))), [rows, words]);
+  // One line a part (21 Nov 2026: "part wise dikhe kisi part me 5 lable h to wo
+  // part 5 bar nhi aaye ... use select karen 5 lable nikle"): its labels at one
+  // location go together, and its tick takes all of them.
+  const groups = useMemo(() => {
+    const byKey = new Map();
+    shown.forEach((p) => {
+      const k = `${p.part.id}|${p.location || ""}`;
+      if (!byKey.has(k)) byKey.set(k, { key: k, part: p.part, location: p.location, labels: [] });
+      byKey.get(k).labels.push(p);
+    });
+    return [...byKey.values()];
+  }, [shown]);
   const allShown = shown.length > 0 && shown.every((p) => sel.has(p.id));
-  const toggle = (id) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const groupState = (g) => {
+    const n = g.labels.filter((p) => sel.has(p.id)).length;
+    return n === 0 ? "none" : n === g.labels.length ? "all" : "some";
+  };
+  const toggleGroup = (g) => setSel((s) => {
+    const n = new Set(s);
+    const on = groupState(g) !== "all";
+    g.labels.forEach((p) => (on ? n.add(p.id) : n.delete(p.id)));
+    return n;
+  });
   const toggleShown = () => setSel((s) => {
     const n = new Set(s);
     shown.forEach((p) => (allShown ? n.delete(p.id) : n.add(p.id)));
@@ -543,7 +564,7 @@ function RackPrintDialog({ storeCode, section: startSection, rack: startRack, ti
   return (
     <Modal open onClose={onClose} size="xl" title={rack ? `Print labels — rack ${rack}` : "Print rack labels"}
       footer={<div className="flex w-full flex-wrap items-center justify-between gap-2">
-        <span className="text-[12.5px] text-slate-500">{chosen.length} of {rows.length} label{rows.length === 1 ? "" : "s"} ticked</span>
+        <span className="text-[12.5px] text-slate-500">{new Set(chosen.map((p) => p.part.id)).size} part{new Set(chosen.map((p) => p.part.id)).size === 1 ? "" : "s"} · {chosen.length} of {rows.length} label{rows.length === 1 ? "" : "s"} ticked</span>
         <span className="flex gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
           <button type="button" className="btn-primary" disabled={!chosen.length} onClick={() => setPrinting(chosen)}>
@@ -581,23 +602,28 @@ function RackPrintDialog({ storeCode, section: startSection, rack: startRack, ti
                 <tr>
                   <th className="w-10 px-3 py-2"><input type="checkbox" checked={allShown} onChange={toggleShown} disabled={!shown.length}
                     aria-label={allShown ? "Untick all shown" : "Tick all shown"} /></th>
-                  <TH>Location</TH><TH>Part</TH><TH>QR label</TH><TH right>Qty</TH><TH right>Printed</TH>
+                  <TH>Location</TH><TH>Part</TH><TH right>Labels</TH><TH right>Qty</TH><TH right>Printed</TH>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
-                {shown.map((p) => (
-                  <tr key={p.id} onClick={() => toggle(p.id)} className={`cursor-pointer align-middle ${sel.has(p.id) ? "bg-sky-50/70 dark:bg-sky-500/5" : "hover:bg-slate-50 dark:hover:bg-navy-800/40"}`}>
-                    <td className="px-3 py-1.5"><input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} onClick={(e) => e.stopPropagation()}
-                      aria-label={`Tick ${p.code} #${p.seq}`} /></td>
-                    <td className="whitespace-nowrap px-3 py-1.5 font-semibold">{p.location || "—"}</td>
-                    <td className="px-3 py-1.5"><span className="font-mono text-[12px] font-semibold">{p.part.part_no}</span>
-                      <span className="ml-2 inline-block max-w-[240px] truncate align-bottom text-[11px] text-slate-400" title={p.part.part_name}>{p.part.part_name}</span></td>
-                    <td className="whitespace-nowrap px-3 py-1.5"><span className="font-mono text-[12px]">{p.code}</span>
-                      <span className="ml-1.5 text-[11px] text-slate-400">#{p.seq}</span> <KindTag p={p} /></td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular">{num(p.qty)} {p.uom}</td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular">{p.print_count ? `${p.print_count}×` : <span className="text-amber-600">not yet</span>}</td>
-                  </tr>
-                ))}
+                {groups.map((g) => {
+                  const st = groupState(g);
+                  const qty = g.labels.reduce((s, p) => s + Number(p.qty || 0), 0);
+                  const printed = g.labels.filter((p) => p.print_count).length;
+                  const first = g.labels[0];
+                  return (
+                    <tr key={g.key} onClick={() => toggleGroup(g)} className={`cursor-pointer align-middle ${st !== "none" ? "bg-sky-50/70 dark:bg-sky-500/5" : "hover:bg-slate-50 dark:hover:bg-navy-800/40"}`}>
+                      <td className="px-3 py-1.5"><input type="checkbox" checked={st === "all"} ref={(el) => { if (el) el.indeterminate = st === "some"; }}
+                        onChange={() => toggleGroup(g)} onClick={(e) => e.stopPropagation()} aria-label={`Tick ${g.part.part_no}`} /></td>
+                      <td className="whitespace-nowrap px-3 py-1.5 font-semibold">{g.location || "—"}</td>
+                      <td className="px-3 py-1.5"><span className="font-mono text-[12px] font-semibold">{g.part.part_no}</span>
+                        <span className="ml-2 inline-block max-w-[260px] truncate align-bottom text-[11px] text-slate-400" title={g.part.part_name}>{g.part.part_name}</span></td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-right"><span className="font-semibold tabular">{g.labels.length}</span> <KindTag p={first} /></td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular">{num(qty)} {first.uom}</td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-right tabular">{printed ? `${printed} of ${g.labels.length}` : <span className="text-amber-600">not yet</span>}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {list.isLoading && <p className="px-3 py-6 text-center text-sm text-slate-400">Loading the labels…</p>}
@@ -605,7 +631,7 @@ function RackPrintDialog({ storeCode, section: startSection, rack: startRack, ti
             {list.data && rows.length > 0 && !shown.length && <p className="px-3 py-6 text-center text-sm text-slate-400">No label matches.</p>}
           </div>
         )}
-        <p className="text-[12px] text-slate-500 dark:text-slate-400">Tick the labels to print — the box at the top ticks every label shown (search first to narrow it). Printing never adds stock.</p>
+        <p className="text-[12px] text-slate-500 dark:text-slate-400">One line a part: its tick prints all its labels at that location. The box at the top ticks every part shown (search first to narrow it). Printing never adds stock.</p>
       </div>
     </Modal>
   );
