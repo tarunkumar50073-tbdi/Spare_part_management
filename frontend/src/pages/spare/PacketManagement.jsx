@@ -551,6 +551,8 @@ function RackPrintDialog({ storeCode, section: startSection, rack: startRack, ti
   });
   const chosen = rows.filter((p) => sel.has(p.id));
   const racks = summary.data?.racks || [];
+  // The same bin written in two sections is two different shelves (Oct 2026).
+  const clash = racks.find((r) => `${r.section_id || ""}|${r.rack}` === pick)?.shared_bins || 0;
   const keyOf = (r) => `${r.section_id || ""}|${r.rack}`;
   const extra = startRack && pick === `${startSection || ""}|${startRack}` && !racks.some((r) => keyOf(r) === pick)
     ? [{ section_id: startSection, rack: startRack, section: "", labels: null, parts: null }] : [];
@@ -579,7 +581,7 @@ function RackPrintDialog({ storeCode, section: startSection, rack: startRack, ti
             <option value="">Pick a rack…</option>
             {[...extra, ...racks].map((r) => (
               <option key={keyOf(r)} value={keyOf(r)}>
-                {r.section ? `${r.section} · ` : ""}{r.rack}{r.labels != null ? ` — ${num(r.labels)} label${r.labels === 1 ? "" : "s"}, ${r.parts} part${r.parts === 1 ? "" : "s"}` : ""}
+                {r.rack}{r.labels != null ? ` — ${num(r.labels)} label${r.labels === 1 ? "" : "s"}, ${r.parts} part${r.parts === 1 ? "" : "s"}` : ""}{r.sections?.length ? ` (${r.sections.join(", ")})` : r.section ? ` (${r.section})` : ""}
               </option>
             ))}
           </select>
@@ -589,6 +591,11 @@ function RackPrintDialog({ storeCode, section: startSection, rack: startRack, ti
           </label>
           {rack && <SearchBox value={typed} onChange={setTyped} placeholder="Part, description, location…" />}
         </div>
+        {rack && clash > 0 && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+            {clash} bin{clash === 1 ? " is" : "s are"} written the same in two sections on this rack — check the section shown on each line.
+          </p>
+        )}
         {!rack ? (
           <p className="rounded-lg bg-slate-50 px-3 py-6 text-center text-[13px] text-slate-500 dark:bg-navy-950/40">
             {summary.isLoading ? "Loading…" : racks.length
@@ -617,7 +624,8 @@ function RackPrintDialog({ storeCode, section: startSection, rack: startRack, ti
                         onChange={() => toggleGroup(g)} onClick={(e) => e.stopPropagation()} aria-label={`Tick ${g.part.part_no}`} /></td>
                       <td className="whitespace-nowrap px-3 py-1.5 font-semibold">{g.location || "—"}</td>
                       <td className="px-3 py-1.5"><span className="font-mono text-[12px] font-semibold">{g.part.part_no}</span>
-                        <span className="ml-2 inline-block max-w-[260px] truncate align-bottom text-[11px] text-slate-400" title={g.part.part_name}>{g.part.part_name}</span></td>
+                        <span className="ml-2 inline-block max-w-[260px] truncate align-bottom text-[11px] text-slate-400" title={g.part.part_name}>{g.part.part_name}</span>
+                        {g.part.section && <span className="ml-2 rounded bg-slate-100 px-1.5 py-px text-[10px] font-semibold text-slate-600 dark:bg-navy-800 dark:text-slate-300">{g.part.section}</span>}</td>
                       <td className="whitespace-nowrap px-3 py-1.5 text-right"><span className="font-semibold tabular">{g.labels.length}</span> <KindTag p={first} /></td>
                       <td className="whitespace-nowrap px-3 py-1.5 text-right tabular">{num(qty)} {first.uom}</td>
                       <td className="whitespace-nowrap px-3 py-1.5 text-right tabular">{printed ? `${printed} of ${g.labels.length}` : <span className="text-amber-600">not yet</span>}</td>

@@ -1542,21 +1542,31 @@ class SparePacketService:
         return query
 
     def rack_label_summary(self, store_code, unprinted=True):
-        """Section x rack: how many labels (by default not printed yet) and of
-        how many parts - where printing is left to do. A rack number is used in
-        several sections, so the two are always kept together."""
+        """Rack by rack: how many labels (by default not printed yet), of how
+        many parts, and which sections' parts they are. One line a rack, not a
+        section (21 Nov 2026: "rack k according aana chahiye na ki dept. k" -
+        R6 holds Maintenance and General Tool Room parts on the same shelves,
+        and printing them apart broke the shelf order)."""
         rows = (self._labelled_query(store_code, unprinted)
                 .with_entities(Part.section_id, SparePacket.location, SparePacket.part_id).all())
         names = {x.id: x.name for x in Section.query.all()}
         out = {}
         for sec, loc, pid in rows:
-            key = (sec, rack_of(loc))
-            item = out.setdefault(key, {"section_id": sec, "section": names.get(sec) or "No section",
-                                        "rack": key[1], "labels": 0, "parts": set()})
+            rack = rack_of(loc)
+            item = out.setdefault(rack, {"section_id": None, "rack": rack, "labels": 0, "parts": set(),
+                                         "sections": set(), "_bins": {}})
             item["labels"] += 1
             item["parts"].add(pid)
-        items = [{**v, "parts": len(v["parts"])} for v in out.values()]
-        items.sort(key=lambda x: (x["section"], _natural(x["rack"])))
+            item["sections"].add(names.get(sec) or "No section")
+            item["_bins"].setdefault((loc or "").strip().upper(), set()).add(sec)
+        items = []
+        for v in out.values():
+            # The same bin written in two sections is two different shelves
+            # (Oct 2026): say so, the rows carry their section.
+            clash = sum(1 for secs in v.pop("_bins").values() if len(secs) > 1)
+            items.append({**v, "parts": len(v["parts"]), "sections": sorted(v["sections"]),
+                          "section": " + ".join(sorted(v["sections"])), "shared_bins": clash})
+        items.sort(key=lambda x: _natural(x["rack"]))
         return {"racks": items, "labels": sum(x["labels"] for x in items)}
 
     def rack_labels(self, store_code, rack, section_id=None, unprinted=True):

@@ -106,8 +106,9 @@ def test_a_racks_unprinted_labels_are_listed_for_ticking(app):
     db.session.commit()
     made = svc.old_stock_pack(p.id, 3, "UNIT", user="sup")["packets"]
     summary = svc.rack_label_summary(STORE)
-    mine = [r for r in summary["racks"] if r["section_id"] == sec.id]
-    assert mine == [{"section_id": sec.id, "section": sec.name, "rack": "R6", "labels": 3, "parts": 1}]
+    r6 = next(r for r in summary["racks"] if r["rack"] == "R6")     # one line a rack, every section in it
+    assert r6["labels"] >= 3 and sec.name in r6["sections"] and r6["section_id"] is None
+    assert [r["id"] for r in svc.rack_labels(STORE, "R6")["rows"] if r["id"] in {x["id"] for x in made}] == [x["id"] for x in made]
     out = svc.rack_labels(STORE, "r6", section_id=sec.id)
     assert [r["id"] for r in out["rows"]] == [x["id"] for x in made]
     db.session.get(SparePacket, made[0]["id"]).print_count = 1
