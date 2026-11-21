@@ -582,6 +582,12 @@ function TuneControls({ tune, setTune, size, packet }) {
   );
 }
 
+// The label helper and the print record each take at most 500 labels a call
+// (21 Nov 2026: 2,083 labels of rack R6 -> "send 1 to 500 labels"): a big
+// batch goes in parts of CHUNK, one after the other.
+const CHUNK = 400;
+const chunks = (list) => Array.from({ length: Math.ceil(list.length / CHUNK) }, (_, i) => list.slice(i * CHUNK, (i + 1) * CHUNK));
+
 export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
   const ls = useLabelSize();
   const { size, sizeOk } = ls;
@@ -589,6 +595,7 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
   const [step, setStep] = useState("SETUP");             // SETUP -> ASK (did it print?)
   const [busy, setBusy] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [sent, setSent] = useState(0);            // labels handed to the printer so far
   // The DX label helper on this PC prints straight to the label printer (no
   // print window); without it the browser's print window opens as before.
   const helper = useQuery({ queryKey: ["label-helper"], queryFn: helperStatus, retry: 1, staleTime: 30000, refetchOnMount: "always" });
@@ -608,20 +615,34 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
     if ((reprint && !reason.trim()) || !sizeOk) return;
     if (direct && printer) {
       setPrinting(true);
+      setSent(0);
+      let done = 0;
+      let busyPrinter = false;
       try {
-        const images = packets.map((p) => labelPng(p, size, tune));
-        await helperPrint({ printer, w: size.w, h: size.h, images, title: `DX Store ${packets.length} label(s)` });
+        for (const part of chunks(packets)) {
+          const images = part.map((p) => labelPng(p, size, tune));
+          try {
+            await helperPrint({ printer, w: size.w, h: size.h, images, title: `DX Store ${part.length} label(s)` });
+          } catch (e) {
+            // Sent, but the printer has not finished yet: the next part waits its turn.
+            if (!(e instanceof HelperStillPrinting)) throw e;
+            busyPrinter = true;
+          }
+          done += part.length;
+          setSent(done);
+        }
         savePrinter(printer);
+        if (busyPrinter) toast("Labels are still printing — confirm once they are all out.", { icon: "🖨️", duration: 8000 });
         setStep("ASK");
       } catch (e) {
-        if (e instanceof HelperStillPrinting) {
-          // Sent, but the printer has not finished yet: let the store confirm once it has.
+        if (done > 0) {
+          // Part of the batch went out: ask about those only.
           savePrinter(printer);
-          toast("Labels are still printing — confirm once they are all out.", { icon: "🖨️", duration: 8000 });
+          toast.error(`${e.message || "Could not print"} — ${done} of ${packets.length} labels were sent`, { duration: 10000 });
           setStep("ASK");
-          return;
+        } else {
+          toast.error(e.message || "Could not print");
         }
-        toast.error(e.message || "Could not print");
       } finally {
         setPrinting(false);
       }
@@ -633,8 +654,13 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
   const record = async () => {
     setBusy(true);
     try {
-      await packetService.recordPrint(packets.map((p) => String(p.id)), { reprint, reason: reason.trim() || undefined });
-      toast.success(`${packets.length} label${packets.length === 1 ? "" : "s"} recorded`);
+      // Only what was handed to the printer (all of it, or the parts sent
+      // before a failure), recorded in parts too.
+      const out = direct && sent > 0 ? packets.slice(0, sent) : packets;
+      for (const part of chunks(out)) {
+        await packetService.recordPrint(part.map((p) => String(p.id)), { reprint, reason: reason.trim() || undefined });
+      }
+      toast.success(`${out.length} label${out.length === 1 ? "" : "s"} recorded`);
       onDone?.();
       onClose();
     } catch (e) {
@@ -648,12 +674,12 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
       footer={step === "ASK" ? <>
         <button type="button" className="btn-secondary" onClick={() => setStep("SETUP")}>Not printed — try again</button>
         <button type="button" className="btn-primary" onClick={record} disabled={busy}>
-          <CheckCircle2 size={15} aria-hidden="true" /> {busy ? "Saving…" : "Yes, the labels printed"}
+          <CheckCircle2 size={15} aria-hidden="true" /> {busy ? "Saving…" : direct && sent > 0 && sent < packets.length ? `Yes, ${sent} labels printed` : "Yes, the labels printed"}
         </button>
       </> : <>
         <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
         <button type="button" className="btn-primary" onClick={print} disabled={(reprint && !reason.trim()) || !sizeOk || printing || (direct && !printer)}>
-          <Printer size={15} aria-hidden="true" /> {printing ? `Printing ${packets.length} label${packets.length === 1 ? "" : "s"}… keep this open` : direct ? "Print" : "Print (print window)"}
+          <Printer size={15} aria-hidden="true" /> {printing ? `Printing ${sent} of ${packets.length} label${packets.length === 1 ? "" : "s"}… keep this open` : direct ? "Print" : "Print (print window)"}
         </button>
       </>}>
       {step === "ASK" ? (
