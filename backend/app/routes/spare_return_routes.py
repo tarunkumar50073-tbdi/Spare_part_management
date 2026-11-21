@@ -28,7 +28,14 @@ _DONE = {
 }
 
 
+# Reading return documents (who brought what back) needs a right on a screen
+# that shows returns (21 Nov 2026 audit: these two had none, so any login with
+# store access, a TV login too, could read them).
+RETURN_VIEW = ("scan_part", "spare_store", "store_stock", "work_queue", "part_ledger")
+
+
 @bp.route("/returns", methods=["GET"])
+@permission_required(RETURN_VIEW, "view")
 def list_returns():
     """A store's returns, newest first; ?status=OPEN (or one / several
     statuses, comma-separated) narrows it."""
@@ -39,6 +46,7 @@ def list_returns():
 
 
 @bp.route("/returns/<int:return_id>", methods=["GET"])
+@permission_required(RETURN_VIEW, "view")
 def get_return(return_id):
     ret = require_doc_store(service.get(return_id), "Return")
     return success_response(service.to_dict(ret))

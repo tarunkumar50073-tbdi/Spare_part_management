@@ -307,20 +307,48 @@ class _ProxyHeaders:
 
     Behind nginx or a load balancer every request arrives from the proxy, so
     the per-IP sign-in limit was one bucket for everyone and HTTPS looked like
-    HTTP (no Secure cookie). By default ("auto") the headers are believed only
-    when the request came from this machine or the private network — where the
-    proxy sits — so a browser reaching the app straight from the internet cannot
-    forge them. TRUST_PROXY=1 believes them from any peer; TRUST_PROXY=0 never."""
+    HTTP (no Secure cookie). TRUST_PROXY=1 believes them from any peer;
+    TRUST_PROXY=0 never. By default ("auto"):
+    - the client's address (X-Forwarded-For) only from this machine or an
+      address in TRUST_PROXY_IPS (comma-separated). 21 Nov 2026 audit: it was
+      believed from any private-network peer, so a plant PC reaching the app
+      straight could send a new address on every sign-in try and the per-IP
+      limit never held;
+    - the scheme and host (-Proto / -Host) from the private network too, where
+      the proxy sits, so a browser on the internet cannot forge them."""
 
-    def __init__(self, wsgi_app, mode):
+    def __init__(self, wsgi_app, mode, trusted=()):
         from werkzeug.middleware.proxy_fix import ProxyFix
         self.plain = wsgi_app
         self.fixed = ProxyFix(wsgi_app, x_for=1, x_proto=1, x_host=1)
+        self.scheme_only = ProxyFix(wsgi_app, x_for=0, x_proto=1, x_host=1)
         self.mode = mode
+        self.trusted = {t.strip() for t in trusted if t and t.strip()}
+        self._warned = set()
 
     def __call__(self, environ, start_response):
-        trust = self.mode == "on" or (self.mode == "auto" and _private_peer(environ.get("REMOTE_ADDR")))
-        return (self.fixed if trust else self.plain)(environ, start_response)
+        if self.mode == "on":
+            return self.fixed(environ, start_response)
+        peer = (environ.get("REMOTE_ADDR") or "").split("%")[0]
+        if peer in self.trusted or _loopback_peer(peer):
+            return self.fixed(environ, start_response)
+        if _private_peer(peer):
+            if environ.get("HTTP_X_FORWARDED_FOR") and peer not in self._warned and len(self._warned) < 50:
+                self._warned.add(peer)
+                import logging
+                logging.getLogger("dxstore.proxy").warning(
+                    "X-Forwarded-For from %s not believed (not this machine, not in TRUST_PROXY_IPS). "
+                    "If %s is the reverse proxy, add it to TRUST_PROXY_IPS.", peer, peer)
+            return self.scheme_only(environ, start_response)
+        return self.plain(environ, start_response)
+
+
+def _loopback_peer(addr):
+    import ipaddress
+    try:
+        return ipaddress.ip_address((addr or "").split("%")[0]).is_loopback
+    except ValueError:
+        return False
 
 
 def _proxy_mode():
@@ -431,11 +459,13 @@ def create_app(env_name=None):
                           os.getenv("MAIL_ENGINE_FORCE_OFF", "").strip().lower() in ("1", "true", "yes", "on"))
 
     # Behind a reverse proxy the client's address and scheme come from its
-    # X-Forwarded-* headers, believed only from a proxy on this machine or the
-    # private network unless TRUST_PROXY says otherwise (see _ProxyHeaders).
+    # X-Forwarded-* headers: the client address only from this machine or
+    # TRUST_PROXY_IPS, scheme / host from the private network too, unless
+    # TRUST_PROXY says otherwise (see _ProxyHeaders).
     mode = _proxy_mode()
     if mode != "off":
-        app.wsgi_app = _ProxyHeaders(app.wsgi_app, mode)
+        app.wsgi_app = _ProxyHeaders(app.wsgi_app, mode,
+                                     trusted=os.getenv("TRUST_PROXY_IPS", "").split(","))
 
     db.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)

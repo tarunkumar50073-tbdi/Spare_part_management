@@ -42,12 +42,18 @@ export default function ReturnForm({ scan, target, source, onDone, onCancel }) {
   // A packet's QR names its own issue: that one is picked.
   // The packet scanned, or (one code a part a day since 14 Nov 2026) another
   // issued packet with its code.
+  // An issue can hold several packets (issue-many): every packet still out is
+  // in issue.packets, and the one scanned is the one that comes back.
+  const outOf = (i) => (i.packets?.length ? i.packets : i.packet ? [i.packet] : []);
   const packetIssue = scan.packet
-    ? (issues.find((i) => i.packet?.id === scan.packet.id) || issues.find((i) => i.packet?.code === scan.packet.code))?.id
+    ? (issues.find((i) => outOf(i).some((p) => p.id === scan.packet.id))
+      || issues.find((i) => outOf(i).some((p) => p.code === scan.packet.code)))?.id
     : undefined;
   const pick = useDocChoice(issues, target ?? packetIssue);
   const issue = pick.doc;
-  const packet = issue?.packet || null;
+  const inIssue = issue ? outOf(issue) : [];
+  const packet = (scan.packet && (inIssue.find((p) => p.id === scan.packet.id)
+    || inIssue.find((p) => p.code === scan.packet.code))) || issue?.packet || null;
   const outstanding = qtyOf(issue?.outstanding_qty);
   const available = qtyOf(scan.buckets?.available);
 
@@ -143,6 +149,10 @@ export default function ReturnForm({ scan, target, source, onDone, onCancel }) {
           { label: "Part No.", value: part.part_no, strong: true },
           { label: "Item Description", value: part.part_name },
           packet && { label: what === "packet" ? "Packet" : "Individual part", value: `${packet.code} · ${fmtQty(packet.qty, part.uom)}`, strong: true },
+          inIssue.length > 1 && {
+            label: "Still out on this issue",
+            value: `${inIssue.length} labels: ${inIssue.map((p) => fmtQty(p.qty, part.uom)).join(" + ")} — one comes back per return`,
+          },
           { label: "Original department", value: issue?.department, empty: issue ? "Not recorded" : "Pick the issue" },
           issue && { label: "Issued to", value: issue.issued_to, empty: "Not recorded" },
           issue && (issue.line_name || issue.line_no)

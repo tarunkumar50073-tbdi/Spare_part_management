@@ -753,10 +753,13 @@ def test_a_measured_part_gets_one_label_and_goes_out_a_bit_at_a_time():
         svc.issue(code, DEPT, issued_to="Ravi", user="t", qty=20)
     last = svc.issue(code, DEPT, issued_to="Ravi", user="t", qty=17.5)                 # the rest: the label goes
     assert last["packet"]["status"] == "ISSUED" and _on_hand(p) == 0
-    # A counted part ignores a qty: a packet goes whole.
+    # A counted part's packet goes whole: a smaller qty is refused, not
+    # dropped unseen (21 Nov 2026 audit); its own full qty is fine.
     bolts = _part(40, pkt=20)
     made = svc.old_stock_pack(bolts.id, 40, "PACKET", user="sup")["packets"]
-    assert svc.issue(str(made[0]["id"]), DEPT, issued_to="Ravi", user="t", qty=5)["issue"]["qty"] == 20
+    with pytest.raises(BadRequestError, match="goes out whole"):
+        svc.issue(str(made[0]["id"]), DEPT, issued_to="Ravi", user="t", qty=5)
+    assert svc.issue(str(made[0]["id"]), DEPT, issued_to="Ravi", user="t", qty=20)["issue"]["qty"] == 20
 
 
 # ---- a part on a fresh and a rework shelf: labelled at either (14 Nov 2026) ------------------------

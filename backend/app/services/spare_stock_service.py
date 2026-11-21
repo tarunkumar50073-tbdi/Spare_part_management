@@ -1089,9 +1089,29 @@ class SpareStockService:
         # Returned quantities for all of them at once, not a query per issue.
         returned = self._returned_qty_map([i.id for i in issues])
         # The packet / individual unit an issue handed out whole: it comes back whole.
+        # One issue can hold several labels (issue-many, 14 Nov 2026): every
+        # packet still out is listed (21 Nov 2026 audit — only one was), the
+        # first of them standing as "the packet" for the screens that show one.
+        # A packet already recorded on an earlier return (a job-work return
+        # keeps it ISSUED) is not out any more.
+        from app.models.spare_flow import SpareReturn
         from app.models.spare_packet import SparePacket
-        packets = {p.issue_ledger_id: p for p in SparePacket.query.filter(
-            SparePacket.issue_ledger_id.in_([i.id for i in issues] or [-1]))}
+        ids = [i.id for i in issues] or [-1]
+        gone = {pid for (pid,) in db.session.query(SpareReturn.packet_id).filter(
+            SpareReturn.issue_id.in_(ids), SpareReturn.packet_id.isnot(None))}
+        by_issue = {}
+        for p in (SparePacket.query.filter(SparePacket.issue_ledger_id.in_(ids))
+                  .order_by(SparePacket.seq, SparePacket.id)):
+            by_issue.setdefault(p.issue_ledger_id, []).append(p)
+
+        def _pkt(p):
+            return {"id": p.id, "code": p.code, "kind": p.kind, "qty": float(p.qty), "status": p.status}
+
+        packets, packets_out = {}, {}
+        for iid, mine in by_issue.items():
+            out_now = [p for p in mine if p.status == "ISSUED" and p.id not in gone]
+            packets_out[iid] = [_pkt(p) for p in out_now]
+            packets[iid] = (out_now or mine)[0]
 
         out = []
         for i in issues:
@@ -1128,8 +1148,8 @@ class SpareStockService:
                 "issued_at": i.created_at.isoformat() if i.created_at else None,
                 "confirmed_by": i.confirmed_by,
                 "confirmed_at": i.confirmed_at.isoformat() if i.confirmed_at else None,
-                "packet": ({"code": packets[i.id].code, "kind": packets[i.id].kind, "qty": float(packets[i.id].qty),
-                            "status": packets[i.id].status} if i.id in packets else None),
+                "packet": _pkt(packets[i.id]) if i.id in packets else None,
+                "packets": packets_out.get(i.id, []),
             })
         return out
 

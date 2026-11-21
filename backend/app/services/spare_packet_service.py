@@ -1062,10 +1062,25 @@ class SparePacketService:
             raise BadRequestError(f"At most {MAX_RACK_PARTS} parts in one go")
         made, errors, done = [], [], 0
         for x in rows:
-            part = self._part(x.get("part_id"))
+            # A bad row (a part gone, a count that is not a number) is reported
+            # with the others, never aborts the run halfway with earlier parts
+            # already labelled (21 Nov 2026 audit).
+            try:
+                part = self._part(x.get("part_id"))
+            except (BadRequestError, NotFoundError) as exc:
+                errors.append({"part_id": x.get("part_id"), "part_no": x.get("part_no"),
+                               "message": getattr(exc, "message", None) or str(exc)})
+                continue
             raw = x.get("counted_qty")
-            if raw in (None, "") or float(raw or 0) <= 0:
+            if raw in (None, ""):
                 continue                                   # not counted: left as it is
+            try:
+                if float(raw) <= 0:
+                    continue
+            except (TypeError, ValueError):
+                errors.append({"part_id": part.id, "part_no": part.part_no,
+                               "message": f"Counted qty '{raw}' is not a number"})
+                continue
             std = self.standard_qty(part)
             try:
                 counted = _qty(raw, "Counted on the shelf")
@@ -1150,6 +1165,13 @@ class SparePacketService:
         # A measured part's lot label (14 Nov 2026) gives a part of itself: the
         # qty asked goes out, the rest stays on the shelf under the same label.
         take = None
+        if qty not in (None, "") and not is_bulk(packet.part):
+            # A packet of a counted part goes whole: a smaller qty is refused,
+            # not dropped unseen (21 Nov 2026 audit). Its own full qty is fine.
+            if _qty(qty, "Issue qty") != Decimal(str(packet.qty)):
+                raise BadRequestError(
+                    f"Packet {packet.code} goes out whole ({_n(packet.qty)} {packet.uom or ''}) — "
+                    "a part of it cannot be issued")
         if qty not in (None, "") and is_bulk(packet.part):
             take = _qty(qty, "Issue qty")
             if take > Decimal(str(packet.qty)):

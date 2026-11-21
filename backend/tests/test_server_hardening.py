@@ -91,3 +91,25 @@ def test_a_weak_or_missing_secret_key_is_replaced_by_one_the_app_keeps(tmp_path)
     assert fresh(None) == first == fresh("short") == fresh("change-me-in-production")   # one key, every restart
     strong = "x" * 20 + "-strong-key-from-the-env-file"
     assert fresh(strong) == strong                                                      # a good .env key is used as is
+
+
+def test_a_plant_pc_cannot_choose_its_own_address_for_the_sign_in_limit():
+    """21 Nov 2026 audit: X-Forwarded-For is believed only from this machine or
+    TRUST_PROXY_IPS; another LAN peer keeps its own address."""
+    from app import _ProxyHeaders
+
+    def inner(environ, start_response):
+        start_response("200 OK", [])
+        return [environ.get("REMOTE_ADDR", "").encode()]
+
+    mw = _ProxyHeaders(inner, "auto", trusted=["10.0.0.9"])
+
+    def addr(peer, fwd="1.2.3.4"):
+        env = {"REQUEST_METHOD": "GET", "PATH_INFO": "/", "SERVER_NAME": "x", "SERVER_PORT": "80",
+               "wsgi.url_scheme": "http", "REMOTE_ADDR": peer, "HTTP_X_FORWARDED_FOR": fwd}
+        return b"".join(mw(env, lambda *a: None)).decode()
+
+    assert addr("127.0.0.1") == "1.2.3.4"        # nginx on this machine
+    assert addr("10.0.0.9") == "1.2.3.4"         # the listed proxy
+    assert addr("192.168.30.77") == "192.168.30.77"   # a plant PC straight: its own address
+    assert addr("8.8.8.8") == "8.8.8.8"
