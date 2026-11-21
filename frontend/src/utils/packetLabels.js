@@ -107,6 +107,12 @@ export const tinyQr = (p) => {
 export const PRINTER_DPI = 300;
 export const DOTS_PER_MM = PRINTER_DPI / 25.4;
 export const MIN_QR_DOTS = 3;
+// Every packet label's QR is this one size (21 Nov 2026: "beech me kuch bade
+// qr chap gye jisse code cut gya ... sabhi qr 1 size k aane chahiye"). The
+// QR is "CODE SPEC", up to 89 letters (TINY_QR_MAX), which version 4 (33 x 33
+// squares) always holds; a short spec used to give version 2 or 3, and with
+// this PC's fixed squares those QRs came out smaller than the long ones.
+export const LABEL_QR_VERSION = 4;
 // The most whole dots a square can take for n squares to fit in maxMm (never
 // under 3).
 export function qrDots(n, maxMm) {
@@ -123,7 +129,7 @@ function tinyHtml(packets, w, h, zoom, maxPt = TINY.maxCodePt) {
   const codeMm = codePt * 0.3528 * 1.1;
   const room = Math.max(8, Math.min(w - 2 * pad, h - 2 * pad - codeMm - 0.3));
   const qrOf = (p) => {
-    const svg = qrSvgString(tinyQr(p), { size: 200, quiet: 0 });
+    const svg = qrSvgString(tinyQr(p), { size: 200, quiet: 0, version: LABEL_QR_VERSION });
     const n = Number(svg.match(/viewBox="0 0 (\d+)/)[1]);
     return { svg, mm: (n * qrDots(n, (room * n) / (n + 1))) / DOTS_PER_MM };
   };
@@ -180,7 +186,7 @@ export function fitPt(text, widthMm, heightMm, maxPt, minPt = 4.5) {
 function face(p, dsPt) {
   const part = p.part || {};
   return `<div class="lbl">
-    <div class="q">${qrSvgString(tinyQr(p), { size: 200, quiet: 2 })}<div class="code">${esc(p.code)}</div></div>
+    <div class="q">${qrSvgString(tinyQr(p), { size: 200, quiet: 2, version: LABEL_QR_VERSION })}<div class="code">${esc(p.code)}</div></div>
     <div class="t">
       <div class="pn">${esc(part.part_no)}</div>
       ${part.part_name ? `<div class="ds" style="font-size:${dsPt(part.part_name).toFixed(2)}pt">${esc(part.part_name)}</div>` : ""}

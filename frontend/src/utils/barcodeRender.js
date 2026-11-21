@@ -11,7 +11,7 @@
 // desktop). The label size comes from the backend label-config, never
 // hardcoded here.
 import JsBarcode from "jsbarcode";
-import { QRCodeDecoderErrorCorrectionLevel, QRCodeEncoder } from "@zxing/library";
+import { EncodeHintType, QRCodeDecoderErrorCorrectionLevel, QRCodeEncoder } from "@zxing/library";
 import { TB_LOGO } from "./tbLogo.js";
 import { BIN_QR_DESC_MAX, binBaseLocation, binQrPayload } from "./binLocation.js";
 
@@ -23,10 +23,18 @@ const QR_QUIET = 4;   // modules of white margin around every QR
 // stays sharp on thermal paper. `size` is only the default display size — the
 // label CSS scales it.
 export function qrSvgString(value, opts) {
-  return qrSvgFromMatrix(qrMatrix(value), value, opts);
+  return qrSvgFromMatrix(qrMatrix(value, opts?.version), value, opts);
 }
 
-function qrMatrix(value) {
+// version: a fixed QR version (every packet label the same size, 21 Nov 2026);
+// if the text does not fit it, the smallest one that does.
+export function qrMatrix(value, version) {
+  if (version) {
+    try {
+      const hints = new Map([[EncodeHintType.QR_VERSION, version]]);
+      return QRCodeEncoder.encode(String(value), QRCodeDecoderErrorCorrectionLevel.M, hints).getMatrix();
+    } catch { /* too long for it: the size it needs */ }
+  }
   return QRCodeEncoder.encode(String(value), QRCodeDecoderErrorCorrectionLevel.M).getMatrix();
 }
 

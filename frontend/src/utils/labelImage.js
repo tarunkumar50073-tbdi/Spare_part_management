@@ -17,8 +17,8 @@
 // dots a square as the label has room for; "QR size" on this PC steps one dot
 // a square at a time (tune.mod). The old fixed size in mm (tune.qr) is no
 // longer used.
-import { QRCodeDecoderErrorCorrectionLevel, QRCodeEncoder } from "@zxing/library";
-import { DOTS_PER_MM, PRINTER_DPI, TIERS, TINY, codePtMax, fitPt, labelTier, qrDots, tinyQr } from "./packetLabels.js";
+import { DOTS_PER_MM, LABEL_QR_VERSION, PRINTER_DPI, TIERS, TINY, codePtMax, fitPt, labelTier, qrDots, tinyQr } from "./packetLabels.js";
+import { qrMatrix } from "./barcodeRender.js";
 
 export const DPI = PRINTER_DPI;
 const PX = DOTS_PER_MM;                // dots per mm
@@ -55,7 +55,7 @@ export function saveTune(size, tune) {
 }
 
 function qrRows(text) {
-  const m = QRCodeEncoder.encode(String(text), QRCodeDecoderErrorCorrectionLevel.M).getMatrix();
+  const m = qrMatrix(text, LABEL_QR_VERSION);
   const n = m.getWidth();
   const rows = [];
   for (let y = 0; y < n; y += 1) {
