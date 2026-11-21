@@ -359,8 +359,13 @@ def printed_file(fmt):
 @permission_required(RIGHT, "view")
 def packets():
     page, size = _page()
+    batch = request.args.get("receipt_id") or None
+    if batch is not None and not str(batch).isdigit():
+        raise BadRequestError("receipt_id must be a number")
     return success_response(service.packets(_store(), status=request.args.get("status"),
-                                            q=request.args.get("q"), page=page, page_size=size))
+                                            q=request.args.get("q"), page=page, page_size=size,
+                                            batch_id=batch,
+                                            unprinted=request.args.get("unprinted") in ("1", "true")))
 
 
 @bp.route("/issued", methods=["GET"])

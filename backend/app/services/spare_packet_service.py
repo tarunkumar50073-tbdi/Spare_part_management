@@ -178,6 +178,14 @@ def _text(value, limit, label):
     return t or None
 
 
+def _filter_day(value, what):
+    """A YYYY-MM-DD filter date; a 400 for anything else, not a 500 (21 Nov 2026 audit)."""
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError:
+        raise BadRequestError(f"{what} must be a date like 2026-11-21") from None
+
+
 def _who(user):
     return (str(user) if user else "SYSTEM")[:60]
 
@@ -1497,10 +1505,10 @@ class SparePacketService:
             query = query.filter(SparePacket.status == "ISSUED")
             if date_from:
                 query = query.filter(SparePacket.issued_at >= datetime.combine(
-                    date.fromisoformat(date_from), datetime.min.time()).astimezone())
+                    _filter_day(date_from, "From date"), datetime.min.time()).astimezone())
             if date_to:
                 query = query.filter(SparePacket.issued_at < datetime.combine(
-                    date.fromordinal(date.fromisoformat(date_to).toordinal() + 1), datetime.min.time()).astimezone())
+                    date.fromordinal(_filter_day(date_to, "To date").toordinal() + 1), datetime.min.time()).astimezone())
         else:
             query = query.filter(SparePacket.print_count > 0, SparePacket.status != "CANCELLED")
         text = (q or "").strip()
@@ -1537,19 +1545,26 @@ class SparePacketService:
         return rows
 
     def packets(self, store_code, status=None, q=None, page=1, page_size=PAGE_SIZE, issued=False,
-                date_from=None, date_to=None):
+                date_from=None, date_to=None, batch_id=None, unprinted=False):
         """Packets of the store: AVAILABLE in FIFO order, or (issued=True) the
-        issue history newest first with department, person and who issued."""
+        issue history newest first with department, person and who issued.
+        batch_id + unprinted (21 Nov 2026): one receipt's labels not printed
+        yet, for "Print new labels" on a receipt of any size."""
         query = (SparePacket.query.join(SpareBatch, SpareBatch.id == SparePacket.batch_id)
                  .join(Part, Part.id == SparePacket.part_id).filter(Part.store_code == store_code))
+        if batch_id:
+            query = query.filter(SparePacket.batch_id == int(batch_id))
+        if unprinted:
+            query = query.filter(SparePacket.status.in_(LABELLED),
+                                 func.coalesce(SparePacket.print_count, 0) == 0)
         if issued:
             query = query.filter(SparePacket.status == "ISSUED")
             if date_from:
-                query = query.filter(SparePacket.issued_at >= datetime.combine(date.fromisoformat(date_from),
+                query = query.filter(SparePacket.issued_at >= datetime.combine(_filter_day(date_from, "From date"),
                                                                               datetime.min.time()).astimezone())
             if date_to:
                 query = query.filter(SparePacket.issued_at < datetime.combine(
-                    date.fromordinal(date.fromisoformat(date_to).toordinal() + 1), datetime.min.time()).astimezone())
+                    date.fromordinal(_filter_day(date_to, "To date").toordinal() + 1), datetime.min.time()).astimezone())
         elif status:
             query = query.filter(SparePacket.status == status)
         text = (q or "").strip()

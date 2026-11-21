@@ -178,8 +178,16 @@ function ReceiptsTab({ storeCode }) {
   // Labels & FIFO, with a reason.
   const printNew = async (r) => {
     try {
-      const res = await packetService.packets({ store_code: storeCode, q: r.receipt_no, page_size: 100 });
-      const rows = printable(res.data.data.rows.filter((p) => p.receipt.id === r.id && LABELLED.has(p.status) && !p.print_count));
+      // Every unprinted label of this receipt, page by page: one page holds
+      // at most 100, and a receipt can have hundreds (441 on 19 Nov 2026).
+      const all = [];
+      for (let page = 1; page <= 50; page += 1) {
+        const res = await packetService.packets({ store_code: storeCode, receipt_id: r.id, unprinted: 1, page, page_size: 100 });
+        const { rows: got, total } = res.data.data;
+        all.push(...got);
+        if (!got.length || all.length >= total) break;
+      }
+      const rows = printable(all.filter((p) => p.receipt.id === r.id && LABELLED.has(p.status) && !p.print_count));
       if (rows.length) setDialog({ kind: "PRINT", packets: rows });
       else toast("Every label of this receipt is printed (or on the supplier's label) — reprint one from Labels & FIFO");
     } catch (e) {
