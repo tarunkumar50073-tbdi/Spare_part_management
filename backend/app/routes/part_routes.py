@@ -139,6 +139,7 @@ def part_image(part_id):
     """The part's photo (?n=1 / 2 for its other angles, ?size=thumb for the
     small copy). The URL carries the file name (?v=...), which changes with
     every new photo, so it may be cached."""
+    _own_part(part_id)          # a part of one of the caller's stores only (25 Nov 2026 audit)
     path = images.path(part_id, thumb=request.args.get("size") == "thumb",
                        n=request.args.get("n", default=0, type=int))
     return send_file(path, mimetype="image/jpeg", max_age=30 * 24 * 3600)

@@ -108,3 +108,20 @@ def test_a_half_filled_erp_read_does_not_drop_the_missing_parts(monkeypatch):
     svc.sync_current_stock()
     left = ERPStock.query.filter(ERPStock.part_id.in_([p.id for p in parts])).count()
     assert left == 60          # 1 read, 59 missing: kept, not dropped
+
+
+def test_device_logins_download_nothing_and_open_reads_need_a_right(app):
+    """25 Nov 2026 audit: the TV / kiosk logins cannot pull Excel files; the
+    supplier export and ERP stock / value reads need a right."""
+    from tests.test_read_access import _login
+    tv = _login(app, perms={"live_dashboard": {"view": True}})
+    kiosk = _login(app, perms={"part_kiosk": {"view": True}})
+    for c in (tv, kiosk):
+        assert c.get(f"/api/v1/reports/issue_register/excel?store_code={STORE}").status_code == 403
+        assert c.get(f"/api/v1/parts/export?store_code={STORE}").status_code == 403
+        assert c.get("/api/v1/suppliers/export").status_code == 403
+        assert c.get(f"/api/v1/stock-valuation?store_code={STORE}").status_code == 403
+        assert c.get(f"/api/v1/current-stock?store_code={STORE}").status_code == 403
+    keeper = _login(app, perms={"part_master": {"view": True}, "spare_store": {"view": True}})
+    assert keeper.get("/api/v1/suppliers/export").status_code == 200
+    assert keeper.get(f"/api/v1/stock-valuation?store_code={STORE}").status_code == 200

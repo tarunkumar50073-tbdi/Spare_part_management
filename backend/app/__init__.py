@@ -3,6 +3,7 @@ together (MVC + Repository pattern)."""
 import gzip
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 from flask import Flask, current_app, request
@@ -76,6 +77,12 @@ def _register_auth_guard(app):
                 return error_response("Someone else has signed in on this browser. Please sign in again.",
                                       401, errors={"code": "OTHER_USER"})
             g.current_user = user
+            # A device login (the Live Board TV, the Part Search kiosk) never
+            # downloads a file (25 Nov 2026 audit: from a shop-floor PC a raw
+            # URL gave the whole Part Master / supplier / stock Excel, rates
+            # included). Its screens show; nothing is exported.
+            if _DEVICE_FILE_PATH.search(request.path) and getattr(user, "device_only", False):
+                return error_response("This device login cannot download files", 403)
             return None
         # Or a machine caller with the shared key. Constant-time compare so the
         # key can't be recovered by timing the response (audit finding SEC-L1).
@@ -263,6 +270,10 @@ LEFT JOIN sections s ON s.id = p.section_id
 LEFT JOIN employees e ON e.id = l.employee_id
 WHERE l.txn_type = 'ISSUE'
 """
+
+
+# File downloads: exports, templates, report files, QR lists.
+_DEVICE_FILE_PATH = re.compile(r"/(export|template|printed-file)(/|$)|/(excel|csv|pdf|xlsx)$|\.(pdf|xlsx|csv)$")
 
 
 def _issue_register_view():

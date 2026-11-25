@@ -6,7 +6,7 @@ from app.utils.validators import validate_payload
 from app.utils.pagination import get_pagination_params, paginate_query
 from app.utils.response import success_response, paginated_response
 from app.utils.exceptions import BadRequestError
-from app.utils.authz import admin_required
+from app.utils.authz import admin_required, permission_required
 
 bp = Blueprint("suppliers", __name__, url_prefix="/api/v1/suppliers")
 service = SupplierService()
@@ -64,6 +64,7 @@ def download_template():
 
 
 @bp.route("/export", methods=["GET"])
+@permission_required(("part_master", "receiving", "gate_entry", "child_store"), "view")
 def export_suppliers():
     buf = service.export_all()
     return send_file(buf, as_attachment=True, download_name="supplier_master_export.xlsx",
