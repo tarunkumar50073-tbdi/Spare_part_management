@@ -73,20 +73,42 @@ def _where(zone, line, machine, name=None):
     return text_
 
 
+# Kept for a minute (25 Nov 2026 audit: every Scan Part scan read the
+# department databases three times; with one unreachable each read waited its
+# connect timeout, ~15 s a scan). A database that could not be read is not
+# tried again for a minute either.
+CACHE_SECONDS = 60
+_cache = {}            # (roster, sql text, params) -> (when, rows)
+_down = {}             # roster -> when it last failed
+
+
 def _read(roster_key, sql, **params):
     """Rows from a department database, or [] when it cannot be read."""
+    import time
     from app.services.roster_service import ROSTERS, _engine, _url
     roster = next(r for r in ROSTERS if r.key == roster_key)
+    now = time.monotonic()
+    if now - _down.get(roster_key, -1e9) < CACHE_SECONDS:
+        return []
+    key = (roster_key, str(sql), tuple(sorted((k, tuple(v) if isinstance(v, list) else v) for k, v in params.items())))
+    hit = _cache.get(key)
+    if hit is not None and now - hit[0] < CACHE_SECONDS:
+        return list(hit[1])
     try:
         url = _url(roster)
         if not url:
             return []
         with _engine(url).connect() as conn:
             conn.exec_driver_sql("SET TRANSACTION READ ONLY")
-            return list(conn.execute(sql, params).mappings())
+            rows = [dict(r) for r in conn.execute(sql, params).mappings()]
     except Exception:  # noqa: BLE001 - a department app's database never breaks the store's screens
-        logger.warning("usage: %s not read", roster.database, exc_info=True)
+        _down[roster_key] = now
+        logger.warning("usage: %s not read; not tried again for %s s", roster.database, CACHE_SECONDS, exc_info=True)
         return []
+    if len(_cache) > 500:
+        _cache.clear()
+    _cache[key] = (now, rows)
+    return list(rows)
 
 
 def maintenance_uses(part_nos):
