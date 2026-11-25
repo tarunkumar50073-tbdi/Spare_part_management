@@ -783,7 +783,7 @@ export function UnverifyDialog({ receipt, onClose, onDone }) {
     }
   };
   return (
-    <Shell title={`Undo verify — ${receipt.receipt_no}`} onClose={onClose}
+    <Shell title={`Undo verify — ${receipt.part?.part_no || ""}${receipt.gate_entry_no ? ` · Gate entry ${receipt.gate_entry_no}` : ""}`} onClose={onClose}
       footer={<>
         <button type="button" className="btn-secondary" onClick={onClose}>Keep it</button>
         <button type="button" className="btn-danger" onClick={undo} disabled={!reason.trim() || busy}>{busy ? "Undoing…" : "Undo verify"}</button>

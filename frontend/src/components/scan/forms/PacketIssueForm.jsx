@@ -189,7 +189,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
         { label: "Department", value: department },
         { label: "Shift", value: emp.shift },
         many ? { label: "Received", value: days }
-          : { label: "Received", value: `${fmtDate(packet.receipt.received_on)} · ${packet.receipt.receipt_no}` },
+          : { label: "Received", value: fmtDate(packet.receipt.received_on) },
         { label: "From location", value: packet.location || part.location },
         older ? { label: "FIFO skipped", value: reason.trim() } : null,
         { label: "Remarks", value: payload.remarks },
@@ -216,7 +216,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
           { label: "Part No.", value: part.part_no, strong: true },
           { label: "Item Description", value: part.part_name },
           { label: packet.part?.bulk ? "On this label (lot)" : packet.kind === "UNIT" ? "Individual part" : "Packet qty (whole)", value: oneText, strong: true },
-          { label: "Received", value: `${fmtDate(packet.receipt.received_on)} · ${packet.receipt.receipt_no}` },
+          { label: "Received", value: fmtDate(packet.receipt.received_on) },
           { label: "Location", value: packet.location || part.location, empty: "Not set" },
         ]} />
       }>

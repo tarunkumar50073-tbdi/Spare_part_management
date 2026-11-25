@@ -128,3 +128,17 @@ def test_device_logins_download_nothing_and_open_reads_need_a_right(app):
     keeper = _login(app, perms={"part_master": {"view": True}, "spare_store": {"view": True}})
     assert keeper.get("/api/v1/suppliers/export").status_code == 200
     assert keeper.get(f"/api/v1/stock-valuation?store_code={STORE}").status_code == 200
+
+
+def test_receipt_named_by_gate_entry_not_rcp_number():
+    """25 Nov 2026: the RCP- number "koi kaam ka nhi" - notes and files name a
+    receipt by its gate entry, else GRN, else opening stock."""
+    from types import SimpleNamespace as NS
+    from app.services.spare_packet_service import _batch_ref, SparePacketService
+    b = lambda **k: NS(**{"gate_entry_no": None, "grn_no": None, "source": "GATE", "receipt_no": "RCP-AB12CD", **k})
+    assert _batch_ref(b(gate_entry_no="2627/001/14914", grn_no="IN1")) == "gate entry 2627/001/14914"
+    assert _batch_ref(b(grn_no="IN1")) == "GRN IN1"
+    assert _batch_ref(b(source="OPENING")) == "opening stock"
+    assert _batch_ref(b()) == "RCP-AB12CD"
+    assert ("Gate Entry No", "gate_entry_no") in SparePacketService.PRINTED_COLUMNS
+    assert not any(h == "Receipt No" for h, _ in SparePacketService.PRINTED_COLUMNS)

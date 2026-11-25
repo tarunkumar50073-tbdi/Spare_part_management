@@ -234,7 +234,7 @@ function ReceiptsTab({ storeCode }) {
             <tbody className="divide-y divide-slate-100 dark:divide-navy-800">
               {(list.data?.rows || []).map((r) => (
                 <tr key={r.id} className="align-top text-slate-700 dark:text-slate-200">
-                  <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(r.received_on)}</div><div className="text-[11px] text-slate-400">{r.receipt_no}</div></td>
+                  <td className="whitespace-nowrap px-3 py-2.5">{fmtDate(r.received_on)}</td>
                   <PartCell part={r.part} />
                   <td className="px-3 py-2.5">
                     <div>{r.source === "OPENING" ? "Shelf stock" : <><span className="text-[11px] text-slate-400">GRN </span>{r.grn_no || "not yet"}</>}</div>
@@ -930,7 +930,7 @@ function PacketsTab({ storeCode }) {
                     <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400"><KindTag p={p} /><span>#{p.seq}</span></div>
                     {p.supplier_code && <div className="max-w-[200px] truncate font-mono text-[11px] text-sky-700 dark:text-sky-300" title={p.supplier_code}>Supplier label: {p.supplier_code}</div>}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{num(p.qty)} {p.uom}</td>
-                  <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(p.receipt.received_on)}</div><div className="text-[11px] text-slate-400">{p.receipt.receipt_no}</div></td>
+                  <td className="whitespace-nowrap px-3 py-2.5">{fmtDate(p.receipt.received_on)}</td>
                   <td className="px-3 py-2.5">{p.location || "—"}</td>
                   <td className="px-3 py-2.5"><span className={`badge ${STATUS_PILL[p.status]}`}>{STATUS_WORD[p.status] || p.status.toLowerCase()}</span>
                     {p.cancel_reason && <div className="mt-0.5 max-w-[160px] truncate text-[11px] text-slate-400" title={p.cancel_reason}>{p.cancel_reason}</div>}</td>
@@ -992,7 +992,7 @@ function FifoDialog({ partId, onClose }) {
                 <span className="flex min-w-0 items-center gap-3">
                   <span className="w-6 text-right text-[12px] font-bold text-slate-400">{p.rank}</span>
                   <span className="min-w-0"><span className="block font-mono text-[12.5px] font-semibold">{p.code}</span>
-                    <span className="block text-[11px] text-slate-400">Received {fmtDate(p.receipt.received_on)} · {p.receipt.receipt_no}</span></span>
+                    <span className="block text-[11px] text-slate-400">Received {fmtDate(p.receipt.received_on)}</span></span>
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
                   <span className="text-[13px] font-semibold tabular">{num(p.qty)} {p.uom}</span>
@@ -1052,7 +1052,7 @@ function IssuedTab({ storeCode }) {
                   <td className="px-3 py-2.5"><div className="font-mono text-[12px]">{p.code}</div><div className="mt-0.5"><KindTag p={p} /></div></td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular">{num(p.qty)} {p.uom}</td>
                   <td className="px-3 py-2.5"><div>{p.department}</div><div className="text-[11px] text-slate-400">{p.issued_to}</div></td>
-                  <td className="whitespace-nowrap px-3 py-2.5"><div>{fmtDate(p.receipt.received_on)}</div><div className="text-[11px] text-slate-400">{p.receipt.receipt_no}</div></td>
+                  <td className="whitespace-nowrap px-3 py-2.5">{fmtDate(p.receipt.received_on)}</td>
                   <td className="px-3 py-2.5">{p.fifo_override_reason
                     ? <span className="text-[12px] text-amber-700" title={p.fifo_override_reason}>Skipped: {p.fifo_override_reason}</span>
                     : <span className="text-[12px] text-emerald-700">In order</span>}</td>

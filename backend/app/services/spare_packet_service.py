@@ -241,6 +241,21 @@ def _natural(text):
     return [(0, int(t), "") if t.isdigit() else (1, 0, t) for t in re.split(r"(\d+)", (text or "").upper()) if t]
 
 
+def _batch_ref(batch):
+    """How a receipt is named in notes and files (25 Nov 2026: the app's own
+    RCP- number "koi kaam ka nhi"): its ERP gate entry no., else its GRN no.,
+    else "opening stock"; the RCP- number only when it has none of these."""
+    if batch is None:
+        return ""
+    if batch.gate_entry_no:
+        return f"gate entry {batch.gate_entry_no}"
+    if batch.grn_no:
+        return f"GRN {batch.grn_no}"
+    if batch.source == "OPENING":
+        return "opening stock"
+    return batch.receipt_no or ""
+
+
 class SparePacketService:
 
     # ---- figures --------------------------------------------------------------------
@@ -567,22 +582,22 @@ class SparePacketService:
         if not reason:
             raise BadRequestError("Say why the verification is undone (wrong receipt, testing …)")
         if receipt.verify_status not in ("VERIFIED", "MISMATCH"):
-            raise BadRequestError(f"{receipt.receipt_no} is not verified — there is nothing to undo")
+            raise BadRequestError(f"This receipt ({_batch_ref(receipt)}) is not verified — there is nothing to undo")
         if receipt.loose_note:
-            raise BadRequestError(f"{receipt.receipt_no} is kept loose — Reopen it first, then undo the verification")
+            raise BadRequestError(f"This receipt ({_batch_ref(receipt)}) is kept loose — Reopen it first, then undo the verification")
         from app.services.audit_log_service import AuditLogService
         with atomic():
             live = (db.session.query(func.count(SparePacket.id))
                     .filter(SparePacket.batch_id == receipt.id, SparePacket.status != "CANCELLED").scalar() or 0)
             if live:
-                raise BadRequestError(f"{live} label(s) of {receipt.receipt_no} are made — cancel them first, "
+                raise BadRequestError(f"{live} label(s) of this receipt ({_batch_ref(receipt)}) are made — cancel them first, "
                                       "then undo the verification")
             was = (f"{receipt.verify_status.lower()} {_n(receipt.verified_qty)} by {receipt.verified_by or '?'}"
                    f" on {receipt.verified_at:%d.%m.%Y %H:%M} UTC" if receipt.verified_at else
                    f"{receipt.verify_status.lower()} {_n(receipt.verified_qty)}")
             AuditLogService().log(action="RECEIPT_UNVERIFIED", entity_type="SPARE_RECEIPT", entity_id=receipt.id,
                                   user="STORE", quantity=receipt.verified_qty,
-                                  remarks=f"{receipt.receipt_no} by {_who(user)}: undid {was} — {reason}"[:255])
+                                  remarks=f"{_batch_ref(receipt)} by {_who(user)}: undid {was} — {reason}"[:255])
             receipt.verify_status = "PENDING"
             receipt.verified_qty = None
             receipt.verified_by = None
@@ -1185,7 +1200,7 @@ class SparePacketService:
                        .update({"qty": SparePacket.qty - take}, synchronize_session=False))
                 if not won:
                     raise BadRequestError(f"Label {packet.code} was just issued from another screen")
-                note = f"Part of lot {packet.code} (receipt {packet.batch.receipt_no})"
+                note = f"Part of lot {packet.code} ({_batch_ref(packet.batch)})"
                 if older is not None:
                     note += f" — FIFO skipped: {reason}"
                 if remarks:
@@ -1206,7 +1221,7 @@ class SparePacketService:
                            synchronize_session=False))
             if not won:
                 raise BadRequestError(f"Packet {packet.code} was just issued from another screen")
-            note = f"Packet {packet.code} ({packet.kind.lower()}, receipt {packet.batch.receipt_no})"
+            note = f"Packet {packet.code} ({packet.kind.lower()}, {_batch_ref(packet.batch)})"
             if older is not None:
                 note += f" — FIFO skipped: {reason}"
             if remarks:
@@ -1328,7 +1343,7 @@ class SparePacketService:
                 if not won:
                     raise BadRequestError(f"Label {p.code} was just issued from another screen")
             note = (f"{len(packets)} label{'s' if len(packets) != 1 else ''} of {', '.join(codes_used)}"
-                    f" ({', '.join(sorted({p.batch.receipt_no for p in packets}))})")
+                    f" ({', '.join(sorted({_batch_ref(p.batch) for p in packets}))})")
             if skipped:
                 note += f" — FIFO skipped: {reason}"
             if remarks:
@@ -1520,7 +1535,7 @@ class SparePacketService:
     PRINTED_COLUMNS = [
         ("QR Label", "code"), ("Part No", "part_no"), ("Item Description", "item_description"), ("Type", "type"),
         ("Qty", "qty"), ("UOM", "uom"), ("Location", "location"), ("Received", "received"),
-        ("Receipt No", "receipt_no"), ("Status", "status"), ("Times Printed", "printed"),
+        ("Gate Entry No", "gate_entry_no"), ("Status", "status"), ("Times Printed", "printed"),
         ("Last Printed", "last_printed"), ("Issued On", "issued_on"), ("Issued To", "issued_to"),
         ("Department", "department"),
     ]
@@ -1624,7 +1639,7 @@ class SparePacketService:
                 "code": p.code, "part_no": p.part.part_no, "item_description": p.part.part_name, "type": kind,
                 "qty": _n(p.qty), "uom": p.uom or p.part.uom or "", "location": p.location or "",
                 "received": p.batch.received_on.strftime("%d.%m.%Y") if p.batch.received_on else "",
-                "receipt_no": p.batch.receipt_no or "", "status": word.get(p.status, p.status),
+                "gate_entry_no": p.batch.gate_entry_no or "", "status": word.get(p.status, p.status),
                 "printed": p.print_count or 0, "last_printed": when(p.last_printed_at),
                 "issued_on": when(p.issued_at) if p.status == "ISSUED" else "",
                 "issued_to": (p.issued_to or "") if p.status == "ISSUED" else "",
