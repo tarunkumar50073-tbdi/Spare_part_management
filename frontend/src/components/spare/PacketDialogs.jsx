@@ -599,6 +599,13 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [sent, setSent] = useState(0);            // labels handed to the printer so far
+  // Labels already recorded as printed, from the start of the batch (25 Nov
+  // 2026 audit): a retry after a part failed carries on from here - the
+  // printer never gets the done ones again and the record never sends a
+  // recorded one twice (the server refuses it, and the rest could then never
+  // be recorded).
+  const [recorded, setRecorded] = useState(0);
+  const left = packets.length - recorded;
   // The DX label helper on this PC prints straight to the label printer (no
   // print window); without it the browser's print window opens as before.
   const helper = useQuery({ queryKey: ["label-helper"], queryFn: helperStatus, retry: 1, staleTime: 30000, refetchOnMount: "always" });
@@ -618,11 +625,11 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
     if ((reprint && !reason.trim()) || !sizeOk) return;
     if (direct && printer) {
       setPrinting(true);
-      setSent(0);
-      let done = 0;
+      setSent(recorded);
+      let done = recorded;
       let busyPrinter = false;
       try {
-        for (const part of chunks(packets)) {
+        for (const part of chunks(packets.slice(recorded))) {
           const images = part.map((p) => labelPng(p, size, tune));
           try {
             await helperPrint({ printer, w: size.w, h: size.h, images, title: `DX Store ${part.length} label(s)` });
@@ -638,10 +645,10 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
         if (busyPrinter) toast("Labels are still printing — confirm once they are all out.", { icon: "🖨️", duration: 8000 });
         setStep("ASK");
       } catch (e) {
-        if (done > 0) {
+        if (done > recorded) {
           // Part of the batch went out: ask about those only.
           savePrinter(printer);
-          toast.error(`${e.message || "Could not print"} — ${done} of ${packets.length} labels were sent`, { duration: 10000 });
+          toast.error(`${e.message || "Could not print"} — ${done - recorded} of ${left} labels were sent`, { duration: 10000 });
           setStep("ASK");
         } else {
           toast.error(e.message || "Could not print");
@@ -651,7 +658,7 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
       }
       return;
     }
-    printLabels(html);
+    printLabels(recorded > 0 ? packetLabelsHtml(packets.slice(recorded), { size }) : html);
     setStep("ASK");
   };
   const record = async () => {
@@ -659,13 +666,22 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
     try {
       // Only what was handed to the printer (all of it, or the parts sent
       // before a failure), recorded in parts too.
-      const out = direct && sent > 0 ? packets.slice(0, sent) : packets;
-      for (const part of chunks(out)) {
+      const upto = direct ? sent : packets.length;
+      let at = recorded;
+      for (const part of chunks(packets.slice(recorded, upto))) {
         await packetService.recordPrint(part.map((p) => String(p.id)), { reprint, reason: reason.trim() || undefined });
+        at += part.length;
+        setRecorded(at);
       }
-      toast.success(`${out.length} label${out.length === 1 ? "" : "s"} recorded`);
+      toast.success(`${at - recorded} label${at - recorded === 1 ? "" : "s"} recorded`);
       onDone?.();
-      onClose();
+      if (at >= packets.length) {
+        onClose();
+      } else {
+        // Some were never sent: back to print the rest.
+        setStep("SETUP");
+        toast(`${packets.length - at} labels still to print — press Print for the rest`, { icon: "🖨️", duration: 8000 });
+      }
     } catch (e) {
       toast.error(errText(e));
     } finally {
@@ -675,14 +691,14 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
   return (
     <Shell title={reprint ? "Reprint QR label" : `Print ${packets.length} QR label${packets.length === 1 ? "" : "s"}`} onClose={onClose} size="wide"
       footer={step === "ASK" ? <>
-        <button type="button" className="btn-secondary" onClick={() => setStep("SETUP")}>Not printed — try again</button>
+        <button type="button" className="btn-secondary" onClick={() => { setSent(recorded); setStep("SETUP"); }}>Not printed — try again</button>
         <button type="button" className="btn-primary" onClick={record} disabled={busy}>
-          <CheckCircle2 size={15} aria-hidden="true" /> {busy ? "Saving…" : direct && sent > 0 && sent < packets.length ? `Yes, ${sent} labels printed` : "Yes, the labels printed"}
+          <CheckCircle2 size={15} aria-hidden="true" /> {busy ? "Saving…" : direct && sent - recorded < left ? `Yes, ${sent - recorded} labels printed` : "Yes, the labels printed"}
         </button>
       </> : <>
         <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
         <button type="button" className="btn-primary" onClick={print} disabled={(reprint && !reason.trim()) || !sizeOk || printing || (direct && !printer)}>
-          <Printer size={15} aria-hidden="true" /> {printing ? `Printing ${sent} of ${packets.length} label${packets.length === 1 ? "" : "s"}… keep this open` : direct ? "Print" : "Print (print window)"}
+          <Printer size={15} aria-hidden="true" /> {printing ? `Printing ${sent} of ${packets.length} label${packets.length === 1 ? "" : "s"}… keep this open` : recorded > 0 ? `Print the other ${left}` : direct ? "Print" : "Print (print window)"}
         </button>
       </>}>
       {step === "ASK" ? (

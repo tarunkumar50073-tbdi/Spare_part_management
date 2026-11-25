@@ -65,9 +65,21 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     setSetFifo(d.fifo);
     return d;
   };
+  // A label scanned while the last one is still being checked waits its turn
+  // (25 Nov 2026 audit: it was dropped - no label, no message, no Scan Audit
+  // row - when two labels were scanned quickly over a slow network).
+  const busyRef = useRef(false);
+  const queue = useRef([]);
   const addLabel = async (scanned, scanSource = "USB_SCANNER") => {
     const text = String(scanned ?? next).trim();
-    if (!text || adding) return;
+    if (!text) return;
+    if (busyRef.current) {
+      queue.current.push([text, scanSource]);
+      setNext("");
+      setAddMsg(`Checking the last label - ${queue.current.length} more waiting, added next`);
+      return;
+    }
+    busyRef.current = true;
     setAddMsg(null);
     setAdding(true);
     try {
@@ -79,6 +91,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
     } catch (e) {
       setAddMsg(e?.response?.data?.message || "Could not add the label — check the network and scan again");
     } finally {
+      busyRef.current = false;
       setAdding(false);
       setNext("");
       setTimeout(() => nextRef.current?.focus(), 0);
@@ -89,6 +102,12 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   // Part, which asks before leaving this form.
   const addRef = useRef(addLabel);
   addRef.current = addLabel;
+  // The next waiting label, once the list from the last check is on screen.
+  useEffect(() => {
+    if (adding || !queue.current.length) return;
+    const [text, source] = queue.current.shift();
+    addRef.current(text, source);
+  }, [adding, more]);
   const canAdd = !lot && available && !flow.review && !flow.busy;
   useEffect(() => {
     if (!canAdd) return undefined;
@@ -236,7 +255,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
             </ul>
             {!lot && <Field label={`Taking more of ${part.part_no}? Scan the next label`} htmlFor={`${uid}-next`} className="mt-2"
               error={addMsg} hint={`Only labels of ${part.part_no} — another part is issued on its own, so each part keeps its history.`}>
-              <input id={`${uid}-next`} ref={nextRef} value={next} autoFocus autoComplete="off" disabled={adding}
+              <input id={`${uid}-next`} ref={nextRef} value={next} autoFocus autoComplete="off"
                 onChange={(e) => setNext(e.target.value)}
                 onKeyDown={(e) => { gunEnd(e); if (e.key === "Enter") { e.preventDefault(); addLabel(); } }}
                 className="input-field font-mono" placeholder={adding ? "Checking…" : "Scan the next label of this part"} />

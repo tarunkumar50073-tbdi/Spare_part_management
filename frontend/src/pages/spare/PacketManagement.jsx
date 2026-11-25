@@ -563,8 +563,11 @@ function RackPrintDialog({ storeCode, section: startSection, rack: startRack, ti
   if (printing) {
     return (
       <PrintDialog packets={printing} reprint={printing.some((p) => p.print_count)}
-        onClose={() => setPrinting(null)}
-        onDone={() => { onDone?.(); qc.invalidateQueries({ queryKey: ["packets"] }); setSel(new Set()); setPrinting(null); }} />
+        // Recorded: refresh the lists. The print dialog itself stays open
+        // while some labels are still to print ("Print the other N"), and is
+        // closed by onClose (25 Nov 2026).
+        onClose={() => { setPrinting(null); setSel(new Set()); }}
+        onDone={() => { onDone?.(); qc.invalidateQueries({ queryKey: ["packets"] }); }} />
     );
   }
   return (
