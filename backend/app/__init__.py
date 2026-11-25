@@ -663,6 +663,10 @@ LATE_COLUMNS = (
     # came back whole; QR or manual identification; who counted it back.
     ("spare_returns", "return_type", "VARCHAR(20)"),
     ("spare_returns", "packet_id", "INTEGER"),
+    # Every packet of a return when several came back together (25 Nov 2026
+    # audit: only the first was kept, so a job-work return of two packets left
+    # the second to be "returned" again later). Comma-separated ids.
+    ("spare_returns", "packet_ids", "VARCHAR(500)"),
     ("spare_returns", "identified_by", "VARCHAR(10)"),
     ("spare_returns", "verified_by", "VARCHAR(60)"),
     ("spare_returns", "verified_at", "TIMESTAMP WITH TIME ZONE"),

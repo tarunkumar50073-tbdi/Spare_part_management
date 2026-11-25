@@ -187,6 +187,9 @@ class SpareReturn(BaseModel):
     return_type = db.Column(db.String(20), nullable=True)
     # The packet (spare_packets) that came back whole, when the issue was one.
     packet_id = db.Column(db.Integer, nullable=True)
+    # All the packets of this return, comma-separated ids (25 Nov 2026); packet_id
+    # stays the first, as before.
+    packet_ids = db.Column(db.String(500), nullable=True)
     # QR (the part / packet label was scanned) or MANUAL (searched by Part No.).
     identified_by = db.Column(db.String(10), nullable=True)
     # Fresh return: the supervisor who counted it back, and when.

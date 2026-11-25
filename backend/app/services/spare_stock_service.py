@@ -1099,8 +1099,12 @@ class SpareStockService:
         from app.models.spare_flow import SpareReturn
         from app.models.spare_packet import SparePacket
         ids = [i.id for i in issues] or [-1]
-        gone = {pid for (pid,) in db.session.query(SpareReturn.packet_id).filter(
-            SpareReturn.issue_id.in_(ids), SpareReturn.packet_id.isnot(None))}
+        gone = set()
+        for pid, pids in db.session.query(SpareReturn.packet_id, SpareReturn.packet_ids).filter(
+                SpareReturn.issue_id.in_(ids)):
+            if pid is not None:
+                gone.add(pid)
+            gone.update(int(x) for x in str(pids or "").split(",") if x.strip().isdigit())
         by_issue = {}
         for p in (SparePacket.query.filter(SparePacket.issue_ledger_id.in_(ids))
                   .order_by(SparePacket.seq, SparePacket.id)):

@@ -144,8 +144,12 @@ class SpareReturnService:
                 .order_by(SparePacket.seq.desc(), SparePacket.id.desc()).all())
         if not mine:
             return []
-        gone = {pid for (pid,) in db.session.query(SpareReturn.packet_id).filter(
-            SpareReturn.issue_id == issue.id, SpareReturn.packet_id.isnot(None))}
+        gone = set()
+        for pid, pids in db.session.query(SpareReturn.packet_id, SpareReturn.packet_ids).filter(
+                SpareReturn.issue_id == issue.id):
+            if pid is not None:
+                gone.add(pid)
+            gone.update(int(x) for x in str(pids or "").split(",") if x.strip().isdigit())
         out = [p for p in mine if p.status == "ISSUED" and p.id not in gone]
         if not out:
             raise BadRequestError(f"The labels of this issue are not out ({mine[0].status.lower()}) — "
@@ -204,6 +208,7 @@ class SpareReturnService:
                 line_no=issue.line_no, machine=issue.machine, die_no=issue.die_no,
                 scanned_code=_text(scanned_code, 80), scan_source=_text(scan_source, 20),
                 packet_id=packet.id if packet is not None else None,
+                packet_ids=(",".join(str(b.id) for b in backs)[:500] or None) if backs else None,
                 identified_by=_text(identified_by, 10),
             )
             db.session.add(ret)
@@ -324,6 +329,7 @@ class SpareReturnService:
                 machine=issue.machine, die_no=issue.die_no,
                 scanned_code=scanned_code, scan_source=scan_source,
                 return_type="UNUSED_RETURN", packet_id=packet.id if packet is not None else None,
+                packet_ids=(",".join(str(b.id) for b in backs)[:500] or None) if backs else None,
                 identified_by=_text(identified_by, 10), verified_by=_text(verified_by, 60),
                 verified_at=utcnow() if verified_by else None,
             )

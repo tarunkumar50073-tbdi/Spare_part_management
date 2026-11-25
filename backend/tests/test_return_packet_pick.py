@@ -52,3 +52,15 @@ def test_a_packet_sent_on_job_work_is_not_put_back_on_the_shelf():
     sent = sent or SpareReturn.query.filter_by(issue_id=issue.id).one().packet_id
     back = rsvc._packets_back(issue, 10)
     assert [x.id for x in back] != [sent] and len(back) == 1
+
+
+def test_a_job_work_return_of_two_packets_keeps_both_out_of_later_returns():
+    """25 Nov 2026 audit: every packet of a return is recorded, not only the first."""
+    from app.models.spare_flow import SpareReturn
+    _, packets, issue = _issued(sizes_total=30)               # 3 packets of 10
+    rsvc.job_work_return(issue.id, qty=20, reason="worn out", user="tester")
+    doc = SpareReturn.query.filter_by(issue_id=issue.id).one()
+    sent = {int(x) for x in doc.packet_ids.split(",")}
+    assert len(sent) == 2 and doc.packet_id in sent
+    left = rsvc._packets_back(issue, 10)
+    assert len(left) == 1 and left[0].id not in sent
