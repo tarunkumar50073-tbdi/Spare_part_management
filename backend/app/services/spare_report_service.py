@@ -76,7 +76,7 @@ EXCESS_COLUMNS = ("Section", "Category", "Part No", "Item Description", "Supplie
                   "Max", "Excess Qty", "Rate", "Excess Value")
 ISSUE_COLUMNS = ("Date & Time", "Issue No", "Reference", "Part No", "Item Description", "Section", "Qty Issued",
                  "Department", "Consumer", "Issued To", "Emp Code", "Issued By", "Status",
-                 "Returned Qty", "Still Out", "Used Qty", "Used At")
+                 "Qty Returned", "Still Out", "Used Qty", "Used At")
 RETURN_COLUMNS = ("Date & Time", "Return No", "Issue No", "Part No", "Item Description", "Qty", "Reason",
                   "Returned By", "Department", "Recorded By", "Result")
 RECEIPT_COLUMNS = ("Date", "GRN No", "Part No", "Item Description", "Section", "Qty", "Supplier",
@@ -286,7 +286,7 @@ class SpareReportService:
                 # No Line / Machine / Die: nothing records them at the store
                 # since Confirm Installation went (27 Oct 2026); where it was
                 # used comes from the departments' apps (Used Qty / Used At).
-                "Returned Qty": back,
+                "Qty Returned": back,
                 "Still Out": 0 if r.status == "CANCELLED" else max(round(issued - back, 2), 0),
                 "Used Qty": u["used"] if u else None,
                 "Used At": (("" if u["exact"] else "~ ") + ", ".join(u["where"])) if u else None,

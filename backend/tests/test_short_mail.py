@@ -65,7 +65,7 @@ def test_the_mail_is_an_unsent_draft_in_the_stores_words():
     assert msg["To"] == "purchase@tbdi.example, buyer@tbdi.example" and msg["Cc"] == "store@tbdi.example"
     for text in ("Dear Sir,", "This is to inform you that today we have short material received against "
                  "invoice no. INV-6148 on dated 23-Oct-2026. Detail is given below:-",
-                 "Part No.", "Part Description", "Invoice Qty", "Received Qty", "Short Qty",
+                 "Part No", "Item Description", "Invoice Qty", "Received Qty", "Short Qty",
                  "CNTR1001", "Plastic Bin Green", "CNTR1002", "Ankit Rai"):
         assert text in body, text
     # the short qty of each part: 200 - 180 and 50 - 0

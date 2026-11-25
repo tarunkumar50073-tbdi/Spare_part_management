@@ -34,7 +34,7 @@ from app.utils.exceptions import BadRequestError
 SETTING_KEY = "short_mail"
 # Purchase's addresses — set once on the screen, empty until then.
 MAIL_DEFAULTS = {"to": "", "cc": ""}
-COLUMNS = ("Part No.", "Part Description", "Invoice Qty", "Received Qty", "Short Qty")
+COLUMNS = ("Part No", "Item Description", "Invoice Qty", "Received Qty", "Short Qty")
 MAX_LINES = 60
 MAX_QTY = Decimal("1000000")
 EMAIL_RE = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")

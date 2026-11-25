@@ -415,7 +415,7 @@ def test_issue_register_status_words(make):
     # Used Qty / Used At come from the departments' apps (21 Nov 2026); none here.
     assert (rows[_no(full)]["Used Qty"], rows[_no(full)]["Used At"]) == (None, None)
     assert rows[_no(back)]["Status"] == "Partly returned"
-    assert (rows[_no(back)]["Qty Issued"], rows[_no(back)]["Returned Qty"], rows[_no(back)]["Still Out"]) == (3, 1, 2)
+    assert (rows[_no(back)]["Qty Issued"], rows[_no(back)]["Qty Returned"], rows[_no(back)]["Still Out"]) == (3, 1, 2)
     # Department is who took it, as typed; Consumer the owner of the part's section.
     assert (rows[_no(back)]["Department"], rows[_no(back)]["Consumer"]) == (dept.name, "No section")
     columns = next(r.columns for r in SpareReportService.REPORTS if r.key == "issue_register")

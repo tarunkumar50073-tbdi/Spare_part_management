@@ -15,7 +15,7 @@ STOCK_STATUSES = ["Healthy", "Short", "Excess", "Dead Stock", "Unknown"]
 _STATUS_MAP = {"Normal": "Healthy", "Short": "Short", "OutOfStock": "Short", "Excess": "Excess"}
 
 EXPORT_COLUMNS = [
-    ("Part No", "part_no"), ("Part Description", "part_name"), ("Category", "category"),
+    ("Part No", "part_no"), ("Item Description", "part_name"), ("Category", "category"),
     ("Sub Category", "sub_category"), ("Rack No", "rack_no"), ("UOM", "uom"),
     ("In Stock", "live_stock"), ("Unit Price", "unit_price"), ("Total Value", "total_value"),
     ("Stock Status", "stock_status"),

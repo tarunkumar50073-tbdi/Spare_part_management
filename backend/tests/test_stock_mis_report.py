@@ -279,9 +279,9 @@ def test_summary_movement_table(wb):
     rows = _table(wb["Summary"], "Material movement - last 7 days")
     days = [d for d in rows if d != "Total"]
     assert days == [datetime(2026, 10, d) for d in range(7, 14)]      # newest last, real dates
-    assert rows[datetime(2026, 10, 12)] == {"Received Qty": 5, "Issued Qty": 0}
-    assert rows[datetime(2026, 10, 13)] == {"Received Qty": 0, "Issued Qty": 2}
-    assert rows["Total"] == {"Received Qty": 5, "Issued Qty": 2}
+    assert rows[datetime(2026, 10, 12)] == {"Received Qty": 5, "Qty Issued": 0}
+    assert rows[datetime(2026, 10, 13)] == {"Received Qty": 0, "Qty Issued": 2}
+    assert rows["Total"] == {"Received Qty": 5, "Qty Issued": 2}
     ws = wb["Summary"]
     day = next(c for c in ws["A"] if c.value == datetime(2026, 10, 12))
     assert day.number_format == "DD.MM.YYYY"

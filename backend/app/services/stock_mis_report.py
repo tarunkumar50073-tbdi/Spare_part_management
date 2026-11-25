@@ -537,7 +537,7 @@ def _movement_table(ws, wb, row, movement):
     nothing moved, rather than a week of zeros."""
     spans = ((1, 4), (5, 8), (9, 12))
     row = _heading(ws, wb, row, f"Material movement - last {MOVEMENT_DAYS} days")
-    row = _table_row(ws, row, spans, ("Date", "Received Qty", "Issued Qty"),
+    row = _table_row(ws, row, spans, ("Date", "Received Qty", "Qty Issued"),
                      _head_looks(wb, len(spans)), height=18)
     if not any(received or issued for _, received, issued in movement):
         row = _table_row(ws, row, ((1, GRID),),

@@ -2317,7 +2317,7 @@ def test_alert_critical_list_puts_the_worst_parts_first_under_the_totals(engine,
             assert absent not in body
     assert html.endswith(f"{_SIGNATURE_HTML}</p></body></html>")    # the shared signature closes the mail
     assert "<th" in html and html.count("<tr") == 5           # the header row and the four parts
-    for header in ("Part No", "Item Description", "Status", "Stock", "Min", "Max", "Location", "Section"):
+    for header in ("Part No", "Item Description", "Status", "In Stock", "Min", "Max", "Location", "Section"):
         assert f">{header}</th>" in html and header in text
     assert ">12.5</td>" in html and ">R2-S1-B4</td>" in html and ">Maintenance</td>" in html
     # A description is data: it is shown, never run.
