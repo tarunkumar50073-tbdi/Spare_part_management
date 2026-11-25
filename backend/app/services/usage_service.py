@@ -111,6 +111,19 @@ def _read(roster_key, sql, **params):
     return list(rows)
 
 
+def _issue_key(value, col):
+    """The store issue a Maintenance row names, or None. A column simply called
+    "issue_no" may be the Maintenance app's own numbering (25 Nov 2026 audit):
+    from it only a slip number ("DX/26-27/001/IS0001", an ERP slip) is taken,
+    never a bare number that could be any store row id."""
+    v = str(value or "").strip()
+    if not v:
+        return None
+    if col == "issue_no" and "/" not in v:
+        return None
+    return v
+
+
 def maintenance_uses(part_nos):
     """[{dept, part_no, qty, day, at, where, ref, source}] for these parts."""
     parts = sorted({str(p).strip().upper() for p in part_nos if p})
@@ -131,7 +144,7 @@ def maintenance_uses(part_nos):
                     "where": _where(r["zone"], r["line"], r["machine_no"], r["machine_name"]),
                     "ref": f"Maintenance slip {r['slip_id']}" if r["slip_id"] else None,
                     "by": None, "issue_id": None, "exact": False, "source": "maintenance_spare",
-                    "key": (r.get("issue_ref") or None)})
+                    "key": _issue_key(r.get("issue_ref"), col)})
     return out
 
 
@@ -192,9 +205,12 @@ def usage_for_issues(issues, returned=None, part_nos=()):
     parts = {i.part_id: (i.part.part_no if i.part else None) for i in issues}
     wanted = set(parts.values()) | {str(p).strip().upper() for p in part_nos if p}
     for use in sorted(maintenance_uses(wanted), key=lambda u: (u["day"] or date.min, str(u["at"]))):
-        named = by_key.get(use.get("key") or "")
-        if named is not None:
-            put(named, use, use["qty"], True)       # the Maintenance app named the issue
+        if use.get("key"):
+            named = by_key.get(use["key"])
+            if named is not None:
+                put(named, use, use["qty"], True)   # the Maintenance app named the issue
+            else:
+                unmatched.append(use)               # named an issue not here (cancelled): no guess
             continue
         left = use["qty"]
         mine = sorted((i for i in issues

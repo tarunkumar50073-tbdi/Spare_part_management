@@ -144,3 +144,31 @@ def test_the_view_lists_every_label_of_an_issue(app):
     r = db.session.execute(text("select qr_codes, qr_scanned from issue_register where part_no = :p"),
                            {"p": p.part_no}).mappings().one()
     assert set(r["qr_codes"].split(", ")) == {made[0]["code"], second.code}
+
+
+def test_used_qty_is_the_same_whatever_the_report_window(dept):
+    """25 Nov 2026 audit: the use goes on the same issue in any date range."""
+    p = _part(qty=10, pkt=1)
+    a = _issue(p, 2, "Maintenance", datetime(2026, 11, 5, 9))
+    b = _issue(p, 2, "Maintenance", datetime(2026, 11, 20, 9))
+    dept["MAINTENANCE"] = [{"id": 1, "part_no": p.part_no, "spare_qty": "1", "used_date": date(2026, 11, 21),
+                            "created_at": None, "zone": None, "line": "L1", "machine_no": "M1",
+                            "machine_name": None, "slip_id": 1, "source": "x"}]
+    svc = SpareReportService()
+    wide = {r["Issue No"]: r for r in svc.build(STORE, "issue_register", "2026-11-01", "2026-11-30")[2]
+            if r["Part No"] == p.part_no}
+    narrow = {r["Issue No"]: r for r in svc.build(STORE, "issue_register", "2026-11-15", "2026-11-30")[2]
+              if r["Part No"] == p.part_no}
+    assert wide[a.issue_no]["Used Qty"] == 1 and wide[b.issue_no]["Used Qty"] is None
+    assert narrow[b.issue_no]["Used Qty"] is None            # not moved onto b by the narrower window
+
+
+def test_a_bare_number_in_a_generic_issue_no_column_is_not_taken_as_a_store_row(dept):
+    p = _part(qty=10, pkt=1)
+    a = _issue(p, 1, "Maintenance", datetime(2026, 11, 18, 9))
+    dept["columns"] = ["id", "issue_no"]
+    dept["MAINTENANCE"] = [{"id": 1, "part_no": p.part_no, "spare_qty": "1", "used_date": date(2026, 11, 19),
+                            "created_at": None, "zone": None, "line": "L1", "machine_no": "M1",
+                            "machine_name": None, "slip_id": 9, "source": "x", "issue_ref": str(a.id)}]
+    used, unmatched = usage_service.usage_for_issues([a])
+    assert used[a.id]["exact"] is False                      # matched by part + date, not as "exact"

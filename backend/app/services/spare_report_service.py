@@ -259,7 +259,16 @@ class SpareReportService:
         # usage_service, read only). "~" = matched by part and date, not by the
         # issue number (the Maintenance app keeps its own slip).
         from app.services.usage_service import usage_for_issues
-        used, _ = usage_for_issues([r for r, _ in rows if r.status != "CANCELLED"], returned)
+        # Every issue of these parts, not only the window's (25 Nov 2026
+        # audit): a use goes on the oldest issue with room, so matching only
+        # the window's issues gave the same issue a different Used Qty per
+        # date range.
+        L = SpareStockLedger
+        part_ids = sorted({r.part_id for r, _ in rows})
+        every = (L.query.filter(L.part_id.in_(part_ids or [-1]), L.txn_type == "ISSUE",
+                                or_(L.status.is_(None), L.status != "CANCELLED")).all())
+        back_all = SpareStockService._returned_qty_map([i.id for i in every]) if every else {}
+        used, _ = usage_for_issues(every, back_all)
         out = []
         for r, part in rows:
             issued = abs(float(r.qty_delta))
