@@ -255,7 +255,8 @@ SELECT l.id AS issue_no,
        {return_nos} AS return_no,
        COALESCE((SELECT NULLIF(TRIM(r.created_by), '') FROM spare_stock_ledger r WHERE r.return_of_id = l.id
                  ORDER BY r.id DESC LIMIT 1), '—') AS return_received_by,
-       COALESCE(NULLIF(TRIM(l.issue_no), ''), '—') AS issue_slip_no
+       COALESCE(NULLIF(TRIM(l.issue_no), ''), '—') AS issue_slip_no,
+       {qr_codes} AS qr_codes
 FROM spare_stock_ledger l
 JOIN part_master p ON p.id = l.part_id
 LEFT JOIN sections s ON s.id = p.section_id
@@ -281,7 +282,20 @@ def _issue_register_view():
                   f"WHERE x.return_of_id = l.id AND x.return_no IS NOT NULL), '—')"
                   if dialect == "postgresql" else
                   f"COALESCE((SELECT GROUP_CONCAT(return_no, ', ') FROM ({nos} ORDER BY r.id)), '—')")
-    sql = _ISSUE_REGISTER_SELECT.format(issued_at=issued_at, returned_at=returned_at, return_nos=return_nos)
+    # Every label QR of the issue (25 Nov 2026): one issue can hold several
+    # labels of a part, of different days and so different codes, and a
+    # department app finds the issue by whichever label it scans. The labels
+    # still out on it, the ones that came back on a return, and the scanned
+    # code; "—" for an issue by quantity.
+    codes = ("SELECT k.code AS c FROM spare_packets k WHERE k.issue_ledger_id = l.id "
+             "UNION SELECT k2.code FROM spare_packets k2 JOIN spare_returns r ON r.packet_id = k2.id "
+             "WHERE r.issue_id = l.id "
+             "UNION SELECT TRIM(l.reference) WHERE UPPER(TRIM(COALESCE(l.reference, ''))) LIKE 'TB%'")
+    qr_codes = (f"COALESCE((SELECT STRING_AGG(u.c, ', ' ORDER BY u.c) FROM ({codes}) u WHERE u.c IS NOT NULL), '—')"
+                if dialect == "postgresql" else
+                f"COALESCE((SELECT GROUP_CONCAT(c, ', ') FROM (SELECT c FROM ({codes}) WHERE c IS NOT NULL ORDER BY c)), '—')")
+    sql = _ISSUE_REGISTER_SELECT.format(issued_at=issued_at, returned_at=returned_at, return_nos=return_nos,
+                                        qr_codes=qr_codes)
     try:
         with db.engine.begin() as conn:
             conn.exec_driver_sql("DROP VIEW IF EXISTS issue_register")

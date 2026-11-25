@@ -17,8 +17,13 @@ _seq["n"] = max(_seq["n"], 70000)
 
 @pytest.fixture()
 def dept(monkeypatch):
-    data = {"MAINTENANCE": [], "TOOL_ROOM": []}
-    monkeypatch.setattr(usage_service, "_read", lambda key, sql, **kw: list(data[key]))
+    data = {"MAINTENANCE": [], "TOOL_ROOM": [], "columns": []}
+
+    def read(key, sql, **kw):
+        if sql is usage_service.COLUMNS_SQL:
+            return [{"column_name": c} for c in data["columns"]]
+        return list(data[key])
+    monkeypatch.setattr(usage_service, "_read", read)
     return data
 
 
@@ -107,3 +112,35 @@ def test_issue_and_its_return_carry_the_issue_number_on_the_timeline(dept):
     assert issue_rows and all(r["issue_no"] == a.issue_no for r in issue_rows)
     assert a.issue_no.startswith("DX/")
     assert back_rows and all(r["issue_no"] == a.issue_no for r in back_rows)
+
+
+
+def test_a_maintenance_use_that_names_the_issue_is_matched_exactly(dept):
+    """25 Nov 2026: once the Maintenance app saves the store's issue number,
+    that use goes on that issue - not the oldest by date."""
+    p = _part(qty=10, pkt=1)
+    a = _issue(p, 1, "Maintenance", datetime(2026, 11, 18, 9))
+    b = _issue(p, 1, "Maintenance", datetime(2026, 11, 20, 9))
+    dept["columns"] = ["id", "part_no", "store_issue_no"]
+    dept["MAINTENANCE"] = [{"id": 1, "part_no": p.part_no, "spare_qty": "1", "used_date": date(2026, 11, 21),
+                            "created_at": None, "zone": None, "line": "PRESS_3", "machine_no": "PP_23",
+                            "machine_name": None, "slip_id": 520, "source": "x", "issue_ref": b.issue_no}]
+    used, unmatched = usage_service.usage_for_issues([a, b])
+    assert a.id not in used and used[b.id]["used"] == 1 and used[b.id]["exact"] is True and not unmatched
+
+
+def test_the_view_lists_every_label_of_an_issue(app):
+    """25 Nov 2026: issue_register.qr_codes holds every label code of the issue,
+    so a department app finds it by any of them."""
+    from sqlalchemy import text
+    from app.models.spare_packet import SparePacket
+    from tests.test_spare_packets import DEPT, svc
+    p = _part(qty=3, pkt=1)
+    made = svc.old_stock_pack(p.id, 3, "UNIT", user="sup")["packets"]
+    second = db.session.get(SparePacket, made[1]["id"])
+    second.code = second.code.replace("TB2026", "TB2025")     # a label of another day
+    db.session.commit()
+    svc.issue_many([str(made[0]["id"]), str(made[1]["id"])], DEPT, user="tester", issued_to="Ravi", remarks="r")
+    r = db.session.execute(text("select qr_codes, qr_scanned from issue_register where part_no = :p"),
+                           {"p": p.part_no}).mappings().one()
+    assert set(r["qr_codes"].split(", ")) == {made[0]["code"], second.code}

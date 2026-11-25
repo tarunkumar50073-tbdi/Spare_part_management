@@ -27,11 +27,17 @@ from sqlalchemy import bindparam, text
 
 logger = logging.getLogger("dxstore.usage")
 
-MAINTENANCE_SQL = text("""
+MAINTENANCE_SELECT = """
     SELECT id, upper(trim(part_no)) AS part_no, spare_qty, used_date, created_at, zone, line,
-           machine_no, machine_name, slip_id, source
+           machine_no, machine_name, slip_id, source{issue_col}
     FROM maintenance_spare WHERE upper(trim(part_no)) IN :parts
-""").bindparams(bindparam("parts", expanding=True))
+"""
+# The column the Maintenance app may add for the store's issue number (25 Nov
+# 2026: "wo khud dekh lenge"). Whichever of these it has is read, and a use
+# that names an issue is matched to it exactly, not by part + date.
+ISSUE_COLUMNS = ("store_issue_no", "issue_slip_no", "store_issue_slip_no", "dx_issue_no", "erp_issue_no",
+                 "issue_no")
+COLUMNS_SQL = text("SELECT column_name FROM information_schema.columns WHERE table_name = 'maintenance_spare'")
 
 TOOL_ROOM_SQL = text("""
     SELECT id, trim(issue_no::text) AS issue_no, qty, zone, line, machine_no, used_by_name, used_by, used_at
@@ -88,8 +94,12 @@ def maintenance_uses(part_nos):
     parts = sorted({str(p).strip().upper() for p in part_nos if p})
     if not parts:
         return []
+    have = {r["column_name"] for r in _read("MAINTENANCE", COLUMNS_SQL)}
+    col = next((c for c in ISSUE_COLUMNS if c in have), None)
+    sql = text(MAINTENANCE_SELECT.format(issue_col=f", trim({col}::text) AS issue_ref" if col else "")
+               ).bindparams(bindparam("parts", expanding=True))
     out = []
-    for r in _read("MAINTENANCE", MAINTENANCE_SQL, parts=parts):
+    for r in _read("MAINTENANCE", sql, parts=parts):
         qty = _num(r["spare_qty"])
         if qty <= 0:
             continue
@@ -98,7 +108,8 @@ def maintenance_uses(part_nos):
                     "at": r["created_at"] or r["used_date"],
                     "where": _where(r["zone"], r["line"], r["machine_no"], r["machine_name"]),
                     "ref": f"Maintenance slip {r['slip_id']}" if r["slip_id"] else None,
-                    "by": None, "issue_id": None, "exact": False, "source": "maintenance_spare"})
+                    "by": None, "issue_id": None, "exact": False, "source": "maintenance_spare",
+                    "key": (r.get("issue_ref") or None)})
     return out
 
 
@@ -159,6 +170,10 @@ def usage_for_issues(issues, returned=None, part_nos=()):
     parts = {i.part_id: (i.part.part_no if i.part else None) for i in issues}
     wanted = set(parts.values()) | {str(p).strip().upper() for p in part_nos if p}
     for use in sorted(maintenance_uses(wanted), key=lambda u: (u["day"] or date.min, str(u["at"]))):
+        named = by_key.get(use.get("key") or "")
+        if named is not None:
+            put(named, use, use["qty"], True)       # the Maintenance app named the issue
+            continue
         left = use["qty"]
         mine = sorted((i for i in issues
                        if (parts.get(i.part_id) or "").upper() == use["part_no"]
