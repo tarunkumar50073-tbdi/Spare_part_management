@@ -948,7 +948,7 @@ def test_mails_left_in_sending_go_back_to_the_queue(engine, send):
     # While running, only a mail abandoned for longer than a send can take is taken back…
     engine.requeue_stale_sending(older_than_minutes=30)
     assert _row(crashed).status == "SENDING"
-    # …at start-up, every one of them.
+    # …and with no limit (tests / admin clean-up) every one of them.
     assert engine.requeue_stale_sending() >= 1
     assert _row(crashed).status == "QUEUED"
     engine.process_due()
@@ -995,8 +995,13 @@ def test_worker_does_not_start_under_the_reloader_guard_but_does_under_waitress(
 
 
 def test_start_worker_starts_one_thread_and_requeues_first(app, engine, monkeypatch):
+    from datetime import timedelta
     crashed = _queue(engine)["id"]
-    EmailMessage.query.filter_by(id=crashed).update({"status": "SENDING"}, synchronize_session=False)
+    # Left in SENDING well past a send's time (a crash): re-queued at start.
+    # A fresh one may be another machine's mid-send - not touched (25 Nov 2026).
+    EmailMessage.query.filter_by(id=crashed).update(
+        {"status": "SENDING", "updated_at": email_engine._now() - timedelta(minutes=email_engine.STALE_SENDING_MINUTES + 5)},
+        synchronize_session=False)
     db.session.commit()
     made = []
 
@@ -1380,3 +1385,25 @@ def test_smtp_settings_with_sign_in_but_no_tls_cannot_be_saved():
                {"requires_auth": True, "use_tls": False, "use_ssl": False, "port": 465}):
         saved = svc.set_smtp_config({"host": "mail.local", **ok})
         assert saved["host"] == "mail.local" and "password" not in saved
+
+
+
+def test_start_up_leaves_another_machines_fresh_sending_mail_alone(app, engine, send, monkeypatch):
+    """25 Nov 2026 audit: the laptop and the server share the database; a mail
+    the other machine is sending right now must not be put back in the queue
+    when this one starts (it went out twice). Nothing is sent here."""
+    send()
+    busy = _queue(engine)["id"]
+    EmailMessage.query.filter_by(id=busy).update({"status": "SENDING"}, synchronize_session=False)
+    db.session.commit()
+
+    class NoThread:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            pass
+    monkeypatch.setattr(email_engine.threading, "Thread", NoThread)
+    monkeypatch.setattr(email_engine.EmailEngine, "_worker_started", False)
+    email_engine.EmailEngine.start_worker(app)
+    assert _row(busy).status == "SENDING"

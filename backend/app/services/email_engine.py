@@ -564,9 +564,10 @@ class EmailEngine:
         return out
 
     def requeue_stale_sending(self, older_than_minutes=None):
-        """Put mails left in SENDING back in the queue: all of them at start-up
-        (nothing can be mid-send in a process that has just started), and
-        while running only those abandoned for longer than a send can take."""
+        """Put mails left in SENDING back in the queue - only those abandoned for
+        longer than a send can take (older_than_minutes), at start-up too:
+        another machine on the same database may be sending one right now.
+        No limit (None) is for tests and admin clean-up only."""
         query = EmailMessage.query.filter(EmailMessage.status == STATUS_SENDING)
         if older_than_minutes is not None:
             query = query.filter(EmailMessage.updated_at < _now() - timedelta(minutes=older_than_minutes))
@@ -810,7 +811,11 @@ class EmailEngine:
         cls._worker_started = True
         try:
             with app.app_context():
-                cls().requeue_stale_sending()
+                # Only mails stuck longer than a send can take (25 Nov 2026
+                # audit): the laptop and the live server share one database,
+                # so a mail "SENDING" now may be the OTHER machine's, mid-send.
+                # Re-queued at once, it went out twice once mail is ON.
+                cls().requeue_stale_sending(STALE_SENDING_MINUTES)
         except Exception:  # noqa: BLE001 — a failed clean-up must not stop the boot
             logger.exception("email-engine: could not requeue mails left in SENDING")
 
