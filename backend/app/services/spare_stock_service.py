@@ -2533,6 +2533,21 @@ class SpareStockService:
         tag = _template_tag(made_at) if made_at else None
         moved = (self._moved_since(made_at - TEMPLATE_STAMP_ALLOWANCE, store_code, own_tag=tag)
                  if made_at else {})
+        # A Part No. on more than one row (25 Nov 2026 audit): each row SETS the
+        # stock, so the last one silently won and the others were lost (a part
+        # listed once per shelf). Every such row is refused and named; the
+        # file must give the part once, with the total of all its shelves.
+        repeats = {}
+        try:
+            from app.utils.excel_io import read_rows
+            seen = {}
+            for row_no, raw in read_rows(io.BytesIO(data), FIELD_ALIASES, REQUIRED_FIELDS, sheet_name):
+                key = (to_text(raw.get("part_no")) or "").strip().upper()
+                if key:
+                    seen.setdefault(key, []).append(row_no)
+            repeats = {k: v for k, v in seen.items() if len(v) > 1}
+        except Exception:  # noqa: BLE001 - an unreadable file is reported by bulk_import below
+            repeats = {}
         made_text = _plant_text(made_at) if made_at else None
         applied = {"updated": 0, "unchanged": 0}
         stale = []
@@ -2541,6 +2556,11 @@ class SpareStockService:
             part_no = to_text(raw_row.get("part_no"))
             if not part_no:
                 raise ValueError("Part No is required")
+            rows_of = repeats.get(part_no.strip().upper())
+            if rows_of:
+                raise ValueError(
+                    f"{part_no} is on {len(rows_of)} rows ({', '.join(str(r) for r in rows_of)}) - not loaded. "
+                    "Give it once, with the total of all its shelves.")
             part = self.part_repo.get_by_part_no(part_no)
             if not part:
                 raise ValueError(f"Unknown Part No: {part_no}")

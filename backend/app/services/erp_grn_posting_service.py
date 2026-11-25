@@ -556,13 +556,17 @@ class ErpGrnPostingService:
             if line["state"] != "WILL_POST" or line["to_post"] <= 0:
                 continue
             with atomic():
+                # Lock the stock row FIRST, then read what is already added
+                # (25 Nov 2026 audit): read before the lock, the 2-minute ERP
+                # sync and a "Post now" at the same moment both saw nothing
+                # added and both added the GRN.
+                stock_row = self.stock.locked_row(line["part_id"], create=False)
+                if stock_row is None:
+                    continue  # never counted — the rule above; re-checked here
                 already = self._posted([line["part_id"]]).get((line["part_id"], self._key(line["grn_no"])), 0.0)
                 qty = round((line["accept_qty"] or 0) - already, 2)
                 if qty <= 0:
                     continue
-                stock_row = self.stock.locked_row(line["part_id"], create=False)
-                if stock_row is None:
-                    continue  # never counted — the rule above; re-checked here
                 new_qty = round(float(stock_row.qty_on_hand or 0) + qty, 2)
                 remarks = (f"ERP GRN {line['grn_no']} ({line['grn_date']}) — accepted by quality in ERP; "
                            f"read by the app's ERP sync")
