@@ -290,7 +290,9 @@ def _issue_register_view():
     codes = ("SELECT k.code AS c FROM spare_packets k WHERE k.issue_ledger_id = l.id "
              "UNION SELECT k2.code FROM spare_packets k2 JOIN spare_returns r ON r.packet_id = k2.id "
              "WHERE r.issue_id = l.id "
-             "UNION SELECT TRIM(l.reference) WHERE UPPER(TRIM(COALESCE(l.reference, ''))) LIKE 'TB%'")
+             # No "%" (LIKE 'TB%'): the view is made through exec_driver_sql,
+             # where psycopg2 reads % as a parameter and the view is not made.
+             "UNION SELECT TRIM(l.reference) WHERE SUBSTR(UPPER(TRIM(COALESCE(l.reference, ''))), 1, 2) = 'TB'")
     qr_codes = (f"COALESCE((SELECT STRING_AGG(u.c, ', ' ORDER BY u.c) FROM ({codes}) u WHERE u.c IS NOT NULL), '—')"
                 if dialect == "postgresql" else
                 f"COALESCE((SELECT GROUP_CONCAT(c, ', ') FROM (SELECT c FROM ({codes}) WHERE c IS NOT NULL ORDER BY c)), '—')")
