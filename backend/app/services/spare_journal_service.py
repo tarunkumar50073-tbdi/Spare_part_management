@@ -138,9 +138,20 @@ class SpareJournalService:
 
     @classmethod
     def unit_code(cls):
-        """The unit in the number: app_settings doc_unit_code, else 001."""
+        """The unit in the number: app_settings doc_unit_code, else the plant's
+        ERP unit as ERP writes it in its numbers (ERP_UNIT_CD 10001 -> "001",
+        25 Nov 2026 audit: a Plant-2 install must not keep "001"). Digits and
+        letters only, at most 6, so the number fits its column."""
+        import re
         from app.models.app_setting import AppSetting
         code = str(AppSetting.get_value(cls.UNIT_KEY) or "").strip()
+        if not code:
+            try:
+                from app.utils.erp_unit import unit_segment
+                code = unit_segment()
+            except Exception:  # noqa: BLE001 - no ERP setting: the default
+                code = ""
+        code = re.sub(r"[^0-9A-Za-z]", "", code)[:6]
         return code or cls.UNIT_DEFAULT
 
     def _fy_no(self, head, *columns):
@@ -158,9 +169,16 @@ class SpareJournalService:
         key = f"doc_seq:{prefix}"
         row = AppSetting.query.filter_by(key=key).first()
         if row is None:
-            row = AppSetting(key=key, value=json.dumps({"n": 0}), updated_by="system")
-            db.session.add(row)
-            db.session.flush()
+            # The first number of a series (each April, a new unit): two counters
+            # saving at once both try to make the row (25 Nov 2026 audit). The
+            # loser rolls back only its savepoint and uses the winner's row.
+            from sqlalchemy.exc import IntegrityError
+            try:
+                with db.session.begin_nested():
+                    db.session.add(AppSetting(key=key, value=json.dumps({"n": 0}), updated_by="system"))
+            except IntegrityError:
+                pass
+            row = AppSetting.query.filter_by(key=key).first()
         db.session.query(AppSetting).filter(AppSetting.id == row.id).update(
             {AppSetting.updated_at: utcnow()}, synchronize_session=False)
         db.session.refresh(row)

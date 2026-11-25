@@ -220,8 +220,15 @@ class ERPSyncService:
             logger.warning("ERP current_stock read gave no rows for this plant - last figures kept")
             db.session.rollback()
             return 0
-        for row in have.values():
-            db.session.delete(row)
+        # A read taken while ERP is still filling the table (25 Nov 2026 audit)
+        # lists far fewer parts than last time: the missing ones are kept, not
+        # turned into "Awaiting ERP", when more vanish than were read.
+        if len(have) > max(50, len(present)):
+            logger.warning("ERP current_stock read %s parts, %s more missing - kept as they were (ERP still filling?)",
+                           len(present), len(have))
+        else:
+            for row in have.values():
+                db.session.delete(row)
         db.session.commit()
         return len(present)
 

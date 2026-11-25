@@ -300,8 +300,21 @@ def _issue_register_view():
                                         qr_codes=qr_codes)
     try:
         with db.engine.begin() as conn:
+            # The view is made again at every start; the SELECT rights given to
+            # the Maintenance / Tool Room apps' logins went with the old one
+            # (25 Nov 2026 audit). They are read first and given again.
+            grants = []
+            if dialect == "postgresql":
+                grants = [tuple(r) for r in conn.exec_driver_sql(
+                    "SELECT grantee, privilege_type FROM information_schema.role_table_grants "
+                    "WHERE table_name = 'issue_register' AND table_schema = current_schema() "
+                    "AND grantee <> (SELECT viewowner FROM pg_views WHERE viewname = 'issue_register' "
+                    "AND schemaname = current_schema())")]
             conn.exec_driver_sql("DROP VIEW IF EXISTS issue_register")
             conn.exec_driver_sql(f"CREATE VIEW issue_register AS {sql}")
+            for grantee, privilege in grants:
+                if privilege.isalpha() and grantee.replace("_", "").isalnum():
+                    conn.exec_driver_sql(f'GRANT {privilege} ON issue_register TO "{grantee}"')
     except Exception:  # noqa: BLE001
         logging.getLogger("dxstore").warning("issue_register view not made", exc_info=True)
 

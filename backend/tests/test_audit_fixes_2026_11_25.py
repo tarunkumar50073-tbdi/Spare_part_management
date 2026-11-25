@@ -77,3 +77,34 @@ def test_department_reads_are_kept_a_minute_and_a_down_database_is_skipped(monke
     assert calls["n"] == 2                                  # the down database was not tried again
     usage_service._cache.clear()
     usage_service._down.clear()
+
+
+def test_issue_number_unit_follows_the_erp_unit(app, monkeypatch):
+    """25 Nov 2026: with no doc_unit_code set, the unit comes from ERP_UNIT_CD."""
+    from app.services.spare_journal_service import SpareJournalService
+    monkeypatch.setitem(app.config, "ERP_UNIT_CD", "10002")
+    assert SpareJournalService.unit_code() == "002"
+    monkeypatch.setitem(app.config, "ERP_UNIT_CD", "10001")
+    assert SpareJournalService.unit_code() == "001"
+
+
+def test_a_half_filled_erp_read_does_not_drop_the_missing_parts(monkeypatch):
+    from app.models.erp_stock import ERPStock
+    from app.models.part import Part
+    from app.services.erp_sync_service import ERPSyncService
+    from app.models.base import utcnow
+    parts = []
+    for i in range(60):
+        p = Part(part_no=f"HALF-{_seq['n']}-{i}", part_name="H", uom="NOS", part_type="OTHER", store_code=STORE)
+        db.session.add(p)
+        parts.append(p)
+    db.session.commit()
+    for p in parts:
+        db.session.add(ERPStock(part_id=p.id, qty_on_hand=1, under_insp=0, synced_at=utcnow()))
+    db.session.commit()
+    svc = ERPSyncService()
+    rows = [{"item_cd": parts[0].part_no, "clos_stock": "5", "under_insp": "0", "unit_cd": "10001"}]
+    monkeypatch.setattr(svc.erp, "fetch_rows", lambda table, cols, **kw: rows)
+    svc.sync_current_stock()
+    left = ERPStock.query.filter(ERPStock.part_id.in_([p.id for p in parts])).count()
+    assert left == 60          # 1 read, 59 missing: kept, not dropped
