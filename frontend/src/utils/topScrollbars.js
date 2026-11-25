@@ -38,6 +38,9 @@ function update(box) {
   if (!link) return;
   const wide = box.scrollWidth > box.clientWidth + 1;
   const show = wide && !bottomInView(box);
+  // The hidden attribute, not only display:none: Tailwind's space-y / divide-y
+  // skip [hidden] elements, so a hidden bar changes no spacing (25 Nov 2026).
+  link.bar.hidden = !show;
   link.bar.style.display = show ? "block" : "none";
   link.bar.style.width = `${box.clientWidth}px`;
   link.inner.style.width = `${box.scrollWidth}px`;

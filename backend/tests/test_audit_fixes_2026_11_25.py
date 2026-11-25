@@ -108,6 +108,9 @@ def test_a_half_filled_erp_read_does_not_drop_the_missing_parts(monkeypatch):
     svc.sync_current_stock()
     left = ERPStock.query.filter(ERPStock.part_id.in_([p.id for p in parts])).count()
     assert left == 60          # 1 read, 59 missing: kept, not dropped
+    # Leave no ERP rows behind for the other ERP tests in this database.
+    ERPStock.query.filter(ERPStock.part_id.in_([p.id for p in parts])).delete(synchronize_session=False)
+    db.session.commit()
 
 
 def test_device_logins_download_nothing_and_open_reads_need_a_right(app):

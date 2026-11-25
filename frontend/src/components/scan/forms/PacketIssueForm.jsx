@@ -6,7 +6,7 @@ import { packetService } from "../../../services/packetService.js";
 import { fmtDate, fmtStamp } from "../../../lib/format.js";
 import { DepartmentSelect, Facts, Field, FormShell, Note } from "./FormKit.jsx";
 import { clean, fmtQty, isStoreDepartment, qtyError, useActionFlow, useDepartments } from "./flow.js";
-import { partOfLabel, setIssueScanSink } from "../../../lib/issueScanSink.js";
+import { partsOfLabel, setIssueScanSink } from "../../../lib/issueScanSink.js";
 
 // ISSUE of a whole packet or one individual unit — what a packet / unit QR
 // opens on Scan Part (the store's spec of 27 Oct 2026). One scan names one
@@ -112,7 +112,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   useEffect(() => {
     if (!canAdd) return undefined;
     return setIssueScanSink((code, scanSource) => {
-      if (partOfLabel(code) !== String(part.part_no || "").toUpperCase()) return false;
+      if (!partsOfLabel(code).includes(String(part.part_no || "").toUpperCase())) return false;
       addRef.current(code, scanSource);
       return true;
     });

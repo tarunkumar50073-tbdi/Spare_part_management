@@ -138,7 +138,8 @@ function tinyFit(p, w, h, tune) {
   const autoPt = Math.min(codePtMax(labelTier(h, w)), ((w - 2 * pad) * 0.88 / (Math.max(code.length, 8) * 0.6)) / PT);
   // A bigger text size never pushes the code past the label's sides, the
   // left / right move included (21 Nov 2026: "kuch cut to nhi ho rha").
-  const widest = ((w - 2 * pad - 2 * Math.abs(tune.dx || 0)) / (Math.max(code.length, 8) * 0.6)) / PT;
+  const textRoom = Math.max(w * 0.5, w - 2 * pad - 2 * Math.abs(tune.dx || 0));
+  const widest = (textRoom / (Math.max(code.length, 8) * 0.6)) / PT;
   const codePt = Math.min(autoPt * (tune.text / 100), widest);
   const codeMm = codePt * PT * 1.1;
   const rows = qrRows(tinyQr(p));
@@ -156,9 +157,13 @@ function drawTiny(ctx, p, w, h, tune) {
   const total = f.side + GAP + f.codeMm;
   const want = (h - total) / 2 + tune.dy;
   const top = total + 2 * EDGE <= h ? Math.min(Math.max(want, EDGE), h - total - EDGE) : (h - total) / 2;
-  const cx = w / 2 + tune.dx;
-  drawQr(ctx, f.rows, cx - f.side / 2, top, f.dots);
+  // Left / right moves stop at the label's sides (25 Nov 2026 audit: a big
+  // step pushed the QR, or the code under it, off the label).
   font(ctx, f.codePt, "'Courier New', monospace");
+  const codeMm = ctx.measureText(f.code).width / PX;
+  const half = Math.max(f.side, codeMm) / 2 + EDGE;
+  const cx = half * 2 <= w ? Math.min(Math.max(w / 2 + tune.dx, half), w - half) : w / 2;
+  drawQr(ctx, f.rows, cx - f.side / 2, top, f.dots);
   text(ctx, f.code, cx, top + f.side + GAP, "center");
 }
 

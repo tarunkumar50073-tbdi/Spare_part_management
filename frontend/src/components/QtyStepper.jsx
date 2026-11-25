@@ -25,7 +25,7 @@ export default function QtyStepper({
   return (
     <div className="inline-flex flex-col items-start gap-1">
     <div className="inline-flex items-center gap-2" role="group" aria-label={label}>
-      <button type="button" className={btn} onClick={() => set(v - step)}
+      <button type="button" className={btn} onClick={() => { setCapped(null); set(v - step); }}
         disabled={disabled || !(v > min)} aria-label={`Decrease ${label.toLowerCase()}`}>
         <Minus className="w-4 h-4" />
       </button>
@@ -50,7 +50,7 @@ export default function QtyStepper({
           set(v);
         }}
       />
-      <button type="button" className={btn} onClick={() => set(v + step)}
+      <button type="button" className={btn} onClick={() => { setCapped(null); set(v + step); }}
         disabled={disabled || !(v < max)} aria-label={`Increase ${label.toLowerCase()}`}>
         <Plus className="w-4 h-4" />
       </button>

@@ -573,7 +573,12 @@ function RackPrintDialog({ storeCode, section: startSection, rack: startRack, ti
   return (
     <Modal open onClose={onClose} size="xl" title={rack ? `Print labels — rack ${rack}` : "Print rack labels"}
       footer={<div className="flex w-full flex-wrap items-center justify-between gap-2">
-        <span className="text-[12.5px] text-slate-500">{new Set(chosen.map((p) => p.part.id)).size} part{new Set(chosen.map((p) => p.part.id)).size === 1 ? "" : "s"} · {chosen.length} of {rows.length} label{rows.length === 1 ? "" : "s"} ticked</span>
+        <span className="text-[12.5px] text-slate-500">{new Set(chosen.map((p) => p.part.id)).size} part{new Set(chosen.map((p) => p.part.id)).size === 1 ? "" : "s"} · {chosen.length} of {rows.length} label{rows.length === 1 ? "" : "s"} ticked
+          {/* Ticks the search hides still print (25 Nov 2026 audit): say so. */}
+          {words && chosen.some((p) => !shown.includes(p)) && (
+            <span className="ml-1 font-semibold text-amber-700 dark:text-amber-300">
+              ({chosen.filter((p) => !shown.includes(p)).length} not shown by the search — they print too)</span>
+          )}</span>
         <span className="flex gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
           <button type="button" className="btn-primary" disabled={!chosen.length} onClick={() => setPrinting(chosen)}>
@@ -725,7 +730,11 @@ function RackLabelDialog({ storeCode, section, rack, onClose, onMade }) {
   return (
     <Modal open onClose={onClose} size="xl" title={`Label rack ${rack} — all parts at once`}
       footer={<div className="flex w-full flex-wrap items-center justify-between gap-2">
-        <span className="text-[12.5px] text-slate-500">{planned.length} of {rows.length} parts ticked · {total} labels</span>
+        <span className="text-[12.5px] text-slate-500">{planned.length} of {rows.length} parts ticked · {total} labels
+          {words && rows.some((r) => isTicked(r) && !shown.includes(r)) && (
+            <span className="ml-1 font-semibold text-amber-700 dark:text-amber-300">
+              ({rows.filter((r) => isTicked(r) && !shown.includes(r)).length} not shown by the search — labelled too)</span>
+          )}</span>
         <span className="flex gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
           <button type="button" className="btn-primary" onClick={make} disabled={busy || !total || over.length > 0}>

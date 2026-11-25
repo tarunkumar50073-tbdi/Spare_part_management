@@ -669,7 +669,12 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
       const upto = direct ? sent : packets.length;
       let at = recorded;
       for (const part of chunks(packets.slice(recorded, upto))) {
-        await packetService.recordPrint(part.map((p) => String(p.id)), { reprint, reason: reason.trim() || undefined });
+        // A batch with printed labels in it is a reprint, but its labels never
+        // printed before are recorded as a first print (25 Nov 2026 audit).
+        const fresh = part.filter((p) => !p.print_count);
+        const again = part.filter((p) => p.print_count);
+        if (fresh.length) await packetService.recordPrint(fresh.map((p) => String(p.id)), { reprint: false });
+        if (again.length) await packetService.recordPrint(again.map((p) => String(p.id)), { reprint, reason: reason.trim() || undefined });
         at += part.length;
         setRecorded(at);
       }
