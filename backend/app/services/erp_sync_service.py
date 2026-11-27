@@ -24,7 +24,8 @@ source tables — when those appear, add a mapper here the same way.
 
 Gate entries and GRN lines keep their history (27 Nov 2026): each run reads
 the last ERP_SYNC_SINCE_DAYS and swaps only that date window, so older rows
-stay; ERP_HISTORY_YEARS of history is loaded once, a year at a time. Re-running
+stay; ERP_HISTORY_YEARS of history is loaded once, one year per run, after the
+refresh (a failing year never stops new GRNs; skipped after 5 tries). Re-running
 is idempotent and never double-counts. ERP stock and RGP lines stay snapshots. Poller mirrors the ERP
 ledger inbox one: per-process, guarded, daemon thread, errors surfaced not fatal.
 """
@@ -96,6 +97,23 @@ def _num(value):
         return None
 
 
+def _fit(model, row):
+    """One ERP row cut to the mirror's column sizes: a 200-letter vendor name
+    in an old year must not fail the whole read (PostgreSQL refuses too-long
+    text)."""
+    out = {}
+    for k, v in row.items():
+        if k == "store_code":
+            continue
+        if isinstance(v, str):
+            col = model.__table__.columns.get(k)
+            size = getattr(getattr(col, "type", None), "length", None)
+            if size and len(v) > size:
+                v = v[:size]
+        out[k] = v
+    return out
+
+
 class ERPSyncService:
     # Per-process status, like ERPLedgerInboxService — survives across requests
     # and the poller thread.
@@ -143,15 +161,20 @@ class ERPSyncService:
                                model.__tablename__, start, end, had)
             return 0
         q.delete(synchronize_session=False)
-        db.session.add_all([model(store_code=STORE_CODE, **{k: v for k, v in r.items() if k != "store_code"})
-                            for r in rows])
+        db.session.add_all([model(store_code=STORE_CODE, **_fit(model, r)) for r in rows])
         db.session.commit()
         return len(rows)
 
+    HISTORY_MAX_TRIES = 5
+
     def _history(self, table, load):
         """Load ERP_HISTORY_YEARS of `table` once, oldest year first, up to the
-        refresh window. `load(start, end)` reads and stores one window. Returns
-        the rows loaded this run (0 once the history is in)."""
+        refresh window - ONE year per call, so a 2-minute run never holds the
+        ERP read (GRN posting, ERP stock, RGP) for the whole 5 years.
+        `load(start, end)` reads and stores one window. A year that keeps
+        failing (HISTORY_MAX_TRIES runs) is skipped and named in the saved
+        state, so it can never block the years after it. Returns the rows
+        loaded this call (0 once the history is in)."""
         from app.models.app_setting import AppSetting
         years = int(current_app.config.get("ERP_HISTORY_YEARS", 0) or 0)
         since = self._since_date()
@@ -167,15 +190,40 @@ class ERPSyncService:
             base, cur = have, date.fromisoformat(st["until"])        # resume a load that stopped
         else:
             base, cur = want, want
-        loaded = 0
-        while cur < since:
-            end = min(cur + timedelta(days=365), since)
-            loaded += load(cur, end)
-            cur = end
-            AppSetting.set_value(key, {"from": base.isoformat(), "until": cur.isoformat()}, "SYSTEM")
-        AppSetting.set_value(key, {"from": base.isoformat(), "until": since.isoformat(), "done": True}, "SYSTEM")
-        logger.info("ERP %s history from %s loaded (%s rows)", table, base, loaded)
+            st = {}
+        skipped = list(st.get("skipped") or [])
+        if cur >= since:
+            AppSetting.set_value(key, {"from": base.isoformat(), "until": since.isoformat(), "done": True,
+                                       "skipped": skipped}, "SYSTEM")
+            return 0
+        end = min(cur + timedelta(days=365), since)
+        try:
+            loaded = load(cur, end)
+        except Exception as exc:
+            from app.extensions import db
+            db.session.rollback()
+            tries = int(st.get("tries") or 0) + 1
+            if tries < self.HISTORY_MAX_TRIES:
+                AppSetting.set_value(key, {"from": base.isoformat(), "until": cur.isoformat(), "tries": tries,
+                                           "skipped": skipped, "error": str(exc)[:300]}, "SYSTEM")
+                raise
+            logger.error("ERP %s history %s..%s failed %s times - skipped: %s", table, cur, end, tries, exc)
+            skipped.append(f"{cur.isoformat()}..{end.isoformat()}")
+            loaded = 0
+        done = end >= since
+        AppSetting.set_value(key, {"from": base.isoformat(), "until": end.isoformat(), "done": done,
+                                   "skipped": skipped}, "SYSTEM")
+        logger.info("ERP %s history %s..%s loaded (%s rows)%s", table, cur, end, loaded, " - all in" if done else "")
         return loaded
+
+    def _history_safe(self, table, load):
+        """The history load never stops the refresh: run it after the refresh,
+        and a failure is only logged (it is tried again on the next run)."""
+        try:
+            return self._history(table, load)
+        except Exception as exc:
+            logger.warning("ERP %s history load failed this run (tried again next run): %s", table, exc)
+            return 0
 
     # ---- per-table mappers (ERP column -> mirror column) ----
     GATE_COLS = ["gate_entry_no", "gate_entry_dt", "gate_entry_time", "ven_cd", "ven_name",
@@ -200,10 +248,11 @@ class ERPSyncService:
 
     def sync_gate_entry(self):
         from app.models.gate_entry import GateEntry
-        self._history("gate_entry", lambda a, b: self._replace_window(
-            GateEntry, "gate_entry_dt", self._gate_rows(a, b), a, b))
         since = self._since_date()
-        return self._replace_window(GateEntry, "gate_entry_dt", self._gate_rows(since), since)
+        n = self._replace_window(GateEntry, "gate_entry_dt", self._gate_rows(since), since)
+        self._history_safe("gate_entry", lambda a, b: self._replace_window(
+            GateEntry, "gate_entry_dt", self._gate_rows(a, b), a, b))
+        return n
 
     GRN_COLS = ["grn_no", "grn_date", "vendor_cd", "vendor_name", "invoice_no",
                 "item_cd", "item_desc", "challan_qty", "receipt_qty", "accept_qty", "reject_qty"]
@@ -224,10 +273,11 @@ class ERPSyncService:
 
     def sync_receiving_register(self):
         from app.models.receiving_register import ReceivingRegister
-        self._history("receiving_register", lambda a, b: self._replace_window(
-            ReceivingRegister, "grn_date", self._grn_rows(a, b), a, b))
         since = self._since_date()
-        return self._replace_window(ReceivingRegister, "grn_date", self._grn_rows(since), since)
+        n = self._replace_window(ReceivingRegister, "grn_date", self._grn_rows(since), since)
+        self._history_safe("receiving_register", lambda a, b: self._replace_window(
+            ReceivingRegister, "grn_date", self._grn_rows(a, b), a, b))
+        return n
 
     def sync_current_stock(self):
         """ERP's stock per part: clos_stock (accepted, not under inspection)

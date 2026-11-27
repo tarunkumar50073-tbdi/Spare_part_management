@@ -451,6 +451,10 @@ class ErpGrnPostingService:
                 # quality pending again.
                 state, reason = "CHECK", (f"{already:g} already added to store stock from this GRN, but ERP "
                                           f"shows no accepted qty — check with ERP")
+            elif from_date and grn_date and grn_date < from_date and not already:
+                # Old history (ERP keeps 5 years since 27 Nov 2026): never quality
+                # pending, never posted — before the date the app took stock over.
+                state, reason = "SKIPPED", f"GRN before the post-from date {from_date.isoformat()}"
             elif not accepted:
                 if rejected:
                     state, reason = "REJECTED", "Rejected by quality in ERP — not stock"

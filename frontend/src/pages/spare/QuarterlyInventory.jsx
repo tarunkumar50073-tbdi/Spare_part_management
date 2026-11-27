@@ -13,7 +13,7 @@ import ErrorState from "../../components/ErrorState.jsx";
 import { useCan } from "../../components/Can.jsx";
 import { useStores } from "../../context/StoreContext.jsx";
 import { fmtDate, fmtStamp, num } from "../../lib/format.js";
-import useGunEnd from "../../hooks/useGunEnd.js";
+import useGunEnd, { GUN_KEY_MS } from "../../hooks/useGunEnd.js";
 import { storeService } from "../../services/storeService.js";
 import { inventoryCountService as inv } from "../../services/inventoryCountService.js";
 
@@ -468,12 +468,54 @@ function CountPanel({ s, storeCode, onChange }) {
     }
   };
   const gun = useGunEnd(() => lookup(code, "SCAN"));
+  // A QR scanned while the caret is in the qty box must never be saved as a
+  // count (27 Nov 2026 audit: CNTR1541 scanned there saved "1541 pcs"). A
+  // letter sends the scan back to the code box; a fast all-digit burst ending
+  // in Enter (or going quiet) is looked up as a code, not saved.
+  const qtyKeys = useRef([]);
+  const qtyAsScan = (v) => {
+    qtyKeys.current = [];
+    setQty(""); setCode(v);
+    codeRef.current?.focus();
+    lookup(v, "SCAN");
+  };
+  const qtyGun = useGunEnd(() => qtyAsScan(qtyRef.current?.value || ""));
+  const qtyChange = (v) => {
+    if (/[^0-9.]/.test(v)) {               // letters: this is a scan, not a count
+      qtyKeys.current = [];
+      setQty(""); setCode(v.replace(/^[0-9.]+(?=[A-Za-z])/, ""));
+      codeRef.current?.focus();
+      return;
+    }
+    setQty(v);
+  };
+  const qtyKey = (e) => {
+    qtyGun(e);
+    if (e.key === "Enter") {
+      const t = qtyKeys.current;
+      qtyKeys.current = [];
+      const burst = t.length >= 4 && (t[t.length - 1] - t[0]) / (t.length - 1) < GUN_KEY_MS;
+      if (burst) qtyAsScan(e.currentTarget.value);
+      else if (qty !== "") save();
+      return;
+    }
+    if (e.key && e.key.length === 1) {
+      const now = Date.now();
+      const t = qtyKeys.current;
+      if (t.length && now - t[t.length - 1] > 400) t.length = 0;
+      t.push(now);
+    }
+  };
   const reload = async () => {
     if (!line) return;
     const r = await inv.line(s.id, { store_code: storeCode, part_id: line.part_id });
     setLine(r.data.data);
   };
+  const saving = useRef(false);
   const save = async () => {
+    if (saving.current) return;            // Enter twice / Enter + click: one count
+    if (!/^\d+(\.\d+)?$/.test(String(qty).trim())) { toast.error("Counted qty must be a number"); return; }
+    saving.current = true;
     setBusy(true);
     try {
       await inv.count(s.id, { store_code: storeCode, part_id: line.part_id, qty, location: loc, remarks, source: how.current });
@@ -483,6 +525,7 @@ function CountPanel({ s, storeCode, onChange }) {
     } catch (e) {
       toast.error(errText(e));
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   };
@@ -532,8 +575,8 @@ function CountPanel({ s, storeCode, onChange }) {
             {line.can_count && canCount ? (
               <div className="grid gap-2 sm:grid-cols-3">
                 <label className="text-[12px] font-semibold text-slate-600">Counted qty *
-                  <input ref={qtyRef} type="number" min="0" step="any" inputMode="decimal" className="input-field mt-1 w-full text-lg font-bold" value={qty}
-                    onChange={(e) => setQty(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && qty !== "") save(); }} />
+                  <input ref={qtyRef} type="text" inputMode="decimal" autoComplete="off" className="input-field mt-1 w-full text-lg font-bold" value={qty}
+                    onChange={(e) => qtyChange(e.target.value)} onKeyDown={qtyKey} />
                 </label>
                 <label className="text-[12px] font-semibold text-slate-600">Location<input className="input-field mt-1 w-full" value={loc} onChange={(e) => setLoc(e.target.value)} /></label>
                 <label className="text-[12px] font-semibold text-slate-600">Remarks<input className="input-field mt-1 w-full" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></label>

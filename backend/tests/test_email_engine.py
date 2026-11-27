@@ -1079,12 +1079,13 @@ def test_every_route_refuses_a_non_admin(client):
         assert resp.status_code == 403, (method, path, resp.status_code)
 
 
-def test_machine_key_can_read_but_cannot_change_anything(app, engine):
+def test_machine_key_cannot_read_or_change_anything(app, engine):
     mid = _queue(engine)["id"]
     machine = app.test_client()                            # no session cookie
     key = {"X-API-Key": app.config["API_KEY"]}
-    assert machine.get(_BASE + "/status", headers=key).status_code == 200
-    assert machine.get(_BASE + "/messages", headers=key).status_code == 200
+    # 27 Nov 2026 audit: the key opens only the ERP routes, reads included.
+    assert machine.get(_BASE + "/status", headers=key).status_code == 403
+    assert machine.get(_BASE + "/messages", headers=key).status_code == 403
     before = engine.settings()
     assert machine.put(_BASE + "/settings", json={"enabled": False}, headers=key).status_code == 403
     assert machine.post(_BASE + "/process", headers=key).status_code == 403

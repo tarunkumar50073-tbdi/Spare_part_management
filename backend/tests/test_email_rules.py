@@ -2632,7 +2632,7 @@ def test_every_rule_route_is_admin_only(client):
         assert resp.status_code == 403, (method, path, resp.status_code)
 
 
-def test_machine_key_can_read_but_cannot_save_run_or_send(app, stock, tracker):
+def test_machine_key_cannot_read_save_run_or_send(app, stock, tracker):
     stock([_over("C-1")])
     tracker(_item("excess", "Excess above max"))
     machine = app.test_client()                                # no session cookie
@@ -2640,7 +2640,7 @@ def test_machine_key_can_read_but_cannot_save_run_or_send(app, stock, tracker):
     before = _max_id()
     for method, path in _ROUTES:
         if method == "get":
-            assert machine.get(_BASE + path, headers=key).status_code == 200, path
+            assert machine.get(_BASE + path, headers=key).status_code == 403, path   # 27 Nov 2026 audit
             assert machine.get(_BASE + path).status_code == 401, path          # and with no credential at all
         else:
             body = {"enabled": True, "subject": "x", "message": "y", "emails": [{"email": "a@example.com"}]}

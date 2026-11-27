@@ -92,6 +92,22 @@ def _register_auth_guard(app):
             return None
         return error_response("Sign in required", 401)
 
+    # Whatever the URL looks like, a file never reaches a device login: the
+    # path check above missed /spare-stock/daily-report (27 Nov 2026 audit -
+    # the TV login could take the Daily Stock Report with rates). Any response
+    # sent as a download, or a sheet / PDF / CSV / zip, is refused.
+    @app.after_request
+    def _no_files_for_devices(resp):
+        user = getattr(g, "current_user", None)
+        if user is None or not getattr(user, "device_only", False):
+            return resp
+        disp = (resp.headers.get("Content-Disposition") or "").lower()
+        mime = (resp.mimetype or "").lower()
+        if "attachment" in disp or mime in _DEVICE_FILE_TYPES or "spreadsheet" in mime:
+            from flask import make_response
+            return make_response(error_response("This device login cannot download files", 403))
+        return resp
+
 
 @event.listens_for(Engine, "connect")
 def _set_sqlite_pragmas(dbapi_connection, connection_record):
@@ -273,6 +289,7 @@ WHERE l.txn_type = 'ISSUE'
 
 
 # File downloads: exports, templates, report files, QR lists.
+_DEVICE_FILE_TYPES = {"application/pdf", "text/csv", "application/zip", "application/vnd.ms-excel"}
 _DEVICE_FILE_PATH = re.compile(r"/(export|template|printed-file)(/|$)|/(excel|csv|pdf|xlsx)$|\.(pdf|xlsx|csv)$")
 
 

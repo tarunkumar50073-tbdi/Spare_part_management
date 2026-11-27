@@ -35,6 +35,8 @@ if __name__ == "__main__":
     # Threads, not processes: the Live Stock row cache and the ERP-ledger
     # poller are per-process state, so a multi-process server would run one
     # poller per worker and cache the same rows several times over.
-    threads = int(os.getenv("WEB_THREADS", "8"))
+    # 32: the live-update streams take up to SSE_MAX_STREAMS (12) of them and
+    # every other request still finds a free thread (27 Nov 2026 audit).
+    threads = int(os.getenv("WEB_THREADS", "32"))
     print(f"Serving on http://{host}:{port} with {threads} threads (waitress)")
     serve(app, host=host, port=port, threads=threads)

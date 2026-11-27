@@ -462,7 +462,7 @@ def test_installations_route_is_gated_like_pending_confirmations(make, client, a
     assert statuses() == [403, 403]
     with client.session_transaction() as sess:
         sess.clear()
-    assert statuses(headers={"X-API-Key": app.config["API_KEY"]}) == [200, 200]   # the machine caller
+    assert statuses(headers={"X-API-Key": app.config["API_KEY"]}) == [403, 403]   # the machine key (27 Nov 2026)
 
     _as(client, make.user([code], {"scan_part": {"view": True}}))
     r = client.get(f"/api/v1/spare-stock/installations?store_code={code}&q=MC-G&limit=5")

@@ -10,10 +10,8 @@ caller onto ``g``:
 These helpers turn that identity into per-route authorization. Two callers
 matter: a person in the browser (a User with a role and a set of stores) and
 the ERP push (a trusted machine with the shared key and no user). The machine
-is trusted for the data it pushes, so the role, rights and store checks below
-let it through and bite only signed-in people (audit finding AUTHZ-1). The
-exception is the two signed_in_* guards: they mark the routes the shared key
-must not drive at all — the mail settings, who the mails go to, and sending one.
+drives only the @machine_required ERP-inbound routes; the admin and right
+checks refuse it (27 Nov 2026 audit), so every change carries a person's name.
 """
 from functools import wraps
 
@@ -34,6 +32,14 @@ SPARE_STOCK_VIEW = (
 )
 
 
+# 27 Nov 2026 audit: the shared X-API-Key passed every admin and screen-right
+# check, so whoever held it could make an admin login, reset any password, read
+# every table or change stock - with no name on the change. ERP data is READ by
+# the app (every 2 min), nothing needs the key for those, so the key now opens
+# only the @machine_required ERP-inbound routes (and admin_or_machine_required).
+MACHINE_REFUSED = "Sign in to do this — the machine key (X-API-Key) is not accepted for this action"
+
+
 def current_user():
     return getattr(g, "current_user", None)
 
@@ -46,6 +52,20 @@ def admin_required(fn):
     """Master-data mutations (stores, parts, suppliers, BOM, racks, milkrun,
     supplier vehicles/windows) are ADMIN-only for people; the ERP machine
     caller still passes."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if is_machine():
+            raise ForbiddenError(MACHINE_REFUSED)
+        user = current_user()
+        if user is None or not user.is_admin:
+            raise ForbiddenError("Administrator access is required for this action")
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def admin_or_machine_required(fn):
+    """The few admin routes a scheduled job may call with the machine key (the
+    window-time sheet's daily mail trigger). Everything else admin is people only."""
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if is_machine():
@@ -76,7 +96,7 @@ def permission_required(module, action="view"):
         @wraps(fn)
         def wrapper(*args, **kwargs):
             if is_machine():
-                return fn(*args, **kwargs)
+                raise ForbiddenError(MACHINE_REFUSED)
             user = current_user()
             if user is None or not any(user.can(m, action) for m in modules):
                 raise ForbiddenError("You do not have permission for this action")
@@ -94,7 +114,7 @@ def signed_in_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if current_user() is None:
-            raise ForbiddenError("Sign in to do this — the machine key (X-API-Key) is not accepted for this action")
+            raise ForbiddenError(MACHINE_REFUSED)
         return fn(*args, **kwargs)
     return wrapper
 

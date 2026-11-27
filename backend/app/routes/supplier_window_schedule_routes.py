@@ -9,7 +9,7 @@ from app.schemas.supplier_window_schedule_schema import (
 )
 from app.utils.validators import validate_payload
 from app.utils.response import success_response
-from app.utils.authz import admin_required, current_user
+from app.utils.authz import admin_or_machine_required, admin_required, current_user
 
 bp = Blueprint("supplier_window_schedules", __name__, url_prefix="/api/v1/supplier-window-schedules")
 service = SupplierWindowScheduleService()
@@ -112,7 +112,7 @@ def window_time_report():
 
 
 @bp.route("/email-report", methods=["POST"])
-@admin_required
+@admin_or_machine_required
 def email_report():
     """E-mail this month's window-time sheet to the report recipients now.
     Returns {status:'sent'|'skipped', reason, to, cc, report_date}. admin_required

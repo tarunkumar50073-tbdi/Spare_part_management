@@ -1,7 +1,7 @@
 """Authorization tests (audit finding AUTHZ-1).
 
 Exercises the full guard -> decorator -> route stack via the Flask test client:
-  * master-data mutations are ADMIN-only for people (machine passes)
+  * master-data mutations are ADMIN-only people (the machine key is refused, 27 Nov 2026)
   * the ERP receiving pipeline is machine-only (even an admin human is blocked)
   * store-scoped stock can't be read/written across stores (the spare-stock IDOR)
 
@@ -72,10 +72,11 @@ def test_admin_can_create_master_data(client):
     assert resp.status_code != 403
 
 
-def test_machine_can_create_master_data(client, api_key):
+def test_machine_key_cannot_create_master_data(client, api_key):
+    # 27 Nov 2026 audit: the shared key no longer passes admin checks.
     resp = client.post("/api/v1/suppliers", json={"vendor_code": "AZ3", "supplier_name": "Z"},
                        headers={"X-API-Key": api_key})
-    assert resp.status_code != 403
+    assert resp.status_code == 403
 
 
 # --- machine_required: ERP receiving pipeline ---
@@ -124,8 +125,9 @@ def test_store_user_without_module_right_cannot_write_stock(client):
     assert resp.status_code == 403
 
 
-def test_machine_can_write_any_stores_stock(client, api_key):
+def test_machine_key_cannot_write_stock(client, api_key):
+    # 27 Nov 2026 audit: a stock change always carries a person's name.
     part = _make_part("CHILD_PART")
     resp = client.put(f"/api/v1/spare-stock/parts/{part.id}", json={"qty_on_hand": 5},
                       headers={"X-API-Key": api_key})
-    assert resp.status_code != 403
+    assert resp.status_code == 403

@@ -264,10 +264,11 @@ def test_a_second_read_while_one_runs_is_skipped(monkeypatch):
         ERPSyncService._lock.release()
 
 
-def test_history_is_kept_and_loaded_once_a_year_at_a_time(monkeypatch):
+def test_history_is_kept_and_loaded_one_year_per_run(monkeypatch):
     """27 Nov 2026 ("last 5 saal ka data"): a read swaps only the last
     ERP_SYNC_SINCE_DAYS; older gate entries / GRN lines stay. Five years are
-    loaded once, a year a read, and not again; an empty read keeps the rows."""
+    loaded once, ONE year per run after the refresh, and not again; an empty
+    read keeps the rows."""
     from datetime import timedelta
     from flask import current_app
     from app.extensions import db
@@ -277,11 +278,11 @@ def test_history_is_kept_and_loaded_once_a_year_at_a_time(monkeypatch):
     old_day = since - timedelta(days=400)        # inside the 5 years, outside the refresh window
     new_day = since + timedelta(days=5)
     erp = {"gate_entry": [
-        {"gate_entry_no": "HIST/OLD", "gate_entry_dt": old_day, "item_cd": "HISTPART"},
-        {"gate_entry_no": "HIST/NEW", "gate_entry_dt": new_day, "item_cd": "HISTPART"}],
+        {"gate_entry_no": "HIST/OLD", "gate_entry_dt": old_day, "item_cd": "HISTPART", "ven_name": "V" * 300}],
         "srv_report": [
         {"grn_no": "HISTGRN-OLD", "grn_date": old_day, "item_cd": "HISTPART", "receipt_qty": "2"},
         {"grn_no": "HISTGRN-NEW", "grn_date": new_day, "item_cd": "HISTPART", "receipt_qty": "3"}]}
+    erp["gate_entry"].append({"gate_entry_no": "HIST/NEW", "gate_entry_dt": new_day, "item_cd": "HISTPART"})
     windows = []
 
     def fetch(table, columns, since_col=None, since_date=None, until_date=None):
@@ -295,12 +296,21 @@ def test_history_is_kept_and_loaded_once_a_year_at_a_time(monkeypatch):
         AppSetting.query.filter_by(key=key).delete()
     db.session.commit()
 
-    assert svc.sync_gate_entry() == 1 and svc.sync_receiving_register() == 1
     years = current_app.config["ERP_HISTORY_YEARS"]
+    # First run: the refresh first, then only the oldest history year.
+    assert svc.sync_gate_entry() == 1
+    assert windows[0] == ("gate_entry", since, None)
+    assert windows[1:] == [("gate_entry", since - timedelta(days=365 * years),
+                            since - timedelta(days=365 * (years - 1)))]
+    for _ in range(years + 2):
+        svc.sync_gate_entry()
+        svc.sync_receiving_register()
     loads = [w for w in windows if w[0] == "gate_entry" and w[2] is not None]
-    assert len(loads) == years and loads[0][1] == since - timedelta(days=365 * years) and loads[-1][2] == since
+    assert len(loads) == years and loads[-1][2] == since
     assert all(b - a <= timedelta(days=365) for _, a, b in loads)
     assert {g.gate_entry_no for g in GateEntry.query.filter_by(item_code="HISTPART")} == {"HIST/OLD", "HIST/NEW"}
+    old = GateEntry.query.filter_by(gate_entry_no="HIST/OLD").first()
+    assert len(old.ven_name) == 150                  # too-long ERP text is cut, not a failed read
     assert {r.grn_no for r in ReceivingRegister.query.filter_by(item_cd="HISTPART")} == {"HISTGRN-OLD", "HISTGRN-NEW"}
     assert AppSetting.get_value("erp_history:gate_entry")["done"] is True
 
@@ -318,7 +328,10 @@ def test_history_is_kept_and_loaded_once_a_year_at_a_time(monkeypatch):
     assert GateEntry.query.filter_by(item_code="HISTPART").count() == 3
 
 
-def test_history_load_resumes_where_it_stopped(monkeypatch):
+def test_failing_history_year_never_stops_new_entries(monkeypatch):
+    """A history year that fails does not stop the refresh (new GRNs / gate
+    entries keep coming); it is tried again next run, and skipped after 5 tries
+    so the years after it still load."""
     from datetime import timedelta
     from app.extensions import db
     from app.models.app_setting import AppSetting
@@ -326,26 +339,30 @@ def test_history_load_resumes_where_it_stopped(monkeypatch):
     since = svc._since_date()
     AppSetting.query.filter_by(key="erp_history:gate_entry").delete()
     db.session.commit()
-    seen, fail = [], {"at": 3}
+    seen, bad = [], {"year": None}
+    new_day = since + timedelta(days=3)
 
     def fetch(table, columns, since_col=None, since_date=None, until_date=None):
-        if until_date is not None:
-            seen.append(since_date)
-            if len(seen) == fail["at"]:
-                raise ConnectionError("ERP gone half-way")
+        if until_date is None:
+            return [{"gate_entry_no": "LIVE/1", "gate_entry_dt": new_day, "item_cd": "HISTFAIL"}]
+        seen.append(since_date)
+        if bad["year"] is None:
+            bad["year"] = since_date
+        if since_date == bad["year"]:
+            raise ConnectionError("ERP read of an old year fails")
         return []
 
     monkeypatch.setattr(svc.erp, "fetch_rows", fetch)
-    try:
-        svc.sync_gate_entry()
-        assert False, "the failed read must surface"
-    except ConnectionError:
-        pass
+    for n in range(1, ERPSyncService.HISTORY_MAX_TRIES):
+        assert svc.sync_gate_entry() == 1                 # the refresh still ran
+        assert GateEntry.query.filter_by(gate_entry_no="LIVE/1").count() == 1
+        st = AppSetting.get_value("erp_history:gate_entry")
+        assert st["tries"] == n and not st.get("done") and st["until"] == bad["year"].isoformat()
+    svc.sync_gate_entry()                                  # 5th failure: skipped
     st = AppSetting.get_value("erp_history:gate_entry")
-    assert not st.get("done") and st["until"] == seen[2].isoformat() and seen[2] == seen[1] + timedelta(days=365)
-    first = len(seen)
-    fail["at"] = 0
-    svc.sync_gate_entry()
-    assert seen[first] == seen[2]                      # starts again at the year that failed
-    assert AppSetting.get_value("erp_history:gate_entry")["done"] is True
-    assert seen[-1] < since
+    assert st["skipped"] == [f"{bad['year'].isoformat()}..{(bad['year'] + timedelta(days=365)).isoformat()}"]
+    assert st["until"] == (bad["year"] + timedelta(days=365)).isoformat()
+    for _ in range(6):
+        svc.sync_gate_entry()
+    st = AppSetting.get_value("erp_history:gate_entry")
+    assert st["done"] is True and seen[-1] < since and len(st["skipped"]) == 1

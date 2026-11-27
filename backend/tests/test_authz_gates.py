@@ -141,8 +141,8 @@ def test_machine_key_cannot_change_the_mail_server_or_send_a_test_mail(machine, 
     resp = machine.post("/api/v1/admin/smtp-test", json={"to": "anyone@example.com"})
     assert resp.status_code == 403 and resp.get_json()["message"] == _MACHINE_REFUSED
     assert outbox == []
-    # Reading the settings stays open to the key.
-    assert machine.get("/api/v1/admin/smtp-config").status_code == 200
+    # Reading them is refused to the key too (27 Nov 2026 audit).
+    assert machine.get("/api/v1/admin/smtp-config").status_code == 403
 
 
 def test_signed_in_admin_still_manages_the_mail_server(app, client, outbox, smtp_setting):
@@ -174,10 +174,10 @@ def test_report_recipients_are_edited_by_a_signed_in_admin_not_the_machine_key(a
         assert resp.status_code == 403 and resp.get_json()["message"] == _MACHINE_REFUSED
         resp = machine.put(f"/api/v1/report-recipients/{rid}", json={"email": "intruder@example.com"})
         assert resp.status_code == 403 and resp.get_json()["message"] == _MACHINE_REFUSED
-        # The key still reads the master, and finds it untouched.
-        resp = machine.get(listing)
-        assert resp.status_code == 200
-        assert [r["email"] for r in resp.get_json()["data"]] == ["asha@example.com"]
+        # Reading is refused to the key too (27 Nov 2026 audit); untouched for a person.
+        assert machine.get(listing).status_code == 403
+        admin_view = _as(app.test_client(), _user(role="ADMIN"))
+        assert [r["email"] for r in admin_view.get(listing).get_json()["data"]] == ["asha@example.com"]
 
         plain = _as(app.test_client(), _user())
         assert plain.post("/api/v1/report-recipients",
@@ -300,8 +300,8 @@ def test_reorder_send_now_needs_a_signed_in_person_not_the_machine_key(app, clie
             resp = machine.post(url, json={})
             assert resp.status_code == 403 and resp.get_json()["message"] == _MACHINE_REFUSED
         assert outbox == []
-        # What a send would do stays readable with the key.
-        assert machine.get("/api/v1/departments/reorder-mail/status").status_code == 200
+        # Reading it is refused to the key too (27 Nov 2026 audit).
+        assert machine.get("/api/v1/departments/reorder-mail/status").status_code == 403
 
         viewer = _as(app.test_client(), _user(perms={"departments": {"view": True}}))
         assert viewer.post(url).status_code == 403 and outbox == []
@@ -330,7 +330,7 @@ def test_window_time_trigger_still_accepts_the_machine_key(machine, outbox, monk
     assert outbox == []
 
 
-def test_mail_engine_guard_kept_its_wording_when_it_moved_to_authz(machine):
+def test_mail_engine_guard_refuses_the_machine_key(machine):
     resp = machine.put("/api/v1/mail-engine/settings", json={})
     assert resp.status_code == 403
-    assert resp.get_json()["message"] == "Sign in as an administrator to change the mail engine"
+    assert resp.get_json()["message"] == _MACHINE_REFUSED

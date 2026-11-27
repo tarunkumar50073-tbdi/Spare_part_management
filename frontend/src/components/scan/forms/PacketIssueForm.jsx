@@ -120,6 +120,10 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   // A scanner that sends no Enter adds the label when its burst goes quiet.
   const gunEnd = useGunEnd(() => addLabel());
   const removeLabel = async (id) => {
+    if (busyRef.current) {                 // a check in flight would put it back
+      setAddMsg("Wait — the last label is still being checked, then remove it");
+      return;
+    }
     setAddMsg(null);
     const rest = all.filter((p) => p.id !== id).map((p) => String(p.id));
     if (rest.length === 1) {
@@ -127,10 +131,15 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
       setSetFifo(null);
       return;
     }
+    busyRef.current = true;                // a scan meanwhile waits its turn
+    setAdding(true);
     try {
       await check(rest);
     } catch (e) {
       setAddMsg(e?.response?.data?.message || "Could not update the list");
+    } finally {
+      busyRef.current = false;
+      setAdding(false);
     }
   };
 
@@ -166,8 +175,13 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
   const oneText = fmtQty(packet.qty, packet.uom || part.uom);
   const what = lot ? "lot" : packet.kind === "UNIT" ? "individual part" : "packet";
 
+  // A label still being checked (or waiting its turn) is not in `all` yet:
+  // Review waits for it, or the issue would leave it out while the person
+  // takes it away (27 Nov 2026 audit).
+  const checking = adding || queue.current.length > 0;
   const review = () => {
     setTried(true);
+    if (busyRef.current || queue.current.length) return;
     if (!valid) return;
     const payload = {
       department, remarks: clean(remarks), employee_id: emp.id, issued_to: emp.name,
@@ -208,7 +222,7 @@ export default function PacketIssueForm({ scan, source, onDone, onCancel, onDirt
 
   return (
     <FormShell flow={flow} right="create" onCancel={onCancel} onReview={review} reviewLabel={many ? `Review issue of ${all.length} labels` : `Review ${what} issue`}
-      blocked={!available}
+      blocked={!available || checking}
       verify={
         <Facts items={[
           { label: "Packet", value: packet.code, strong: true },
