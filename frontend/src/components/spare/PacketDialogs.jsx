@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { CheckCircle2, Package, Printer } from "lucide-react";
@@ -661,6 +661,7 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
     printLabels(recorded > 0 ? packetLabelsHtml(packets.slice(recorded), { size }) : html);
     setStep("ASK");
   };
+  const doneIds = useRef(new Set());
   const record = async () => {
     setBusy(true);
     try {
@@ -671,10 +672,20 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
       for (const part of chunks(packets.slice(recorded, upto))) {
         // A batch with printed labels in it is a reprint, but its labels never
         // printed before are recorded as a first print (25 Nov 2026 audit).
-        const fresh = part.filter((p) => !p.print_count);
-        const again = part.filter((p) => p.print_count);
-        if (fresh.length) await packetService.recordPrint(fresh.map((p) => String(p.id)), { reprint: false });
-        if (again.length) await packetService.recordPrint(again.map((p) => String(p.id)), { reprint, reason: reason.trim() || undefined });
+        // Labels already recorded by an earlier try of this batch are not sent
+        // again: the server refuses a second first-print, and the rest could
+        // then never be recorded (27 Nov 2026 audit).
+        const todo = part.filter((p) => !doneIds.current.has(p.id));
+        const fresh = todo.filter((p) => !p.print_count);
+        const again = todo.filter((p) => p.print_count);
+        if (fresh.length) {
+          await packetService.recordPrint(fresh.map((p) => String(p.id)), { reprint: false });
+          fresh.forEach((p) => doneIds.current.add(p.id));
+        }
+        if (again.length) {
+          await packetService.recordPrint(again.map((p) => String(p.id)), { reprint, reason: reason.trim() || undefined });
+          again.forEach((p) => doneIds.current.add(p.id));
+        }
         at += part.length;
         setRecorded(at);
       }
@@ -701,7 +712,7 @@ export function PrintDialog({ packets, reprint = false, onClose, onDone }) {
           <CheckCircle2 size={15} aria-hidden="true" /> {busy ? "Saving…" : direct && sent - recorded < left ? `Yes, ${sent - recorded} labels printed` : "Yes, the labels printed"}
         </button>
       </> : <>
-        <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
+        <button type="button" className="btn-secondary" onClick={onClose} disabled={printing} title={printing ? "Wait until printing ends, then record what printed" : undefined}>Close</button>
         <button type="button" className="btn-primary" onClick={print} disabled={(reprint && !reason.trim()) || !sizeOk || printing || (direct && !printer)}>
           <Printer size={15} aria-hidden="true" /> {printing ? `Printing ${sent} of ${packets.length} label${packets.length === 1 ? "" : "s"}… keep this open` : recorded > 0 ? `Print the other ${left}` : direct ? "Print" : "Print (print window)"}
         </button>

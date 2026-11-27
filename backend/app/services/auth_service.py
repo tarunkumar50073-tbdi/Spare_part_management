@@ -118,6 +118,16 @@ class AuthService:
             f"Wrong username or password. You have entered wrong {n} time(s) — "
             f"{attempts - n} attempt(s) left before the account is blocked for {minutes} minutes.")
 
+    @staticmethod
+    def session_sig(user):
+        """A short mark of the login's password and device flag, kept in the
+        session cookie. A password reset or a device-flag change makes it
+        differ, so every older sign-in of that user ends (27 Nov 2026 audit:
+        a reset left old logins running for 12 h, device logins for ever)."""
+        import hashlib
+        raw = f"{user.password_hash or ''}|{bool(getattr(user, 'device_only', False))}"
+        return f"{user.id}:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
+
     def get_user(self, user_id):
         if not user_id:
             return None

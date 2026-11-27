@@ -12,6 +12,7 @@ bp = Blueprint("auth", __name__, url_prefix="/api/v1/auth")
 service = AuthService()
 
 SESSION_USER_KEY = "user_id"
+SESSION_SIG_KEY = "sig"
 
 
 @bp.route("/login", methods=["POST"])
@@ -37,6 +38,7 @@ def login():
     # can't be reused afterwards.
     session.clear()
     session[SESSION_USER_KEY] = user.id
+    session[SESSION_SIG_KEY] = AuthService.session_sig(user)
     session.permanent = True
     # The Live Board TV / Kiosk stays signed in (see _secure_cookie_sessions).
     if user.device_only:
@@ -78,4 +80,9 @@ def me():
     ask this on boot to decide between the login screen and the dashboard,
     without a failed request in the console every time."""
     user = service.get_user(session.get(SESSION_USER_KEY))
+    if user:
+        had = str(session.get(SESSION_SIG_KEY) or "")
+        if had.split(":")[0] == str(user.id) and had != AuthService.session_sig(user):
+            session.clear()                 # password reset since: back to the login screen
+            user = None
     return success_response(user.to_public_dict() if user else None)

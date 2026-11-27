@@ -20,6 +20,7 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 
+from app.utils.excel_io import _excel_safe
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from sqlalchemy import MetaData, String, Table, cast, func, inspect, or_, select, text
@@ -225,7 +226,9 @@ class DataBrowserService:
         with db.engine.connect() as conn:
             self._read_only(conn)
             for r in conn.execute(stmt).mappings():
-                ws.append([self._cell(name, c, r[c], None) for c in cols])
+                # Text starting = + - @ goes out as text, never a live formula
+                # (27 Nov 2026 audit; every other export already did this).
+                ws.append([_excel_safe(self._cell(name, c, r[c], None)) for c in cols])
         ws.freeze_panes = "A2"
         buf = io.BytesIO()
         wb.save(buf)

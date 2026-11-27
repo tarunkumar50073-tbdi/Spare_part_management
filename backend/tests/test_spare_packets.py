@@ -200,7 +200,7 @@ def test_6_the_same_packet_cannot_be_issued_twice(monkeypatch):
     stale.status = "AVAILABLE"                                 # what this screen still believes
     monkeypatch.setattr(SparePacketService, "_packet", staticmethod(lambda code, *a, **k: stale))
     monkeypatch.setattr(SparePacketService, "fifo_check", lambda self, packet: None)
-    with pytest.raises(BadRequestError, match="just issued from another screen"):
+    with pytest.raises(BadRequestError, match="just issued or changed from another screen"):
         _issue(str(pa[1]["id"]))
     assert _on_hand(p) == 280                                  # only the first issue took stock
 

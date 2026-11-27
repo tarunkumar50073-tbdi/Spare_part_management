@@ -128,13 +128,19 @@ function ReturnsTab({ storeCode }) {
     placeholderData: keepPreviousData,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["job-work"] });
+  const [unlinking, setUnlinking] = useState(null);
   const unlink = async (r) => {
+    if (unlinking) return;
+    if (!window.confirm(`Unlink this return from challan ${r.link?.rgp?.challan_no || ""}?`)) return;
+    setUnlinking(r.id);
     try {
       const res = await jobWorkService.unlink(r.id);
       toast.success(res.data.message);
       refresh();
     } catch (e) {
       toast.error(errText(e));
+    } finally {
+      setUnlinking(null);
     }
   };
   const d = list.data;
@@ -174,7 +180,7 @@ function ReturnsTab({ storeCode }) {
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right">
                       {canLink && (r.link ? (
-                        <button type="button" className="text-[11px] text-slate-500 hover:underline" onClick={() => unlink(r)}>
+                        <button type="button" className="text-[11px] text-slate-500 hover:underline disabled:opacity-50" disabled={Boolean(unlinking)} onClick={() => unlink(r)}>
                           <Unlink size={11} aria-hidden="true" className="mr-1 inline" />Unlink
                         </button>
                       ) : (

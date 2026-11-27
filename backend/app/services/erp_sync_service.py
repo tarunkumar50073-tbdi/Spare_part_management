@@ -216,12 +216,34 @@ class ERPSyncService:
         logger.info("ERP %s history %s..%s loaded (%s rows)%s", table, cur, end, loaded, " - all in" if done else "")
         return loaded
 
+    RECHECK_KEY = "erp_recheck:{}"
+
+    def _recheck_last_year(self, table, load):
+        """Once a day, read again the year just before the refresh window: a GRN
+        line older than ERP_SYNC_SINCE_DAYS still changes in ERP (quality
+        accepts / rejects it late, a date is corrected) and would otherwise stay
+        as it was when it left the window (27 Nov 2026 audit)."""
+        from app.models.app_setting import AppSetting
+        since = self._since_date()
+        st = AppSetting.get_value(self.HISTORY_KEY.format(table), {}) or {}
+        if since is None or not st.get("done"):
+            return 0
+        key = self.RECHECK_KEY.format(table)
+        today = date.today().isoformat()
+        if AppSetting.get_value(key) == today:
+            return 0
+        n = load(since - timedelta(days=365), since)
+        AppSetting.set_value(key, today, "SYSTEM")
+        return n
+
     def _history_safe(self, table, load):
-        """The history load never stops the refresh: run it after the refresh,
-        and a failure is only logged (it is tried again on the next run)."""
+        """The history load (and the daily re-read of last year) never stops the
+        refresh: run after it, a failure only logged and tried again next run."""
         try:
-            return self._history(table, load)
+            return self._history(table, load) + self._recheck_last_year(table, load)
         except Exception as exc:
+            from app.extensions import db
+            db.session.rollback()
             logger.warning("ERP %s history load failed this run (tried again next run): %s", table, exc)
             return 0
 

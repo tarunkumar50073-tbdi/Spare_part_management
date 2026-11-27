@@ -62,3 +62,52 @@ def test_old_erp_history_grn_is_never_quality_pending():
     db.session.commit()
     lines = [l for l in ErpGrnPostingService().lines(STORE, part_id=part.id) if l["grn_no"] == "IN2324/001/09999"]
     assert lines and lines[0]["state"] == "SKIPPED" and "post-from" in lines[0]["reason"]
+
+
+def test_password_reset_ends_the_old_sign_ins(app):
+    from app.models.user import User
+    from tests.test_read_access import _login
+    c = _login(app, perms={"spare_store": {"view": True}})
+    assert c.get("/api/v1/stores").status_code == 200            # first request marks the sign-in
+    with c.session_transaction() as s:
+        uid = s["user_id"]
+    u = db.session.get(User, uid)
+    u.set_password("a-new-one")
+    db.session.commit()
+    c2 = app.test_client()
+    with c.session_transaction() as s:
+        old = dict(s)
+    with c2.session_transaction() as s:
+        s.update(old)
+    assert c.get("/api/v1/stores").status_code == 401            # the old cookie is done
+    assert c2.get("/api/v1/auth/me").get_json()["data"] is None  # and the SPA shows the login screen
+
+
+def test_data_browser_excel_writes_formulas_as_text():
+    import io
+    from openpyxl import load_workbook
+    from app.models.supplier import Supplier
+    from app.services.data_browser_service import DataBrowserService
+    db.session.add(Supplier(vendor_code="FMLA27", supplier_name='=HYPERLINK("http://x","open")'))
+    db.session.commit()
+    buf, _ = DataBrowserService().export("suppliers", q="FMLA27")
+    ws = load_workbook(io.BytesIO(buf.getvalue())).active
+    cells = [c.value for row in ws.iter_rows(min_row=2) for c in row if isinstance(c.value, str)]
+    assert any(v.startswith("'=HYPERLINK") for v in cells)
+    assert not any(v.startswith("=") for v in cells)
+
+
+def test_an_empty_erp_challan_read_keeps_the_lines(monkeypatch):
+    from app.models.job_work import ErpRgpLine
+    from app.services.job_work_service import JobWorkService
+    db.session.add(ErpRgpLine(challan_no="FO001/9999/26-27", item_cd="KEEPME27", qty=2))
+    db.session.commit()
+    svc = JobWorkService()
+    monkeypatch.setattr(svc, "_read_erp", lambda: [])
+    state = svc.sync()
+    try:
+        assert state.get("ok") is False
+        assert ErpRgpLine.query.filter_by(item_cd="KEEPME27").count() == 1
+    finally:                                   # other tests read an empty challan table
+        ErpRgpLine.query.filter_by(item_cd="KEEPME27").delete()
+        db.session.commit()

@@ -1214,13 +1214,16 @@ class SparePacketService:
             result["packet"] = self.packet_dict(packet)
             return result
         with atomic():
+            # The qty too: a part of a lot taken on another screen meanwhile
+            # leaves less on the label than this screen read (27 Nov 2026 audit).
             won = (SparePacket.query.filter_by(id=packet.id, status="AVAILABLE")
+                   .filter(SparePacket.qty == packet.qty)
                    .update({"status": "ISSUED", "issued_at": utcnow(), "issued_by": _who(user),
                             "department": _text(department, 60, "Department"),
                             "fifo_override_reason": reason if older is not None else None},
                            synchronize_session=False))
             if not won:
-                raise BadRequestError(f"Packet {packet.code} was just issued from another screen")
+                raise BadRequestError(f"Packet {packet.code} was just issued or changed from another screen - scan it again")
             note = f"Packet {packet.code} ({packet.kind.lower()}, {_batch_ref(packet.batch)})"
             if older is not None:
                 note += f" — FIFO skipped: {reason}"

@@ -230,6 +230,11 @@ class JobWorkService:
         try:
             from_erp = rows is None
             rows = self._read_erp() if from_erp else rows
+            # An empty ERP read (challan_register being rebuilt / half-read)
+            # must not drop every line - that put job-work stock back and took
+            # it out again on the next run (27 Nov 2026 audit). Kept as it was.
+            if from_erp and not rows and ErpRgpLine.query.count():
+                raise RuntimeError("ERP challan read gave no rows - the lines already read are kept")
             now = utcnow()
             known = {(l.challan_no, l.item_cd): l for l in ErpRgpLine.query.all()}
             added = updated = 0

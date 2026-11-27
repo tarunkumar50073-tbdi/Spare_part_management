@@ -177,11 +177,10 @@ def erp_grn_lines(first, last):
     # moment of the last refresh.
     synced, oldest, newest, count = db.session.query(
         func.max(RR.created_at), func.min(RR.grn_date), func.max(RR.grn_date), func.count(RR.id)).one()
-    # Each sync takes only the last ERP_SYNC_SINCE_DAYS of GRNs and swaps the
-    # whole snapshot, so a short older than that leaves the mirror though
-    # nothing closed it: the screen must say where the data starts, or an
-    # early window reads as "nothing short".
-    keeps = current_app.config.get("ERP_SYNC_SINCE_DAYS") or None
+    # GRN lines are kept for ERP_HISTORY_YEARS (27 Nov 2026); the screen still
+    # says where the held data starts, or an early window reads as "nothing short".
+    keeps = (int(current_app.config.get("ERP_HISTORY_YEARS") or 0) * 365
+             or current_app.config.get("ERP_SYNC_SINCE_DAYS") or None)
     return rows, {"synced_at": _utc_naive(synced), "oldest_grn_date": _as_date(oldest),
                   "newest_grn_date": _as_date(newest), "keeps_days": keeps, "rows": count or 0}
 
@@ -696,7 +695,9 @@ def file_notes(out):
     else:
         notes.append("No ERP GRN data has been read yet")
     if as_of["held_from"]:
-        keeps = f" (the ERP sync keeps the last {as_of['keeps_days']} days)" if as_of["keeps_days"] else ""
+        keeps = (f" (the app keeps about {round(as_of['keeps_days'] / 365)} years of ERP GRN lines)"
+                 if as_of["keeps_days"] and as_of["keeps_days"] >= 365
+                 else f" (the ERP sync keeps the last {as_of['keeps_days']} days)" if as_of["keeps_days"] else "")
         notes.append(f"ERP GRN lines are held from {_dmy(date.fromisoformat(as_of['held_from']))}{keeps}: "
                      f"an open {KINDS[out['kind']]['noun']} on an older GRN is not listed.")
     gap = out["window"]["not_held"]

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { todayLocal } from "../../components/scan/forms/flow.js";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -162,7 +163,7 @@ function ErpTables({ sync }) {
   const held = sync.held || {};
   const written = Object.values(held).filter((h) => h?.written_at)
     .sort((a, b) => (a.written_at < b.written_at ? 1 : -1))[0];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   return (
     <div className="card p-0">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-navy-800">

@@ -68,6 +68,15 @@ def _register_auth_guard(app):
         # A signed-in browser session.
         user = AuthService().get_user(session.get("user_id"))
         if user:
+            # Password reset / device flag changed since this sign-in: ended.
+            sig = AuthService.session_sig(user)
+            had = str(session.get("sig") or "")
+            if had.split(":")[0] != str(user.id):
+                session["sig"] = sig          # signed in before 27 Nov 2026: adopt
+            elif had != sig:
+                session.clear()
+                return error_response("Your password was changed. Please sign in again.", 401)
+
             # Every tab of a browser shares the one login cookie. A tab names the
             # user it signed in as (X-DX-User); once someone else has signed in
             # in another tab, this tab must not act as them (the store, 24 Oct

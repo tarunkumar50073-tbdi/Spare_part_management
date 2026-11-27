@@ -292,7 +292,8 @@ def test_history_is_kept_and_loaded_one_year_per_run(monkeypatch):
                 if (since_date is None or r[col] >= since_date) and (until_date is None or r[col] < until_date)]
 
     monkeypatch.setattr(svc.erp, "fetch_rows", fetch)
-    for key in ("erp_history:gate_entry", "erp_history:receiving_register"):
+    for key in ("erp_history:gate_entry", "erp_history:receiving_register",
+                "erp_recheck:gate_entry", "erp_recheck:receiving_register"):
         AppSetting.query.filter_by(key=key).delete()
     db.session.commit()
 
@@ -306,7 +307,9 @@ def test_history_is_kept_and_loaded_one_year_per_run(monkeypatch):
         svc.sync_gate_entry()
         svc.sync_receiving_register()
     loads = [w for w in windows if w[0] == "gate_entry" and w[2] is not None]
-    assert len(loads) == years and loads[-1][2] == since
+    # Every year once, then (history done) last year read again once that day.
+    assert len(set(loads)) == years and loads[-1][2] == since
+    assert loads.count(("gate_entry", since - timedelta(days=365), since)) == 2 and len(loads) == years + 1
     assert all(b - a <= timedelta(days=365) for _, a, b in loads)
     assert {g.gate_entry_no for g in GateEntry.query.filter_by(item_code="HISTPART")} == {"HIST/OLD", "HIST/NEW"}
     old = GateEntry.query.filter_by(gate_entry_no="HIST/OLD").first()

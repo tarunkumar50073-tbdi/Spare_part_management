@@ -21,6 +21,7 @@ const NAV = [
   { label: "Part Ledger — Stock Ledger", to: "/spare-part-history", mod: "part_ledger", keywords: "valuation history opening closing movement" },
   { label: "ERP vs App", to: "/spare-erp-gap", mod: "erp_gap", keywords: "erp vs app gap variance difference daily erp stock app stock sync mismatch" },
   { label: "Quarterly Inventory", to: "/quarterly-inventory", mod: ["inventory_count", "inventory_review", "inventory_approve"], keywords: "quarterly inventory quarter physical inventory count stock taking physical verification count sheet q1 q2 q3 q4 inventory accuracy recount ginti approval" },
+  { label: "Photo Mode", to: "/part-photos", mod: "part_master", keywords: "photo mode part photo photos camera picture tasveer photo khinchna photo lagana add photo" },
   { label: "Part Master", to: "/parts", mod: "part_master", keywords: "parts catalogue master data model no item description qr list qr pdf pkt qty packet qty" },
   { label: "Critical · Reorder · Excess", to: "/inventory-control", mod: "inventory_control", keywords: "short critical zero reorder excess aging order qty" },
   { label: "Issue Register", to: "/consumption", mod: "consumption", keywords: "issue register issue remarks remarks issuance report issuance issue list issued issue report who took taken by issued to person kisko diya kitna diya consumption consumed usage net returned trend top parts department category yesterday last month financial year fy full pack excel pdf charts" },

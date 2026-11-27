@@ -16,7 +16,7 @@ from app.schemas.spare_rgp_schema import (
     SpareRgpCancelSchema, SpareRgpGrnSchema, SpareRgpOutSchema, SpareRgpSupplierReturnSchema,
 )
 from app.services.spare_rgp_service import SpareRgpService
-from app.utils.authz import permission_required
+from app.utils.authz import SPARE_STOCK_VIEW, permission_required
 from app.utils.event_bus import publish
 from app.utils.response import success_response
 from app.utils.validators import validate_payload
@@ -100,6 +100,7 @@ def cancel_rgp(rgp_id):
 
 
 @bp.route("/rgps", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW)          # 27 Nov 2026 audit: was open to any store login
 def list_rgps():
     """A store's RGPs (?status=OPEN | WITH_SUPPLIER | RGP_GRN_PENDING | CLOSED | CANCELLED)."""
     return success_response(service.list(

@@ -370,7 +370,8 @@ def test_the_oldest_grn_held_is_given_and_a_window_before_it_is_flagged(make, mo
     as_of = out["data_as_of"]
     # The register is shared by the cases: its oldest GRN is never later than this case's.
     assert as_of["held_from"] <= (today - timedelta(days=89)).isoformat()
-    assert as_of["keeps_days"] == (sr.current_app.config.get("ERP_SYNC_SINCE_DAYS") or None)
+    cfg = sr.current_app.config
+    assert as_of["keeps_days"] == (int(cfg.get("ERP_HISTORY_YEARS") or 0) * 365 or cfg.get("ERP_SYNC_SINCE_DAYS") or None)
     assert out["window"]["not_held"] is None                                   # the window is all held
 
     # The source as it stands on the live register: held from 31 May 2026, kept 120 days.

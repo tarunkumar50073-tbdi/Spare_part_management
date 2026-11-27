@@ -14,6 +14,7 @@ import { useCan } from "../../components/Can.jsx";
 import { useStores } from "../../context/StoreContext.jsx";
 import { fmtDate, fmtStamp, num } from "../../lib/format.js";
 import useGunEnd, { GUN_KEY_MS } from "../../hooks/useGunEnd.js";
+import { todayLocal } from "../../components/scan/forms/flow.js";
 import { storeService } from "../../services/storeService.js";
 import { inventoryCountService as inv } from "../../services/inventoryCountService.js";
 
@@ -249,7 +250,7 @@ function CategoryTable({ rows }) {
 function PlanDialog({ storeCode, fy, qtr, onClose, onDone, upload = false }) {
   const qc = useQueryClient();
   const sections = useQuery({ queryKey: ["sections", storeCode], queryFn: () => storeService.sections(storeCode).then((r) => r.data.data) });
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();               // the plant's day, not UTC (night shift)
   const [f, setF] = useState({ section_id: "", start_date: today, close_date: today, remarks: "", duplicate_reason: "" });
   const [needReason, setNeedReason] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -468,6 +469,24 @@ function CountPanel({ s, storeCode, onChange }) {
     }
   };
   const gun = useGunEnd(() => lookup(code, "SCAN"));
+  // Enter after a fast burst is a scanner, logged as SCAN; slow typing is MANUAL.
+  const codeKeys = useRef([]);
+  const codeKey = (e) => {
+    gun(e);
+    if (e.key === "Enter") {
+      const t = codeKeys.current;
+      codeKeys.current = [];
+      const burst = t.length >= 4 && (t[t.length - 1] - t[0]) / (t.length - 1) < GUN_KEY_MS;
+      lookup(e.currentTarget.value, burst ? "SCAN" : "MANUAL");
+      return;
+    }
+    if (e.key && e.key.length === 1) {
+      const now = Date.now();
+      const t = codeKeys.current;
+      if (t.length && now - t[t.length - 1] > 400) t.length = 0;
+      t.push(now);
+    }
+  };
   // A QR scanned while the caret is in the qty box must never be saved as a
   // count (27 Nov 2026 audit: CNTR1541 scanned there saved "1541 pcs"). A
   // letter sends the scan back to the code box; a fast all-digit burst ending
@@ -553,7 +572,7 @@ function CountPanel({ s, storeCode, onChange }) {
         {!open && <p className="rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-500 dark:bg-navy-950/40">Counting is closed ({s.status_label}).</p>}
         <input ref={codeRef} autoFocus disabled={!open} className="input-field w-full text-base" placeholder="Scan QR / type Part No and press Enter"
           value={code} onChange={(e) => setCode(e.target.value)}
-          onKeyDown={(e) => { gun(e); if (e.key === "Enter") lookup(e.currentTarget.value, "MANUAL"); }} />
+          onKeyDown={codeKey} />
         {line && (
           <div className="space-y-3 rounded-xl border border-slate-200 p-3 dark:border-navy-700">
             <div>

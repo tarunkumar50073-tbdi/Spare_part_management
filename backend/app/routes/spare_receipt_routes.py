@@ -6,6 +6,7 @@ quality clearance are done in ERP; the app reads them from the ERP GRN register
 answers 410 Gone with one plain sentence saying where the step went. The list of
 receipts recorded in the app before that change stays readable for its history.
 """
+from app.utils.authz import SPARE_STOCK_VIEW, permission_required
 from flask import Blueprint, request
 
 from app.routes._spare_common import store_code_arg
@@ -29,6 +30,7 @@ def receiving_in_erp(receipt_id=None):
 
 
 @bp.route("/receipts", methods=["GET"])
+@permission_required(SPARE_STOCK_VIEW)          # 27 Nov 2026 audit: was open to any store login
 def list_receipts():
     """A store's in-app receipts (recorded before receiving moved to ERP),
     newest first. ?status= one status, a comma list, or OPEN (received +
