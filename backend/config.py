@@ -91,6 +91,10 @@ class Config:
     # Only pull rows on/after (today - N days) to keep the local mirror lean;
     # 0 = no date limit (full history).
     ERP_SYNC_SINCE_DAYS = int(os.getenv("ERP_SYNC_SINCE_DAYS", "120"))
+    # How far back the gate entry / GRN mirrors keep ERP history (27 Nov 2026:
+    # "last 5 saal ka data"). Loaded once, a year at a time; after that each
+    # read refreshes only the last ERP_SYNC_SINCE_DAYS and keeps the rest.
+    ERP_HISTORY_YEARS = int(os.getenv("ERP_HISTORY_YEARS", "5"))
     # The ERP unit this plant is (5 Nov 2026: Plant 1 = unit 10001). ERP's
     # current stock is read for this unit only, and only GRNs / gate entries
     # whose number carries it (IN2627/001/..., 2627/001/...) count here.

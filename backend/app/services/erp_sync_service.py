@@ -22,9 +22,10 @@ termsdb.line_rejection_report is not read: its mirror was removed on 17 Nov
 Pending GRN, Current Stock, Stock Valuation, Gate Exit) await their own ERP
 source tables — when those appear, add a mapper here the same way.
 
-Full-snapshot sync: each run reads the ERP rows (optionally limited to the last
-ERP_SYNC_SINCE_DAYS) and hands them to replace_* (delete-by-store + bulk insert),
-so re-running is idempotent and never double-counts. Poller mirrors the ERP
+Gate entries and GRN lines keep their history (27 Nov 2026): each run reads
+the last ERP_SYNC_SINCE_DAYS and swaps only that date window, so older rows
+stay; ERP_HISTORY_YEARS of history is loaded once, a year at a time. Re-running
+is idempotent and never double-counts. ERP stock and RGP lines stay snapshots. Poller mirrors the ERP
 ledger inbox one: per-process, guarded, daemon thread, errors surfaced not fatal.
 """
 import logging
@@ -116,12 +117,74 @@ class ERPSyncService:
         days = current_app.config.get("ERP_SYNC_SINCE_DAYS", 0)
         return (date.today() - timedelta(days=days)) if days and days > 0 else None
 
+    # ---- history kept (27 Nov 2026: "last 5 saal ka data dekhna ho to") ----
+    # Gate entries and GRN lines are history, not a snapshot: a read replaces
+    # only its own date window (the last ERP_SYNC_SINCE_DAYS), so what is older
+    # stays. ERP_HISTORY_YEARS of it is loaded once, a year at a time, and
+    # resumes where it stopped if a read fails half-way.
+    HISTORY_KEY = "erp_history:{}"
+
+    @staticmethod
+    def _replace_window(model, date_col, rows, start, end=None):
+        """Swap this store's mirror rows dated in [start, end) for `rows`.
+        start None = the whole mirror. Open-ended (end None) also takes the
+        undated rows, as the old full swap did. An empty read never empties a
+        window that had rows (ERP rebuilding / half-read): kept as it was."""
+        from app.extensions import db
+        from sqlalchemy import or_
+        col = getattr(model, date_col)
+        q = model.query.filter(model.store_code == STORE_CODE)
+        if start is not None:
+            q = q.filter(col >= start, col < end) if end is not None else q.filter(or_(col >= start, col.is_(None)))
+        if not rows:
+            had = q.count()
+            if had:
+                logger.warning("ERP read of %s gave no rows for %s..%s - the %s rows there are kept",
+                               model.__tablename__, start, end, had)
+            return 0
+        q.delete(synchronize_session=False)
+        db.session.add_all([model(store_code=STORE_CODE, **{k: v for k, v in r.items() if k != "store_code"})
+                            for r in rows])
+        db.session.commit()
+        return len(rows)
+
+    def _history(self, table, load):
+        """Load ERP_HISTORY_YEARS of `table` once, oldest year first, up to the
+        refresh window. `load(start, end)` reads and stores one window. Returns
+        the rows loaded this run (0 once the history is in)."""
+        from app.models.app_setting import AppSetting
+        years = int(current_app.config.get("ERP_HISTORY_YEARS", 0) or 0)
+        since = self._since_date()
+        if years <= 0 or since is None:
+            return 0
+        want = since - timedelta(days=365 * years)
+        key = self.HISTORY_KEY.format(table)
+        st = AppSetting.get_value(key, {}) or {}
+        have = date.fromisoformat(st["from"]) if st.get("from") else None
+        if st.get("done") and have is not None and have <= want:
+            return 0
+        if not st.get("done") and have is not None and have <= want and st.get("until"):
+            base, cur = have, date.fromisoformat(st["until"])        # resume a load that stopped
+        else:
+            base, cur = want, want
+        loaded = 0
+        while cur < since:
+            end = min(cur + timedelta(days=365), since)
+            loaded += load(cur, end)
+            cur = end
+            AppSetting.set_value(key, {"from": base.isoformat(), "until": cur.isoformat()}, "SYSTEM")
+        AppSetting.set_value(key, {"from": base.isoformat(), "until": since.isoformat(), "done": True}, "SYSTEM")
+        logger.info("ERP %s history from %s loaded (%s rows)", table, base, loaded)
+        return loaded
+
     # ---- per-table mappers (ERP column -> mirror column) ----
-    def sync_gate_entry(self):
-        cols = ["gate_entry_no", "gate_entry_dt", "gate_entry_time", "ven_cd", "ven_name",
-                "challan_dt", "po_no", "item_cd", "reference_code", "item_desc", "qty"]
-        raw = self.erp.fetch_rows("gate_entry", cols, since_col="gate_entry_dt", since_date=self._since_date())
-        rows = [{
+    GATE_COLS = ["gate_entry_no", "gate_entry_dt", "gate_entry_time", "ven_cd", "ven_name",
+                 "challan_dt", "po_no", "item_cd", "reference_code", "item_desc", "qty"]
+
+    def _gate_rows(self, start, end=None):
+        raw = self.erp.fetch_rows("gate_entry", self.GATE_COLS, since_col="gate_entry_dt",
+                                  since_date=start, until_date=end)
+        return [{
             "gate_entry_no": r.get("gate_entry_no"),
             "gate_entry_dt": r.get("gate_entry_dt"),
             "gate_entry_time": r.get("gate_entry_time"),
@@ -134,13 +197,21 @@ class ERPSyncService:
             "qty": _num(r.get("qty")),
             "hsn": None,
         } for r in raw]
-        return self.gate.replace_entries(STORE_CODE, rows)
 
-    def sync_receiving_register(self):
-        cols = ["grn_no", "grn_date", "vendor_cd", "vendor_name", "invoice_no",
+    def sync_gate_entry(self):
+        from app.models.gate_entry import GateEntry
+        self._history("gate_entry", lambda a, b: self._replace_window(
+            GateEntry, "gate_entry_dt", self._gate_rows(a, b), a, b))
+        since = self._since_date()
+        return self._replace_window(GateEntry, "gate_entry_dt", self._gate_rows(since), since)
+
+    GRN_COLS = ["grn_no", "grn_date", "vendor_cd", "vendor_name", "invoice_no",
                 "item_cd", "item_desc", "challan_qty", "receipt_qty", "accept_qty", "reject_qty"]
-        raw = self.erp.fetch_rows("srv_report", cols, since_col="grn_date", since_date=self._since_date())
-        rows = [{
+
+    def _grn_rows(self, start, end=None):
+        raw = self.erp.fetch_rows("srv_report", self.GRN_COLS, since_col="grn_date",
+                                  since_date=start, until_date=end)
+        return [{
             "grn_no": r.get("grn_no"), "grn_date": r.get("grn_date"),
             "ven_cd": r.get("vendor_cd"), "ven_name": r.get("vendor_name"),
             "gate_entry_no": None, "gate_entry_dt": None,
@@ -150,7 +221,13 @@ class ERPSyncService:
             "challan_qty": _num(r.get("challan_qty")), "receipt_qty": _num(r.get("receipt_qty")),
             "accept_qty": _num(r.get("accept_qty")), "reject_qty": _num(r.get("reject_qty")),
         } for r in raw]
-        return self.receiving.replace_from_rows(STORE_CODE, rows)
+
+    def sync_receiving_register(self):
+        from app.models.receiving_register import ReceivingRegister
+        self._history("receiving_register", lambda a, b: self._replace_window(
+            ReceivingRegister, "grn_date", self._grn_rows(a, b), a, b))
+        since = self._since_date()
+        return self._replace_window(ReceivingRegister, "grn_date", self._grn_rows(since), since)
 
     def sync_current_stock(self):
         """ERP's stock per part: clos_stock (accepted, not under inspection)

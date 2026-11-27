@@ -33,7 +33,9 @@ def test_sync_maps_and_casts(monkeypatch):
     svc = ERPSyncService()
     monkeypatch.setattr(svc.erp, "configured", lambda: True)
 
-    def fake_fetch(table, columns, since_col=None, since_date=None):
+    def fake_fetch(table, columns, since_col=None, since_date=None, until_date=None):
+        if until_date is not None:          # the one-time history load: nothing older in this ERP
+            return []
         if table == "gate_entry":
             return [{"gate_entry_no": "2526/001/1", "gate_entry_dt": date(2026, 8, 17),
                      "gate_entry_time": "11:34", "ven_cd": "VN-0019", "ven_name": "NEEMRANA",
@@ -191,7 +193,9 @@ def test_erp_pollers_start_under_waitress_even_in_development_mode(app, monkeypa
 # (ERP's line rejections were read too until 17 Nov 2026, when the store removed every rejection view.)
 
 def _fake(tables):
-    def fetch(table, columns, since_col=None, since_date=None):
+    def fetch(table, columns, since_col=None, since_date=None, until_date=None):
+        if until_date is not None:          # the one-time history load: nothing older in this ERP
+            return []
         got = tables.get(table, [])
         if isinstance(got, Exception):
             raise got
@@ -219,9 +223,9 @@ def test_erp_stock_comes_in_and_each_table_reports_itself(monkeypatch):
     read = []
     fetch = _fake(erp)
 
-    def counting(table, columns, since_col=None, since_date=None):
+    def counting(table, columns, since_col=None, since_date=None, until_date=None):
         read.append(table)
-        return fetch(table, columns, since_col, since_date)
+        return fetch(table, columns, since_col, since_date, until_date)
     monkeypatch.setattr(svc.erp, "fetch_rows", counting)
     from app.services.job_work_service import JobWorkService
     monkeypatch.setattr(JobWorkService, "_read_erp", staticmethod(lambda: []))
@@ -258,3 +262,90 @@ def test_a_second_read_while_one_runs_is_skipped(monkeypatch):
         assert "skipped" in svc.sync_all()
     finally:
         ERPSyncService._lock.release()
+
+
+def test_history_is_kept_and_loaded_once_a_year_at_a_time(monkeypatch):
+    """27 Nov 2026 ("last 5 saal ka data"): a read swaps only the last
+    ERP_SYNC_SINCE_DAYS; older gate entries / GRN lines stay. Five years are
+    loaded once, a year a read, and not again; an empty read keeps the rows."""
+    from datetime import timedelta
+    from flask import current_app
+    from app.extensions import db
+    from app.models.app_setting import AppSetting
+    svc = ERPSyncService()
+    since = svc._since_date()
+    old_day = since - timedelta(days=400)        # inside the 5 years, outside the refresh window
+    new_day = since + timedelta(days=5)
+    erp = {"gate_entry": [
+        {"gate_entry_no": "HIST/OLD", "gate_entry_dt": old_day, "item_cd": "HISTPART"},
+        {"gate_entry_no": "HIST/NEW", "gate_entry_dt": new_day, "item_cd": "HISTPART"}],
+        "srv_report": [
+        {"grn_no": "HISTGRN-OLD", "grn_date": old_day, "item_cd": "HISTPART", "receipt_qty": "2"},
+        {"grn_no": "HISTGRN-NEW", "grn_date": new_day, "item_cd": "HISTPART", "receipt_qty": "3"}]}
+    windows = []
+
+    def fetch(table, columns, since_col=None, since_date=None, until_date=None):
+        windows.append((table, since_date, until_date))
+        col = "gate_entry_dt" if table == "gate_entry" else "grn_date"
+        return [dict(r) for r in erp.get(table, [])
+                if (since_date is None or r[col] >= since_date) and (until_date is None or r[col] < until_date)]
+
+    monkeypatch.setattr(svc.erp, "fetch_rows", fetch)
+    for key in ("erp_history:gate_entry", "erp_history:receiving_register"):
+        AppSetting.query.filter_by(key=key).delete()
+    db.session.commit()
+
+    assert svc.sync_gate_entry() == 1 and svc.sync_receiving_register() == 1
+    years = current_app.config["ERP_HISTORY_YEARS"]
+    loads = [w for w in windows if w[0] == "gate_entry" and w[2] is not None]
+    assert len(loads) == years and loads[0][1] == since - timedelta(days=365 * years) and loads[-1][2] == since
+    assert all(b - a <= timedelta(days=365) for _, a, b in loads)
+    assert {g.gate_entry_no for g in GateEntry.query.filter_by(item_code="HISTPART")} == {"HIST/OLD", "HIST/NEW"}
+    assert {r.grn_no for r in ReceivingRegister.query.filter_by(item_cd="HISTPART")} == {"HISTGRN-OLD", "HISTGRN-NEW"}
+    assert AppSetting.get_value("erp_history:gate_entry")["done"] is True
+
+    # Later reads: only the refresh window, the old row stays, no duplicates.
+    windows.clear()
+    erp["gate_entry"] = [r for r in erp["gate_entry"] if r["gate_entry_no"] != "HIST/OLD"]
+    erp["gate_entry"].append({"gate_entry_no": "HIST/NEW2", "gate_entry_dt": new_day, "item_cd": "HISTPART"})
+    assert svc.sync_gate_entry() == 2
+    assert windows == [("gate_entry", since, None)]
+    assert sorted(g.gate_entry_no for g in GateEntry.query.filter_by(item_code="HISTPART")) ==         ["HIST/NEW", "HIST/NEW2", "HIST/OLD"]
+
+    # An empty read (ERP rebuilding) empties nothing.
+    erp["gate_entry"] = []
+    assert svc.sync_gate_entry() == 0
+    assert GateEntry.query.filter_by(item_code="HISTPART").count() == 3
+
+
+def test_history_load_resumes_where_it_stopped(monkeypatch):
+    from datetime import timedelta
+    from app.extensions import db
+    from app.models.app_setting import AppSetting
+    svc = ERPSyncService()
+    since = svc._since_date()
+    AppSetting.query.filter_by(key="erp_history:gate_entry").delete()
+    db.session.commit()
+    seen, fail = [], {"at": 3}
+
+    def fetch(table, columns, since_col=None, since_date=None, until_date=None):
+        if until_date is not None:
+            seen.append(since_date)
+            if len(seen) == fail["at"]:
+                raise ConnectionError("ERP gone half-way")
+        return []
+
+    monkeypatch.setattr(svc.erp, "fetch_rows", fetch)
+    try:
+        svc.sync_gate_entry()
+        assert False, "the failed read must surface"
+    except ConnectionError:
+        pass
+    st = AppSetting.get_value("erp_history:gate_entry")
+    assert not st.get("done") and st["until"] == seen[2].isoformat() and seen[2] == seen[1] + timedelta(days=365)
+    first = len(seen)
+    fail["at"] = 0
+    svc.sync_gate_entry()
+    assert seen[first] == seen[2]                      # starts again at the year that failed
+    assert AppSetting.get_value("erp_history:gate_entry")["done"] is True
+    assert seen[-1] < since

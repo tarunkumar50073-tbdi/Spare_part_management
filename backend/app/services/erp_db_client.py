@@ -56,10 +56,11 @@ class ERPDBClient:
         finally:
             conn.close()
 
-    def fetch_rows(self, table, columns, since_col=None, since_date=None):
+    def fetch_rows(self, table, columns, since_col=None, since_date=None, until_date=None):
         """SELECT `columns` FROM <schema>.<table>, optionally WHERE
-        since_col >= since_date. `table`/`columns` are code constants (see module
-        docstring). Returns a list of plain dicts keyed by column name."""
+        since_col >= since_date (and < until_date). `table`/`columns` are code
+        constants (see module docstring). Returns a list of plain dicts keyed by
+        column name."""
         schema = self._cfg().get("ERP_DB_SCHEMA", "termsdb")
         col_sql = ", ".join('"{}"'.format(c) for c in columns)
         sql = 'SELECT {} FROM "{}"."{}"'.format(col_sql, schema, table)
@@ -67,6 +68,9 @@ class ERPDBClient:
         if since_col and since_date is not None:
             sql += ' WHERE "{}" >= %s'.format(since_col)
             params.append(since_date)
+            if until_date is not None:
+                sql += ' AND "{}" < %s'.format(since_col)
+                params.append(until_date)
         conn = self._connect()
         try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
